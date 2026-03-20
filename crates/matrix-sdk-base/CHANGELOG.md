@@ -38,6 +38,9 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `RelationalLinkedChunk::apply_updates` returns an error rather
   than panicking. This is necessary in order to ensure certain behaviors are disallowed.
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
+- Add `RoomInfo::active_room_call_consensus_intent()` method to get the call intent for the current call,
+  based on what members are advertising.
+  ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
 
 ### Refactor
 
