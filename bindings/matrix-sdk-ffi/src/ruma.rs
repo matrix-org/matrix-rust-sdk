@@ -1714,6 +1714,7 @@ pub enum RoomAccountDataEvent {
 
 /// The name of a tag.
 #[derive(Clone, PartialEq, Eq, Hash, uniffi::Enum)]
+#[uniffi::export(Eq, Hash)]
 pub enum TagName {
     /// `m.favourite`: The user's favorite rooms.
     Favorite,
