@@ -38,6 +38,8 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `RelationalLinkedChunk::apply_updates` returns an error rather
   than panicking. This is necessary in order to ensure certain behaviors are disallowed.
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
+- Add `Room::is_call` to check for Call rooms (MSC3417)
+  ([#6315](https://github.com/matrix-org/matrix-rust-sdk/pull/6315))
 
 ### Refactor
 
