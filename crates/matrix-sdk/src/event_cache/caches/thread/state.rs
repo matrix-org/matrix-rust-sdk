@@ -12,34 +12,46 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::BTreeSet;
-
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    event_cache::{Event, Gap, store::EventCacheStoreLock},
-    linked_chunk::{OwnedLinkedChunkId, Position, Update},
+    event_cache::{
+        Event, Gap,
+        store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
+    },
+    linked_chunk::{
+        ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
+    },
 };
 use matrix_sdk_common::executor::spawn;
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{OwnedEventId, OwnedRoomId, OwnedUserId};
 use tokio::sync::broadcast::Sender;
-use tracing::instrument;
+use tracing::{debug, error, instrument};
 
-use super::super::{
-    super::{EventsOrigin, Result, deduplicator::DeduplicationOutcome},
-    TimelineVectorDiffs,
-    event_linked_chunk::EventLinkedChunk,
-    lock,
-    room::RoomEventCacheLinkedChunkUpdate,
+use super::{
+    super::{
+        super::{
+            EventCacheError, EventsOrigin, Result,
+            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+            persistence::{load_linked_chunk_metadata, send_updates_to_store},
+        },
+        TimelineVectorDiffs,
+        event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+        lock,
+        room::RoomEventCacheLinkedChunkUpdate,
+    },
+    ThreadEventCacheUpdateSender,
 };
 
 pub struct ThreadEventCacheState {
     /// The room owning this thread.
-    #[allow(dead_code)] // for the persistent storage
-    room_id: OwnedRoomId,
+    pub room_id: OwnedRoomId,
 
     /// The ID of the thread root event, which is the first event in the thread
     /// (and eventually the first in the linked chunk).
-    thread_id: OwnedEventId,
+    pub thread_id: OwnedEventId,
+
+    /// The user's own user id.
+    pub own_user_id: OwnedUserId,
 
     /// Reference to the underlying backing store.
     store: EventCacheStoreLock,
@@ -47,8 +59,11 @@ pub struct ThreadEventCacheState {
     /// The linked chunk for this thread.
     thread_linked_chunk: EventLinkedChunk,
 
-    /// A sender for live events updates in this thread.
-    pub sender: Sender<TimelineVectorDiffs>,
+    /// A clone of [`super::ThreadEventCacheInner::update_sender`].
+    ///
+    /// This is used only by the [`ThreadEventCacheStateLock::read`] and
+    /// [`ThreadEventCacheStateLock::write`] when the state must be reset.
+    update_sender: ThreadEventCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
     /// during a sync or a back-pagination.
@@ -86,21 +101,83 @@ impl LockedThreadEventCacheState {
     ///
     /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
     /// [`ThreadPagination`]: super::pagination::ThreadPagination
-    pub fn new(
+    pub async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
+        own_user_id: OwnedUserId,
         store: EventCacheStoreLock,
+        update_sender: ThreadEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-    ) -> Self {
-        Self::new_inner(ThreadEventCacheState {
+    ) -> Result<Self> {
+        let store_guard = match store.lock().await? {
+            // Lock is clean: all good!
+            EventCacheStoreLockState::Clean(guard) => guard,
+
+            // Lock is dirty, not a problem, it's the first time we are creating this state, no
+            // need to refresh.
+            EventCacheStoreLockState::Dirty(guard) => {
+                EventCacheStoreLockGuard::clear_dirty(&guard);
+
+                guard
+            }
+        };
+
+        let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
+
+        // Load the full linked chunk's metadata, so as to feed the order tracker.
+        //
+        // If loading the full linked chunk failed, we'll clear the event cache, as it
+        // indicates that at some point, there's some malformed data.
+        let full_linked_chunk_metadata =
+            match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
+                Ok(metas) => metas,
+                Err(err) => {
+                    error!("error when loading a linked chunk's metadata from the store: {err}");
+
+                    // Try to clear storage for this room.
+                    store_guard
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Restart with an empty linked chunk.
+                    None
+                }
+            };
+
+        let linked_chunk = match store_guard
+            .load_last_chunk(linked_chunk_id)
+            .await
+            .map_err(EventCacheError::from)
+            .and_then(|(last_chunk, chunk_identifier_generator)| {
+                lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
+                    .map_err(EventCacheError::from)
+            }) {
+            Ok(linked_chunk) => linked_chunk,
+            Err(err) => {
+                error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // Try to clear storage for this room.
+                store_guard
+                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .await?;
+
+                None
+            }
+        };
+
+        Ok(Self::new_inner(ThreadEventCacheState {
             room_id,
             thread_id,
+            own_user_id,
             store,
-            thread_linked_chunk: EventLinkedChunk::new(),
-            sender: Sender::new(32),
+            thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
+                linked_chunk,
+                full_linked_chunk_metadata,
+            ),
+            update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
-        })
+        }))
     }
 }
 
@@ -119,13 +196,15 @@ pub type ThreadEventCacheStateLockWriteGuard<'a> =
 impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<()> {
-        self.state.thread_linked_chunk.reset();
+        self.shrink_to_last_chunk().await?;
 
         let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         if !diffs.is_empty() {
-            let _ =
-                self.state.sender.send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            let _ = self
+                .state
+                .update_sender
+                .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
         }
 
         Ok(())
@@ -156,27 +235,94 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     }
 
     /// Get the `waited_for_initial_prev_token` value.
+    pub fn waited_for_initial_prev_token(&self) -> bool {
+        self.state.waited_for_initial_prev_token
+    }
+
+    /// Get the `waited_for_initial_prev_token` value.
     pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
     }
 
-    pub async fn handle_sync(&mut self, events: Vec<Event>) -> Result<Vec<VectorDiff<Event>>> {
-        let deduplication = self.filter_duplicate_events(events);
+    /// If storage is enabled, unload all the chunks, then reloads only the
+    /// last one.
+    ///
+    /// If storage's enabled, return a diff update that starts with a clear
+    /// of all events; as a result, the caller may override any
+    /// pending diff updates with the result of this function.
+    ///
+    /// Otherwise, returns `None`.
+    pub async fn shrink_to_last_chunk(&mut self) -> Result<()> {
+        // Attempt to load the last chunk.
+        let linked_chunk_id = LinkedChunkId::Thread(&self.state.room_id, &self.state.thread_id);
 
-        if deduplication.non_empty_all_duplicates {
+        let (last_chunk, chunk_identifier_generator) =
+            match self.store.load_last_chunk(linked_chunk_id).await {
+                Ok(pair) => pair,
+
+                Err(err) => {
+                    // If loading the last chunk failed, clear the entire linked chunk.
+                    error!("error when reloading a linked chunk from memory: {err}");
+
+                    // Clear storage for this room.
+                    self.store
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Restart with an empty linked chunk.
+                    (None, ChunkIdentifierGenerator::new_from_scratch())
+                }
+            };
+
+        debug!("unloading the linked chunk, and resetting it to its last chunk");
+
+        // Remove all the chunks from the linked chunks, except for the last one, and
+        // updates the chunk identifier generator.
+        if let Err(err) =
+            self.state.thread_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
+        {
+            error!("error when replacing the linked chunk: {err}");
+            return self.reset_internal().await;
+        }
+
+        // Don't propagate those updates to the store; this is only for the in-memory
+        // representation that we're doing this. Let's drain those store updates.
+        let _ = self.state.thread_linked_chunk.store_updates().take();
+
+        Ok(())
+    }
+
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn handle_sync(
+        &mut self,
+        events: Vec<Event>,
+        _prev_batch_token: &Option<String>,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        let DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+            non_empty_all_duplicates: all_duplicates,
+        } = filter_duplicate_events(
+            &self.state.own_user_id,
+            &self.store,
+            LinkedChunkId::Thread(&self.state.room_id, &self.state.thread_id),
+            &self.state.thread_linked_chunk,
+            events,
+        )
+        .await?;
+
+        if all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
             // the new events.
             return Ok(Vec::new());
         }
 
-        // Remove the duplicated events from the thread chunk.
-        self.remove_events(deduplication.in_memory_duplicated_event_ids).await?;
-        assert!(
-            deduplication.in_store_duplicated_event_ids.is_empty(),
-            "persistent storage for threads is not implemented yet"
-        );
-
-        let events = deduplication.all_events;
+        // Remove the old duplicated events.
+        //
+        // We don't have to worry about the removals can change the position of the
+        // existing events, because we are pushing all _new_ `events` at the back.
+        self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
         self.state.thread_linked_chunk.push_live_events(None, &events);
 
@@ -241,13 +387,27 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     ///
     /// This method is purposely isolated because it must ensure that
     /// positions are sorted appropriately or it can be disastrous.
-    ///
-    /// TODO: support store.
     #[instrument(skip_all)]
     pub async fn remove_events(
         &mut self,
         in_memory_events: Vec<(OwnedEventId, Position)>,
+        in_store_events: Vec<(OwnedEventId, Position)>,
     ) -> Result<()> {
+        // In-store events.
+        if !in_store_events.is_empty() {
+            let mut positions = in_store_events
+                .into_iter()
+                .map(|(_event_id, position)| position)
+                .collect::<Vec<_>>();
+
+            sort_positions_descending(&mut positions);
+
+            let updates =
+                positions.into_iter().map(|pos| Update::RemoveItem { at: pos }).collect::<Vec<_>>();
+
+            self.apply_store_only_updates(updates).await?;
+        }
+
         // In-memory events.
         if in_memory_events.is_empty() {
             // Nothing else to do, return early.
@@ -271,58 +431,27 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         self.send_updates_to_store(updates).await
     }
 
-    #[allow(clippy::unused_async)] // TODO: remove once persistent storage is implemented
+    /// Apply some updates that are effective only on the store itself.
+    ///
+    /// This method should be used only for updates that happen *outside*
+    /// the in-memory linked chunk. Such updates must be applied
+    /// onto the ordering tracker as well as to the persistent
+    /// storage.
+    async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
+        self.state.thread_linked_chunk.order_tracker.map_updates(&updates);
+        self.send_updates_to_store(updates).await
+    }
+
     async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
-        // TODO: call the `persistence::send_updates_to_store` function
         let linked_chunk_id =
             OwnedLinkedChunkId::Thread(self.state.room_id.clone(), self.state.thread_id.clone());
 
-        let _ = self
-            .state
-            .linked_chunk_update_sender
-            .send(RoomEventCacheLinkedChunkUpdate { linked_chunk_id, updates });
-
-        Ok(())
-    }
-
-    /// Find duplicates in a thread, until there's persistent storage for
-    /// those.
-    ///
-    /// TODO: when persistent storage is implemented for thread, only use
-    /// the regular `filter_duplicate_events` method.
-    pub fn filter_duplicate_events(&self, mut new_events: Vec<Event>) -> DeduplicationOutcome {
-        let mut new_event_ids = BTreeSet::new();
-
-        new_events.retain(|event| {
-            // Only keep events with IDs, and those for which `insert` returns `true`
-            // (meaning they were not in the set).
-            event.event_id().is_some_and(|event_id| new_event_ids.insert(event_id))
-        });
-
-        let in_memory_duplicated_event_ids: Vec<_> = self
-            .state
-            .thread_linked_chunk
-            .events()
-            .filter_map(|(position, event)| {
-                let event_id = event.event_id()?;
-                new_event_ids.contains(&event_id).then_some((event_id, position))
-            })
-            .collect();
-
-        // Right now, there's no persistent storage for threads.
-        let in_store_duplicated_event_ids = Vec::new();
-
-        let at_least_one_event = !new_events.is_empty();
-        let all_duplicates = (in_memory_duplicated_event_ids.len()
-            + in_store_duplicated_event_ids.len())
-            == new_events.len();
-        let non_empty_all_duplicates = at_least_one_event && all_duplicates;
-
-        DeduplicationOutcome {
-            all_events: new_events,
-            in_memory_duplicated_event_ids,
-            in_store_duplicated_event_ids,
-            non_empty_all_duplicates,
-        }
+        send_updates_to_store(
+            &self.store,
+            linked_chunk_id,
+            &self.state.linked_chunk_update_sender,
+            updates,
+        )
+        .await
     }
 }

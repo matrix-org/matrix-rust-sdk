@@ -34,15 +34,17 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
-pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
-pub use updates::{
-    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-    RoomEventCacheUpdateSender,
-};
 
+pub(super) use self::state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
+pub use self::{
+    subscriber::RoomEventCacheSubscriber,
+    updates::{
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+        RoomEventCacheUpdateSender,
+    },
+};
 use super::{
     super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
@@ -248,7 +250,7 @@ impl RoomEventCache {
     /// Return a [`ThreadPagination`] type useful for running back-pagination
     /// queries in the `thread_id` thread.
     pub async fn thread_pagination(&self, thread_id: OwnedEventId) -> Result<ThreadPagination> {
-        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).pagination())
+        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).await?.pagination())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -425,15 +427,15 @@ pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
-    pub weak_room: WeakRoom,
+    weak_room: WeakRoom,
 
     /// State for this room's event cache.
-    pub state: LockedRoomEventCacheState,
+    state: LockedRoomEventCacheState,
 
     /// A notifier that we received a new pagination token.
-    pub pagination_batch_token_notifier: Notify,
+    pagination_batch_token_notifier: Notify,
 
-    pub shared_pagination_status: SharedObservable<SharedPaginationStatus>,
+    shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -461,7 +463,7 @@ impl RoomEventCacheInner {
             weak_room,
             state,
             update_sender,
-            pagination_batch_token_notifier: Default::default(),
+            pagination_batch_token_notifier: Notify::new(),
             auto_shrink_sender,
             shared_pagination_status,
         }
@@ -523,7 +525,6 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        // Add all the events to the backend.
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =

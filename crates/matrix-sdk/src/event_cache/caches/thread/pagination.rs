@@ -18,15 +18,18 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
-    linked_chunk::ChunkContent,
+    linked_chunk::{ChunkContent, LinkedChunkId, Update},
 };
 use ruma::api::Direction;
-use tracing::trace;
+use tracing::{error, trace};
 
 use super::{
-    super::super::{
-        EventCacheError, EventsOrigin, Result, TimelineVectorDiffs,
-        caches::pagination::{
+    super::{
+        super::{
+            EventCacheError, EventsOrigin, Result, TimelineVectorDiffs,
+            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+        },
+        pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
     },
@@ -37,8 +40,10 @@ use crate::{
     room::{IncludeRelations, RelationsOptions},
 };
 
-/// Intermediate type because the `ThreadEventCache` state is currently owned by
-/// `RoomEventCache`.
+/// Intermediate type because the `ThreadEventCache` state doesn't provide all
+/// the feature for the moment.
+///
+/// TODO: Remove this intermediate type.
 #[derive(Clone)]
 struct ThreadEventCacheWrapper {
     cache: Arc<ThreadEventCacheInner>,
@@ -95,7 +100,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
     }
 
     async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {
-        let state = self.cache.state.read().await?;
+        let mut state = self.cache.state.write().await?;
 
         // If any in-memory chunk is a gap, don't load more events, and let the caller
         // resolve the gap.
@@ -108,24 +113,108 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             });
         }
 
-        // If we don't have a gap, then the first event should be the the thread's root;
-        // otherwise, we'll restart a pagination from the end.
-        if let Some((_pos, event)) = state.thread_linked_chunk().events().next() {
-            let first_event_id =
-                event.event_id().expect("a linked chunk only stores events with IDs");
+        let prev_first_chunk =
+            state.thread_linked_chunk().chunks().next().expect("a linked chunk is never empty");
 
-            if first_event_id == self.cache.thread_id {
-                trace!("thread chunk is fully loaded and non-empty: reached_start=true");
-
-                return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+        // The first chunk is not a gap, we can load its previous chunk.
+        let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
+        let new_first_chunk = match state
+            .store
+            .load_previous_chunk(linked_chunk_id, prev_first_chunk.identifier())
+            .await
+        {
+            Ok(Some(new_first_chunk)) => {
+                // All good, let's continue with this chunk.
+                new_first_chunk
             }
+
+            Ok(None) => {
+                // No previous chunk in the store.
+                //
+                // If the first in-memory event is the thread root, it's all good, we have
+                // effectively reached the start of the thread.
+                if let Some((_pos, first_event)) = state.thread_linked_chunk().events().next()
+                    && self.cache.thread_id
+                        == first_event.event_id().expect("Stored events all have an ID")
+                {
+                    trace!("thread chunk is fully loaded and non-empty: reached_start=true");
+
+                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                }
+
+                // Otherwise, start back-pagination from the end of the thread.
+                return Ok(LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token: None,
+                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                });
+            }
+
+            Err(err) => {
+                error!("error when loading the previous chunk of a linked chunk: {err}");
+
+                // Clear storage for this room.
+                state
+                    .store
+                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .await?;
+
+                // Return the error.
+                return Err(err.into());
+            }
+        };
+
+        let chunk_content = new_first_chunk.content.clone();
+
+        // We've reached the start on disk, if and only if, there was no chunk prior to
+        // the one we just loaded.
+        //
+        // This value is correct, if and only if, it is used for a chunk content of kind
+        // `Items`.
+        let reached_start = new_first_chunk.previous.is_none();
+
+        if let Err(err) = state.thread_linked_chunk_mut().insert_new_chunk_as_first(new_first_chunk)
+        {
+            error!("error when inserting the previous chunk into its linked chunk: {err}");
+
+            // Clear storage for this thread.
+            state
+                .store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(&state.state.room_id),
+                    vec![Update::Clear],
+                )
+                .await?;
+
+            // Return the error.
+            return Err(err.into());
         }
 
-        // Otherwise, we don't have a gap nor events. We don't have anything. Poor us.
-        // Well, is ok: start a pagination from the end.
-        Ok(LoadMoreEventsBackwardsOutcome::Gap {
-            prev_token: None,
-            waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+        // ⚠️ Let's not propagate the updates to the store! We already have these data
+        // in the store! Let's drain them.
+        let _ = state.thread_linked_chunk_mut().store_updates().take();
+
+        // However, we want to get updates as `VectorDiff`s.
+        let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
+
+        Ok(match chunk_content {
+            ChunkContent::Gap(gap) => {
+                trace!("reloaded chunk from disk (gap)");
+
+                LoadMoreEventsBackwardsOutcome::Gap {
+                    prev_token: Some(gap.token),
+                    waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
+                }
+            }
+
+            ChunkContent::Items(events) => {
+                trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+
+                LoadMoreEventsBackwardsOutcome::Events {
+                    events,
+                    timeline_event_diffs,
+                    reached_start,
+                }
+            }
         })
     }
 
@@ -167,11 +256,23 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
     async fn conclude_backwards_pagination_from_disk(
         &self,
-        _events: Vec<Event>,
-        _timeline_event_diffs: Vec<VectorDiff<Event>>,
-        _reached_start: bool,
+        events: Vec<Event>,
+        timeline_event_diffs: Vec<VectorDiff<Event>>,
+        reached_start: bool,
     ) -> BackPaginationOutcome {
-        unimplemented!("loading from disk for threads is not implemented yet");
+        if !timeline_event_diffs.is_empty() {
+            self.cache.update_sender.send(TimelineVectorDiffs {
+                diffs: timeline_event_diffs,
+                origin: EventsOrigin::Cache,
+            });
+        }
+
+        BackPaginationOutcome {
+            reached_start,
+            // This is a backwards pagination. `BackPaginationOutcome` expects events to
+            // be in “reverse order”.
+            events: events.into_iter().rev().collect(),
+        }
     }
 
     async fn conclude_backwards_pagination_from_network(
@@ -230,21 +331,31 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let topo_ordered_events = events.iter().cloned().rev().collect::<Vec<_>>();
         let new_gap = new_token.map(|token| Gap { token });
 
-        let deduplication = state.filter_duplicate_events(topo_ordered_events);
+        let DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+            non_empty_all_duplicates: all_duplicates,
+        } = filter_duplicate_events(
+            &state.state.own_user_id,
+            &state.store,
+            LinkedChunkId::Thread(&state.state.room_id, &state.state.thread_id),
+            state.thread_linked_chunk(),
+            topo_ordered_events,
+        )
+        .await?;
 
-        let (events, new_gap) = if deduplication.non_empty_all_duplicates {
+        let (events, new_gap) = if all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
             // the new events and the new gap.
             (Vec::new(), None)
         } else {
-            assert!(
-                deduplication.in_store_duplicated_event_ids.is_empty(),
-                "persistent storage for threads is not implemented yet"
-            );
-            state.remove_events(deduplication.in_memory_duplicated_event_ids).await?;
+            state
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
 
             // Keep events and the gap.
-            (deduplication.all_events, new_gap)
+            (events, new_gap)
         };
 
         // Add the paginated events to the thread chunk.
@@ -261,9 +372,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         if !updates.is_empty() {
             // Send the updates to the listeners.
-            let _ = state
-                .state
-                .sender
+            let _ = self
+                .cache
+                .update_sender
                 .send(TimelineVectorDiffs { diffs: updates, origin: EventsOrigin::Pagination });
         }
 
