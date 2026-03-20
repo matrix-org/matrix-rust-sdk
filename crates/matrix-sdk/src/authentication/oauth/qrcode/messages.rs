@@ -101,6 +101,9 @@ pub enum LoginProtocolsMessage {
         /// The login protocols the existing device supports.
         protocols: Vec<LoginProtocolType>,
         /// The homeserver we're going to log in to.
+        ///
+        /// Note: this doesn't match the MSC which says that it is a server name
+        /// not a full URL
         homeserver: Url,
     },
 }
