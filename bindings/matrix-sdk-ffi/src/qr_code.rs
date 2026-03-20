@@ -120,7 +120,8 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
-        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let mut login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        login.with_msc4388_support();
 
         let mut progress = login.subscribe_to_progress();
 
@@ -214,7 +215,8 @@ impl GrantLoginWithQrCodeHandler {
         self: Arc<Self>,
         progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
     ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().generate();
+        let mut grant = self.oauth.grant_login_with_qr_code().generate();
+        grant.with_msc4388_support();
 
         let mut progress = grant.subscribe_to_progress();
 
@@ -361,15 +363,14 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             }
 
             QRCodeLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::MessageDecode(_) | SecureChannelError::RendezvousChannel(_) => {
+                    HumanQrLoginError::Unknown
+                }
                 SecureChannelError::UnsupportedQrCodeType => {
                     HumanQrLoginError::UnsupportedQrCodeType
                 }
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => {
                     HumanQrLoginError::ConnectionInsecure
@@ -468,13 +469,12 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
             }
             QRCodeGrantLoginError::NotFound => Self::NotFound,
             QRCodeGrantLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => Self::Unknown(e.to_string()),
+                SecureChannelError::MessageDecode(_) | SecureChannelError::RendezvousChannel(_) => {
+                    Self::Unknown(e.to_string())
+                }
                 SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => Self::ConnectionInsecure,
                 SecureChannelError::InvalidIntent => Self::OtherDeviceAlreadySignedIn,
@@ -531,8 +531,6 @@ impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
         match value {
             LoginProgress::Starting => Self::Starting,
             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
-
                 Self::EstablishingSecureChannel {
                     check_code,
                     check_code_string: format!("{check_code:02}"),
@@ -633,8 +631,6 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
         match value {
             GrantLoginProgress::Starting => Self::Starting,
             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
-
                 Self::EstablishingSecureChannel {
                     check_code,
                     check_code_string: format!("{check_code:02}"),

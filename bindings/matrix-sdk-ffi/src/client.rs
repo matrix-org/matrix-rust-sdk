@@ -74,7 +74,7 @@ use ruma::{
     api::client::{
         alias::get_alias,
         discovery::get_authorization_server_metadata::v1::{
-            AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+            AccountManagementActionData, DeviceDeleteData, DeviceViewData, GrantType,
         },
         error::ErrorKind,
         profile::{AvatarUrl, DisplayName},
@@ -1975,10 +1975,36 @@ impl Client {
             .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
     }
 
-    /// Checks if the server supports login using a QR code.
+    /// Checks if this client will be able to log in another client using a QR
+    /// code.
+    ///
+    /// This checks if OAuth 2.0 was used to log in this client and if the auth
+    /// and homeserver support all the necessary APIs for the QR code login
+    /// to work.
     pub async fn is_login_with_qr_code_supported(&self) -> Result<bool, ClientError> {
-        Ok(matches!(self.inner.auth_api(), Some(AuthApi::OAuth(_)))
-            && self.inner.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108))
+        // We need to be using OAuth 2.0 API + Device Authorization Grant available
+        // and either MSC4108 or MSC4388 available.
+
+        // We need to be using the OAuth 2.0 API
+        if !matches!(self.inner.auth_api(), Some(AuthApi::OAuth(_))) {
+            return Ok(false);
+        }
+
+        let metadata =
+            self.inner.oauth().cached_server_metadata().await.map_err(ClientError::from_err)?;
+
+        // We need the Device Authorization Grant available
+        if !metadata.grant_types_supported.contains(&GrantType::DeviceCode) {
+            return Ok(false);
+        }
+
+        // We can use MSC4388 (from MSC4108 version 2025) if available:
+        if self.inner.oauth().msc_4388_rendezvous_server_supported().await? {
+            Ok(true)
+        } else {
+            // Otherwise we can use MSC4108 version 2024:
+            Ok(self.inner.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108))
+        }
     }
 
     /// Get server vendor information from the federation API.
