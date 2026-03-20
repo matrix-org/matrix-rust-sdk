@@ -421,15 +421,15 @@ pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
-    pub weak_room: WeakRoom,
+    weak_room: WeakRoom,
 
     /// State for this room's event cache.
-    pub state: LockedRoomEventCacheState,
+    state: LockedRoomEventCacheState,
 
     /// A notifier that we received a new pagination token.
-    pub pagination_batch_token_notifier: Notify,
+    pagination_batch_token_notifier: Notify,
 
-    pub shared_pagination_status: SharedObservable<SharedPaginationStatus>,
+    shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -457,7 +457,7 @@ impl RoomEventCacheInner {
             weak_room,
             state,
             update_sender,
-            pagination_batch_token_notifier: Default::default(),
+            pagination_batch_token_notifier: Notify::new(),
             auto_shrink_sender,
             shared_pagination_status,
         }
