@@ -32,7 +32,7 @@ pub fn upsert_or_delete(
     // Senders can fake the profile easily so we keep track of profiles that the
     // member set themselves to avoid having confusing profile changes when a
     // member gets kicked/banned.
-    if event.state_key() == event.sender() {
+    if event.state_key() == event.sender() && *event.membership() != MembershipState::Leave {
         context
             .state_changes
             .profiles
@@ -41,8 +41,8 @@ pub fn upsert_or_delete(
             .insert(event.sender().to_owned(), event.into());
     }
 
-    if *event.membership() == MembershipState::Invite {
-        // Remove any profile previously stored for the invited user.
+    if matches!(*event.membership(), MembershipState::Invite | MembershipState::Ban) {
+        // Remove any profile previously stored for the invited/banned user.
         //
         // A room member could have joined the room and left it later; in that case, the
         // server may return a dummy, empty profile along the `leave` event. We
