@@ -97,8 +97,8 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "03ca65151f40304e044f89d8e9
 ] }
 rustls = { version = "0.23.37", default-features = false, features = ["ring"] }
 rustls-pki-types = { version = "1.14.0", default-features = false }
-sentry = { version = "0.46.0", default-features = false }
-sentry-tracing = { version = "0.46.0", default-features = false }
+sentry = { version = "0.47.0", default-features = false }
+sentry-tracing = { version = "0.47.0", default-features = false }
 serde = { version = "1.0.228", default-features = false, features = ["std", "rc", "derive"] }
 serde_html_form = { version = "0.2.8", default-features = false }
 serde_json = { version = "1.0.145", default-features = false, features = ["std"] }
