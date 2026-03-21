@@ -128,6 +128,10 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Update `Encryption::{spin_lock_store, try_lock_once_store}` so that lock dirtiness
+  is determined entirely by `CrossProcessLock`, rather than logic defined by `OlmMachine`. Also enforce
+  that lock generation is opaque by removing `CrossProcessLockStoreGuardWithGeneration`.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - [**breaking**] The `EventCache` now owns pagination tasks, and will run them to completion, even
   if a manual caller stopped polling the called future.
   ([#6304](https://github.com/matrix-org/matrix-rust-sdk/pull/6304))

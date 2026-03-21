@@ -36,6 +36,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Remove cross-process lock generation logic from `OlmMachine`, which is now
+  implemented more generally in `matrix_sdk_common::cross_process_lock::CrossProcessLock`.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - [**breaking**] The `MediaEncryptionInfo` fields changed to match the new fields of `EncryptedFile`
   from Ruma. The serialized JSON format did not change and still matches the format of
   `EncryptedFile` defined in the spec, without the `url` field. The `DecryptorError::KeyNonceLength`
