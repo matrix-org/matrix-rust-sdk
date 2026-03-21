@@ -174,7 +174,6 @@ impl std::fmt::Debug for OlmMachine {
 }
 
 impl OlmMachine {
-    const CURRENT_GENERATION_STORE_KEY: &'static str = "generation-counter";
     const HAS_MIGRATED_VERIFICATION_LATCH: &'static str = "HAS_MIGRATED_VERIFICATION_LATCH";
 
     /// Create a new memory based OlmMachine.
@@ -2821,127 +2820,6 @@ impl OlmMachine {
     /// the server.
     pub fn backup_machine(&self) -> &BackupMachine {
         &self.inner.backup_machine
-    }
-
-    /// Syncs the database and in-memory generation counter.
-    ///
-    /// This requires that the crypto store lock has been acquired already.
-    pub async fn initialize_crypto_store_generation(
-        &self,
-        generation: &Mutex<Option<u64>>,
-    ) -> StoreResult<()> {
-        // Avoid reentrant initialization by taking the lock for the entire's function
-        // scope.
-        let mut gen_guard = generation.lock().await;
-
-        let prev_generation =
-            self.inner.store.get_custom_value(Self::CURRENT_GENERATION_STORE_KEY).await?;
-
-        let generation = match prev_generation {
-            Some(val) => {
-                // There was a value in the store. We need to signal that we're a different
-                // process, so we don't just reuse the value but increment it.
-                u64::from_le_bytes(val.try_into().map_err(|_| {
-                    CryptoStoreError::InvalidLockGeneration("invalid format".to_owned())
-                })?)
-                .wrapping_add(1)
-            }
-            None => 0,
-        };
-
-        tracing::debug!("Initialising crypto store generation at {generation}");
-
-        self.inner
-            .store
-            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, generation.to_le_bytes().to_vec())
-            .await?;
-
-        *gen_guard = Some(generation);
-
-        Ok(())
-    }
-
-    /// If needs be, update the local and on-disk crypto store generation.
-    ///
-    /// ## Requirements
-    ///
-    /// - This assumes that `initialize_crypto_store_generation` has been called
-    ///   beforehand.
-    /// - This requires that the crypto store lock has been acquired.
-    ///
-    /// # Arguments
-    ///
-    /// * `generation` - The in-memory generation counter (or rather, the
-    ///   `Mutex` wrapping it). This defines the "expected" generation on entry,
-    ///   and, if we determine an update is needed, is updated to hold the "new"
-    ///   generation.
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    ///
-    /// * A `bool`, set to `true` if another process has updated the generation
-    ///   number in the `Store` since our expected value, and as such we've
-    ///   incremented and updated it in the database. Otherwise, `false`.
-    ///
-    /// * The (possibly updated) generation counter.
-    pub async fn maintain_crypto_store_generation(
-        &'_ self,
-        generation: &Mutex<Option<u64>>,
-    ) -> StoreResult<(bool, u64)> {
-        let mut gen_guard = generation.lock().await;
-
-        // The database value must be there:
-        // - either we could initialize beforehand, thus write into the database,
-        // - or we couldn't, and then another process was holding onto the database's
-        //   lock, thus
-        // has written a generation counter in there.
-        let actual_gen = self
-            .inner
-            .store
-            .get_custom_value(Self::CURRENT_GENERATION_STORE_KEY)
-            .await?
-            .ok_or_else(|| {
-                CryptoStoreError::InvalidLockGeneration("counter missing in store".to_owned())
-            })?;
-
-        let actual_gen =
-            u64::from_le_bytes(actual_gen.try_into().map_err(|_| {
-                CryptoStoreError::InvalidLockGeneration("invalid format".to_owned())
-            })?);
-
-        let new_gen = match gen_guard.as_ref() {
-            Some(expected_gen) => {
-                if actual_gen == *expected_gen {
-                    return Ok((false, actual_gen));
-                }
-                // Increment the biggest, and store it everywhere.
-                actual_gen.max(*expected_gen).wrapping_add(1)
-            }
-            None => {
-                // Some other process hold onto the lock when initializing, so we must reload.
-                // Increment database value, and store it everywhere.
-                actual_gen.wrapping_add(1)
-            }
-        };
-
-        tracing::debug!(
-            "Crypto store generation mismatch: previously known was {:?}, actual is {:?}, next is {}",
-            *gen_guard,
-            actual_gen,
-            new_gen
-        );
-
-        // Update known value.
-        *gen_guard = Some(new_gen);
-
-        // Update value in database.
-        self.inner
-            .store
-            .set_custom_value(Self::CURRENT_GENERATION_STORE_KEY, new_gen.to_le_bytes().to_vec())
-            .await?;
-
-        Ok((true, new_gen))
     }
 
     /// Manage dehydrated devices.
