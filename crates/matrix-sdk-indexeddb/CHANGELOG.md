@@ -37,6 +37,12 @@ All notable changes to this project will be documented in this file.
 - Ensure that encrypted tests are run with a `StoreCipher`. This happened to reveal tests which fail in an
   encrypted `EventCacheStore`, which required fixing queries for all events in a room. ([#5933](https://github.com/matrix-org/matrix-rust-sdk/pull/5933))
 
+### Refactor
+
+- Add migration to `IndexeddbCryptoStore` that removes cross-process lock generation key from 
+  `CORE` object store, as this is tracked in `LEASE_LOCKS` object store.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326)) 
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

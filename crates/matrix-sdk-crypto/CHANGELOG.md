@@ -36,6 +36,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Remove cross-process lock generation logic from `OlmMachine`, which is now
+  implemented more generally in `matrix_sdk_common::cross_process_lock::CrossProcessLock`.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
   ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
