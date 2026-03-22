@@ -3259,7 +3259,6 @@ dependencies = [
  "proptest",
  "rand 0.8.5",
  "reqwest",
- "ring",
  "ruma",
  "rustls",
  "rustls-native-certs",
