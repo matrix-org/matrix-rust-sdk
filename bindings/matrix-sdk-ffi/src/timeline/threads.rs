@@ -22,7 +22,7 @@ use matrix_sdk::room::{
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::timeline::{
     thread_list_service::{
-        ThreadListItem as UIThreadListItem,
+        ThreadListItem as UIThreadListItem, ThreadListItemEvent as UIThreadListItemEvent,
         ThreadListPaginationState as UIThreadListPaginationState,
         ThreadListService as UIThreadListService,
         ThreadListServiceError as UIThreadListServiceError,
@@ -123,49 +123,64 @@ impl From<IncludeThreads> for SdkIncludeThreads {
 /// through `ThreadListService::paginate()`.
 #[derive(uniffi::Record)]
 pub struct ThreadListItem {
-    /// The event ID of the thread's root message.
+    /// The thread root event.
     ///
-    /// Use this to open a per-thread `Timeline` or to navigate the user to
-    /// the thread view.
-    root_event_id: String,
+    /// Contains the event ID, timestamp, sender, sender profile, and parsed
+    /// content of the thread's root message. Use `root_event.event_id` to open
+    /// a per-thread `Timeline` or to navigate the user to the thread view.
+    root_event: ThreadListItemEvent,
 
-    /// The `origin_server_ts` of the thread root event.
+    /// The latest event in the thread (i.e. the most recent reply), if
+    /// available.
     ///
-    /// Suitable for display as a "last active" timestamp or for sorting
-    /// threads in the UI.
-    timestamp: Timestamp,
+    /// Initially populated from the server's bundled thread summary and
+    /// updated in real time as new events arrive via sync or back-pagination.
+    latest_event: Option<ThreadListItemEvent>,
 
-    /// The Matrix user ID of the thread root event's sender.
-    sender: String,
-
-    /// The sender's profile (display name and avatar URL) at the time the
-    /// event was received.
+    /// The number of replies in this thread (excluding the root event).
     ///
-    /// This is fetched eagerly when the item is built. It will be
-    /// `ProfileDetails.Unavailable` if the profile could not be retrieved.
-    sender_profile: ProfileDetails,
-
-    /// Whether the thread root was sent by the current user.
-    is_own: bool,
-
-    /// The parsed content of the thread root event, if available.
-    ///
-    /// `None` when the event could not be deserialized into a known
-    /// `TimelineItemContent` variant (e.g. an unsupported or redacted event
-    /// type). Callers should handle `None` gracefully, for example by
-    /// rendering a generic placeholder.
-    content: Option<TimelineItemContent>,
+    /// Initially populated from the server's bundled thread summary and
+    /// updated in real time as new events arrive via sync.
+    num_replies: u32,
 }
 
 impl From<UIThreadListItem> for ThreadListItem {
-    fn from(root: UIThreadListItem) -> Self {
+    fn from(item: UIThreadListItem) -> Self {
         Self {
-            root_event_id: root.root_event_id.to_string(),
-            timestamp: root.timestamp.into(),
-            sender: root.sender.to_string(),
-            is_own: root.is_own,
-            sender_profile: root.sender_profile.into(),
-            content: root.content.map(Into::into),
+            root_event: item.root_event.into(),
+            latest_event: item.latest_event.map(Into::into),
+            num_replies: item.num_replies,
+        }
+    }
+}
+
+/// Information about an event in a thread (either the root or the latest
+/// reply).
+#[derive(uniffi::Record)]
+pub struct ThreadListItemEvent {
+    /// The event ID.
+    pub event_id: String,
+    /// The timestamp of the event.
+    pub timestamp: Timestamp,
+    /// The sender of the event.
+    pub sender: String,
+    /// The sender's profile details.
+    pub sender_profile: ProfileDetails,
+    /// Whether the event was sent by the current user.
+    pub is_own: bool,
+    /// The content of the event, if available.
+    pub content: Option<TimelineItemContent>,
+}
+
+impl From<UIThreadListItemEvent> for ThreadListItemEvent {
+    fn from(event: UIThreadListItemEvent) -> Self {
+        Self {
+            event_id: event.event_id.to_string(),
+            timestamp: event.timestamp.into(),
+            sender: event.sender.to_string(),
+            is_own: event.is_own,
+            sender_profile: event.sender_profile.into(),
+            content: event.content.map(Into::into),
         }
     }
 }
