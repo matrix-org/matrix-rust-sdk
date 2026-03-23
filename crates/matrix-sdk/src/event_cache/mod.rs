@@ -54,6 +54,7 @@ use tracing::{error, instrument, trace};
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
+    event_cache::tasks::BackgroundRequest,
     paginators::PaginatorError,
 };
 
@@ -153,6 +154,10 @@ pub struct EventCacheDropHandles {
     /// The task used to automatically shrink the linked chunks.
     auto_shrink_linked_chunk_task: BackgroundTaskHandle,
 
+    /// The task used to automatically handle background requests (like
+    /// paginations).
+    background_requests_task: Option<BackgroundTaskHandle>,
+
     /// The task used to automatically redecrypt UTDs.
     #[cfg(feature = "e2e-encryption")]
     _redecryptor: redecryptor::Redecryptor,
@@ -169,6 +174,9 @@ impl Drop for EventCacheDropHandles {
         self.listen_updates_task.abort();
         self.ignore_user_list_update_task.abort();
         self.auto_shrink_linked_chunk_task.abort();
+        if let Some(task) = self.background_requests_task.take() {
+            task.abort();
+        }
     }
 }
 
@@ -234,6 +242,7 @@ impl EventCache {
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
+                background_requests_sender: Default::default(),
                 generic_update_sender,
                 linked_chunk_update_sender,
                 _thread_subscriber_task: thread_subscriber_task,
@@ -312,6 +321,21 @@ impl EventCache {
                 redecryptor::Redecryptor::new(&client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
             };
 
+            let background_requests_task = if self.config().experimental_auto_backpagination {
+                let (sender, receiver) = mpsc::channel(4096);
+
+                // Run the deferred initialization of the background request sender, that is shared
+                // with every room.
+                self.inner.background_requests_sender.get_or_init(|| sender);
+
+                trace!("spawning the backgrounds requests task");
+                Some(task_monitor.spawn_background_task("event_cache::background_requests_task", tasks::background_requests_task(
+                    self.inner.clone(), receiver
+                )))
+            } else {
+                trace!("backgrounds requests task is disabled");
+                None
+            };
 
             Arc::new(EventCacheDropHandles {
                 listen_updates_task,
@@ -319,6 +343,7 @@ impl EventCache {
                 auto_shrink_linked_chunk_task,
                 #[cfg(feature = "e2e-encryption")]
                 _redecryptor: redecryptor,
+                background_requests_task
             })
         });
 
@@ -439,8 +464,17 @@ struct EventCacheInner {
     /// Needs to live here, so it may be passed to each [`RoomEventCache`]
     /// instance.
     ///
+    /// It's a `OnceLock` because its initialization is deferred to
+    /// [`EventCache::subscribe`].
+    ///
     /// See doc comment of [`EventCache::auto_shrink_linked_chunk_task`].
     auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
+
+    /// A sender for background requests, that is shared with every room.
+    ///
+    /// It's a `OnceLock` because its initialization is deferred to
+    /// [`EventCache::subscribe`].
+    background_requests_sender: OnceLock<mpsc::Sender<BackgroundRequest>>,
 
     /// A sender for room generic update.
     ///
@@ -643,6 +677,7 @@ impl EventCacheInner {
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
                     self.store.clone(),
+                    self.background_requests_sender.get().cloned(),
                 )
                 .await?;
 

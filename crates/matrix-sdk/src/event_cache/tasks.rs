@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId};
+use ruma::{OwnedEventId, OwnedRoomId, OwnedTransactionId};
 use tokio::{
     select,
     sync::{
@@ -86,6 +86,77 @@ pub(super) async fn room_updates_task(
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum BackgroundRequest {
+    PaginateRoomBackwards { room_id: OwnedRoomId },
+}
+
+/// The maximum number of allowed room paginations, for a given room, that can
+/// be executed in the background request task.
+///
+/// After that number of paginations, the task will stop executing paginations
+/// for that room *in the background* (user-requested paginations will still be
+/// executed, of course).
+const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
+
+/// The number of messages to paginate in a single batch, when executing a
+/// background pagination request.
+const DEFAULT_BACKGROUND_PAGINATION_SIZE: u16 = 30;
+
+/// Listen to background requests, and execute them in real-time.
+#[instrument(skip_all)]
+pub(super) async fn background_requests_task(
+    inner: Arc<EventCacheInner>,
+    mut receiver: mpsc::Receiver<BackgroundRequest>,
+) {
+    trace!("Spawning the background request task");
+
+    let mut room_pagination_credits = HashMap::new();
+
+    while let Some(request) = receiver.recv().await {
+        match request {
+            BackgroundRequest::PaginateRoomBackwards { room_id } => {
+                let credits = room_pagination_credits
+                    .entry(room_id.clone())
+                    .or_insert(DEFAULT_ROOM_PAGINATION_CREDITS);
+
+                if *credits == 0 {
+                    trace!(for_room = %room_id, "No more credits to paginate this room in the background, skipping");
+                    continue;
+                }
+
+                let pagination = match inner.all_caches_for_room(&room_id).await {
+                    Ok(caches) => caches.room.pagination(),
+                    Err(err) => {
+                        warn!(for_room = %room_id, "Failed to get the `Caches`: {err}");
+                        continue;
+                    }
+                };
+
+                trace!(for_room = %room_id, "automatic backpagination triggered");
+
+                match pagination.run_backwards_once(DEFAULT_BACKGROUND_PAGINATION_SIZE).await {
+                    Ok(outcome) => {
+                        // Background requests must be idempotent, so we only decrement credits if
+                        // we actually paginated something new.
+                        if !outcome.reached_start || !outcome.events.is_empty() {
+                            *credits -= 1;
+                        }
+                    }
+                    Err(err) => {
+                        warn!(for_room = %room_id, "Failed to run background pagination: {err}");
+                        // Don't decrement credits in this case, to allow a
+                        // retry later.
+                    }
+                }
+            }
+        }
+    }
+
+    // The sender has shut down, exit.
+    info!("Closing the background request task because receiver closed");
 }
 
 /// Listen to _ignore user list update changes_ to clear the rooms when a user
