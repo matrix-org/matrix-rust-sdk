@@ -920,6 +920,18 @@ impl BaseClient {
 
         let _ = room.room_member_updates_sender.send(RoomMembersUpdate::FullReload);
 
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(olm) = self.olm_machine().await.as_ref() {
+            // With the introduction of MSC4268, it is no longer sufficient to check for
+            // changes to session recipients when we send a message, since we may miss
+            // join/leave pairs in our view of the room state. Instead, we should rotate
+            // the room key whenever we fully reload the member list as a precaution.
+            tracing::debug!("Rotating room key due to full member list reload");
+            if let Err(e) = olm.discard_room_key(room_id).await {
+                tracing::warn!("Error discarding room key: {e:?}");
+            }
+        }
+
         Ok(())
     }
 
