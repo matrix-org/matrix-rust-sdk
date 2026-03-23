@@ -812,8 +812,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         mut timeline: Timeline,
         ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
-        let timeline_prev_batch = timeline.prev_batch.take();
-        let mut prev_batch = timeline_prev_batch.clone();
+        let timeline_prev_batch_token = timeline.prev_batch.take();
+        let mut prev_batch_token = timeline_prev_batch_token.clone();
 
         let DeduplicationOutcome {
             all_events: events,
@@ -844,43 +844,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         if !timeline.limited && self.state.room_linked_chunk.events().next().is_some()
             || all_duplicates
         {
-            prev_batch = None;
-        }
-
-        let has_new_gap = prev_batch.is_some();
-
-        if has_new_gap {
-            // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
-            // non-duplicated event. We don't know which threads might have gappy, so we
-            // must invalidate them all :(
-            // TODO: figure out a better catchup mechanism for threads.
-            let mut summaries_to_update = Vec::new();
-
-            for (thread_root, thread) in self.state.threads.iter_mut() {
-                // Empty the thread's linked chunk.
-                thread.clear().await?;
-
-                summaries_to_update.push(thread_root.clone());
-            }
-
-            // Now, update the summaries to indicate that we're not sure what the latest
-            // thread event is. The thread count can remain as is, as it might still be
-            // valid, and there's no good value to reset it to, anyways.
-            for thread_root in summaries_to_update {
-                let Some((location, mut target_event)) = self.find_event(&thread_root).await?
-                else {
-                    trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
-                    continue;
-                };
-
-                if let Some(mut prev_summary) = target_event.thread_summary.summary().cloned() {
-                    prev_summary.latest_reply = None;
-
-                    target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
-
-                    self.replace_event_at(location, target_event).await?;
-                }
-            }
+            prev_batch_token = None;
         }
 
         if all_duplicates {
@@ -896,6 +860,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok((false, Vec::new()));
         }
 
+        let has_new_gap = prev_batch_token.is_some();
+
         // If we've never waited for an initial previous-batch token, and we've now
         // inserted a gap, no need to wait for a previous-batch token later.
         if !self.state.waited_for_initial_prev_token && has_new_gap {
@@ -908,15 +874,16 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // events, because we are pushing all _new_ `events` at the back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
-        self.state
-            .room_linked_chunk
-            .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
+        self.state.room_linked_chunk.push_live_events(
+            prev_batch_token.map(|prev_token| Gap { token: prev_token }),
+            &events,
+        );
 
         // Extract a new read receipt, if available.
         let new_receipt = extract_read_receipt(ephemeral_events);
         self.post_process_new_events(
             events,
-            timeline_prev_batch,
+            timeline_prev_batch_token,
             PostProcessingOrigin::Sync,
             new_receipt,
         )

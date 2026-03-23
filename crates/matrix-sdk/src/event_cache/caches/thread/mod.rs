@@ -23,7 +23,10 @@ use std::{fmt, sync::Arc};
 use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 pub(super) use state::LockedThreadEventCacheState;
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{
+    Notify,
+    broadcast::{Receiver, Sender},
+};
 use tracing::{error, trace};
 
 use self::{pagination::ThreadPagination, updates::ThreadEventCacheUpdateSender};
@@ -47,6 +50,9 @@ struct ThreadEventCacheInner {
 
     /// State for this thread's event cache.
     state: LockedThreadEventCacheState,
+
+    /// A notifier that we received a new pagination token.
+    pagination_batch_token_notifier: Notify,
 
     /// Update sender for this room.
     update_sender: ThreadEventCacheUpdateSender,
@@ -83,6 +89,7 @@ impl ThreadEventCache {
                     linked_chunk_update_sender,
                 )
                 .await?,
+                pagination_batch_token_notifier: Notify::new(),
                 update_sender,
             }),
         })
@@ -133,8 +140,14 @@ impl ThreadEventCache {
 
         trace!("adding new events");
 
-        let mut state = self.inner.state.write().await?;
-        let timeline_event_diffs = state.handle_sync(events, prev_batch_token).await?;
+        let (stored_prev_batch_token, timeline_event_diffs) =
+            self.inner.state.write().await?.handle_sync(events, prev_batch_token).await?;
+
+        // Now that all events have been added, we can trigger the
+        // `pagination_token_notifier`.
+        if stored_prev_batch_token {
+            self.inner.pagination_batch_token_notifier.notify_one();
+        }
 
         if !timeline_event_diffs.is_empty() {
             let _ = self.inner.update_sender.send(TimelineVectorDiffs {
