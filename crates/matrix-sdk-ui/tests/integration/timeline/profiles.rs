@@ -54,21 +54,12 @@ async fn test_user_profile_after_being_banned() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    // Previous content of Alice's leave event
-    let prev_content_alice = PreviousMembership::new(MembershipState::Join)
-        .display_name("*profanities*")
-        .avatar_url("mxc://456".into());
-
-    // Same, but for Carol.
-    let prev_content_carol = PreviousMembership::new(MembershipState::Join)
-        .display_name("Carol")
-        .avatar_url("mxc://789".into());
-
-    // Build a simple timeline with Bob creating the room, Alice accepting an invite
-    // and sending a message, Bob sending a message, and Alice leaving
+    // Build a simple timeline with Bob joining the room, Alice accepting an invite,
+    // sending some messages, and then getting banned by Bob. Alice's profile should
+    // be unavailable after the ban, while Bob's profile should be unaffected.
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-            // Bob create the room
+            // Bob joins the room
             .add_timeline_event(
                 f.member(&BOB)
                     .display_name("Bob")
@@ -89,21 +80,11 @@ async fn test_user_profile_after_being_banned() {
             .add_timeline_event(f.text_msg("*insults*").sender(&ALICE))
             .add_timeline_event(f.text_msg("Nope. You are out.").sender(&BOB))
             .add_timeline_event(
-                f.member(&ALICE).membership(MembershipState::Ban).previous(prev_content_alice),
-            )
-            // Carol accepts an invite into the room
-            .add_timeline_event(
-                f.member(&CAROL)
-                    .display_name("Carol")
-                    .avatar_url("mxc://789".into())
-                    .membership(MembershipState::Join)
-                    .previous(MembershipState::Invite),
-            )
-            // Carol sends a text message
-            .add_timeline_event(f.text_msg("hi!").sender(&CAROL))
-            // Carol leaves the room
-            .add_timeline_event(
-                f.member(&CAROL).membership(MembershipState::Leave).previous(prev_content_carol),
+                f.member(&ALICE).membership(MembershipState::Ban).sender(&BOB).previous(
+                    PreviousMembership::new(MembershipState::Join)
+                        .display_name("*profanities*")
+                        .avatar_url("mxc://456".into()),
+                ),
             ),
     );
 
@@ -111,33 +92,18 @@ async fn test_user_profile_after_being_banned() {
     let _response = client.sync_once(sync_settings.clone()).await.unwrap();
 
     let timeline_items = timeline.items().await;
-    // Date divider + 9 events
-    assert_eq!(timeline_items.len(), 10);
-
-    // Bob is still in the room, his profile should be available.
-    let bob_profile = timeline_items[3].as_event().unwrap().sender_profile();
-    match bob_profile {
-        TimelineDetails::Ready(profile) => {
-            assert_eq!(profile.display_name, Some("Bob".to_owned()));
-            assert_eq!(profile.avatar_url, Some("mxc://123".into()));
-        }
-        _ => panic!("Expected Bob's profile to be ready"),
-    }
-
-    // Carol has left the room, but her profile should still be available.
-    let carol_profile = timeline_items[8].as_event().unwrap().sender_profile();
-    match carol_profile {
-        TimelineDetails::Ready(profile) => {
-            assert_eq!(profile.display_name, Some("Carol".to_owned()));
-            assert_eq!(profile.avatar_url, Some("mxc://789".into()));
-        }
-        _ => panic!("Expected Carol's profile to be ready"),
-    }
+    // Date divider + 6 events
+    assert_eq!(timeline_items.len(), 7);
 
     // Alice's profile, and therefore display name, should be empty,
     // as she has been banned. The SDK **should** return an empty
     // profile for banned users.
-    let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
+    // We are only checking Alice's profile here, as we check Bob's profile in a
+    // separate test
+    let alice_event = timeline_items[4].as_event().unwrap();
+    let alice_profile = alice_event.sender_profile();
+    // Was this event sent by Alice?
+    assert_eq!(alice_event.sender(), *ALICE);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, None);
@@ -166,16 +132,11 @@ async fn test_user_profile_after_leaving() {
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    // Previous content of Alice's leave event
-    let prev_content = PreviousMembership::new(MembershipState::Join)
-        .display_name("Alice")
-        .avatar_url("mxc://...".into());
-
-    // Build a simple timeline with Bob creating the room, Alice accepting an invite
+    // Build a simple timeline with Bob joining the room, Alice accepting an invite
     // and sending a message, Bob sending a message, and Alice leaving
     sync_builder.add_joined_room(
         JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
-            // Bob create the room
+            // Bob joins the room
             .add_timeline_event(
                 f.member(&BOB)
                     .display_name("Bob")
@@ -195,7 +156,11 @@ async fn test_user_profile_after_leaving() {
             // Alice send a message and leaves the room
             .add_timeline_event(f.text_msg("bye now").sender(&ALICE))
             .add_timeline_event(
-                f.member(&ALICE).membership(MembershipState::Leave).previous(prev_content),
+                f.member(&ALICE).membership(MembershipState::Leave).previous(
+                    PreviousMembership::new(MembershipState::Join)
+                        .display_name("Alice")
+                        .avatar_url("mxc://...".into()),
+                ),
             ),
     );
 
@@ -208,7 +173,10 @@ async fn test_user_profile_after_leaving() {
 
     // Alice's profile, and therefore display name, should be still available after
     // she left the room.
-    let alice_profile = timeline_items[4].as_event().unwrap().sender_profile();
+    let alice_event = timeline_items[4].as_event().unwrap();
+    let alice_profile = alice_event.sender_profile();
+    // Was this event sent by Alice?
+    assert_eq!(alice_event.sender(), *ALICE);
     match alice_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Alice".to_owned()));
@@ -218,7 +186,10 @@ async fn test_user_profile_after_leaving() {
     }
 
     // Bob's profile should also be available
-    let bob_profile = timeline_items[3].as_event().unwrap().sender_profile();
+    let bob_event = timeline_items[3].as_event().unwrap();
+    let bob_profile = bob_event.sender_profile();
+    // Was this event sent by Bob?
+    assert_eq!(bob_event.sender(), *BOB);
     match bob_profile {
         TimelineDetails::Ready(profile) => {
             assert_eq!(profile.display_name, Some("Bob".to_owned()));
