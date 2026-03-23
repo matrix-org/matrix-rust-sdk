@@ -58,7 +58,7 @@ jobs:
           sudo apt-get install libsqlite3-dev
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           # use a separate cache for each job to work around
           # https://github.com/Swatinem/rust-cache/issues/124
@@ -97,7 +97,7 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -137,7 +137,7 @@ jobs:
           components: clippy
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -198,7 +198,7 @@ jobs:
           toolchain: ${{ matrix.rust }}
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -268,7 +268,7 @@ jobs:
           version: v0.13.1
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           # use a separate cache for each job to work around
           # https://github.com/Swatinem/rust-cache/issues/124
@@ -333,7 +333,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -391,7 +391,7 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
