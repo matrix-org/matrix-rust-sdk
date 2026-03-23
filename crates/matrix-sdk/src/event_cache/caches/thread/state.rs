@@ -22,7 +22,6 @@ use matrix_sdk_base::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
 };
-use matrix_sdk_common::executor::spawn;
 use ruma::{OwnedEventId, OwnedRoomId, OwnedUserId};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument};
@@ -216,11 +215,6 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
     pub fn thread_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.thread_linked_chunk
     }
-
-    /// Get the `waited_for_initial_prev_token` value.
-    pub fn waited_for_initial_prev_token(&self) -> bool {
-        self.state.waited_for_initial_prev_token
-    }
 }
 
 impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
@@ -296,8 +290,8 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     pub async fn handle_sync(
         &mut self,
         events: Vec<Event>,
-        _prev_batch_token: &Option<String>,
-    ) -> Result<Vec<VectorDiff<Event>>> {
+        prev_batch_token: &Option<String>,
+    ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
         let DeduplicationOutcome {
             all_events: events,
             in_memory_duplicated_event_ids,
@@ -315,7 +309,15 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         if all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
             // the new events.
-            return Ok(Vec::new());
+            return Ok((false, Vec::new()));
+        }
+
+        let has_new_gap = prev_batch_token.is_some();
+
+        // If we've never waited for an initial previous-batch token, and we've now
+        // inserted a gap, no need to wait for a previous-batch token later.
+        if !self.state.waited_for_initial_prev_token && has_new_gap {
+            self.state.waited_for_initial_prev_token = true;
         }
 
         // Remove the old duplicated events.
@@ -324,33 +326,16 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         // existing events, because we are pushing all _new_ `events` at the back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
-        self.state.thread_linked_chunk.push_live_events(None, &events);
+        self.state.thread_linked_chunk.push_live_events(
+            prev_batch_token.as_ref().map(|prev_token| Gap { token: prev_token.clone() }),
+            &events,
+        );
 
         self.propagate_changes().await?;
 
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
-        Ok(timeline_event_diffs)
-    }
-
-    /// Save events into the database, without notifying observers.
-    pub async fn save_events(&mut self, events: impl IntoIterator<Item = Event>) -> Result<()> {
-        let store = self.store.clone();
-        let room_id = self.state.room_id.clone();
-        let events = events.into_iter().collect::<Vec<_>>();
-
-        // Spawn a task so the save is uninterrupted by task cancellation.
-        spawn(async move {
-            for event in events {
-                store.save_event(&room_id, event).await?;
-            }
-
-            Result::Ok(())
-        })
-        .await
-        .expect("joining failed")?;
-
-        Ok(())
+        Ok((has_new_gap, timeline_event_diffs))
     }
 
     /// Reset this data structure as if it were brand new.
