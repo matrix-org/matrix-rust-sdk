@@ -26,6 +26,8 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
+#[cfg(any(feature = "native-tls", feature = "rustls-tls"))]
+use reqwest::Identity;
 use reqwest::{Certificate, tls};
 use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
 #[cfg(target_os = "android")]
@@ -154,6 +156,8 @@ pub(crate) struct HttpSettings {
     pub(crate) read_timeout: Option<Duration>,
     pub(crate) additional_root_certificates: Vec<Certificate>,
     pub(crate) disable_built_in_root_certificates: bool,
+    #[cfg(any(feature = "native-tls", feature = "rustls-tls"))]
+    pub(crate) client_identity: Option<Identity>,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -167,6 +171,8 @@ impl Default for HttpSettings {
             read_timeout: None,
             additional_root_certificates: Default::default(),
             disable_built_in_root_certificates: false,
+            #[cfg(any(feature = "native-tls", feature = "rustls-tls"))]
+            client_identity: None,
         }
     }
 }
@@ -228,6 +234,12 @@ impl HttpSettings {
         if let Some(p) = &self.proxy {
             info!(proxy_url = p, "Setting the proxy for the HTTP client");
             http_client = http_client.proxy(reqwest::Proxy::all(p.as_str())?);
+        }
+
+        #[cfg(any(feature = "native-tls", feature = "rustls-tls"))]
+        if let Some(identity) = &self.client_identity {
+            info!("Setting client identity for mTLS");
+            http_client = http_client.identity(identity.clone());
         }
 
         Ok(http_client.build()?)
