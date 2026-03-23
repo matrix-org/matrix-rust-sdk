@@ -1248,7 +1248,7 @@ impl Room {
     /// [`ThreadListService::subscribe_to_items_updates`] /
     /// [`ThreadListService::subscribe_to_pagination_state_updates`] to observe
     /// changes.
-    pub fn thread_list_service(&self) -> Arc<ThreadListService> {
+    pub async fn thread_list_service(&self) -> Arc<ThreadListService> {
         Arc::new(ThreadListService::new(&self.inner))
     }
 
