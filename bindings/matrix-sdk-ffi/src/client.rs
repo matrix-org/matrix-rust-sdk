@@ -2110,8 +2110,8 @@ impl Client {
     ///
     /// This is an experimental feature, and might cause performance issues on
     /// large accounts. Use with caution.
-    pub async fn enable_automatic_backpagination(&self) {
-        self.inner.event_cache().config_mut().await.experimental_auto_backpagination = true;
+    pub fn enable_automatic_backpagination(&self) {
+        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
     }
 }
 
