@@ -597,3 +597,88 @@ pub(super) async fn search_indexing_task(
         }
     }
 }
+
+// MatrixMockServer et al. aren't available on wasm.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use ruma::{event_id, room_id};
+    use tokio::sync::mpsc;
+
+    use crate::{
+        assert_let_timeout,
+        event_cache::{
+            EventsOrigin, RoomEventCacheUpdate, tasks::BackgroundRequest::PaginateRoomBackwards,
+        },
+        test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+    };
+
+    impl super::super::EventCache {
+        fn background_requests_sender(&self) -> Option<mpsc::Sender<super::BackgroundRequest>> {
+            self.inner.background_requests_sender.get().cloned()
+        }
+    }
+
+    /// Test that we can send background requests and trigger room paginations.
+    #[async_test]
+    async fn test_background_room_paginations() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.config_mut().experimental_auto_backpagination = true;
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Starting with an empty, inactive room,
+        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert!(room_events.is_empty());
+        assert!(room_cache_updates.is_empty());
+
+        // Set up the mock for /messages,
+        server
+            .mock_room_messages()
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Send a request for a background pagination,
+        let sender = event_cache.background_requests_sender().unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+        );
+        assert_eq!(update.diffs.len(), 1);
+
+        assert_eq!(update.origin, EventsOrigin::Pagination);
+
+        let mut room_events = room_events.into();
+        for diff in update.diffs {
+            diff.apply(&mut room_events);
+        }
+
+        assert_eq!(room_events.len(), 2);
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
+        assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+
+        assert!(room_cache_updates.is_empty());
+    }
+}
