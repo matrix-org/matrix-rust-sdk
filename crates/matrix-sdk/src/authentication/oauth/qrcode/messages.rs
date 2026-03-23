@@ -33,12 +33,7 @@ pub enum QrAuthMessage {
     /// Message declaring the available protocols for sign in. Sent by the
     /// existing device.
     #[serde(rename = "m.login.protocols")]
-    LoginProtocols {
-        /// The login protocols the existing device supports.
-        protocols: Vec<LoginProtocolType>,
-        /// The homeserver we're going to log in to.
-        homeserver: Url,
-    },
+    LoginProtocols(LoginProtocolsMessage),
 
     /// Message declaring which protocols from the previous `m.login.protocols`
     /// message the new device has picked. Sent by the new device.
@@ -86,6 +81,31 @@ pub enum QrAuthMessage {
     /// existing device.
     #[serde(rename = "m.login.secrets")]
     LoginSecrets(SecretsBundle),
+}
+
+/// Message declaring the available protocols for sign in. Sent by the
+/// existing device.
+///
+/// Supports both the MSC4108 variant of the m.login.protocols message as well
+/// as the MSC4388 variant.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum LoginProtocolsMessage {
+    Msc4388 {
+        /// The login protocols the existing device supports.
+        protocols: Vec<LoginProtocolType>,
+        /// The homeserver we're going to log in to.
+        base_url: Url,
+    },
+    Msc4108 {
+        /// The login protocols the existing device supports.
+        protocols: Vec<LoginProtocolType>,
+        /// The homeserver we're going to log in to.
+        ///
+        /// Note: this doesn't match the MSC which says that it is a server name
+        /// not a full URL
+        homeserver: Url,
+    },
 }
 
 impl QrAuthMessage {
@@ -170,17 +190,48 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_protocols_serialization() {
+    fn test_protocols_serialization_msc_4108() {
+        const HOMESERVER: &str = "https://matrix-client.matrix.org/";
+
         let json = json!({
             "type": "m.login.protocols",
             "protocols": ["device_authorization_grant"],
-            "homeserver": "https://matrix-client.matrix.org/"
+            "homeserver": HOMESERVER,
 
         });
 
         let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
-        assert_let!(QrAuthMessage::LoginProtocols { protocols, .. } = &message);
+        assert_let!(
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4108 {
+                protocols,
+                homeserver
+            }) = &message
+        );
         assert!(protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant));
+        assert_eq!(homeserver.as_str(), HOMESERVER);
+
+        let serialized = serde_json::to_value(&message).unwrap();
+        assert_eq!(json, serialized);
+    }
+
+    #[test]
+    fn test_protocols_serialization_msc_4388() {
+        const HOMESERVER: &str = "https://matrix-client.matrix.org/";
+
+        let json = json!({
+            "type": "m.login.protocols",
+            "protocols": ["device_authorization_grant"],
+            "base_url": HOMESERVER,
+
+        });
+
+        let message: QrAuthMessage = serde_json::from_value(json.clone()).unwrap();
+        assert_let!(
+            QrAuthMessage::LoginProtocols(LoginProtocolsMessage::Msc4388 { protocols, base_url }) =
+                &message
+        );
+        assert!(protocols.contains(&LoginProtocolType::DeviceAuthorizationGrant));
+        assert_eq!(base_url.as_str(), HOMESERVER);
 
         let serialized = serde_json::to_value(&message).unwrap();
         assert_eq!(json, serialized);
