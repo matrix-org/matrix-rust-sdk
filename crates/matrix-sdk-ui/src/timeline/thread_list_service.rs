@@ -48,26 +48,47 @@ use crate::timeline::{
 /// [`super::thread_list_service::ThreadListService::paginate`].
 #[derive(Clone, Debug)]
 pub struct ThreadListItem {
-    /// The thread's root event identifier.
-    pub root_event_id: OwnedEventId,
+    /// The thread root event.
+    pub root_event: ThreadListItemEvent,
 
-    /// The timestamp of the remote event.
+    /// The latest event in the thread (i.e. the most recent reply), if
+    /// available.
+    ///
+    /// This is initially populated from the server's bundled thread summary
+    /// and is updated in real time as new events arrive via sync.
+    pub latest_event: Option<ThreadListItemEvent>,
+
+    /// The number of replies in this thread (excluding the root event).
+    ///
+    /// This is initially populated from the server's bundled thread summary
+    /// and is updated in real time as new events arrive via sync.
+    pub num_replies: u32,
+}
+
+/// Information about an event in a thread (either the root or the latest
+/// reply).
+#[derive(Clone, Debug)]
+pub struct ThreadListItemEvent {
+    /// The event ID.
+    pub event_id: OwnedEventId,
+
+    /// The timestamp of the event.
     pub timestamp: MilliSecondsSinceUnixEpoch,
 
-    /// The Matrix user ID of the thread root event's sender.
+    /// The sender of the event.
     pub sender: OwnedUserId,
 
-    /// Whether the thread root was sent by the current user.
+    /// Whether the event was sent by the current user.
     pub is_own: bool,
 
-    /// The sender's profile (display name and avatar URL)
+    /// The sender's profile (display name and avatar URL).
     pub sender_profile: TimelineDetails<Profile>,
 
-    /// The parsed content of the thread root event, if available.
+    /// The parsed content of the event, if available.
     ///
     /// `None` when the event could not be deserialized into a known
     /// [`TimelineItemContent`] variant (e.g. an unsupported or redacted event
-    /// type)
+    /// type).
     pub content: Option<TimelineItemContent>,
 }
 
@@ -268,6 +289,10 @@ impl ThreadListService {
         &self,
         timeline_event: TimelineEvent,
     ) -> Option<ThreadListItem> {
+        // Extract thread summary info before consuming the event.
+        let thread_summary = timeline_event.thread_summary.summary().cloned();
+        let bundled_latest_thread_event = timeline_event.bundled_latest_thread_event.clone();
+
         let raw_any_sync_timeline_event = timeline_event.into_raw();
         let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
             error!("Failed deserializing thread root event");
@@ -317,14 +342,86 @@ impl ThreadListService {
             _ => None,
         };
 
+        // Build the latest event from the bundled thread summary, if available.
+        let num_replies = thread_summary.as_ref().map(|s| s.num_replies).unwrap_or(0);
+
+        let latest_event = if let Some(ev) = bundled_latest_thread_event.map(|b| *b) {
+            Self::build_latest_event(&self.room, ev).await
+        } else {
+            None
+        };
+
         Some(ThreadListItem {
-            root_event_id,
-            timestamp,
-            sender,
-            is_own,
-            sender_profile: profile,
-            content,
+            root_event: ThreadListItemEvent {
+                event_id: root_event_id,
+                timestamp,
+                sender,
+                is_own,
+                sender_profile: profile,
+                content,
+            },
+            latest_event,
+            num_replies,
         })
+    }
+
+    /// Build a [`ThreadListItemEvent`] from a [`TimelineEvent`].
+    async fn build_latest_event(
+        room: &Room,
+        timeline_event: TimelineEvent,
+    ) -> Option<ThreadListItemEvent> {
+        let raw = timeline_event.into_raw();
+        let deserialized = match raw.deserialize() {
+            Ok(ev) => ev,
+            Err(e) => {
+                error!("Failed deserializing thread event for latest_event: {e}");
+                return None;
+            }
+        };
+
+        let event_id = deserialized.event_id().to_owned();
+        let timestamp = deserialized.origin_server_ts();
+        let sender = deserialized.sender().to_owned();
+        let is_own = room.own_user_id() == sender;
+
+        let sender_profile = room
+            .profile_from_user_id(&sender)
+            .await
+            .map(TimelineDetails::Ready)
+            .unwrap_or(TimelineDetails::Unavailable);
+
+        let content: Option<TimelineItemContent> = match TimelineAction::from_event(
+            deserialized,
+            &raw,
+            room,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            Some(TimelineAction::AddItem { content }) => Some(content),
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
+                ..
+            }) => {
+                match TimelineAction::from_content(
+                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
+                        new_content.msgtype,
+                    )),
+                    None,
+                    None,
+                    None,
+                ) {
+                    TimelineAction::AddItem { content } => Some(content),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+
+        Some(ThreadListItemEvent { event_id, timestamp, sender, is_own, sender_profile, content })
     }
 }
 
@@ -405,7 +502,7 @@ mod tests {
             ThreadListPaginationState::Idle { end_reached: false }
         );
         assert_eq!(service.items().len(), 1);
-        assert_eq!(service.items()[0].root_event_id, eid1);
+        assert_eq!(service.items()[0].root_event.event_id, eid1);
 
         service.paginate().await.expect("second paginate failed");
 
@@ -414,7 +511,7 @@ mod tests {
             ThreadListPaginationState::Idle { end_reached: true }
         );
         assert_eq!(service.items().len(), 2);
-        assert_eq!(service.items()[1].root_event_id, eid2);
+        assert_eq!(service.items()[1].root_event.event_id, eid2);
     }
 
     #[async_test]
@@ -491,7 +588,7 @@ mod tests {
 
         // Only one HTTP request was made, so we have exactly one item.
         assert_eq!(service.items().len(), 1);
-        assert_eq!(service.items()[0].root_event_id, eid1);
+        assert_eq!(service.items()[0].root_event.event_id, eid1);
         assert_eq!(
             service.pagination_state(),
             ThreadListPaginationState::Idle { end_reached: true }
@@ -593,6 +690,75 @@ mod tests {
         service.paginate().await.expect("paginate failed");
 
         assert_next_matches!(subscriber, ThreadListPaginationState::Idle { end_reached: false });
+    }
+
+    #[async_test]
+    async fn test_paginated_items_have_num_replies_zero_without_summary() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let eid1 = event_id!("$1");
+
+        // A thread root without bundled thread summary.
+        server
+            .mock_room_threads()
+            .ok(vec![f.text_msg("Thread root").event_id(eid1).into_raw()], None)
+            .mock_once()
+            .mount()
+            .await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let service = ThreadListService::new(room);
+
+        service.paginate().await.expect("paginate failed");
+
+        let items = service.items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].num_replies, 0);
+        assert!(items[0].latest_event.is_none());
+    }
+
+    #[async_test]
+    async fn test_paginated_items_have_num_replies_from_bundled_summary() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let root_id = event_id!("$root");
+        let reply_id = event_id!("$reply");
+
+        // Build a reply event to use as the bundled latest event.
+        // `with_bundled_thread_summary` expects `Raw<AnySyncMessageLikeEvent>`,
+        // so we cast from the more general `Raw<AnySyncTimelineEvent>`.
+        let reply_event =
+            f.text_msg("Reply in thread").event_id(reply_id).into_raw_sync().cast_unchecked();
+
+        // Build a thread root with a bundled thread summary (3 replies).
+        let thread_root = f
+            .text_msg("Thread root")
+            .event_id(root_id)
+            .with_bundled_thread_summary(reply_event, 3, false)
+            .into_raw();
+
+        server.mock_room_threads().ok(vec![thread_root], None).mock_once().mount().await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let service = ThreadListService::new(room);
+
+        service.paginate().await.expect("paginate failed");
+
+        let items = service.items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].root_event.event_id, root_id);
+        assert_eq!(items[0].num_replies, 3);
+
+        // The latest event should be populated from the bundled summary.
+        let latest = items[0].latest_event.as_ref().expect("should have latest_event");
+        assert_eq!(latest.event_id, reply_id);
+        assert_eq!(latest.sender.as_str(), sender_id.as_str());
     }
 
     /// Builds a [`ThreadListService`] and makes the room known to the client
