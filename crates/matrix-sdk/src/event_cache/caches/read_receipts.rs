@@ -219,6 +219,20 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
     }
 }
 
+struct SelectBestReceiptResult {
+    /// Whether to request a back-pagination after trying to select the best
+    /// receipt.
+    ///
+    /// This is usually a signal that we didn't find any better receipt, or the
+    /// latest active receipt, in the current in-memory linked chunk, and
+    /// that we need to fetch more historical data (from disk or from the
+    /// network) to get a better picture of the unread counts.
+    request_pagination: bool,
+
+    /// The event id of the best receipt we found, if any.
+    receipt: Option<OwnedEventId>,
+}
+
 /// Return a new better (i.e. more recent) receipt based on a search of the
 /// linked chunk.
 ///
@@ -235,7 +249,7 @@ fn select_best_receipt(
     new_receipt_event: Option<&ReceiptEventContent>,
     latest_active: Option<&EventId>,
     with_threading_support: bool,
-) -> Option<OwnedEventId> {
+) -> SelectBestReceiptResult {
     // If we had a new receipt event, add the main/unthreaded receipts it contains
     // to the pending receipts list. We'll try to chase them later.
     if let Some(receipt_event) = new_receipt_event {
@@ -263,17 +277,17 @@ fn select_best_receipt(
     // i.e., we've found a better receipt, *and* there's no more pending receipt
     // to try to match against events in the linked chunk.
 
-    let mut found = None;
+    let mut result = SelectBestReceiptResult { request_pagination: false, receipt: None };
 
     for (event, event_id) in
         linked_chunk.revents().filter_map(|(_pos, ev)| Some((ev, ev.event_id()?)))
     {
-        if found.is_none() {
+        if result.receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent receipt.
             if latest_active == Some(&event_id) {
                 // The latest active receipt is still the most recent receipt, so keep it.
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
-                found = Some(event_id.clone());
+                result.receipt = Some(event_id.clone());
             }
             // Try to find an implicit read receipt (i.e. an event sent by the current
             // user).
@@ -284,14 +298,14 @@ fn select_best_receipt(
                 && (!with_threading_support || extract_thread_root(event.raw()).is_none())
             {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
-                found = Some(event_id.clone());
+                result.receipt = Some(event_id.clone());
             }
         }
 
         // Early exit condition (see the comment above): we've already found a most
         // recent receipt, and there's no other pending receipts to match against known
         // events.
-        if found.is_some() && pending_receipts.is_empty() {
+        if result.receipt.is_some() && pending_receipts.is_empty() {
             trace!("exiting loop; found a better receipt, and no more pending receipt to match");
             break;
         }
@@ -301,9 +315,9 @@ fn select_best_receipt(
         // one!
         pending_receipts.retain(|pending| {
             if *pending == event_id {
-                if found.is_none() {
+                if result.receipt.is_none() {
                     trace!(pending = %event_id, "found a pending receipt; stopping search");
-                    found = Some(event_id.clone());
+                    result.receipt = Some(event_id.clone());
                 } else {
                     trace!(%event_id, "discarding a pending receipt that wasn't selected");
                 }
@@ -318,13 +332,22 @@ fn select_best_receipt(
         });
     }
 
-    found.or_else(|| latest_active.map(|event_id| {
-        // The only time when we can run into this is because we didn't find a more recent receipt,
-        // and the previously active one wasn't loaded in the linked chunk. In this case, every
-        // event currently loaded in the linked chunk will be processed in `process_event()`.
-        trace!(%event_id, "reusing previous active receipt (but we didn't find it in the linked chunk)");
-        event_id.to_owned()
-    }))
+    if result.receipt.is_none() {
+        // Request a patination: we haven't found a better receipt, but we haven't even
+        // found the latest active receipt!
+        result.request_pagination = true;
+
+        // In the meanwhile, reuse the latest active receipt, if any.
+        result.receipt = latest_active.map(|event_id| {
+            // The only time when we can run into this is because we didn't find a more recent receipt,
+            // and the previously active one wasn't loaded in the linked chunk. In this case, every
+            // event currently loaded in the linked chunk will be processed in `process_event()`.
+            trace!(%event_id, "reusing previous active receipt (but we didn't find it in the linked chunk)");
+            event_id.to_owned()
+        });
+    }
+
+    result
 }
 
 /// Given a set of events coming from sync, for a room, update the
@@ -343,27 +366,24 @@ pub(crate) fn compute_unread_counts(
 ) {
     debug!(?read_receipts, "Starting");
 
-    let new_receipt = select_best_receipt(
+    let select_best_receipt_result = select_best_receipt(
         user_id,
         linked_chunk,
         &mut read_receipts.pending,
         receipt_event,
         read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
         with_threading_support,
-    )
-    .map(|event_id| LatestReadReceipt { event_id });
+    );
 
-    if let Some(new_receipt) = new_receipt {
+    if let Some(event_id) = select_best_receipt_result.receipt {
         // We've found the id of an event to which the receipt attaches. The associated
         // event may either come from the new batch of events associated to
         // this sync, or it may live in the past timeline events we know
         // about.
 
-        let event_id = new_receipt.event_id.clone();
-
         // First, save the event id as the latest one that has a read receipt.
         trace!(%event_id, "Saving a new active read receipt");
-        read_receipts.latest_active = Some(new_receipt);
+        read_receipts.latest_active = Some(LatestReadReceipt { event_id: event_id.clone() });
 
         // The event for the receipt is in the linked chunk, so we'll find it and can
         // count safely from here.
@@ -844,9 +864,11 @@ mod tests {
             active_receipt,
             with_threading_support,
         );
-        assert!(result.is_none());
+        assert!(result.receipt.is_none());
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
+        // In this case, select_best_receipt will request a pagination.
+        assert!(result.request_pagination);
     }
 
     #[test]
@@ -881,9 +903,11 @@ mod tests {
             active_receipt,
             with_threading_support,
         );
-        assert_eq!(result.unwrap(), event_id!("$2"));
+        assert_eq!(result.receipt.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
+        // We don't need to paginate, as we found a receipt in the linked chunk.
+        assert!(result.request_pagination.not());
     }
 
     #[test]
@@ -918,9 +942,11 @@ mod tests {
             active_receipt,
             with_threading_support,
         );
-        assert_eq!(result.unwrap(), event_id!("$2"));
+        assert_eq!(result.receipt.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
+        // We don't need to paginate, as we found a receipt in the linked chunk.
+        assert!(result.request_pagination.not());
     }
 
     #[test]
@@ -960,9 +986,11 @@ mod tests {
             active_receipt,
             with_threading_support,
         );
-        assert_eq!(result.unwrap(), event_id!("$2"));
+        assert_eq!(result.receipt.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
         assert!(pending_receipts.is_empty());
+        // We don't need to paginate, as we found a receipt in the linked chunk.
+        assert!(result.request_pagination.not());
     }
 
     #[test]
@@ -1003,10 +1031,13 @@ mod tests {
             with_threading_support,
         );
 
-        assert!(result.is_none());
+        assert!(result.receipt.is_none());
         // And there's a new pending receipt for $4.
         assert_eq!(pending_receipts.len(), 1);
         assert_eq!(pending_receipts.get(0).unwrap(), event_id!("$4"));
+        // We would need to paginate, as we haven't found a better receipt in the linked
+        // chunk.
+        assert!(result.request_pagination);
     }
 
     #[test]
@@ -1043,9 +1074,11 @@ mod tests {
             active_receipt,
             with_threading_support,
         );
-        assert_eq!(result.unwrap(), event_id!("$2"));
+        assert_eq!(result.receipt.unwrap(), event_id!("$2"));
         // And there are no more pending receipts.
         assert!(pending_receipts.is_empty());
+        // We don't need to paginate, as we found a receipt in the linked chunk.
+        assert!(result.request_pagination.not());
     }
 
     #[test]
@@ -1093,12 +1126,15 @@ mod tests {
             active_receipt,
             with_threading_support,
         );
-        assert_eq!(result.unwrap(), event_id!("$4"));
+        assert_eq!(result.receipt.unwrap(), event_id!("$4"));
 
         // Receipt 6 is still pending, and there's a new pending receipt for 7 too. ($2
         // has been cleaned because it has been seen).
         assert_eq!(pending_receipts.len(), 2);
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$6")));
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$7")));
+
+        // We don't need to paginate, as we found a receipt in the linked chunk.
+        assert!(result.request_pagination.not());
     }
 }
