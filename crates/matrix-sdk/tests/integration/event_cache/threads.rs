@@ -58,7 +58,7 @@ async fn client_with_threading_support(server: &MatrixMockServer) -> Client {
 }
 
 #[async_test]
-async fn test_thread_can_paginate_even_if_seen_sync_event() {
+async fn test_thread_contains_its_root_event() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
 
@@ -88,13 +88,12 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
     let (thread_events, mut thread_stream) =
         room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await.unwrap();
 
-    // Sanity check: the sync event is added to the thread.
+    // Sanity check: the event is added to the thread via the sync.
     let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
     assert_eq!(thread_events.len(), 1);
     assert_eq!(thread_events.remove(0).event_id().as_deref(), Some(thread_resp_id));
 
-    // It's possible to paginate the thread, and this will push the thread root
-    // because there's no prev-batch token.
+    // Paginating the thread will return no more events.
     server
         .mock_room_relations()
         .match_target_event(thread_root_id.to_owned())
@@ -103,6 +102,8 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
         .mount()
         .await;
 
+    // So, technically, since the thread root will be added to the thread itself,
+    // the `/room/…/event` endpoint will be hit for the thread root event.
     server
         .mock_room_event()
         .match_event_id()
