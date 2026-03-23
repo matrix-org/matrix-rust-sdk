@@ -19,6 +19,8 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks may no longer
   reference chunk identifiers which do not yet exist in the store
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
+- Support compiling to `wasm32-unknown-unknown` target + bump [rusqlite](https://github.com/rusqlite/rusqlite/releases/tag/v0.38.0) version to `0.38`
+  ([#6329](https://github.com/matrix-org/matrix-rust-sdk/pull/6329))
 
 ### Bug Fixes
 
