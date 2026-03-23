@@ -125,10 +125,16 @@ uniffi::setup_scaffolding!();
 #[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum TrustRequirement {
     /// Decrypt events from everyone regardless of trust.
+    ///
+    /// Not recommended, per the guidance of [MSC4153].
+    ///
+    /// [MSC4153]: https://github.com/matrix-org/matrix-doc/pull/4153
     Untrusted,
+
     /// Only decrypt events from cross-signed devices or legacy sessions (Megolm
     /// sessions created before we started collecting trust information).
     CrossSignedOrLegacy,
+
     /// Only decrypt events from cross-signed devices.
     CrossSigned,
 }
