@@ -268,16 +268,11 @@ async fn test_deduplication() {
     // No updates on the stream.
     assert!(thread_stream.is_empty());
 
-    // We receive a sync with the same tail events.
+    // We receive a sync with the same tail event.
     server
         .sync_room(
             &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
-                f.text_msg("hoy!")
-                    .in_thread(thread_root, first_reply_event_id)
-                    .event_id(second_reply_event_id)
-                    .into_raw_sync(),
-            ]),
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![second_reply.clone().cast()]),
         )
         .await;
 
