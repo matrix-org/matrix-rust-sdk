@@ -455,6 +455,7 @@ impl TimelineAction {
                         geo_uri: content.location.uri,
                         ts: content.ts,
                         description: content.location.description,
+                        encryption_info: None, // Filled in later from the event context.
                     },
                 },
             },
@@ -633,7 +634,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 HandleAggregationKind::PollEnd => {
                     self.handle_poll_end(related_event);
                 }
-                HandleAggregationKind::BeaconUpdate { location } => {
+                HandleAggregationKind::BeaconUpdate { mut location } => {
+                    // Propagate the encryption info from the event context into
+                    // the beacon location update so it can be inspected later
+                    // (e.g. for shield state computation).
+                    let encryption_info = as_variant!(
+                        &self.ctx.flow,
+                        Flow::Remote { encryption_info, .. } => encryption_info.clone()
+                    )
+                    .flatten();
+                    location.encryption_info = encryption_info;
+
                     self.handle_beacon_update(related_event, location);
                 }
                 HandleAggregationKind::BeaconStop { content } => {

@@ -12,9 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::OwnedUserId;
+use ruma::{OwnedUserId, events::rtc::notification::CallIntent};
 
 use super::Room;
+
+/// Represents the consensus state of call intent among room members.
+/// Call members can advertise their intent to use audio or video, clients can
+/// use this in the UI and also to decide to start camera or not when joining.
+///
+/// This enum distinguishes between full consensus (all members advertise and
+/// agree), partial consensus (only some members advertise, but those who do
+/// agree), and no consensus (either no one advertises or advertisers disagree).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallIntentConsensus {
+    /// All members advertise and agree
+    Full(CallIntent),
+    /// Some members advertise and agree
+    Partial {
+        /// The call intent that advertising members agree on.
+        intent: CallIntent,
+        /// Number of members advertising and agreeing on this intent.
+        agreeing_count: u64,
+        /// Total number of members in the call.
+        total_count: u64,
+    },
+    /// No consensus. No one advertises or advertisers disagree.
+    None,
+}
 
 impl Room {
     /// Is there a non expired membership with application `m.call` and scope
@@ -34,6 +58,12 @@ impl Room {
     pub fn active_room_call_participants(&self) -> Vec<OwnedUserId> {
         self.info.read().active_room_call_participants()
     }
+
+    /// Get the consensus call intent for the current call, based on what
+    /// members are advertising.
+    pub fn active_room_call_consensus_intent(&self) -> CallIntentConsensus {
+        self.info.read().active_room_call_consensus_intent()
+    }
 }
 
 #[cfg(test)]
@@ -51,6 +81,7 @@ mod tests {
                 CallMemberEventContent, CallMemberStateKey, Focus, LegacyMembershipData,
                 LegacyMembershipDataInit, LivekitFocus,
             },
+            rtc::notification::CallIntent,
         },
         room_id,
         serde::Raw,
@@ -59,7 +90,10 @@ mod tests {
     };
     use similar_asserts::assert_eq;
 
-    use super::super::{Room, RoomState};
+    use super::{
+        super::{Room, RoomState},
+        CallIntentConsensus,
+    };
     use crate::{store::MemoryStore, utils::RawStateEventWithKeys};
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -123,10 +157,22 @@ mod tests {
         user_id: &UserId,
         init_data: Option<InitData<'_>>,
     ) -> Raw<AnySyncStateEvent> {
-        let application = Application::Call(CallApplicationContent::new(
+        session_member_state_event_with_intent(ev_id, user_id, init_data, None)
+    }
+
+    fn session_member_state_event_with_intent(
+        ev_id: &EventId,
+        user_id: &UserId,
+        init_data: Option<InitData<'_>>,
+        call_intent: Option<CallIntent>,
+    ) -> Raw<AnySyncStateEvent> {
+        let mut app_content = CallApplicationContent::new(
             "my_call_id_1".to_owned(),
             ruma::events::call::member::CallScope::Room,
-        ));
+        );
+        app_content.call_intent = call_intent;
+
+        let application = Application::Call(app_content);
         let foci_preferred = vec![Focus::Livekit(LivekitFocus::new(
             "my_call_foci_alias".to_owned(),
             "https://lk.org".to_owned(),
@@ -281,5 +327,122 @@ mod tests {
         // We have no active call anymore after emptying the memberships
         assert_eq!(Vec::<OwnedUserId>::new(), room.active_room_call_participants());
         assert!(!room.has_active_room_call());
+    }
+
+    fn consensus_setup(
+        alice_intent: Option<CallIntent>,
+        bob_intent: Option<CallIntent>,
+        call_intent: Option<CallIntent>,
+    ) -> Vec<Raw<AnySyncStateEvent>> {
+        let alice_membership = session_member_state_event_with_intent(
+            event_id!("$1"),
+            user_id!("@alice:server.name"),
+            InitData { device_id: device_id!("AAA0"), minutes_ago: 1 }.into(),
+            alice_intent,
+        );
+        let bob_membership = session_member_state_event_with_intent(
+            event_id!("$1"),
+            user_id!("@bob:server.name"),
+            InitData { device_id: device_id!("BAA0"), minutes_ago: 1 }.into(),
+            bob_intent,
+        );
+        let carl_membership = session_member_state_event_with_intent(
+            event_id!("$2"),
+            user_id!("@carl:server.name"),
+            InitData { device_id: device_id!("CAA0"), minutes_ago: 1 }.into(),
+            call_intent,
+        );
+        vec![alice_membership, bob_membership, carl_membership]
+    }
+
+    #[test]
+    fn test_consensus_intent() {
+        let test_cases = vec![
+            // (alice_intent, bob_intent, carl_intent, expected_consensus, description)
+            (None, None, None, CallIntentConsensus::None, "no intents"),
+            (
+                Some(CallIntent::Audio),
+                None,
+                None,
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Audio,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 1",
+            ),
+            (
+                None,
+                Some(CallIntent::Audio),
+                None,
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Audio,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 2",
+            ),
+            (
+                None,
+                None,
+                Some(CallIntent::Audio),
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Audio,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 3",
+            ),
+            (
+                None,
+                None,
+                Some(CallIntent::Video),
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Video,
+                    agreeing_count: 1,
+                    total_count: 3,
+                },
+                "one intent 4",
+            ),
+            (
+                None,
+                Some(CallIntent::Video),
+                Some(CallIntent::Video),
+                CallIntentConsensus::Partial {
+                    intent: CallIntent::Video,
+                    agreeing_count: 2,
+                    total_count: 3,
+                },
+                "two matching intents",
+            ),
+            (
+                Some(CallIntent::Video),
+                Some(CallIntent::Video),
+                Some(CallIntent::Video),
+                CallIntentConsensus::Full(CallIntent::Video),
+                "all agree",
+            ),
+            (
+                Some(CallIntent::Video),
+                None,
+                Some(CallIntent::Audio),
+                CallIntentConsensus::None,
+                "disagreement",
+            ),
+            (
+                Some(CallIntent::Video),
+                Some(CallIntent::Video),
+                Some(CallIntent::Audio),
+                CallIntentConsensus::None,
+                "disagreement 2",
+            ),
+        ];
+
+        for (alice, bob, carl, expected, description) in test_cases {
+            let (_, room) = make_room_test_helper(RoomState::Joined);
+            receive_state_events(&room, consensus_setup(alice, bob, carl));
+            let consensus_intent = room.active_room_call_consensus_intent();
+            assert_eq!(expected, consensus_intent, "Failed case: {}", description);
+        }
     }
 }

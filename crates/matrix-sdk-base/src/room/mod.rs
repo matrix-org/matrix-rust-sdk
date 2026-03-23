@@ -31,6 +31,7 @@ use std::{
     sync::Arc,
 };
 
+pub use call::CallIntentConsensus;
 pub use create::*;
 pub use display_name::{RoomDisplayName, RoomHero};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
