@@ -108,9 +108,10 @@ use ruma::{
     },
     serde::Raw,
 };
+use tokio::sync::mpsc::Sender;
 use tracing::{debug, instrument, trace, warn};
 
-use crate::event_cache::caches::event_linked_chunk::EventLinkedChunk;
+use crate::event_cache::{caches::event_linked_chunk::EventLinkedChunk, tasks::BackgroundRequest};
 
 trait RoomReadReceiptsExt {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
@@ -363,6 +364,7 @@ pub(crate) fn compute_unread_counts(
     linked_chunk: &EventLinkedChunk,
     read_receipts: &mut RoomReadReceipts,
     with_threading_support: bool,
+    background_request_sender: Option<&Sender<BackgroundRequest>>,
 ) {
     debug!(?read_receipts, "Starting");
 
@@ -374,6 +376,18 @@ pub(crate) fn compute_unread_counts(
         read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
         with_threading_support,
     );
+
+    if select_best_receipt_result.request_pagination {
+        trace!("Requesting pagination to find a better receipt");
+        // Note: we use `try_send` here to keep the method sync, as computing the
+        // perfect receipt is best effort.
+        if let Some(sender) = background_request_sender
+            && let Err(err) = sender
+                .try_send(BackgroundRequest::PaginateRoomBackwards { room_id: room_id.to_owned() })
+        {
+            warn!(%err, "Failed to request pagination to find a better receipt");
+        }
+    }
 
     if let Some(event_id) = select_best_receipt_result.receipt {
         // We've found the id of an event to which the receipt attaches. The associated
