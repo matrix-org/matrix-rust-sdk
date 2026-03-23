@@ -49,7 +49,10 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{
+    broadcast::{Receiver, Sender},
+    mpsc,
+};
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
@@ -71,7 +74,11 @@ use super::{
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{Room, event_cache::caches::pagination::SharedPaginationStatus, room::WeakRoom};
+use crate::{
+    Room,
+    event_cache::{caches::pagination::SharedPaginationStatus, tasks::BackgroundRequest},
+    room::WeakRoom,
+};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -141,6 +148,10 @@ pub struct RoomEventCacheState {
     /// An atomic count of the current number of subscriber of the
     /// [`super::RoomEventCache`].
     subscriber_count: Arc<AtomicUsize>,
+
+    /// A notifier to trigger backpagination under certain predefined
+    /// conditions.
+    background_request_sender: Option<mpsc::Sender<BackgroundRequest>>,
 }
 
 impl RoomEventCacheState {
@@ -301,6 +312,7 @@ impl LockedRoomEventCacheState {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
         pagination_status: SharedObservable<SharedPaginationStatus>,
+        background_request_sender: Option<mpsc::Sender<BackgroundRequest>>,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
@@ -383,6 +395,7 @@ impl LockedRoomEventCacheState {
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
             pinned_event_cache: OnceLock::new(),
+            background_request_sender,
         }))
     }
 }
