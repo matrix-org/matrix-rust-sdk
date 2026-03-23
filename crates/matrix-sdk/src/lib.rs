@@ -21,8 +21,8 @@
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
-    EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
+    CallIntentConsensus, ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent,
+    DraftThumbnail, EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomRecencyStamp, RoomState, SessionMeta,
     StateChanges, StateStore, StoreError, SuccessorRoom, ThreadingSupport, deserialized_responses,
