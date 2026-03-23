@@ -23,7 +23,7 @@ struct FuzzyMatcher {
 
 impl FuzzyMatcher {
     fn new() -> Self {
-        Self { matcher: SkimMatcherV2::default().smart_case().use_cache(true), pattern: None }
+        Self { matcher: SkimMatcherV2::default().ignore_case().use_cache(true), pattern: None }
     }
 
     fn with_pattern(mut self, pattern: &str) -> Self {
@@ -90,23 +90,12 @@ mod tests {
         let matcher = FuzzyMatcher::new();
 
         let matcher = matcher.with_pattern("mtx");
+        assert!(matcher.matches("matrix"));
         assert!(matcher.matches("MaTrIX"));
 
-        let matcher = matcher.with_pattern("mxt");
-        assert!(matcher.matches("MaTrIX").not());
-    }
-
-    #[test]
-    fn test_smart_case() {
-        let matcher = FuzzyMatcher::new();
-
-        let matcher = matcher.with_pattern("mtx");
-        assert!(matcher.matches("matrix"));
-        assert!(matcher.matches("Matrix"));
-
         let matcher = matcher.with_pattern("Mtx");
-        assert!(matcher.matches("matrix").not());
-        assert!(matcher.matches("Matrix"));
+        assert!(matcher.matches("matrix"));
+        assert!(matcher.matches("MaTrIX"));
     }
 
     #[test]
