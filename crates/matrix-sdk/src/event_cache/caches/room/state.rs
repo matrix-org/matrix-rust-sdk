@@ -1046,9 +1046,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        let state = &mut *self.state;
-        let user_id = &state.own_user_id;
-        let room_id = &state.room_id;
+        let user_id = &self.state.own_user_id;
+        let room_id = &self.state.room_id;
 
         let mut room_info = room.clone_info();
         let prev_read_receipts = room_info.read_receipts().clone();
@@ -1058,9 +1057,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             user_id,
             room_id,
             receipt_event,
-            &state.room_linked_chunk,
+            &self.state.room_linked_chunk,
             &mut read_receipts,
-            state.enabled_thread_support,
+            self.state.enabled_thread_support,
+            self.state.background_request_sender.as_ref(),
         );
 
         if prev_read_receipts != read_receipts {
