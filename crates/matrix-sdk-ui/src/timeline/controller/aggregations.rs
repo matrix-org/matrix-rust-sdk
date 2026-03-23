@@ -57,6 +57,7 @@ use super::{ObservableItemsTransaction, rfind_event_by_item_id};
 use crate::timeline::{
     BeaconInfo, EventTimelineItem, LiveLocationState, MsgLikeContent, MsgLikeKind, PollState,
     ReactionInfo, ReactionStatus, TimelineEventItemId, TimelineItem, TimelineItemContent,
+    event_item::beacon_info_matches,
 };
 
 #[derive(Clone)]
@@ -425,17 +426,10 @@ pub(crate) struct Aggregations {
     /// A pending beacon-stop aggregation received before the corresponding live
     /// `beacon_info` start item has arrived.
     ///
-    /// Keyed by the sender's user ID (the state key of both the start and stop
-    /// `beacon_info` events). At most one stop can be pending per sender at any
-    /// time: `beacon_info` is a state event whose state key is the sender's
-    /// user ID, so there is only ever one live session per sender, and
-    /// therefore only one meaningful pending stop. A later stop simply
-    /// replaces an earlier one.
-    ///
-    /// When the live start item is eventually inserted via `add_item`, the
-    /// entry here is promoted into [`Self::related_events`] under the
-    /// now-known start event ID so that [`Self::apply_all`] can apply the
-    /// stop immediately.
+    /// Keyed by the sender's user ID. When a live start item is eventually
+    /// inserted via `add_item`, we check if the pending stop matches and
+    /// promote it into [`Self::related_events`] so that [`Self::apply_all`]
+    /// can apply it immediately.
     pending_beacon_stops: HashMap<OwnedUserId, Aggregation>,
 }
 
@@ -452,21 +446,41 @@ impl Aggregations {
     /// [`Self::related_events`] (and thus picked up by [`Self::apply_all`])
     /// when the live item is inserted via
     /// [`Self::promote_pending_beacon_stop`].
-    ///
-    /// If a stop was already stashed for this sender, the new one replaces it:
-    /// the later state event is always authoritative.
     pub fn add_pending_beacon_stop(&mut self, sender: OwnedUserId, aggregation: Aggregation) {
         self.pending_beacon_stops.insert(sender, aggregation);
     }
 
-    /// Promote any stashed beacon-stop aggregations for `sender` into the
+    /// Promote a matching stashed beacon-stop aggregation for `sender` into the
     /// regular aggregation map, now that the live start item's
     /// `target_event_id` is known.
     ///
+    /// The pending stop's content must match the start event's content (except
+    /// for the `live` field) for promotion to occur. If they don't match, the
+    /// pending stop is discarded because it belongs to a different session.
+    ///
     /// Should be called from `add_item` just before `apply_all`, when inserting
     /// a live `beacon_info` item.
-    fn promote_pending_beacon_stop(&mut self, sender: &OwnedUserId, target_event_id: OwnedEventId) {
+    fn promote_pending_beacon_stop(
+        &mut self,
+        sender: &OwnedUserId,
+        target_event_id: OwnedEventId,
+        start_content: &BeaconInfoEventContent,
+    ) {
+        if !start_content.live {
+            return;
+        }
+
         let Some(stop) = self.pending_beacon_stops.remove(sender) else { return };
+
+        let AggregationKind::BeaconStop { content: stop_content } = &stop.kind else {
+            warn!("pending beacon stop has unexpected aggregation kind");
+            return;
+        };
+
+        if !beacon_info_matches(start_content, stop_content) {
+            trace!("discarding stale pending beacon stop (content mismatch)");
+            return;
+        }
 
         let target = TimelineEventItemId::EventId(target_event_id);
         self.add(target, stop);
@@ -620,8 +634,14 @@ impl Aggregations {
         // in `pending_beacon_stops` keyed by sender. Promote it into
         // `related_events` under the now-known start event ID so the loop below
         // applies it together with any other pending aggregations.
-        if let TimelineEventItemId::EventId(event_id) = item_id {
-            self.promote_pending_beacon_stop(sender, event_id.clone());
+        //
+        // The promotion verifies that the pending stop's content matches the
+        // start event's content to ensure we don't apply an old stop to a new
+        // session.
+        if let TimelineEventItemId::EventId(event_id) = item_id
+            && let Some(live_location) = event.content().as_live_location_state()
+        {
+            self.promote_pending_beacon_stop(sender, event_id.clone(), &live_location.beacon_info);
         }
 
         let Some(aggregations) = self.related_events.get(item_id) else {

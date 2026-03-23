@@ -338,6 +338,8 @@ impl TimelineAction {
                             // existing live item from the same sender rather than creating a
                             // new timeline item.
                             Self::HandleAggregation {
+                                // There is no explicit relates_to on a beacon_info state event;
+                                // the target is identified by sender in handle_beacon_stop.
                                 related_event: ev.event_id,
                                 kind: HandleAggregationKind::BeaconStop { content: ev.content },
                             }
@@ -772,27 +774,30 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// Handle a stop `beacon_info` state event by finding the existing live
     /// `LiveLocation` timeline item from the same sender and updating it via
     /// the aggregation system.
+    ///
+    /// The stop event's content must match the start item's content (except for
+    /// the `live` field) to ensure we apply the stop to the correct session.
     #[instrument(skip(self, content))]
     fn handle_beacon_stop(&mut self, content: BeaconInfoEventContent) {
         let sender = &self.ctx.sender;
+
+        // Find the live start item by sender and matching content.
+        let target_event_id = super::algorithms::rfind_event_item(self.items, |item| {
+            item.sender() == sender
+                && item.content().as_live_location_state().is_some_and(|s| s.matches_stop(&content))
+        })
+        .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned));
 
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::BeaconStop { content },
         );
 
-        // The stop beacon_info has no explicit `relates_to`; find the target
-        // live item by matching sender and liveness, then extract its event ID
-        // so we can address the aggregation correctly.
-        let Some(target_event_id) = super::algorithms::rfind_event_item(self.items, |item| {
-            item.sender() == sender
-                && item.content().as_live_location_state().is_some_and(|s| s.is_live())
-        })
-        .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned)) else {
-            // The live start item hasn't arrived yet. Stash the stop so it can
-            // be applied when the start item is eventually inserted.
+        let Some(target_event_id) = target_event_id else {
+            // The live start item hasn't arrived yet (or the content doesn't match).
+            // Stash the stop so it can be applied when the matching start item arrives.
             trace!(
-                "no live beacon_info item found for {sender}; \
+                "no matching live beacon_info item found for {sender}; \
                  stashing stop event to apply when the start item arrives"
             );
             self.meta.aggregations.add_pending_beacon_stop(sender.clone(), aggregation);

@@ -49,7 +49,8 @@ pub use self::{
 };
 pub(super) use self::{
     content::{
-        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+        beacon_info_matches, extract_bundled_edit_event_json, extract_poll_edit_content,
+        extract_room_msg_edit_content,
     },
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
