@@ -409,15 +409,41 @@ pub struct EventCacheConfig {
     ///
     /// Off by default.
     pub experimental_auto_backpagination: bool,
+
+    /// The maximum number of allowed room paginations, for a given room, that
+    /// can be executed in the background request task.
+    ///
+    /// After that number of paginations, the task will stop executing
+    /// paginations for that room *in the background* (user-requested
+    /// paginations will still be executed, of course).
+    ///
+    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_CREDITS`].
+    pub room_pagination_per_room_credit: usize,
+
+    /// The number of messages to paginate in a single batch, when executing a
+    /// background pagination request.
+    ///
+    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_BATCH_SIZE`].
+    pub room_pagination_batch_size: u16,
 }
 
 impl EventCacheConfig {
     /// The default maximum number of pinned events to load.
-    const DEFAULT_MAX_EVENTS_TO_LOAD: usize = 128;
+    pub const DEFAULT_MAX_EVENTS_TO_LOAD: usize = 128;
 
     /// The default maximum number of concurrent requests to perform when
     /// loading the pinned events.
-    const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
+    pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
+
+    /// The default number of credits to give to a room for background
+    /// paginations (see also
+    /// [`EventCacheConfig::room_pagination_per_room_credit`]).
+    pub const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
+
+    /// The default number of messages to paginate in a single batch, when
+    /// executing a background pagination request (see also
+    /// [`EventCacheConfig::room_pagination_batch_size`]).
+    pub const DEFAULT_ROOM_PAGINATION_BATCH_SIZE: u16 = 30;
 }
 
 impl Default for EventCacheConfig {
@@ -425,6 +451,8 @@ impl Default for EventCacheConfig {
         Self {
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
+            room_pagination_per_room_credit: Self::DEFAULT_ROOM_PAGINATION_CREDITS,
+            room_pagination_batch_size: Self::DEFAULT_ROOM_PAGINATION_BATCH_SIZE,
             experimental_auto_backpagination: false,
         }
     }

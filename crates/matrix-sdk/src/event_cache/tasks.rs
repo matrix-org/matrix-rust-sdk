@@ -93,18 +93,6 @@ pub(crate) enum BackgroundRequest {
     PaginateRoomBackwards { room_id: OwnedRoomId },
 }
 
-/// The maximum number of allowed room paginations, for a given room, that can
-/// be executed in the background request task.
-///
-/// After that number of paginations, the task will stop executing paginations
-/// for that room *in the background* (user-requested paginations will still be
-/// executed, of course).
-const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
-
-/// The number of messages to paginate in a single batch, when executing a
-/// background pagination request.
-const DEFAULT_BACKGROUND_PAGINATION_SIZE: u16 = 30;
-
 /// Listen to background requests, and execute them in real-time.
 #[instrument(skip_all)]
 pub(super) async fn background_requests_task(
@@ -118,9 +106,11 @@ pub(super) async fn background_requests_task(
     while let Some(request) = receiver.recv().await {
         match request {
             BackgroundRequest::PaginateRoomBackwards { room_id } => {
+                let config = *inner.config.read().unwrap();
+
                 let credits = room_pagination_credits
                     .entry(room_id.clone())
-                    .or_insert(DEFAULT_ROOM_PAGINATION_CREDITS);
+                    .or_insert(config.room_pagination_per_room_credit);
 
                 if *credits == 0 {
                     trace!(for_room = %room_id, "No more credits to paginate this room in the background, skipping");
@@ -137,7 +127,7 @@ pub(super) async fn background_requests_task(
 
                 trace!(for_room = %room_id, "automatic backpagination triggered");
 
-                match pagination.run_backwards_once(DEFAULT_BACKGROUND_PAGINATION_SIZE).await {
+                match pagination.run_backwards_once(config.room_pagination_batch_size).await {
                     Ok(outcome) => {
                         // Background requests must be idempotent, so we only decrement credits if
                         // we actually paginated something new.
