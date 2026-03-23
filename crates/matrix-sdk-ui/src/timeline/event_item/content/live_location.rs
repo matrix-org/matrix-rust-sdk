@@ -148,4 +148,21 @@ impl LiveLocationState {
         assert!(!beacon_info.is_live(), "A stop `beacon_info` event must not be live.");
         self.beacon_info = beacon_info;
     }
+
+    /// Check if a stop `beacon_info` matches this session.
+    ///
+    /// Returns `true` if all fields except `live` match and this session is
+    /// still live. This is used to verify that a stop event belongs to the
+    /// same session as this start event.
+    pub(in crate::timeline) fn matches_stop(&self, stop: &BeaconInfoEventContent) -> bool {
+        self.beacon_info.live && beacon_info_matches(&self.beacon_info, stop)
+    }
+}
+
+/// Check if two `BeaconInfoEventContent` values belong to the same session.
+///
+/// Compares all fields except `live`, which differs between start and stop
+/// events. Returns `true` if all other fields match.
+pub fn beacon_info_matches(a: &BeaconInfoEventContent, b: &BeaconInfoEventContent) -> bool {
+    a.ts == b.ts && a.timeout == b.timeout && a.description == b.description && a.asset == b.asset
 }
