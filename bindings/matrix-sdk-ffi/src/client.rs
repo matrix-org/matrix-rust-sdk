@@ -35,6 +35,7 @@ use matrix_sdk::{
     ruma::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
+            account::request_openid_token,
             discovery::{
                 discover_homeserver::RtcFocusInfo,
                 get_authorization_server_metadata::v1::Prompt as RumaOidcPrompt,
@@ -312,6 +313,28 @@ impl From<matrix_sdk::TransmissionProgress> for TransmissionProgress {
         Self {
             current: value.current.try_into().unwrap_or(u64::MAX),
             total: value.total.try_into().unwrap_or(u64::MAX),
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct OpenIdToken {
+    pub access_token: String,
+    pub token_type: String,
+    pub matrix_server_name: String,
+    pub expires_in_seconds: u64,
+}
+
+impl From<request_openid_token::v3::Response> for OpenIdToken {
+    fn from(value: request_openid_token::v3::Response) -> Self {
+        Self {
+            access_token: value.access_token,
+            token_type: serde_json::to_value(&value.token_type)
+                .ok()
+                .and_then(|value| value.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| format!("{:?}", value.token_type)),
+            matrix_server_name: value.matrix_server_name.to_string(),
+            expires_in_seconds: value.expires_in.as_secs(),
         }
     }
 }
@@ -1213,6 +1236,10 @@ impl Client {
         let display_name =
             self.inner.account().get_display_name().await?.context("No User ID found")?;
         Ok(display_name)
+    }
+
+    pub async fn get_openid_token(&self) -> Result<OpenIdToken, ClientError> {
+        Ok(self.inner.account().request_openid_token().await?.into())
     }
 
     pub async fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
@@ -3117,14 +3144,17 @@ pub struct ExtendedProfileFields {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use ruma::{
+        ServerName, authentication::TokenType,
         api::client::room::{Visibility, create_room},
         events::StateEventType,
         room::RoomType,
     };
 
     use crate::{
-        client::{CreateRoomParameters, JoinRule, RoomPreset, RoomVisibility},
+        client::{CreateRoomParameters, JoinRule, OpenIdToken, RoomPreset, RoomVisibility},
         room::RoomHistoryVisibility,
     };
 
@@ -3175,5 +3205,22 @@ mod tests {
             .expect("Creation content can't be deserialized")
             .room_type;
         assert_eq!(room_type, Some(RoomType::Space));
+    }
+
+    #[test]
+    fn test_openid_token_mapping() {
+        let response = ruma::api::client::account::request_openid_token::v3::Response::new(
+            "open-id-token".to_owned(),
+            TokenType::Bearer,
+            ServerName::parse("example.com").expect("valid server name").to_owned(),
+            Duration::from_secs(3_600),
+        );
+
+        let token: OpenIdToken = response.into();
+
+        assert_eq!(token.access_token, "open-id-token");
+        assert_eq!(token.token_type, "Bearer");
+        assert_eq!(token.matrix_server_name, "example.com");
+        assert_eq!(token.expires_in_seconds, 3_600);
     }
 }
