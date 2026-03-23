@@ -31,7 +31,7 @@ use std::{
     collections::HashMap,
     fmt,
     ops::{Deref, DerefMut},
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, RwLock as StdRwLock},
 };
 
 use futures_util::future::try_join_all;
@@ -228,7 +228,7 @@ impl EventCache {
         Self {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
-                config: RwLock::new(EventCacheConfig::default()),
+                config: StdRwLock::new(EventCacheConfig::default()),
                 store: event_cache_store,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
@@ -249,13 +249,13 @@ impl EventCache {
 
     /// Get a read-only handle to the global configuration of the
     /// [`EventCache`].
-    pub async fn config(&self) -> impl Deref<Target = EventCacheConfig> + '_ {
-        self.inner.config.read().await
+    pub fn config(&self) -> impl Deref<Target = EventCacheConfig> + '_ {
+        self.inner.config.read().unwrap()
     }
 
     /// Get a writable handle to the global configuration of the [`EventCache`].
-    pub async fn config_mut(&self) -> impl DerefMut<Target = EventCacheConfig> + '_ {
-        self.inner.config.write().await
+    pub fn config_mut(&self) -> impl DerefMut<Target = EventCacheConfig> + '_ {
+        self.inner.config.write().unwrap()
     }
 
     /// Subscribes to updates that a thread subscription has been sent.
@@ -413,7 +413,7 @@ struct EventCacheInner {
     client: WeakClient,
 
     /// Global configuration for the event cache.
-    config: RwLock<EventCacheConfig>,
+    config: StdRwLock<EventCacheConfig>,
 
     /// Reference to the underlying store.
     store: EventCacheStoreLock,
