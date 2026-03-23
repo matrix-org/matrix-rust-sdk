@@ -112,7 +112,7 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
                 }
 
                 TimelineItemContent::MsgLike(MsgLikeContent {
-                    kind: MsgLikeKind::Redacted,
+                    kind: MsgLikeKind::Redacted { .. },
                     ..
                 }) => format!("{sender}: -- redacted --").into(),
 
