@@ -591,6 +591,9 @@ pub(super) async fn search_indexing_task(
 // MatrixMockServer et al. aren't available on wasm.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
+    use std::time::Duration;
+
+    use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id};
     use tokio::sync::mpsc;
@@ -653,6 +656,7 @@ mod tests {
         let sender = event_cache.background_requests_sender().unwrap();
         sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
 
+        // The room pagination happens in the background.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
         );
@@ -669,6 +673,104 @@ mod tests {
         assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
         assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
 
+        // And there's no more updates.
         assert!(room_cache_updates.is_empty());
+    }
+
+    /// Test that the credit system works.
+    #[async_test]
+    async fn test_room_pagination_respects_credits_system() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.config_mut().experimental_auto_backpagination = true;
+
+        // Only allow 1 background pagination per room, to test that the credit system
+        // is properly taken into account.
+        event_cache.config_mut().room_pagination_per_room_credit = 1;
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Starting with an empty, inactive room,
+        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert!(room_events.is_empty());
+        assert!(room_cache_updates.is_empty());
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = room_cache_updates.recv()
+        );
+
+        // Set up the mock for /messages, so that it returns another prev-batch token,
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default()
+                .events(vec![
+                    f.text_msg("comté").event_id(event_id!("$2")),
+                    f.text_msg("beaufort").event_id(event_id!("$1")),
+                ])
+                .end_token("prev_batch_2"))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Send a request for a background pagination,
+        let sender = event_cache.background_requests_sender().unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
+
+        // The room pagination happens in the background.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+        );
+        assert_eq!(update.diffs.len(), 1);
+
+        assert_eq!(update.origin, EventsOrigin::Pagination);
+
+        let mut room_events = room_events.into();
+        for diff in update.diffs {
+            diff.apply(&mut room_events);
+        }
+
+        assert_eq!(room_events.len(), 2);
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
+        assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+
+        // And there's no more updates yet.
+        assert!(room_cache_updates.is_empty());
+
+        // One can send another request to back-paginate…
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
+
+        sleep(Duration::from_millis(300)).await;
+        // But it doesn't happen, because we don't have enough credits for automatic
+        // backpagination.
+        assert!(room_cache_updates.is_empty());
+
+        // We can still manually backpaginate with success, though.
+        server
+            .mock_room_messages()
+            .match_from("prev_batch_2")
+            .ok(RoomMessagesResponseTemplate::default())
+            .mock_once()
+            .mount()
+            .await;
+
+        let outcome = room_event_cache.pagination().run_backwards_once(30).await.unwrap();
+        assert!(outcome.reached_start);
     }
 }
