@@ -1296,7 +1296,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
-            self.replace_event_at(location, target_event).await?;
+            self.replace_event_at(location, target_event.clone()).await?;
 
             // If the redacted event was part of a thread, remove it in the thread linked
             // chunk too, and make sure to update the thread root's summary
@@ -1308,7 +1308,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             if let Some(thread_root) = thread_root
                 && let Some(thread_cache) = self.state.threads.get_mut(&thread_root)
             {
-                thread_cache.remove_if_present(event_id).await?;
+                thread_cache.replace_event_if_present(event_id, target_event).await?;
 
                 // The number of replies may have changed, so update the thread summary if
                 // needs be.

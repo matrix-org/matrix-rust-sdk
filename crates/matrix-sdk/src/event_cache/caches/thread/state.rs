@@ -22,9 +22,10 @@ use matrix_sdk_base::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
 };
-use ruma::{OwnedEventId, OwnedRoomId, OwnedUserId};
+use matrix_sdk_common::executor::spawn;
+use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, trace};
 
 use super::{
     super::{
@@ -33,7 +34,7 @@ use super::{
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::{load_linked_chunk_metadata, send_updates_to_store},
         },
-        TimelineVectorDiffs,
+        EventLocation, TimelineVectorDiffs,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
         lock,
         room::RoomEventCacheLinkedChunkUpdate,
@@ -364,6 +365,76 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         // prev-batch token, and indicate that we're not at the start of the
         // timeline, since we don't know about that anymore.
         self.state.waited_for_initial_prev_token = false;
+
+        Ok(())
+    }
+
+    async fn find_event(&self, event_id: &EventId) -> Result<Option<(EventLocation, Event)>> {
+        // There are supposedly fewer events loaded in memory than in the store. Let's
+        // start by looking up in the `EventLinkedChunk`.
+        for (position, event) in self.thread_linked_chunk.revents() {
+            if event.event_id().as_deref() == Some(event_id) {
+                return Ok(Some((EventLocation::Memory(position), event.clone())));
+            }
+        }
+
+        Ok(self
+            .store
+            .find_event(&self.room_id, event_id)
+            .await?
+            .map(|event| (EventLocation::Store, event)))
+    }
+
+    /// Replaces a single event, be it saved in memory or in the store.
+    ///
+    /// If it was saved in memory, this will emit a notification to
+    /// observers that a single item has been replaced. Otherwise,
+    /// such a notification is not emitted, because observers are
+    /// unlikely to observe the store updates directly.
+    pub async fn replace_event_if_present(
+        &mut self,
+        event_id: &EventId,
+        new_event: Event,
+    ) -> Result<()> {
+        let Some((location, _event)) = self.find_event(event_id).await? else {
+            trace!("redacted event is missing from the thread linked chunk");
+            return Ok(());
+        };
+
+        match location {
+            EventLocation::Memory(position) => {
+                self.state
+                    .thread_linked_chunk
+                    .replace_event_at(position, new_event)
+                    .expect("should have been a valid position of an item");
+                // We just changed the in-memory representation; synchronize this with
+                // the store.
+                self.propagate_changes().await?;
+            }
+            EventLocation::Store => {
+                self.save_events([new_event]).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Save events into the database, without notifying observers.
+    pub async fn save_events(&mut self, events: impl IntoIterator<Item = Event>) -> Result<()> {
+        let store = self.store.clone();
+        let room_id = self.state.room_id.clone();
+        let events = events.into_iter().collect::<Vec<_>>();
+
+        // Spawn a task so the save is uninterrupted by task cancellation.
+        spawn(async move {
+            for event in events {
+                store.save_event(&room_id, event).await?;
+            }
+
+            Result::Ok(())
+        })
+        .await
+        .expect("joining failed")?;
 
         Ok(())
     }
