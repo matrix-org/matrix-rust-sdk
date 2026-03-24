@@ -612,6 +612,10 @@ async fn test_history_sharing_session_merging() -> Result<()> {
         .await
         .expect("Bob should be able to accept the invitation from Alice");
 
+    // Bob syncs immediately after joining to ensure later syncs aren't limited,
+    // which would invalidate the room member list.
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
     // 2. Bob sends a message, which Alice should receive
     let bob_send_test_event = async |event_content: &str| {
         let bob_event_id = bob_room
