@@ -1037,8 +1037,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         let user_id = &state.own_user_id;
         let room_id = &state.room_id;
 
-        let room_info = room.clone_info();
-        let prev_read_receipts = room_info.read_receipts().clone();
+        let prev_read_receipts = room.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
 
         compute_unread_counts(
