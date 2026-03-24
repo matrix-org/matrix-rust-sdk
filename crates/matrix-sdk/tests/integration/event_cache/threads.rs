@@ -708,8 +708,15 @@ async fn test_redact_touches_threads() {
         assert_eq!(summary.num_replies, 2);
     }
 
-    assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp1));
-    assert_eq!(room_events[2].event_id().as_ref(), Some(&thread_resp2));
+    // Second event.
+    {
+        assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp1));
+    }
+
+    // Third event.
+    {
+        assert_eq!(room_events[2].event_id().as_ref(), Some(&thread_resp2));
+    }
 
     assert!(thread_stream.is_empty());
     assert!(room_stream.is_empty());
@@ -724,17 +731,21 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
-    // The redaction affects the thread cache: it *removes* the redacted event.
+    // The redaction affects the thread cache: it updates the redacted event.
     {
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
         assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
+
+        assert_let!(VectorDiff::Set { index: 1, value: new_event } = &diffs[0]);
+
+        let deserialized = new_event.raw().deserialize().unwrap();
+        assert!(deserialized.is_redacted());
 
         assert!(thread_stream.is_empty());
     }
 
     // The redaction affects the room cache too:
-    // - the redaction event is pushed to the room history,
+    // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted,
     // - the thread summary is updated correctly.
     {
@@ -745,9 +756,11 @@ async fn test_redact_touches_threads() {
         assert_eq!(diffs.len(), 3);
 
         // The redaction event is appended to the room cache.
-        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
-        assert_eq!(new_events.len(), 1);
-        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp1_redaction));
+        {
+            assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+            assert_eq!(new_events.len(), 1);
+            assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp1_redaction));
+        }
 
         // The room event is redacted.
         {
@@ -776,17 +789,21 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
-    // The redaction affects the thread cache: it *removes* the redacted event.
+    // The redaction affects the thread cache: it updates the redacted event.
     {
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
         assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
+
+        assert_let!(VectorDiff::Set { index: 2, value: new_event } = &diffs[0]);
+
+        let deserialized = new_event.raw().deserialize().unwrap();
+        assert!(deserialized.is_redacted());
 
         assert!(thread_stream.is_empty());
     }
 
     // The redaction affects the room cache too:
-    // - the redaction event is pushed to the room history,
+    // - the redaction event is added to the “timeline”,
     // - the redaction's target is, well, redacted,
     // - the thread summary is removed from the thread root.
     {

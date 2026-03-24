@@ -159,22 +159,21 @@ impl ThreadEventCache {
         Ok(())
     }
 
-    /// Remove an event from an thread event linked chunk, if it exists.
+    /// Replaces a single event, be it saved in memory or in the store.
     ///
-    /// If the event has been found and removed, then an update will be
-    /// propagated to observers.
-    pub(super) async fn remove_if_present(&mut self, event_id: &EventId) -> Result<()> {
+    /// If it was saved in memory, this will emit a notification to
+    /// observers that a single item has been replaced. Otherwise,
+    /// such a notification is not emitted, because observers are
+    /// unlikely to observe the store updates directly.
+    pub(super) async fn replace_event_if_present(
+        &mut self,
+        event_id: &EventId,
+        new_event: Event,
+    ) -> Result<()> {
         let mut state = self.inner.state.write().await?;
 
-        let Some(position) = state.thread_linked_chunk().events().find_map(|(position, event)| {
-            (event.event_id().as_deref() == Some(event_id)).then_some(position)
-        }) else {
-            // Event not found in the linked chunk, nothing to do.
-            return Ok(());
-        };
-
-        if let Err(err) = state.remove_events(vec![(event_id.to_owned(), position)], vec![]).await {
-            error!(%err, "a thread linked chunk position was valid a few lines above, but invalid when deleting");
+        if let Err(err) = state.replace_event_if_present(event_id, new_event).await {
+            error!(%err, "failed to replace an event");
             return Err(err);
         }
 
