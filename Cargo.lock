@@ -997,8 +997,11 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "const_panic"
-version = "0.2.8"
-source = "git+https://github.com/jplatte/const_panic?rev=9024a4cb3eac45c1d2d980f17aaee287b17be498#9024a4cb3eac45c1d2d980f17aaee287b17be498"
+version = "0.2.15"
+source = "git+https://github.com/jplatte/const_panic?rev=e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f#e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f"
+dependencies = [
+ "typewit",
+]
 
 [[package]]
 name = "constant_time_eq"
