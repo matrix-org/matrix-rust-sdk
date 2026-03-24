@@ -35,7 +35,7 @@ use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
-use tracing::{Span, debug, instrument, trace};
+use tracing::{debug, instrument, trace};
 
 /// Unit type representing a permit to *use* an [`EncryptionSyncService`].
 ///
@@ -122,7 +122,7 @@ impl EncryptionSyncService {
     /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
     /// most one encryption sync running at any time. See its documentation
     /// for more details.
-    #[instrument(skip_all, fields(store_generation))]
+    #[instrument(skip_all)]
     pub async fn run_fixed_iterations(
         self,
         num_iterations: u8,
@@ -132,7 +132,7 @@ impl EncryptionSyncService {
 
         pin_mut!(sync);
 
-        let lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
+        let _lock_guard = if let CrossProcessLockConfig::MultiProcess { .. } =
             self.client.cross_process_lock_config()
         {
             let mut lock_guard =
@@ -173,8 +173,6 @@ impl EncryptionSyncService {
         } else {
             None
         };
-
-        Span::current().record("store_generation", lock_guard.map(|guard| guard.generation()));
 
         for _ in 0..num_iterations {
             match sync.next().await {
@@ -259,20 +257,18 @@ impl EncryptionSyncService {
 
     /// Helper function for `sync`. Take the cross-process store lock, and call
     /// `sync.next()`
-    #[instrument(skip_all, fields(store_generation))]
+    #[instrument(skip_all)]
     async fn next_sync_with_lock<Item>(
         &self,
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
     ) -> Result<Option<Item>, Error> {
-        let guard = if let CrossProcessLockConfig::MultiProcess { .. } =
+        let _guard = if let CrossProcessLockConfig::MultiProcess { .. } =
             self.client.cross_process_lock_config()
         {
             self.client.encryption().spin_lock_store(Some(60000)).await.map_err(Error::LockError)?
         } else {
             None
         };
-
-        Span::current().record("store_generation", guard.map(|guard| guard.generation()));
 
         Ok(sync.next().await)
     }

@@ -297,16 +297,11 @@ where
         self.is_dirty.store(false, Ordering::SeqCst);
     }
 
-    /// Determine the generation of this cross-process lock.
-    pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::SeqCst)
-    }
-
     /// Try to lock once, returns whether the lock was obtained or not.
     ///
     /// The lock can be obtained but it can be dirty. In all cases, the renew
     /// task will run in the background.
-    #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
+    #[instrument(skip(self), fields(?self.lock_key, ?self.config, ?self.generation))]
     pub async fn try_lock_once(&self) -> AcquireCrossProcessLockResult<L::LockError> {
         // If it's not `MultiProcess`, this behaves as a no-op
         let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {

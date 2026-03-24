@@ -243,20 +243,6 @@ pub enum VerificationState {
     Unverified,
 }
 
-/// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
-#[derive(Debug)]
-pub struct CrossProcessLockStoreGuardWithGeneration {
-    _guard: CrossProcessLockGuard,
-    generation: u64,
-}
-
-impl CrossProcessLockStoreGuardWithGeneration {
-    /// Return the Crypto Store generation associated with this store lock.
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
-}
-
 /// A stateful struct remembering the cross-signing keys we need to upload.
 ///
 /// Since the `/_matrix/client/v3/keys/device_signing/upload` might require
@@ -1737,7 +1723,7 @@ impl Encryption {
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+    ) -> Result<Option<CrossProcessLockGuard>, Error> {
         self.lock_store(async move |lock| lock.spin_lock(max_backoff).await).await
     }
 
@@ -1748,9 +1734,7 @@ impl Encryption {
     /// first time.
     ///
     /// Returns a guard to the lock, if it was obtained.
-    pub async fn try_lock_store_once(
-        &self,
-    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+    pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessLockGuard>, Error> {
         self.lock_store(CrossProcessLock::try_lock_once).await
     }
 
@@ -1763,22 +1747,18 @@ impl Encryption {
     pub async fn lock_store<F: AcquireCrossProcessLockFn<LockableCryptoStore>>(
         &self,
         acquire: F,
-    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+    ) -> Result<Option<CrossProcessLockGuard>, Error> {
         let wrap_err = |e: CryptoStoreError| {
             Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
         };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = match acquire(lock).await.map_err(wrap_err)?? {
+            Ok(Some(match acquire(lock).await.map_err(wrap_err)?? {
                 CrossProcessLockState::Clean(guard) => guard,
                 CrossProcessLockState::Dirty(guard) => {
                     self.client.base_client().regenerate_olm(None).await?;
                     guard.clear_dirty();
                     guard
                 }
-            };
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration {
-                _guard: guard,
-                generation: lock.generation(),
             }))
         } else {
             Ok(None)

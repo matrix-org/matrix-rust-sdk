@@ -2381,13 +2381,12 @@ impl Room {
     // TODO: expose this publicly so people can pre-share a group session if
     // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all, fields(room_id = ?self.room_id(), store_generation))]
+    #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
         self.ensure_room_joined()?;
 
         // Take and release the lock on the store, if needs be.
-        let guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
-        tracing::Span::current().record("store_generation", guard.map(|guard| guard.generation()));
+        let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
 
         self.client
             .locks()
