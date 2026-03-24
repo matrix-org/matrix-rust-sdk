@@ -307,9 +307,7 @@ where
     /// The lock can be obtained but it can be dirty. In all cases, the renew
     /// task will run in the background.
     #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
-    pub async fn try_lock_once(
-        &self,
-    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
+    pub async fn try_lock_once(&self) -> AcquireCrossProcessLockResult<L::LockError> {
         // If it's not `MultiProcess`, this behaves as a no-op
         let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {
             let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
@@ -477,7 +475,7 @@ where
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
+    ) -> AcquireCrossProcessLockResult<L::LockError> {
         // If there is no holder, this behaves as a no-op
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
