@@ -1037,7 +1037,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         let user_id = &state.own_user_id;
         let room_id = &state.room_id;
 
-        let mut room_info = room.clone_info();
+        let room_info = room.clone_info();
         let prev_read_receipts = room_info.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
 
@@ -1059,7 +1059,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // Take the state store lock.
             let _state_store_lock = client.base_client().state_store_lock().lock().await;
 
-            // Reuse and update the room info from above.
+            // Don't reuse the room info from above, as it might have changed in the
+            // meanwhile. This access is somewhat protected by the state store locking, even
+            // though other code may call `set_room_info` concurrently.
+            let mut room_info = room.clone_info();
             room_info.set_read_receipts(read_receipts);
 
             let mut state_changes = StateChanges::default();
