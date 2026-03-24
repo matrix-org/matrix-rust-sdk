@@ -1,22 +1,22 @@
-/*
-Copyright 2025 The Matrix.org Foundation C.I.C.
+// Copyright 2026 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
-//! Perform the schema upgrade v14 to v101: we create a new table for the
-//! "withheld" session data, then migrate the existing data into it, swapping
-//! the key around; finally, we drop the old table.
+//! Perform the schema upgrade from v104 to v105.
+//!
+//! Removes the cross-process lock generation counter key from
+//! the [`keys::CORE`] object store and then bumps the database
+//! version.
 
 use indexed_db_futures::{Build, error::OpenDbError, transaction::TransactionMode};
 
