@@ -261,7 +261,7 @@ mod tests {
                     },
                     "iv": "AK1wyzigZtQAAAABAAAAKK",
                     "hashes": {
-                        "sha256": "foobar",
+                        "sha256": "/NogKqW5bz/m8xHgFiH5haFGjCNVmUIPLzfvOhHdrxY",
                     },
                     "v": "v2",
                 }))

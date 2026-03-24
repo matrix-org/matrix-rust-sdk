@@ -36,6 +36,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `MediaEncryptionInfo` fields changed to match the new fields of `EncryptedFile`
+  from Ruma. The serialized JSON format did not change and still matches the format of
+  `EncryptedFile` defined in the spec, without the `url` field. The `DecryptorError::KeyNonceLength`
+  variant was removed because the length of the key and nonce are now enforced in
+  `MediaEncryptionInfo`.
+  ([#6346](https://github.com/matrix-org/matrix-rust-sdk/pull/6346))
 - [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
   ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
