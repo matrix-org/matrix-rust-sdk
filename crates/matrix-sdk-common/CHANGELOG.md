@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 - Add convenience `AcquireCrossProcessLockResult` and `AcquireCrossProcessLockFn`
-  for convnience in generalizing cross-process lock acquisition.
+  for convenience in generalizing cross-process lock acquisition.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - Add support in the `MemoryStore`'s implementation of `EventCacheStore` for
   having duplicate events in a room, where each duplicate is in a different
