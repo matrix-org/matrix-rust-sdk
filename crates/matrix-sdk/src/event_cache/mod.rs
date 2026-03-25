@@ -145,13 +145,13 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 /// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
     /// Task that listens to room updates.
-    listen_updates_task: BackgroundTaskHandle,
+    _listen_updates_task: BackgroundTaskHandle,
 
     /// Task that listens to updates to the user's ignored list.
-    ignore_user_list_update_task: BackgroundTaskHandle,
+    _ignore_user_list_update_task: BackgroundTaskHandle,
 
     /// The task used to automatically shrink the linked chunks.
-    auto_shrink_linked_chunk_task: BackgroundTaskHandle,
+    _auto_shrink_linked_chunk_task: BackgroundTaskHandle,
 
     /// The task used to automatically redecrypt UTDs.
     #[cfg(feature = "e2e-encryption")]
@@ -161,14 +161,6 @@ pub struct EventCacheDropHandles {
 impl fmt::Debug for EventCacheDropHandles {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventCacheDropHandles").finish_non_exhaustive()
-    }
-}
-
-impl Drop for EventCacheDropHandles {
-    fn drop(&mut self) {
-        self.listen_updates_task.abort();
-        self.ignore_user_list_update_task.abort();
-        self.auto_shrink_linked_chunk_task.abort();
     }
 }
 
@@ -282,12 +274,12 @@ impl EventCache {
             let listen_updates_task = task_monitor.spawn_background_task("event_cache::room_updates_task", tasks::room_updates_task(
                 self.inner.clone(),
                 client.subscribe_to_all_room_updates(),
-            ));
+            )).abort_on_drop();
 
             let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
                 self.inner.clone(),
                 client.subscribe_to_ignore_user_list_changes(),
-            ));
+            )).abort_on_drop();
 
             let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
 
@@ -297,7 +289,7 @@ impl EventCache {
             let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
                 Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
-            ));
+            )).abort_on_drop();
 
             #[cfg(feature = "e2e-encryption")]
             let redecryptor = {
@@ -314,9 +306,9 @@ impl EventCache {
 
 
             Arc::new(EventCacheDropHandles {
-                listen_updates_task,
-                ignore_user_list_update_task,
-                auto_shrink_linked_chunk_task,
+                _listen_updates_task: listen_updates_task,
+                _ignore_user_list_update_task: ignore_user_list_update_task,
+                _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
                 #[cfg(feature = "e2e-encryption")]
                 _redecryptor: redecryptor,
             })
