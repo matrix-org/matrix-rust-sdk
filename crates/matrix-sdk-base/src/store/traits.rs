@@ -28,8 +28,11 @@ use ruma::{
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
         SupportedVersions,
-        client::discovery::discover_homeserver::{
-            self, HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
+        client::discovery::{
+            discover_homeserver::{
+                self, HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
+            },
+            get_capabilities::v3::Capabilities,
         },
     },
     events::{
@@ -1172,6 +1175,8 @@ pub enum StateStoreDataValue {
     /// See documentation of [`ThreadSubscriptionCatchupToken`] for more
     /// details.
     ThreadSubscriptionsCatchupTokens(Vec<ThreadSubscriptionCatchupToken>),
+
+    HomeserverCapabilities(Capabilities),
 }
 
 /// Tokens to use when catching up on thread subscriptions.
@@ -1373,6 +1378,10 @@ impl StateStoreDataValue {
     ) -> Option<Vec<ThreadSubscriptionCatchupToken>> {
         as_variant!(self, Self::ThreadSubscriptionsCatchupTokens)
     }
+
+    pub fn into_homeserver_capabilities(self) -> Option<Capabilities> {
+        as_variant!(self, Self::HomeserverCapabilities)
+    }
 }
 
 /// A key for key-value data.
@@ -1415,6 +1424,9 @@ pub enum StateStoreDataKey<'a> {
 
     /// A list of thread subscriptions catchup tokens.
     ThreadSubscriptionsCatchupTokens,
+
+    /// A list of capabilities that the homeserver supports.
+    HomeserverCapabilities,
 }
 
 impl StateStoreDataKey<'_> {
@@ -1460,6 +1472,8 @@ impl StateStoreDataKey<'_> {
     /// [`ThreadSubscriptionsCatchupTokens`][Self::ThreadSubscriptionsCatchupTokens] variant.
     pub const THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS: &'static str =
         "thread_subscriptions_catchup_tokens";
+
+    pub const HOMESERVER_CAPABILITIES: &'static str = "homeserver_capabilities";
 }
 
 /// Compare two thread subscription changes bump stamps, given a fixed room and
