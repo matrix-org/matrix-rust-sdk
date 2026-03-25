@@ -201,8 +201,7 @@ impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
         let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         if !diffs.is_empty() {
-            let _ = self
-                .state
+            self.state
                 .update_sender
                 .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
         }
