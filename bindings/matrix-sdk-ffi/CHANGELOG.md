@@ -41,6 +41,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose sync v2 API through FFI via `Client.sync()` and
+  `Client.sync_once()`, enabling mobile clients to sync without
+  requiring Sliding Sync support on the homeserver. `Client.sync()`
+  accepts a `SyncListener` callback that receives a `SyncResponse`
+  after each successful sync.
+  ([#6348](https://github.com/matrix-org/matrix-rust-sdk/issues/6348))
 - Expose `Room.send_state_event_raw()` for sending arbitrary state events
   through the FFI layer.
   ([#6349](https://github.com/matrix-org/matrix-rust-sdk/issues/6349))
