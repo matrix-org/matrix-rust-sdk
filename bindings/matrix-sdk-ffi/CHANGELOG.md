@@ -38,6 +38,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `Room.send_state_event_raw()` for sending arbitrary state events
+  through the FFI layer.
+  ([#6349](https://github.com/matrix-org/matrix-rust-sdk/issues/6349))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
   and managing the list of threads from a particular room.
   ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
