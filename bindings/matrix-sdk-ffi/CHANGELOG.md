@@ -38,6 +38,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose sync v2 API through FFI via `Client.sync()` and
+  `Client.sync_once()`, enabling mobile clients to sync without
+  requiring Sliding Sync support on the homeserver. `Client.sync()`
+  accepts a `SyncListener` callback that receives a `SyncResponse`
+  after each successful sync.
+  ([#6348](https://github.com/matrix-org/matrix-rust-sdk/issues/6348))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
   and managing the list of threads from a particular room.
   ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
