@@ -1248,7 +1248,10 @@ impl Room {
     /// [`ThreadListService::subscribe_to_items_updates`] /
     /// [`ThreadListService::subscribe_to_pagination_state_updates`] to observe
     /// changes.
-    pub async fn thread_list_service(&self) -> Arc<ThreadListService> {
+    pub fn thread_list_service(&self) -> Arc<ThreadListService> {
+        // `no reactor running` panics
+        let _guard = get_runtime_handle().enter();
+
         Arc::new(ThreadListService::new(&self.inner))
     }
 
