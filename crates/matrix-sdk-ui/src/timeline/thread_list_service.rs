@@ -355,79 +355,23 @@ impl ThreadListService {
         let thread_summary = timeline_event.thread_summary.summary().cloned();
         let bundled_latest_thread_event = timeline_event.bundled_latest_thread_event.clone();
 
-        let root_event_id = timeline_event.event_id()?;
-        let timestamp = timeline_event.timestamp()?;
-        let sender = timeline_event.sender()?;
-        let is_own = room.own_user_id() == sender;
-
-        let raw_any_sync_timeline_event = timeline_event.into_raw();
-        let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
-            error!("Failed deserializing thread root event");
-            return None;
-        };
-
-        let profile = room
-            .profile_from_user_id(&sender)
-            .await
-            .map(TimelineDetails::Ready)
-            .unwrap_or(TimelineDetails::Unavailable);
-
-        let content: Option<TimelineItemContent> = match TimelineAction::from_event(
-            any_sync_timeline_event,
-            &raw_any_sync_timeline_event,
-            room,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        {
-            Some(TimelineAction::AddItem { content }) => Some(content),
-            Some(TimelineAction::HandleAggregation {
-                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
-                ..
-            }) => {
-                match TimelineAction::from_content(
-                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
-                        new_content.msgtype,
-                    )),
-                    None,
-                    None,
-                    None,
-                ) {
-                    TimelineAction::AddItem { content } => Some(content),
-                    _ => None,
-                }
-            }
-            _ => None,
-        };
+        // Build the root event using the same logic as latest events.
+        let root_event = Self::build_event(room, timeline_event).await?;
 
         // Build the latest event from the bundled thread summary, if available.
         let num_replies = thread_summary.as_ref().map(|s| s.num_replies).unwrap_or(0);
 
         let latest_event = if let Some(ev) = bundled_latest_thread_event.map(|b| *b) {
-            Self::build_latest_event(room, ev).await
+            Self::build_event(room, ev).await
         } else {
             None
         };
 
-        Some(ThreadListItem {
-            root_event: ThreadListItemEvent {
-                event_id: root_event_id,
-                timestamp,
-                sender,
-                is_own,
-                sender_profile: profile,
-                content,
-            },
-            latest_event,
-            num_replies,
-        })
+        Some(ThreadListItem { root_event, latest_event, num_replies })
     }
 
     /// Build a [`ThreadListItemEvent`] from a [`TimelineEvent`].
-    async fn build_latest_event(
+    async fn build_event(
         room: &Room,
         timeline_event: TimelineEvent,
     ) -> Option<ThreadListItemEvent> {
@@ -525,7 +469,7 @@ impl ThreadListService {
 
                     if let Some(index) = position {
                         // Build the latest event representation from the raw event.
-                        if let Some(latest_event) = Self::build_latest_event(room, event).await {
+                        if let Some(latest_event) = Self::build_event(room, event).await {
                             let mut guard = items.lock();
 
                             // Re-check the position — the vector may have changed while
