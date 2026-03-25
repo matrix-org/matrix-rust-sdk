@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Room keys are now rotated whenever the client fully reloads the member list by making a
+  request to `/members`, which prevents clients using keys that may have been shared under
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) even if a gappy
+  sync occurs.
+  ([#6339](https://github.com/matrix-org/matrix-rust-sdk/pull/6339))
+
 - Fix invited/knocked rooms disappearing from the room list after
   join → leave/kick → re-invite when using Sliding Sync. The SDK now always
   emits a room update so the room is surfaced correctly again.
