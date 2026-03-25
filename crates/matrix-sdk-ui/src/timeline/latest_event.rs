@@ -103,14 +103,18 @@ impl LatestEventValue {
         match value {
             BaseLatestEventValue::None => Self::None,
             BaseLatestEventValue::Remote(timeline_event) => {
+                let Some(timestamp) = timeline_event.timestamp() else {
+                    return Self::None;
+                };
+                let Some(sender) = timeline_event.sender() else {
+                    return Self::None;
+                };
+                let is_own = client.user_id().map(|user_id| user_id == sender).unwrap_or(false);
+
                 let raw_any_sync_timeline_event = timeline_event.into_raw();
                 let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
                     return Self::None;
                 };
-
-                let timestamp = any_sync_timeline_event.origin_server_ts();
-                let sender = any_sync_timeline_event.sender().to_owned();
-                let is_own = client.user_id().map(|user_id| user_id == sender).unwrap_or(false);
                 let profile = room
                     .profile_from_user_id(&sender)
                     .await

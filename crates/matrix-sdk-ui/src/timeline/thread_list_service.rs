@@ -355,16 +355,16 @@ impl ThreadListService {
         let thread_summary = timeline_event.thread_summary.summary().cloned();
         let bundled_latest_thread_event = timeline_event.bundled_latest_thread_event.clone();
 
+        let root_event_id = timeline_event.event_id()?;
+        let timestamp = timeline_event.timestamp()?;
+        let sender = timeline_event.sender()?;
+        let is_own = room.own_user_id() == sender;
+
         let raw_any_sync_timeline_event = timeline_event.into_raw();
         let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
             error!("Failed deserializing thread root event");
             return None;
         };
-
-        let root_event_id = any_sync_timeline_event.event_id().to_owned();
-        let timestamp = any_sync_timeline_event.origin_server_ts();
-        let sender = any_sync_timeline_event.sender().to_owned();
-        let is_own = room.own_user_id() == sender;
 
         let profile = room
             .profile_from_user_id(&sender)
@@ -431,6 +431,11 @@ impl ThreadListService {
         room: &Room,
         timeline_event: TimelineEvent,
     ) -> Option<ThreadListItemEvent> {
+        let event_id = timeline_event.event_id()?;
+        let timestamp = timeline_event.timestamp()?;
+        let sender = timeline_event.sender()?;
+        let is_own = room.own_user_id() == sender;
+
         let raw = timeline_event.into_raw();
         let deserialized = match raw.deserialize() {
             Ok(ev) => ev,
@@ -439,11 +444,6 @@ impl ThreadListService {
                 return None;
             }
         };
-
-        let event_id = deserialized.event_id().to_owned();
-        let timestamp = deserialized.origin_server_ts();
-        let sender = deserialized.sender().to_owned();
-        let is_own = room.own_user_id() == sender;
 
         let sender_profile = room
             .profile_from_user_id(&sender)
