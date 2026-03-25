@@ -18,9 +18,6 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
   types as `Clone`able, and wrapping a few other error variants with `Arc`.
   ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
-- The scopes sent when logging in with the `OAuth` API now use the stable prefix defined in the
-  specification.
-  ([#6291](https://github.com/matrix-org/matrix-rust-sdk/pull/6291))
 - [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
   the event cache. As a result, it is necessary to enable the event cache if you want to keep a
   precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
