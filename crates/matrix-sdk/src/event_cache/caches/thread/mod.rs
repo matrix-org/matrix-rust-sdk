@@ -118,7 +118,7 @@ impl ThreadEventCache {
         let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
 
         if !updates_as_vector_diffs.is_empty() {
-            let _ = self.inner.update_sender.send(TimelineVectorDiffs {
+            self.inner.update_sender.send(TimelineVectorDiffs {
                 diffs: updates_as_vector_diffs,
                 origin: EventsOrigin::Cache,
             });
@@ -150,7 +150,7 @@ impl ThreadEventCache {
         }
 
         if !timeline_event_diffs.is_empty() {
-            let _ = self.inner.update_sender.send(TimelineVectorDiffs {
+            self.inner.update_sender.send(TimelineVectorDiffs {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });
@@ -180,7 +180,7 @@ impl ThreadEventCache {
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
-            let _ = self.inner.update_sender.send(TimelineVectorDiffs {
+            self.inner.update_sender.send(TimelineVectorDiffs {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });

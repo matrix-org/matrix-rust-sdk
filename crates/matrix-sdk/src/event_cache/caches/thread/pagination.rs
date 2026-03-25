@@ -301,7 +301,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                     .await
                     .map_err(|err| EventCacheError::PaginationError(Arc::new(err)))?,
             );
-        };
+        }
 
         let mut state = self.cache.state.write().await?;
 
@@ -383,7 +383,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
-            let _ = self.cache.update_sender.send(TimelineVectorDiffs {
+            self.cache.update_sender.send(TimelineVectorDiffs {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Pagination,
             });
