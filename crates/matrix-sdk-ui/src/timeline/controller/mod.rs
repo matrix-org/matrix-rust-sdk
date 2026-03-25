@@ -1588,22 +1588,42 @@ impl TimelineController {
                 // For event-focused timelines, filtering is handled in the event cache layer.
                 false
             }
-            _ => true,
+            TimelineFocusKind::PinnedEvents => true,
         };
 
-        // In some timelines, threaded events are added to the `AllRemoteEvents`
-        // collection since they need to be taken into account to calculate read
-        // receipts, but we don't want to actually take them into account for returning
-        // the latest event id since they're not visibly in the timeline
         state
             .items
             .all_remote_events()
             .iter()
             .rev()
-            .filter_map(|item| {
-                if !filter_out_thread_events || item.thread_root_id.is_none() {
-                    Some(item.event_id.clone())
+            .filter_map(|event_meta| {
+                if !filter_out_thread_events {
+                    // For an unthreaded timeline, the last event is always the latest event.
+                    Some(event_meta.event_id.clone())
+                } else if event_meta.thread_root_id.is_none() {
+                    // For the main-thread timeline, only non-threaded events are valid candidates
+                    // for the latest event.
+                    //
+                    // But! An event could be an aggregation that relate to an in-thread
+                    // event. In this case, it's not a valid latest event.
+                    if let Some(TimelineEventItemId::EventId(target_event_id)) =
+                        state.meta.aggregations.is_aggregation_of(&TimelineEventItemId::EventId(
+                            event_meta.event_id.clone(),
+                        ))
+                        && let Some(target_meta) =
+                            state.items.all_remote_events().get_by_event_id(target_event_id)
+                        && target_meta.thread_root_id.is_some()
+                    {
+                        // This event is an aggregation of an in-thread event, so skip it.
+                        None
+                    } else {
+                        // Not in a thread, and not the aggregation of an in-thread event, so it's
+                        // a valid candidate for the latest event.
+                        Some(event_meta.event_id.clone())
+                    }
                 } else {
+                    // An in-thread event, when we're filtering out threaded events, is never a
+                    // valid candidate for the latest event.
                     None
                 }
             })

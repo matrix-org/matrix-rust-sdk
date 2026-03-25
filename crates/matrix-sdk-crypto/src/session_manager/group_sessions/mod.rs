@@ -1098,11 +1098,8 @@ mod tests {
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         device_id,
-        events::room::{
-            EncryptedFileInit, JsonWebKey, JsonWebKeyInit, history_visibility::HistoryVisibility,
-        },
+        events::room::{EncryptedFile, V2EncryptedFileInfo, history_visibility::HistoryVisibility},
         owned_device_id, owned_room_id, room_id,
-        serde::Base64,
         to_device::DeviceIdOrAllDevices,
         user_id,
     };
@@ -1841,21 +1838,11 @@ mod tests {
 
         let content = RoomKeyBundleContent {
             room_id: owned_room_id!("!room:id"),
-            file: (EncryptedFileInit {
-                url: OwnedMxcUri::from("test"),
-                key: JsonWebKey::from(JsonWebKeyInit {
-                    kty: "oct".to_owned(),
-                    key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-                    alg: "A256CTR".to_owned(),
-                    #[allow(clippy::unnecessary_to_owned)]
-                    k: Base64::new(vec![0u8; 0]),
-                    ext: true,
-                }),
-                iv: Base64::new(vec![0u8; 0]),
-                hashes: Default::default(),
-                v: "".to_owned(),
-            })
-            .into(),
+            file: EncryptedFile::new(
+                OwnedMxcUri::from("test"),
+                V2EncryptedFileInfo::encode([0; 32], [0; 16]).into(),
+                Default::default(),
+            ),
         };
 
         let requests = alice

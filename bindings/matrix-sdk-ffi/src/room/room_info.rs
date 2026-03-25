@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::{EncryptionState, RoomState};
+use matrix_sdk::{CallIntentConsensus, EncryptionState, RoomState};
 use tracing::warn;
 
 use crate::{
@@ -25,7 +25,31 @@ use crate::{
         power_levels::RoomPowerLevels, Membership, RoomHero, RoomHistoryVisibility, SuccessorRoom,
     },
     room_member::RoomMember,
+    ruma::RtcCallIntent,
 };
+
+#[derive(Clone, uniffi::Enum)]
+pub enum RtcCallIntentConsensus {
+    Full(RtcCallIntent),
+    Partial { intent: RtcCallIntent, agreeing_count: u64, total_count: u64 },
+    None,
+}
+
+impl From<CallIntentConsensus> for RtcCallIntentConsensus {
+    fn from(value: CallIntentConsensus) -> Self {
+        match value {
+            CallIntentConsensus::Full(intent) => RtcCallIntentConsensus::Full(intent.into()),
+            CallIntentConsensus::Partial { intent, agreeing_count, total_count } => {
+                RtcCallIntentConsensus::Partial {
+                    intent: intent.into(),
+                    agreeing_count,
+                    total_count,
+                }
+            }
+            CallIntentConsensus::None => RtcCallIntentConsensus::None,
+        }
+    }
+}
 
 #[derive(uniffi::Record)]
 pub struct RoomInfo {
@@ -69,6 +93,7 @@ pub struct RoomInfo {
     cached_user_defined_notification_mode: Option<RoomNotificationMode>,
     has_room_call: bool,
     active_room_call_participants: Vec<String>,
+    active_room_call_consensus_intent: RtcCallIntentConsensus,
     /// Whether this room has been explicitly marked as unread
     is_marked_unread: bool,
     /// "Interesting" messages received in that room, independently of the
@@ -172,6 +197,7 @@ impl RoomInfo {
                 .iter()
                 .map(|u| u.to_string())
                 .collect(),
+            active_room_call_consensus_intent: room.active_room_call_consensus_intent().into(),
             is_marked_unread: room.is_marked_unread(),
             num_unread_messages: room.num_unread_messages(),
             num_unread_notifications: room.num_unread_notifications(),

@@ -38,6 +38,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce a `ThreadListService` which offers reactive interfaces for rendering
+  and managing the list of threads from a particular room.
+  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
 - [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
   so it has access to `MsgLikeContent` `reactions`.
   ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
@@ -111,7 +114,10 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991)
-- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207)) 
+- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207))
+- Add `RoomInfo::active_room_call_consensus_intent` method to get the call intent for the current call,
+  based on what members are advertising.
+  ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
 
 ### Refactor
 

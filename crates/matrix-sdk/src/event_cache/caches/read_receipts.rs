@@ -234,6 +234,7 @@ fn select_best_receipt(
     pending_receipts: &mut RingBuffer<OwnedEventId>,
     new_receipt_event: Option<&ReceiptEventContent>,
     latest_active: Option<&EventId>,
+    with_threading_support: bool,
 ) -> Option<OwnedEventId> {
     // If we had a new receipt event, add the main/unthreaded receipts it contains
     // to the pending receipts list. We'll try to chase them later.
@@ -276,8 +277,11 @@ fn select_best_receipt(
             }
             // Try to find an implicit read receipt (i.e. an event sent by the current
             // user).
+            //
+            // If the client is enabled with threading support, skip events that are in threads.
             else if event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
                 == Some(user_id)
+                && (!with_threading_support || extract_thread_root(event.raw()).is_none())
             {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
                 found = Some(event_id.clone());
@@ -345,6 +349,7 @@ pub(crate) fn compute_unread_counts(
         &mut read_receipts.pending,
         receipt_event,
         read_receipts.latest_active.as_ref().map(|latest_active| latest_active.event_id.as_ref()),
+        with_threading_support,
     )
     .map(|event_id| LatestReadReceipt { event_id });
 
@@ -828,6 +833,7 @@ mod tests {
         let new_receipt_event = None;
         // And no active receipt,
         let active_receipt = None;
+        let with_threading_support = false;
 
         // Then there's no best receipt.
         let result = select_best_receipt(
@@ -836,6 +842,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event,
             active_receipt,
+            with_threading_support,
         );
         assert!(result.is_none());
         // And there are no pending receipts.
@@ -863,6 +870,7 @@ mod tests {
         let new_receipt_event = None;
         // And no active receipt,
         let active_receipt = None;
+        let with_threading_support = false;
 
         // Then there's a new best receipt, which is the implicit one.
         let result = select_best_receipt(
@@ -871,6 +879,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event,
             active_receipt,
+            with_threading_support,
         );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
@@ -898,6 +907,7 @@ mod tests {
         let new_receipt_event = None;
         // And an active receipt pointing at $2,
         let active_receipt = Some(event_id!("$2"));
+        let with_threading_support = false;
 
         // Then the best receipt is still $2.
         let result = select_best_receipt(
@@ -906,6 +916,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event,
             active_receipt,
+            with_threading_support,
         );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
@@ -938,6 +949,7 @@ mod tests {
 
         // And no active receipt,
         let active_receipt = None;
+        let with_threading_support = false;
 
         // Then there's a new best receipt, which is the explicit one from the event
         let result = select_best_receipt(
@@ -946,6 +958,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event.as_ref(),
             active_receipt,
+            with_threading_support,
         );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no pending receipts.
@@ -978,6 +991,7 @@ mod tests {
 
         // And no active receipt,
         let active_receipt = None;
+        let with_threading_support = false;
 
         // Then there's no new best receipts.
         let result = select_best_receipt(
@@ -986,6 +1000,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event.as_ref(),
             active_receipt,
+            with_threading_support,
         );
 
         assert!(result.is_none());
@@ -1017,6 +1032,7 @@ mod tests {
 
         // And no active receipt,
         let active_receipt = None;
+        let with_threading_support = false;
 
         // Then there's a new best receipt, which is the matched pending receipt.
         let result = select_best_receipt(
@@ -1025,6 +1041,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event.as_ref(),
             active_receipt,
+            with_threading_support,
         );
         assert_eq!(result.unwrap(), event_id!("$2"));
         // And there are no more pending receipts.
@@ -1064,6 +1081,8 @@ mod tests {
         // And an active receipt point at $1,
         let active_receipt = Some(event_id!("$1"));
 
+        let with_threading_support = false;
+
         // Then there's a new best receipt, which is the most advanced in the linked
         // chunk: $4.
         let result = select_best_receipt(
@@ -1072,6 +1091,7 @@ mod tests {
             &mut pending_receipts,
             new_receipt_event.as_ref(),
             active_receipt,
+            with_threading_support,
         );
         assert_eq!(result.unwrap(), event_id!("$4"));
 

@@ -1037,8 +1037,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         let user_id = &state.own_user_id;
         let room_id = &state.room_id;
 
-        let mut room_info = room.clone_info();
-        let prev_read_receipts = room_info.read_receipts().clone();
+        let prev_read_receipts = room.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
 
         compute_unread_counts(
@@ -1051,25 +1050,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         );
 
         if prev_read_receipts != read_receipts {
-            if prev_read_receipts.latest_active == read_receipts.latest_active {
-                // If the latest active read receipt hasn't changed, but the number of unread
-                // has *decreased*, then it means that we've recomputed receipts
-                // after a gap. Ditch the new values, as they're likely
-                // incorrect.
-                //
-                // TODO: use automatic back-pagination in this case, instead of ditching the new
-                // values.
-                if read_receipts.num_unread < prev_read_receipts.num_unread {
-                    read_receipts.num_unread = prev_read_receipts.num_unread;
-                }
-                if read_receipts.num_notifications < prev_read_receipts.num_notifications {
-                    read_receipts.num_notifications = prev_read_receipts.num_notifications;
-                }
-                if read_receipts.num_mentions < prev_read_receipts.num_mentions {
-                    read_receipts.num_mentions = prev_read_receipts.num_mentions;
-                }
-            }
-
             // The read receipt has changed! Do a little dance to update the `RoomInfo` in
             // the state store, and then in the room itself, so that observers
             // can be notified of the change.
@@ -1078,7 +1058,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // Take the state store lock.
             let _state_store_lock = client.base_client().state_store_lock().lock().await;
 
-            // Reuse and update the room info from above.
+            // Don't reuse the room info from above, as it might have changed in the
+            // meanwhile. This access is somewhat protected by the state store locking, even
+            // though other code may call `set_room_info` concurrently.
+            let mut room_info = room.clone_info();
             room_info.set_read_receipts(read_receipts);
 
             let mut state_changes = StateChanges::default();

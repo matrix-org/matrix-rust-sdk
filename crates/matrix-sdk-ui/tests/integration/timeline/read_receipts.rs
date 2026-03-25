@@ -19,7 +19,7 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
-    assert_let_timeout,
+    ThreadingSupport, assert_let_timeout,
     room::Receipts,
     test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
@@ -34,7 +34,10 @@ use ruma::{
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, RoomAccountDataEventType,
         receipt::{ReceiptThread, ReceiptType as EventReceiptType},
-        room::message::{MessageType, RoomMessageEventContent, SyncRoomMessageEvent},
+        room::message::{
+            MessageType, RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
+            SyncRoomMessageEvent,
+        },
     },
     owned_event_id, room_id,
     room_version_rules::RoomVersionRules,
@@ -1172,6 +1175,83 @@ async fn test_mark_as_read() {
     let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
 
     // It works.
+    assert!(has_sent);
+}
+
+#[async_test]
+async fn test_mark_as_read_after_threaded_edit() {
+    let server = MatrixMockServer::new().await;
+
+    // Considering a client that's thread-aware,
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: false })
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // On a main-thread timeline,
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: true })
+        .build()
+        .await
+        .unwrap();
+
+    let (initial_events, mut stream) = timeline.subscribe().await;
+    assert!(initial_events.is_empty());
+
+    let f = EventFactory::new().sender(*BOB);
+    let thread_root = event_id!("$thread_root");
+    let threaded_reply = event_id!("$threaded_reply");
+
+    // When the latest event is an edit of an in-thread event,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("I like big Rust and I cannot lie").event_id(thread_root),
+                )
+                .add_timeline_event(
+                    f.text_msg("threaded reply")
+                        .in_thread(thread_root, thread_root)
+                        .event_id(threaded_reply),
+                )
+                .add_timeline_event(
+                    f.text_msg("* edit of the threaded reply")
+                        .edit(
+                            threaded_reply,
+                            RoomMessageEventContentWithoutRelation::text_plain(
+                                "edit of the threaded reply",
+                            ),
+                        )
+                        .event_id(event_id!("$edit_of_threaded_reply")),
+                ),
+        )
+        .await;
+
+    // Let the timeline react to the new events.
+    assert_let_timeout!(Some(updates) = stream.next());
+    // New thread root, thread summary update + date insertion.
+    assert_eq!(updates.len(), 3);
+
+    server
+        .mock_send_receipt(CreateReceiptType::Read)
+        .match_event_id(thread_root)
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    // I can mark the room as read.
+    let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
     assert!(has_sent);
 }
 

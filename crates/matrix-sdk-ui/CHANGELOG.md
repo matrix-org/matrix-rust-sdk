@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Don't show a "sent in clear" shield on live location timeline items in
+  encrypted rooms, since `beacon_info` is a state event that cannot be
+  encrypted by design.
+  ([#6308](https://github.com/matrix-org/matrix-rust-sdk/pull/6308))
 - Include secondary relations when re-initializing a threaded timeline after a lag.
   ([#6209](https://github.com/matrix-org/matrix-rust-sdk/pull/6209))
 - Ensure that the display name of a `Room` in a `NotificationStatus` coming 
@@ -26,6 +30,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce a `ThreadListService` which offers reactive interfaces for rendering
+  and managing the list of threads from a particular room.
+  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
+- [**breaking**] Remove the `Room::load_thread_list` in favor of the new `ThreadListService`
+  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
 - Add support for [MSC3489](https://github.com/matrix-org/matrix-spec-proposals/pull/3489)  
   live location sharing through a new `TimelineItemContent::LiveLocation` variant.
 - The internal timeline unique ID may be recycled when an event is deduplicated from the timeline,

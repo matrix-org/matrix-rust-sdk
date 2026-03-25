@@ -12,28 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::BTreeMap,
-    io::{Error as IoError, Read},
-};
+use std::io::{Error as IoError, Read};
 
 use aes::{
     Aes256,
-    cipher::{KeyIvInit, StreamCipher, generic_array::GenericArray},
+    cipher::{KeyIvInit, StreamCipher},
 };
 use rand::{RngCore, thread_rng};
 use ruma::{
-    events::room::{EncryptedFile, JsonWebKey, JsonWebKeyInit},
+    events::room::{
+        EncryptedFile, EncryptedFileHash, EncryptedFileHashAlgorithm, EncryptedFileHashes,
+        EncryptedFileInfo, V2EncryptedFileInfo,
+    },
     serde::Base64,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use zeroize::Zeroize;
 
 const IV_SIZE: usize = 16;
 const KEY_SIZE: usize = 32;
-const VERSION: &str = "v2";
+const HASH_SIZE: usize = 32;
 
 type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 
@@ -41,7 +40,7 @@ type Aes256Ctr = ctr::Ctr128BE<Aes256>;
 /// Matrix attachment.
 pub struct AttachmentDecryptor<'a, R: Read> {
     inner: &'a mut R,
-    expected_hash: Vec<u8>,
+    expected_hash: [u8; HASH_SIZE],
     sha: Sha256,
     aes: Aes256Ctr,
 }
@@ -87,9 +86,6 @@ pub enum DecryptorError {
     /// A hash is missing from the encryption info.
     #[error("The encryption info is missing a hash")]
     MissingHash,
-    /// The supplied key or IV has an invalid length.
-    #[error("The supplied key or IV has an invalid length.")]
-    KeyNonceLength,
     /// The supplied data was encrypted with an unknown version of the
     /// attachment encryption spec.
     #[error("Unknown version for the encrypted attachment.")]
@@ -130,25 +126,22 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
         input: &'a mut R,
         info: MediaEncryptionInfo,
     ) -> Result<AttachmentDecryptor<'a, R>, DecryptorError> {
-        if info.version != VERSION {
+        let EncryptedFileInfo::V2(encryption_info) = info.encryption_info else {
             return Err(DecryptorError::UnknownVersion);
-        }
+        };
 
-        let hash =
-            info.hashes.get("sha256").ok_or(DecryptorError::MissingHash)?.as_bytes().to_owned();
-        let key = info.key.k.as_bytes();
-        let iv = info.iv.into_inner();
-
-        if key.len() != KEY_SIZE {
-            return Err(DecryptorError::KeyNonceLength);
-        }
-
-        let key_array = GenericArray::from_slice(key);
-        let iv = GenericArray::from_exact_iter(iv).ok_or(DecryptorError::KeyNonceLength)?;
+        let Some(EncryptedFileHash::Sha256(hash)) =
+            info.hashes.get(&EncryptedFileHashAlgorithm::Sha256)
+        else {
+            return Err(DecryptorError::MissingHash);
+        };
+        let hash = hash.clone().into_inner();
+        let key = encryption_info.k.as_inner();
+        let iv = encryption_info.iv.as_inner();
 
         let sha = Sha256::default();
 
-        let aes = Aes256Ctr::new(key_array, &iv);
+        let aes = Aes256Ctr::new(key.into(), iv.into());
 
         Ok(AttachmentDecryptor { inner: input, expected_hash: hash, sha, aes })
     }
@@ -158,9 +151,9 @@ impl<'a, R: Read + 'a> AttachmentDecryptor<'a, R> {
 pub struct AttachmentEncryptor<'a, R: Read + ?Sized> {
     finished: bool,
     inner: &'a mut R,
-    web_key: JsonWebKey,
-    iv: Base64,
-    hashes: BTreeMap<String, Base64>,
+    key: [u8; KEY_SIZE],
+    iv: [u8; IV_SIZE],
+    hashes: EncryptedFileHashes,
     aes: Aes256Ctr,
     sha: Sha256,
 }
@@ -180,10 +173,6 @@ impl<'a, R: Read + ?Sized + 'a> Read for AttachmentEncryptor<'a, R> {
         let read_bytes = self.inner.read(buf)?;
 
         if read_bytes == 0 {
-            let hash = self.sha.finalize_reset();
-            self.hashes
-                .entry("sha256".to_owned())
-                .or_insert_with(|| Base64::new(hash.as_slice().to_owned()));
             Ok(0)
         } else {
             self.aes.apply_keystream(&mut buf[0..read_bytes]);
@@ -234,28 +223,16 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
         // initialized for the counter.
         rng.fill_bytes(&mut iv[0..8]);
 
-        let web_key = JsonWebKey::from(JsonWebKeyInit {
-            kty: "oct".to_owned(),
-            key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-            alg: "A256CTR".to_owned(),
-            #[allow(clippy::unnecessary_to_owned)]
-            k: Base64::new(key.to_vec()),
-            ext: true,
-        });
-        #[allow(clippy::unnecessary_to_owned)]
-        let encoded_iv = Base64::new(iv.to_vec());
-
         let key_array = &key.into();
 
         let aes = Aes256Ctr::new(key_array, &iv.into());
-        key.zeroize();
 
         AttachmentEncryptor {
             finished: false,
             inner: reader,
-            iv: encoded_iv,
-            web_key,
-            hashes: BTreeMap::new(),
+            iv,
+            key,
+            hashes: EncryptedFileHashes::new(),
             aes,
             sha: Sha256::default(),
         }
@@ -264,15 +241,11 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
     /// Consume the encryptor and get the encryption key.
     pub fn finish(mut self) -> MediaEncryptionInfo {
         let hash = self.sha.finalize();
-        self.hashes
-            .entry("sha256".to_owned())
-            .or_insert_with(|| Base64::new(hash.as_slice().to_owned()));
+        self.hashes.insert(EncryptedFileHash::Sha256(Base64::new(hash.into())));
 
         MediaEncryptionInfo {
-            version: VERSION.to_owned(),
+            encryption_info: V2EncryptedFileInfo::encode(self.key, self.iv).into(),
             hashes: self.hashes,
-            iv: self.iv,
-            key: self.web_key,
         }
     }
 }
@@ -281,20 +254,16 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
 /// file.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MediaEncryptionInfo {
-    /// The version of the encryption scheme.
-    #[serde(rename = "v")]
-    pub version: String,
-    /// The web key that was used to encrypt the file.
-    pub key: JsonWebKey,
-    /// The initialization vector that was used to encrypt the file.
-    pub iv: Base64,
+    /// The information about the file's encryption.
+    #[serde(flatten)]
+    pub encryption_info: EncryptedFileInfo,
     /// The hashes that can be used to check the validity of the file.
-    pub hashes: BTreeMap<String, Base64>,
+    pub hashes: EncryptedFileHashes,
 }
 
 impl From<EncryptedFile> for MediaEncryptionInfo {
     fn from(file: EncryptedFile) -> Self {
-        Self { version: file.v, key: file.key, iv: file.iv, hashes: file.hashes }
+        Self { encryption_info: file.info, hashes: file.hashes }
     }
 }
 
@@ -311,23 +280,35 @@ mod tests {
         172, 36, 26, 75, 47, 33, 160,
     ];
 
-    fn example_key() -> MediaEncryptionInfo {
-        let info = json!({
+    fn example_key_json() -> serde_json::Value {
+        json!({
             "v": "v2",
             "key": {
                 "kty": "oct",
                 "alg": "A256CTR",
                 "ext": true,
                 "k": "Voq2nkPme_x8no5-Tjq_laDAdxE6iDbxnlQXxwFPgE4",
-                "key_ops": ["encrypt", "decrypt"]
+                "key_ops": ["decrypt", "encrypt"]
             },
             "iv": "i0DovxYdJEcAAAAAAAAAAA",
             "hashes": {
                 "sha256": "ANdt819a8bZl4jKy3Z+jcqtiNICa2y0AW4BBJ/iQRAU"
             }
-        });
+        })
+    }
 
-        serde_json::from_value(info).unwrap()
+    fn example_key() -> MediaEncryptionInfo {
+        serde_json::from_value(example_key_json()).unwrap()
+    }
+
+    #[test]
+    fn media_encryption_info_serde_roundtrip() {
+        let json = example_key_json();
+
+        let info = serde_json::from_value::<MediaEncryptionInfo>(json.clone()).unwrap();
+
+        let serialized_info = serde_json::to_value(&info).unwrap();
+        assert_eq!(serialized_info, json);
     }
 
     #[test]

@@ -13,7 +13,10 @@ use ruma::{
     OwnedEventId, RoomVersionId, device_id, event_id,
     events::{
         AnySyncTimelineEvent,
-        room::{history_visibility::HistoryVisibility, message::RoomMessageEventContent},
+        room::{
+            history_visibility::HistoryVisibility, member::MembershipState,
+            message::RoomMessageEventContent,
+        },
     },
     mxc_uri, room_id,
     serde::Raw,
@@ -414,4 +417,119 @@ async fn test_shared_history_crash_before_import() {
             .is_none(),
         "Bob should have cleared the pending key bundle details for the room"
     );
+}
+
+/// Verifies that the Megolm session is rotated when a member leave is
+/// delivered only as a state snapshot inside a gappy (limited) sync, not as
+/// an explicit timeline event.
+#[async_test]
+async fn test_room_key_rotation_on_gappy_sync_v3() {
+    let room_id = room_id!("!test:localhost");
+
+    let alice_id = user_id!("@alice:localhost");
+    let bob_id = user_id!("@bob:localhost");
+
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = matrix_mock_server
+        .client_builder_for_crypto_end_to_end(alice_id, device_id!("BOBDEVICE"))
+        .on_builder(|builder| builder.with_encryption_settings(encryption_settings))
+        .build()
+        .await;
+
+    let alice_factory = EventFactory::new().room(room_id).sender(alice_id);
+    let bob_factory = EventFactory::new().room(room_id).sender(bob_id);
+
+    // Alice and Bob are in a room. Since this is the first sync, Alice should load
+    // the member list.
+    matrix_mock_server
+        .mock_get_members()
+        .ok(vec![alice_factory.member(alice_id).into_raw()])
+        .mock_once()
+        .named("members_post_bob")
+        .mount()
+        .await;
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(alice_factory.create(alice_id, RoomVersionId::V1))
+                    .add_state_event(alice_factory.room_encryption())
+                    .add_state_event(alice_factory.member(alice_id))
+                    .add_state_event(alice_factory.member(bob_id)),
+            );
+        })
+        .await;
+
+    let alice_room = alice.get_room(room_id).expect("Alice should have access to the room");
+
+    // Alice sends M1.
+    let event_id_1 = event_id!("$m1");
+    let (m1_receiver, m1_mock) =
+        matrix_mock_server.mock_room_send().ok_with_capture(event_id_1, alice_id);
+    m1_mock.mock_once().named("send_m1").mount().await;
+
+    alice_room
+        .send(RoomMessageEventContent::text_plain("Before"))
+        .await
+        .expect("Alice should be able to send M1");
+
+    let m1_event = m1_receiver.await.expect("M1 should have been captured by the mock");
+    let m1_session_id = megolm_session_id(&m1_event);
+
+    // Bob leaves, but we get a gappy sync. Alice should fully reload the room
+    // member list.
+    matrix_mock_server
+        .mock_get_members()
+        .ok(vec![alice_factory.member(alice_id).into_raw()])
+        .mock_once()
+        .named("members_post_bob")
+        .mount()
+        .await;
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("gap_token".to_owned())
+                    // Event only appears in state, not the timeline
+                    .add_state_event(bob_factory.member(bob_id).membership(MembershipState::Leave)),
+            );
+        })
+        .await;
+
+    // Alice sends M2, which should use a new session.
+    let event_id_2 = event_id!("$m2");
+    let (m2_receiver, m2_mock) =
+        matrix_mock_server.mock_room_send().ok_with_capture(event_id_2, alice_id);
+    m2_mock.mock_once().named("send_m2").mount().await;
+
+    alice_room
+        .send(RoomMessageEventContent::text_plain("After"))
+        .await
+        .expect("Alice should be able to send M2");
+
+    let m2_event = m2_receiver.await.expect("M2 should have been captured by the mock");
+    let m2_session_id = megolm_session_id(&m2_event);
+
+    assert_ne!(m1_session_id, m2_session_id, "Session was not rotated");
+}
+
+/// Extract the Megolm `session_id` from a captured `m.room.encrypted` event.
+fn megolm_session_id(raw: &Raw<AnySyncTimelineEvent>) -> String {
+    let content: serde_json::Value = raw
+        .get_field("content")
+        .expect("`content` field should be deserializable")
+        .expect("`content` field should be present in a room-send event");
+
+    content["session_id"]
+        .as_str()
+        .expect("Encrypted event content should have `session_id` field")
+        .to_owned()
 }
