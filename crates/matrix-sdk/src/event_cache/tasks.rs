@@ -688,6 +688,24 @@ pub(super) async fn search_indexing_task(
 ) {
     let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
 
+    // Send a background pagination request for all the known rooms!
+    {
+        let client = client.get().unwrap();
+        let ec = &client.event_cache().inner;
+
+        // lol spin loop
+        while ec.background_requests_sender.get().is_none() {}
+
+        let bg_request_sender = ec.background_requests_sender.get().unwrap().clone();
+        for room in client.rooms() {
+            let _ = bg_request_sender
+                .send(BackgroundRequest::PaginateRoomBackwards {
+                    room_id: room.room_id().to_owned(),
+                })
+                .await;
+        }
+    }
+
     loop {
         match linked_chunk_update_receiver.recv().await {
             Ok(room_ec_lc_update) => {
