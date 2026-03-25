@@ -2154,6 +2154,10 @@ impl Client {
             }
         }))))
     }
+
+    pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
+        HomeserverCapabilities::new(self.inner.homeserver_capabilities())
+    }
 }
 
 #[cfg(feature = "experimental-element-recent-emojis")]
@@ -3037,6 +3041,74 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
             media_store: value.media_store.map(|v| v as u64),
         }
     }
+}
+
+#[derive(uniffi::Object)]
+pub struct HomeserverCapabilities {
+    inner: matrix_sdk::HomeserverCapabilities,
+}
+
+impl HomeserverCapabilities {
+    pub(crate) fn new(capabilities: matrix_sdk::HomeserverCapabilities) -> Self {
+        Self { inner: capabilities }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl HomeserverCapabilities {
+    pub async fn refresh(&self) -> Result<(), ClientError> {
+        Ok(self.inner.refresh().await?)
+    }
+
+    pub async fn can_change_password(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_password().await?)
+    }
+
+    pub async fn can_change_displayname(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_displayname().await?)
+    }
+
+    pub async fn can_change_avatar(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_avatar().await?)
+    }
+
+    pub async fn can_change_thirdparty_ids(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_thirdparty_ids().await?)
+    }
+
+    pub async fn can_get_login_token(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_get_login_token().await?)
+    }
+
+    pub async fn extended_profile_fields(&self) -> Result<ExtendedProfileFields, ClientError> {
+        let profile_fields = self.inner.extended_profile_fields().await?;
+        Ok(ExtendedProfileFields {
+            enabled: profile_fields.enabled,
+            allowed: profile_fields
+                .allowed
+                .unwrap_or_default()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            disallowed: profile_fields
+                .disallowed
+                .unwrap_or_default()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        })
+    }
+
+    pub async fn forgets_room_when_leaving(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.forgets_room_when_leaving().await?)
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct ExtendedProfileFields {
+    pub enabled: bool,
+    pub allowed: Vec<String>,
+    pub disallowed: Vec<String>,
 }
 
 #[cfg(test)]

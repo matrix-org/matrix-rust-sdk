@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
+  of the homeserver. This replaces `Client::get_capabilities()`. 
+  ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
 - [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
   a cross-signing reset does not succeed after some period of time.
   ([#6325](https://github.com/matrix-org/matrix-rust-sdk/pull/6325))
