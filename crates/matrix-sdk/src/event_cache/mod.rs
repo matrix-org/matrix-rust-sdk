@@ -425,6 +425,16 @@ pub struct EventCacheConfig {
     ///
     /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_BATCH_SIZE`].
     pub room_pagination_batch_size: u16,
+
+    /// The maximum number of background pagination requests that can run
+    /// concurrently across all rooms.
+    ///
+    /// When this limit is reached, the background request dispatcher will wait
+    /// for an in-flight pagination to complete before accepting new requests.
+    ///
+    /// Defaults to
+    /// [`EventCacheConfig::DEFAULT_MAX_CONCURRENT_BACKGROUND_PAGINATIONS`].
+    pub max_concurrent_background_paginations: usize,
 }
 
 impl EventCacheConfig {
@@ -444,6 +454,11 @@ impl EventCacheConfig {
     /// executing a background pagination request (see also
     /// [`EventCacheConfig::room_pagination_batch_size`]).
     pub const DEFAULT_ROOM_PAGINATION_BATCH_SIZE: u16 = 30;
+
+    /// The default maximum number of concurrent background pagination requests
+    /// (see also
+    /// [`EventCacheConfig::max_concurrent_background_paginations`]).
+    pub const DEFAULT_MAX_CONCURRENT_BACKGROUND_PAGINATIONS: usize = 16;
 }
 
 impl Default for EventCacheConfig {
@@ -453,6 +468,8 @@ impl Default for EventCacheConfig {
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
             room_pagination_per_room_credit: Self::DEFAULT_ROOM_PAGINATION_CREDITS,
             room_pagination_batch_size: Self::DEFAULT_ROOM_PAGINATION_BATCH_SIZE,
+            max_concurrent_background_paginations:
+                Self::DEFAULT_MAX_CONCURRENT_BACKGROUND_PAGINATIONS,
             experimental_auto_backpagination: false,
         }
     }
