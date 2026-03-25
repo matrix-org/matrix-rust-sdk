@@ -1052,7 +1052,11 @@ mod tests {
             // All of Client's async methods that do network requests (and
             // possibly some that don't) are `!Send` on wasm. We obviously want
             // to be able to use them in event handlers.
-            let _caps = client.get_capabilities().await.map_err(|e| anyhow::anyhow!("{}", e))?;
+            client
+                .homeserver_capabilities()
+                .refresh()
+                .await
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
             anyhow::Ok(())
         });
     }

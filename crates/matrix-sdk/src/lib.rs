@@ -65,6 +65,7 @@ pub mod widget;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
+pub use client::homeserver_capabilities::HomeserverCapabilities;
 #[cfg(feature = "experimental-search")]
 pub mod search_index;
 pub use client::{

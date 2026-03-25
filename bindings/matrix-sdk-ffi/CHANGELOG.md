@@ -47,6 +47,8 @@ All notable changes to this project will be documented in this file.
   accepts a `SyncListenerV2` callback that receives a `SyncResponseV2`
   after each successful sync.
   ([#6359](https://github.com/matrix-org/matrix-rust-sdk/pull/6359))
+- Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
+  of the homeserver. ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
 - Expose `Room.send_state_event_raw()` for sending arbitrary state events
   through the FFI layer.
   ([#6350](https://github.com/matrix-org/matrix-rust-sdk/pull/6350))

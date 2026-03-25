@@ -437,8 +437,8 @@ impl Account {
 
     /// Set the given field of our own user's profile.
     ///
-    /// [`Client::get_capabilities()`] should be called first to check it the
-    /// field can be set on the homeserver.
+    /// [`Client::homeserver_capabilities()`] should be called first to check it
+    /// the field can be set on the homeserver.
     ///
     /// # Arguments
     ///
@@ -457,8 +457,8 @@ impl Account {
 
     /// Delete the given field of our own user's profile.
     ///
-    /// [`Client::get_capabilities()`] should be called first to check it the
-    /// field can be modified on the homeserver.
+    /// [`Client::homeserver_capabilities()`] should be called first to check it
+    /// the field can be modified on the homeserver.
     ///
     /// # Arguments
     ///
