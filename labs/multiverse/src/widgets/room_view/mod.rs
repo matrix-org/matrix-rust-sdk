@@ -401,9 +401,9 @@ impl RoomView {
 
         let status_handle = self.status_handle.clone();
 
-        // Request to back-paginate 5 events.
+        // Request to back-paginate a few events.
         *pagination = Some(spawn(async move {
-            if let Err(err) = sdk_timeline.paginate_backwards(5).await {
+            if let Err(err) = sdk_timeline.paginate_backwards(20).await {
                 status_handle.set_message(format!("Error during backpagination: {err}"));
             }
         }));

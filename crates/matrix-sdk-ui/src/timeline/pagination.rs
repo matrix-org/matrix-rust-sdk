@@ -106,7 +106,7 @@ impl super::Timeline {
     /// Returns whether we hit the start of the timeline.
     async fn live_paginate_backwards(&self, batch_size: u16) -> Result<bool, Error> {
         loop {
-            match self.event_cache.pagination().run_backwards_once(batch_size).await {
+            match self.event_cache.pagination().run_backwards_until(batch_size).await {
                 Ok(outcome) => {
                     if outcome.reached_start {
                         self.controller.insert_timeline_start_if_missing().await;
