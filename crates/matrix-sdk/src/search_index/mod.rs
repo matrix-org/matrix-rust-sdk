@@ -35,7 +35,7 @@ use ruma::{
     },
     room_version_rules::RedactionRules,
 };
-use tokio::sync::{Mutex, MutexGuard};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, warn};
 
 use crate::event_cache::RoomEventCache;
@@ -73,27 +73,27 @@ impl SearchIndex {
     }
 
     /// Acquire [`SearchIndexGuard`] for this [`SearchIndex`].
-    pub async fn lock(&self) -> SearchIndexGuard<'_> {
+    pub async fn lock(&self) -> SearchIndexGuard {
         SearchIndexGuard {
-            index_map: self.room_indexes.lock().await,
-            search_index_store_kind: &self.search_index_store_kind,
+            index_map: self.room_indexes.clone().lock_owned().await,
+            search_index_store_kind: self.search_index_store_kind.clone(),
         }
     }
 }
 
 /// Object that represents an acquired [`SearchIndex`].
 #[derive(Debug)]
-pub struct SearchIndexGuard<'a> {
+pub struct SearchIndexGuard {
     /// Guard around the [`RoomIndex`] map
-    index_map: MutexGuard<'a, HashMap<OwnedRoomId, RoomIndex>>,
+    index_map: OwnedMutexGuard<HashMap<OwnedRoomId, RoomIndex>>,
 
     /// Base directory that stores the directories for each RoomIndex
-    search_index_store_kind: &'a SearchIndexStoreKind,
+    search_index_store_kind: SearchIndexStoreKind,
 }
 
-impl SearchIndexGuard<'_> {
+impl SearchIndexGuard {
     fn create_index(&self, room_id: &RoomId) -> Result<RoomIndex, IndexError> {
-        let index = match self.search_index_store_kind {
+        let index = match &self.search_index_store_kind {
             SearchIndexStoreKind::UnencryptedDirectory(path) => {
                 RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).unencrypted().build()?
             }

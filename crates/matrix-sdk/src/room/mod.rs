@@ -4294,7 +4294,13 @@ impl Room {
         pagination_offset: Option<usize>,
     ) -> Result<Vec<OwnedEventId>, IndexError> {
         let mut search_index_guard = self.client.search_index().lock().await;
-        search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
+        let query = query.to_owned();
+        let room_id = self.room_id().to_owned();
+        tokio::task::spawn_blocking(move || {
+            search_index_guard.search(&query, max_number_of_results, pagination_offset, &room_id)
+        })
+        .await
+        .unwrap()
     }
 
     /// Subscribe to a given thread in this room.
