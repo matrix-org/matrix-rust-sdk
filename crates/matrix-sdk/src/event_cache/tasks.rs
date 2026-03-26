@@ -483,7 +483,7 @@ pub(super) async fn search_indexing_task(
                 }
 
                 let Some(client) = client.get() else {
-                    trace!("Client is shutting down, not spawning thread subscriber task");
+                    trace!("Client is shutting down, exiting search task");
                     return;
                 };
 
