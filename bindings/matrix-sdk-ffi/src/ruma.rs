@@ -134,7 +134,7 @@ pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
         return Some(MatrixEntity {
             id: matrix_uri.id().into(),
             via: matrix_uri.via().iter().map(|via| via.to_string()).collect(),
-            action: matrix_uri.action().map(Into::into),
+            action: matrix_uri.action().map(ToString::to_string),
         });
     }
 
