@@ -133,6 +133,10 @@ pub(crate) struct WidgetMachine {
     /// The room to which this widget machine is attached.
     room_id: OwnedRoomId,
 
+    /// Whether to wait with the initialization (capability request) until we
+    /// receive the content_load action.
+    init_on_content_load: bool,
+
     /// Outstanding requests sent to the widget (mapped by uuid).
     pending_to_widget_requests: PendingRequests<ToWidgetRequestMeta>,
 
@@ -167,17 +171,16 @@ impl WidgetMachine {
         let limits =
             RequestLimits { max_pending_requests: 15, response_timeout: Duration::from_secs(10) };
 
-        let mut machine = Self {
+        let machine = Self {
             widget_id,
             room_id,
+            init_on_content_load,
             pending_to_widget_requests: PendingRequests::new(limits.clone()),
             pending_matrix_driver_requests: PendingRequests::new(limits),
             pending_state_updates: None,
             capabilities: CapabilitiesState::Unset,
         };
-
-        let initial_actions =
-            if init_on_content_load { Vec::new() } else { machine.negotiate_capabilities() };
+        let initial_actions = Vec::new();
 
         (machine, initial_actions)
     }
@@ -286,17 +289,25 @@ impl WidgetMachine {
 
         match request {
             FromWidgetRequest::SupportedApiVersions {} => {
-                let response = SupportedApiVersionsResponse::new();
-                vec![Self::send_from_widget_response(raw_request, Ok(response))]
+                let mut response_array = vec![Self::send_from_widget_response(
+                    raw_request,
+                    Ok(SupportedApiVersionsResponse::new()),
+                )];
+                if !self.init_on_content_load
+                    && matches!(self.capabilities, CapabilitiesState::Unset)
+                {
+                    response_array.append(&mut self.negotiate_capabilities());
+                }
+                response_array
             }
 
             FromWidgetRequest::ContentLoaded {} => {
-                let mut response =
+                let mut response_array =
                     vec![Self::send_from_widget_response(raw_request, Ok(JsonObject::new()))];
                 if matches!(self.capabilities, CapabilitiesState::Unset) {
-                    response.append(&mut self.negotiate_capabilities());
+                    response_array.append(&mut self.negotiate_capabilities());
                 }
-                response
+                response_array
             }
 
             FromWidgetRequest::ReadEvent(req) => self
