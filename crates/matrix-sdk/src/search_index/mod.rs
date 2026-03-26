@@ -19,7 +19,7 @@
 use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 
 use futures_util::future::join_all;
-use matrix_sdk_base::{RoomState, deserialized_responses::TimelineEvent};
+use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_search::{
     error::IndexError,
     index::{RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
@@ -36,9 +36,9 @@ use ruma::{
     room_version_rules::RedactionRules,
 };
 use tokio::sync::{Mutex, MutexGuard};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
-use crate::{Client, event_cache::RoomEventCache};
+use crate::event_cache::RoomEventCache;
 
 type Password = String;
 
@@ -207,40 +207,6 @@ impl SearchIndexGuard<'_> {
         let operations: Vec<_> = join_all(futures).await.into_iter().flatten().collect();
 
         self.bulk_execute(operations, room_id)
-    }
-}
-
-impl Client {
-    /// Search for a query in all the joined rooms, returning a list of tuples
-    /// of the room and the events in those rooms.
-    pub async fn search_joined_rooms(
-        &self,
-        query: &str,
-        max_number_of_results_per_room: usize,
-    ) -> Vec<(OwnedRoomId, Vec<OwnedEventId>)> {
-        let joined_rooms =
-            self.rooms().into_iter().filter(|room| room.state() == RoomState::Joined);
-
-        let mut search_index_guard = self.search_index().lock().await;
-
-        joined_rooms
-            .filter_map(|room| {
-                let results = search_index_guard
-                    .search(&query, max_number_of_results_per_room, None, room.room_id())
-                    .inspect_err(|err| {
-                        error!("error occurred while searching index: {err:?}");
-                    })
-                    .ok()?;
-
-                if results.is_empty() {
-                    return None;
-                }
-
-                warn!(room=%room.room_id(), "BNJBVR results: {results:?}");
-
-                Some((room.room_id().to_owned(), results))
-            })
-            .collect()
     }
 }
 
