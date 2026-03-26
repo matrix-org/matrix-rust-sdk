@@ -168,6 +168,17 @@ pub(super) async fn background_requests_task(
                     }
                 };
 
+                let Some(room) = inner.client.get().and_then(|client| client.get_room(&room_id)) else {
+                    break;
+                };
+
+                // Check that the room is in the joined state, otherwise it doesn't make sense to
+                // automatically paginate it.
+                if room.state() != RoomState::Joined {
+                    trace!(for_room = %room_id, "Not joined to the room anymore, skipping pagination");
+                    continue;
+                }
+
                 // Check that we're not already paginating.
                 if !in_flight_rooms.lock().insert(room_id.clone()) {
                     trace!(for_room = %room_id, "Pagination already in-flight, skipping");
@@ -710,12 +721,14 @@ pub(super) async fn search_indexing_task(
     let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
 
     // Send a background pagination request for all the known rooms!
-    {
+    let mut known_rooms = {
         let client = client.get().unwrap();
         let ec = &client.event_cache().inner;
 
         // lol @ spin loop
         while ec.background_requests_sender.get().is_none() {}
+
+        let mut known_rooms = HashSet::new();
 
         let bg_request_sender = ec.background_requests_sender.get().unwrap().clone();
         for room in client.rooms() {
@@ -725,9 +738,13 @@ pub(super) async fn search_indexing_task(
                         room_id: room.room_id().to_owned(),
                     })
                     .await;
+
+                known_rooms.insert(room.room_id().to_owned());
             }
         }
-    }
+
+        known_rooms
+    };
 
     loop {
         match linked_chunk_update_receiver.recv().await {
@@ -737,6 +754,25 @@ pub(super) async fn search_indexing_task(
                     trace!("Received non-room updates, ignoring.");
                     continue;
                 };
+
+                if !known_rooms.contains(&room_id) {
+                    // New room! Send a request to automatically back-paginate this room over time.
+                    client
+                        .get()
+                        .unwrap()
+                        .event_cache()
+                        .inner
+                        .background_requests_sender
+                        .get()
+                        .unwrap()
+                        .send(BackgroundRequest::PaginateRoomUntilStart {
+                            room_id: room_id.clone(),
+                        })
+                        .await
+                        .unwrap();
+
+                    known_rooms.insert(room_id.clone());
+                }
 
                 let mut timeline_events = room_ec_lc_update.events().peekable();
 
