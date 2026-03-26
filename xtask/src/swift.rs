@@ -173,6 +173,7 @@ const TARGETS: &[Target] = &[
     Target {
         triple: "aarch64-apple-darwin",
         platform: Platform::Macos,
+
         status: TargetStatus::TopTier,
         description: "macOS (Apple Silicon)",
     },
@@ -181,6 +182,12 @@ const TARGETS: &[Target] = &[
         platform: Platform::Macos,
         status: TargetStatus::TopTier,
         description: "macOS (Intel)",
+    },
+    Target {
+        triple: "aarch64-apple-ios-macabi",
+        platform: Platform::Macos,
+        status: TargetStatus::TopTier,
+        description: "Catalyst (Apple Silicon)",
     },
     Target {
         triple: "aarch64-apple-ios-sim",

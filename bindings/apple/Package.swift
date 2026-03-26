@@ -7,7 +7,8 @@ let package = Package(
     name: "MatrixRustSDK",
     platforms: [
         .iOS(.v15),
-        .macOS(.v12)
+        .macOS(.v12),
+        .macCatalyst(.v15)
     ],
     products: [
         .library(name: "MatrixRustSDK",
@@ -26,6 +27,7 @@ let package = Package(
                     ],
                     linkerSettings: [
                         .linkedLibrary("matrix_sdk_ffi", .when(platforms: [.macOS])),
+                        .linkedLibrary("matrix_sdk_ffi", .when(platforms: [.macCatalyst])),
                         .linkedLibrary("matrix_sdk_ffiFFI", .when(platforms: [.linux])),
                         .unsafeFlags(["-L./generated/matrix_sdk_ffi"])
                     ])

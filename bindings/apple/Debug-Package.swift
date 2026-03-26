@@ -9,7 +9,8 @@ let package = Package(
     name: "MatrixRustSDK",
     platforms: [
         .iOS(.v15),
-        .macOS(.v12)
+        .macOS(.v12),
+        .macCatalyst(.v15)
     ],
     products: [
         .library(name: "MatrixRustSDK",
