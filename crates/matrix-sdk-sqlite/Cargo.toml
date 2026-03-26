@@ -23,6 +23,8 @@ experimental-encrypted-state-events = [
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
 ]
 
+js = ["matrix-sdk-common/js", "matrix-sdk-base?/js", "matrix-sdk-crypto?/js", "matrix-sdk-store-encryption/js"]
+
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
