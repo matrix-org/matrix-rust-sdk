@@ -21,7 +21,7 @@ use from_widget::UpdateDelayedEventResponse;
 use indexmap::IndexMap;
 use ruma::{
     OwnedRoomId,
-    events::{AnyStateEvent, AnyTimelineEvent},
+    events::AnyStateEvent,
     serde::{JsonObject, Raw},
 };
 use serde::Serialize;
@@ -34,10 +34,7 @@ use self::{
     driver_req::{
         AcquireCapabilities, MatrixDriverRequest, MatrixDriverRequestHandle, RequestOpenId,
     },
-    from_widget::{
-        FromWidgetErrorResponse, FromWidgetRequest, ReadEventsResponse,
-        SupportedApiVersionsResponse,
-    },
+    from_widget::{FromWidgetErrorResponse, FromWidgetRequest, SupportedApiVersionsResponse},
     incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
     openid::{OpenIdResponse, OpenIdState},
     pending::{PendingRequests, RequestLimits},
@@ -53,7 +50,10 @@ use super::{
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
     filter::FilterInput,
 };
-use crate::{Error, Result, widget::Filter};
+use crate::{
+    Error, Result,
+    widget::{Filter, machine},
+};
 
 mod driver_req;
 mod from_widget;
@@ -66,7 +66,7 @@ mod to_widget;
 
 pub(crate) use self::{
     driver_req::{MatrixDriverRequestData, SendEventRequest, SendToDeviceRequest},
-    from_widget::{SendEventResponse, SendToDeviceEventResponse},
+    from_widget::{ReadEventsResponse, SendEventResponse, SendToDeviceEventResponse},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
@@ -180,8 +180,8 @@ impl WidgetMachine {
             pending_state_updates: None,
             capabilities: CapabilitiesState::Unset,
         };
-        let initial_actions = Vec::new();
 
+        let initial_actions = Vec::new();
         (machine, initial_actions)
     }
 
@@ -402,7 +402,7 @@ impl WidgetMachine {
     fn send_read_events_response(
         &self,
         request: Raw<FromWidgetRequest>,
-        events: Result<Vec<Raw<AnyTimelineEvent>>, Error>,
+        response: Result<ReadEventsResponse, Error>,
     ) -> Vec<Action> {
         let response = match &self.capabilities {
             CapabilitiesState::Unset => Err(FromWidgetErrorResponse::from_string(
@@ -411,10 +411,10 @@ impl WidgetMachine {
             CapabilitiesState::Negotiating => Err(FromWidgetErrorResponse::from_string(
                 "Received read events request while capabilities were negotiating",
             )),
-            CapabilitiesState::Negotiated(capabilities) => events
-                .map(|mut events| {
-                    events.retain(|e| capabilities.allow_reading(e));
-                    ReadEventsResponse { events }
+            CapabilitiesState::Negotiated(capabilities) => response
+                .map(|mut res| {
+                    res.events.retain(|e| capabilities.allow_reading(e));
+                    res
                 })
                 .map_err(FromWidgetErrorResponse::from_error),
         };
@@ -474,6 +474,7 @@ impl WidgetMachine {
             event_type: request.event_type,
             state_key: request.state_key,
             limit,
+            from: request.from,
         };
 
         self.send_matrix_driver_request(request).map(|(request, action)| {
