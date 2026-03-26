@@ -19,6 +19,7 @@ resolver = "3"
 rust-version = "1.93"
 
 [workspace.dependencies]
+aead = { version = "0.5.2", default-features = false, features = ["std", "stream"] }
 anyhow = { version = "1.0.100", default-features = false }
 aquamarine = { version = "0.6.0", default-features = false }
 as_variant = { version = "1.3.0", default-features = false }
@@ -37,6 +38,7 @@ base64 = { version = "0.22.1", default-features = false, features = ["std"] }
 bitflags = { version = "2.10.0", default-features = false }
 byteorder = { version = "1.5.0", default-features = false, features = ["std"] }
 cfg-if = { version = "1.0.4", default-features = false }
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["std"] }
 clap = { version = "4.5.53", default-features = false, features = ["std", "help", "usage"] }
 chrono = { version = "0.4.42", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
 dirs = { version = "6.0.0", default-features = false }

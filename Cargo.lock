@@ -3302,6 +3302,7 @@ dependencies = [
 name = "matrix-sdk-crypto"
 version = "0.16.0"
 dependencies = [
+ "aead",
  "aes",
  "anyhow",
  "aquamarine",
@@ -3312,6 +3313,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "cfg-if",
+ "chacha20poly1305",
  "ctr",
  "eyeball",
  "futures-core",
