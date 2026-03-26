@@ -18,7 +18,7 @@ use imbl::HashSet;
 use matrix_sdk::{Client, Room, deserialized_responses::TimelineEvent};
 use matrix_sdk_base::RoomStateFilter;
 use matrix_sdk_search::error::IndexError;
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId};
 
 #[derive(thiserror::Error, Debug)]
 pub enum SearchError {
@@ -174,13 +174,36 @@ impl GlobalSearch {
                 room_state.offset = Some(room_state.offset.unwrap_or(0) + room_results.len());
                 self.current_batch
                     .extend(room_results.into_iter().map(|event_id| (room_id.clone(), event_id)));
-
-                if self.current_batch.len() >= RESULTS_PER_PAGE {
-                    // We have enough events to return now.
-                    break;
-                }
             }
         }
+
+        // Extract the timestamps for the events in the current batch, by loading the
+        // events.
+        //
+        // TODO: ouch
+        let timestamps = {
+            let mut t = HashMap::new();
+            for (room_id, event_id) in &self.current_batch {
+                let Some(room_state) = self.offset_per_room.get(room_id) else {
+                    continue;
+                };
+                if let Ok(event) = room_state.room.load_or_fetch_event(event_id, None).await {
+                    t.insert(
+                        event_id.clone(),
+                        event.timestamp().unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+                    );
+                }
+            }
+            t
+        };
+
+        // Sort descending by event timestamp.
+        self.current_batch.sort_by_key(|(_room_id, event_id)| {
+            let as_uint =
+                timestamps.get(event_id).copied().unwrap_or_else(MilliSecondsSinceUnixEpoch::now).0;
+            let as_int: i128 = as_uint.into();
+            -as_int
+        });
 
         if !self.current_batch.is_empty() {
             let hi = RESULTS_PER_PAGE.min(self.current_batch.len());
