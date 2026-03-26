@@ -3691,6 +3691,7 @@ dependencies = [
  "matrix-sdk",
  "matrix-sdk-base",
  "matrix-sdk-common",
+ "matrix-sdk-search",
  "matrix-sdk-test",
  "matrix-sdk-test-utils",
  "mime",
