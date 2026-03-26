@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::cell::RefCell;
 use std::{
     collections::HashMap,
     fmt,

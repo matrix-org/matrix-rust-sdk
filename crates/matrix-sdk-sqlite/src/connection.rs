@@ -68,8 +68,10 @@
 use std::cell::RefCell;
 use std::{convert::Infallible, path::PathBuf};
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use deadpool::managed::RecycleError;
 pub use deadpool::managed::reexports::*;
-use deadpool::managed::{self, Metrics, RecycleError};
+use deadpool::managed::{self, Metrics};
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use deadpool_sync::SyncWrapper;
 
@@ -130,11 +132,11 @@ impl managed::Manager for Manager {
 
     async fn recycle(
         &self,
-        conn: &mut Self::Type,
+        _conn: &mut Self::Type,
         _: &Metrics,
     ) -> managed::RecycleResult<Self::Error> {
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        if conn.is_mutex_poisoned() {
+        if _conn.is_mutex_poisoned() {
             return Err(RecycleError::Message(
                 "Mutex is poisoned. Connection is considered unusable.".into(),
             ));
