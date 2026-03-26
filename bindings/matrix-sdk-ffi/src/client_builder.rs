@@ -408,7 +408,7 @@ impl ClientBuilder {
             None
         };
 
-        if let Some(search_index_store) = builder.search_index_store {
+        let with_search = if let Some(search_index_store) = builder.search_index_store {
             // Create the search index directory.
             match search_index_store {
                 SearchIndexStoreKind::UnencryptedDirectory(ref path)
@@ -420,7 +420,11 @@ impl ClientBuilder {
 
             // Configure the inner builder to use the search index store.
             inner_builder = inner_builder.search_index_store(search_index_store);
-        }
+
+            true
+        } else {
+            false
+        };
 
         // Determine server either from URL, server name or user ID.
         inner_builder = match builder.homeserver_cfg {
@@ -544,6 +548,13 @@ impl ClientBuilder {
         inner_builder = inner_builder.with_threading_support(builder.threading_support);
 
         let sdk_client = inner_builder.build().await?;
+
+        if with_search {
+            let mut config = sdk_client.event_cache().config_mut();
+            config.experimental_auto_backpagination = true;
+            config.room_pagination_batch_size = 100;
+            config.max_concurrent_background_paginations = 16;
+        }
 
         Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
     }
