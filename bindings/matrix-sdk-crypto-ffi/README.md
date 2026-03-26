@@ -75,12 +75,13 @@ The bindings can built for the `aarch64` target with:
 $ cargo build --target aarch64-linux-android
 ```
 
-After that, a dynamic library can be found in the `target/aarch64-linux-android/debug` directory.
-The library will be called `libmatrix_crypto.so` and needs to be renamed and
+After that, a dynamic library can be found in the `target/aarch64-linux-android/debug` directory,
+under the repository root directory.
+The library will be called `libmatrix_sdk_crypto_ffi.so` and needs to be renamed and
 copied into the `jniLibs` directory of your Android project, for Element Android:
 
 ```
-$ cp ../../target/aarch64-linux-android/debug/libmatrix_crypto.so \
+$ cp ../../target/aarch64-linux-android/debug/libmatrix_sdk_crypto_ffi.so \
      /home/example/matrix-sdk-android/src/main/jniLibs/aarch64/libuniffi_olm.so
 ```
 
