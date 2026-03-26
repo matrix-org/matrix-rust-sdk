@@ -26,6 +26,7 @@ use matrix_sdk_crypto::CryptoStoreError;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 use sqlite_wasm_vfs::sahpool::OpfsSAHError;
 use thiserror::Error;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::io;
 
 use crate::connection::{CreatePoolError, PoolError};
@@ -34,6 +35,7 @@ use crate::connection::{CreatePoolError, PoolError};
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum OpenStoreError {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     /// Failed to create the DB's parent directory.
     #[error("Failed to create the database's parent directory: {0}")]
     CreateDir(#[source] io::Error),
