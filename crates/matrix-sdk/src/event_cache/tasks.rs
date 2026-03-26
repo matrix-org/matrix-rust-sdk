@@ -19,7 +19,7 @@ use std::{
 
 use eyeball::Subscriber;
 use matrix_sdk_base::{
-    linked_chunk::OwnedLinkedChunkId, locks::Mutex,
+    RoomState, linked_chunk::OwnedLinkedChunkId, locks::Mutex,
     serde_helpers::extract_thread_root_from_content, sync::RoomUpdates,
 };
 use ruma::{OwnedEventId, OwnedRoomId, OwnedTransactionId};
@@ -92,6 +92,7 @@ pub(super) async fn room_updates_task(
 #[derive(Clone, Debug)]
 pub(crate) enum BackgroundRequest {
     PaginateRoomBackwards { room_id: OwnedRoomId },
+    PaginateRoomUntilStart { room_id: OwnedRoomId },
 }
 
 /// Listen to background requests, and dispatch them to worker tasks.
@@ -128,13 +129,7 @@ pub(super) async fn background_requests_task(
         // Back-pressure: if at capacity, wait for a worker to finish.
         while join_set.len() >= max_concurrent_workers {
             if let Some(join_result) = join_set.join_next().await {
-                process_worker_result(
-                    inner.clone(),
-                    join_result,
-                    &mut room_pagination_credits,
-                    &mut join_set,
-                    in_flight_rooms.clone(),
-                );
+                process_worker_result(inner.clone(), join_result, &mut room_pagination_credits);
             }
         }
 
@@ -143,7 +138,7 @@ pub(super) async fn background_requests_task(
             biased;
 
             Some(join_result) = join_set.join_next(), if !join_set.is_empty() => {
-                process_worker_result(inner.clone(), join_result, &mut room_pagination_credits, &mut join_set, in_flight_rooms.clone());
+                process_worker_result(inner.clone(), join_result, &mut room_pagination_credits);
             }
 
             request = receiver.recv() => {
@@ -151,17 +146,38 @@ pub(super) async fn background_requests_task(
                     break;
                 };
 
-                match request {
+                let (room_id, until_start) = match request {
                     BackgroundRequest::PaginateRoomBackwards { room_id } => {
-                        start_background_pagination(
-                            inner.clone(),
-                            room_id,
-                            &mut room_pagination_credits,
-                            &mut join_set,
-                            in_flight_rooms.clone(),
-                        );
+                        trace!(for_room = %room_id, "running single pagination");
+
+                        // Check credits before spawning.
+                        let credits = room_pagination_credits
+                            .entry(room_id.clone())
+                            .or_insert_with(|| inner.config.read().unwrap().room_pagination_per_room_credit);
+
+                        if *credits == 0 {
+                            trace!(for_room = %room_id, "No more credits to paginate this room, skipping");
+                            continue;
+                        }
+
+                        (room_id, false)
                     }
+
+                    BackgroundRequest::PaginateRoomUntilStart { room_id } => {
+                        (room_id, true)
+                    }
+                };
+
+                // Check that we're not already paginating.
+                if !in_flight_rooms.lock().insert(room_id.clone()) {
+                    trace!(for_room = %room_id, "Pagination already in-flight, skipping");
+                    continue;
                 }
+
+                trace!(for_room = %room_id, "running pagination until start");
+
+                // Spawn the pagination work onto a worker task.
+                join_set.spawn(run_background_pagination(inner.clone(), room_id, in_flight_rooms.clone(), until_start));
             }
         }
     }
@@ -172,33 +188,6 @@ pub(super) async fn background_requests_task(
     info!("Closing the background request task because receiver closed");
 }
 
-fn start_background_pagination(
-    inner: Arc<EventCacheInner>,
-    room_id: OwnedRoomId,
-    room_pagination_credits: &mut HashMap<OwnedRoomId, usize>,
-    join_set: &mut JoinSet<BackgroundPaginationResult>,
-    in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
-) {
-    // Check credits before spawning.
-    let credits = room_pagination_credits
-        .entry(room_id.clone())
-        .or_insert_with(|| inner.config.read().unwrap().room_pagination_per_room_credit);
-
-    if *credits == 0 {
-        trace!(for_room = %room_id, "No more credits to paginate this room, skipping");
-        return;
-    }
-
-    // Check that we're not already paginating.
-    if !in_flight_rooms.lock().insert(room_id.clone()) {
-        trace!(for_room = %room_id, "Pagination already in-flight, skipping");
-        return;
-    }
-
-    // Spawn the pagination work onto a worker task.
-    join_set.spawn(run_background_pagination(inner.clone(), room_id, in_flight_rooms.clone()));
-}
-
 /// Process the result of a completed worker task.
 ///
 /// This handles credit bookkeeping, removes the room from the in-flight set,
@@ -207,8 +196,6 @@ fn process_worker_result(
     inner: Arc<EventCacheInner>,
     result: Result<BackgroundPaginationResult, tokio::task::JoinError>,
     room_pagination_credits: &mut HashMap<OwnedRoomId, usize>,
-    join_set: &mut JoinSet<BackgroundPaginationResult>,
-    in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
 ) {
     let worker_result = match result {
         Ok(r) => r,
@@ -225,14 +212,23 @@ fn process_worker_result(
         *credit = credit.saturating_sub(1);
     }
 
+    if worker_result.until_start {
+        // Enqueue a new request in the background request channel.
+        let request =
+            BackgroundRequest::PaginateRoomUntilStart { room_id: worker_result.room_id.clone() };
+        if let Err(err) = inner.background_requests_sender.get().unwrap().try_send(request) {
+            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request: {err}");
+        }
+        return;
+    }
+
     if worker_result.retry {
-        start_background_pagination(
-            inner,
-            worker_result.room_id,
-            room_pagination_credits,
-            join_set,
-            in_flight_rooms,
-        );
+        // Enqueue a new request in the background request channel.
+        let request =
+            BackgroundRequest::PaginateRoomBackwards { room_id: worker_result.room_id.clone() };
+        if let Err(err) = inner.background_requests_sender.get().unwrap().try_send(request) {
+            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request: {err}");
+        }
     }
 }
 
@@ -244,6 +240,8 @@ struct BackgroundPaginationResult {
     should_decrement_credit: bool,
     /// Whether the pagination ended in an error, and should be retried later.
     retry: bool,
+    /// Whether the pagination must paginate until the start of the room.
+    until_start: bool,
 }
 
 /// Run a single background pagination for a room.
@@ -258,6 +256,7 @@ async fn run_background_pagination(
     inner: Arc<EventCacheInner>,
     room_id: OwnedRoomId,
     in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
+    until_start: bool,
 ) -> BackgroundPaginationResult {
     debug_assert!(
         { in_flight_rooms.lock().contains(&room_id) },
@@ -286,7 +285,10 @@ async fn run_background_pagination(
             return BackgroundPaginationResult {
                 room_id,
                 should_decrement_credit: false,
+                // No need to retry, it's unlikely to work later.
+                // TODO: finer error handling
                 retry: false,
+                until_start: false,
             };
         }
     };
@@ -297,14 +299,33 @@ async fn run_background_pagination(
 
     match pagination.run_backwards_once(room_pagination_batch_size).await {
         Ok(outcome) => {
+            trace!(for_room = %room_id, "pagination completed: reached_start={}, events_fetched={}", outcome.reached_start, outcome.events.len());
+
             // Only decrement the credit if we did meaningful progress (i.e. reached the
             // start or there was new events).
-            let should_decrement_credit = !outcome.reached_start || !outcome.events.is_empty();
-            BackgroundPaginationResult { room_id, should_decrement_credit, retry: false }
+            let should_decrement_credit =
+                !until_start && (!outcome.reached_start || !outcome.events.is_empty());
+
+            // Make sure that we don't iloop despite the start has been reached.
+            let until_start = until_start && !outcome.reached_start;
+
+            BackgroundPaginationResult {
+                room_id,
+                should_decrement_credit,
+                retry: false,
+                until_start,
+            }
         }
+
         Err(err) => {
             warn!(for_room = %room_id, "Failed to run background pagination: {err}");
-            BackgroundPaginationResult { room_id, should_decrement_credit: false, retry: true }
+
+            BackgroundPaginationResult {
+                room_id,
+                should_decrement_credit: false,
+                retry: true,
+                until_start,
+            }
         }
     }
 }
@@ -693,16 +714,18 @@ pub(super) async fn search_indexing_task(
         let client = client.get().unwrap();
         let ec = &client.event_cache().inner;
 
-        // lol spin loop
+        // lol @ spin loop
         while ec.background_requests_sender.get().is_none() {}
 
         let bg_request_sender = ec.background_requests_sender.get().unwrap().clone();
         for room in client.rooms() {
-            let _ = bg_request_sender
-                .send(BackgroundRequest::PaginateRoomBackwards {
-                    room_id: room.room_id().to_owned(),
-                })
-                .await;
+            if room.state() == RoomState::Joined {
+                let _ = bg_request_sender
+                    .send(BackgroundRequest::PaginateRoomUntilStart {
+                        room_id: room.room_id().to_owned(),
+                    })
+                    .await;
+            }
         }
     }
 
