@@ -33,7 +33,7 @@ use self::{
     },
     matrix::MatrixDriver,
 };
-use crate::{Result, room::Room};
+use crate::{Result, room::Room, widget::machine::DownloadFileResponse};
 
 mod capabilities;
 mod filter;
@@ -251,6 +251,11 @@ impl WidgetDriver {
                             )
                             .await
                             .map(MatrixDriverResponse::ToDeviceSent)
+                    }
+                    MatrixDriverRequestData::DownloadFile(req) => {
+                        matrix_driver.download_attachment(req.content_uri).await.map(|file| {
+                            MatrixDriverResponse::FileDownloaded(DownloadFileResponse { file })
+                        })
                     }
                 };
 

@@ -266,6 +266,7 @@ pub fn get_element_call_required_permissions(
         requires_client: true,
         update_delayed_event: true,
         send_delayed_event: true,
+        download_files: true,
     }
 }
 
@@ -331,6 +332,8 @@ pub struct WidgetCapabilities {
     pub update_delayed_event: bool,
     /// This allows the widget to send events with a delay.
     pub send_delayed_event: bool,
+    /// This allows the widget to download files (avatars)
+    pub download_files: bool,
 }
 
 impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
@@ -341,6 +344,7 @@ impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
             requires_client: value.requires_client,
             update_delayed_event: value.update_delayed_event,
             send_delayed_event: value.send_delayed_event,
+            download_file: value.download_files,
         }
     }
 }
@@ -353,6 +357,7 @@ impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
             requires_client: value.requires_client,
             update_delayed_event: value.update_delayed_event,
             send_delayed_event: value.send_delayed_event,
+            download_files: value.download_file,
         }
     }
 }
@@ -553,5 +558,8 @@ mod tests {
         // RTC decline
         cap_assert("org.matrix.msc2762.receive.event:org.matrix.msc4310.rtc.decline");
         cap_assert("org.matrix.msc2762.send.event:org.matrix.msc4310.rtc.decline");
+
+        // Download avatars
+        cap_assert("org.matrix.msc4039.download_file");
     }
 }
