@@ -111,15 +111,13 @@ impl Widget for &mut SearchingView {
                     .len()
                     + 3;
 
-            if context.index % 2 == 0 {
-                message_widget.style = Style::default().fg(TEXT_COLOR).bg(ALT_ROW_COLOR);
+            message_widget.style = if context.is_selected {
+                Style::default().bg(NORMAL_ROW_COLOR).fg(SELECTED_STYLE_FG)
+            } else if context.index % 2 == 0 {
+                Style::default().fg(TEXT_COLOR).bg(ALT_ROW_COLOR)
             } else {
-                message_widget.style = Style::default().fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR);
-            }
-
-            if context.is_selected {
-                message_widget.style = Style::default().bg(NORMAL_ROW_COLOR).fg(SELECTED_STYLE_FG);
-            }
+                Style::default().fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR)
+            };
 
             (message_widget, main_axis_size as u16)
         });
