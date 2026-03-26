@@ -102,8 +102,11 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
 
 /// The default `required_state` constant value for sliding sync room
 /// subscriptions that must be added to `DEFAULT_REQUIRED_STATE`.
-const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] =
-    &[(StateEventType::RoomPinnedEvents, "")];
+const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] = &[
+    (StateEventType::RoomPinnedEvents, ""),
+    // TODO add this to ruma properly
+    (StateEventType::Custom { value: "im.vector.modular.widgets" }, "*"),
+];
 
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
