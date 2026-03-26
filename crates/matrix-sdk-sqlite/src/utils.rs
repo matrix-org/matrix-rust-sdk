@@ -384,8 +384,8 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
 }
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-/// An unreachable function to avoid having to put conditional compilation everywhere
-/// we want to use [`SyncOutsideWasmWrapper::interact()`].
+/// An unreachable function to avoid having to put conditional compilation
+/// everywhere we want to use [`SyncOutsideWasmWrapper::interact()`].
 ///
 /// This function should not be reachable under normal circumstance since
 /// [`SyncOutsideWasmWrapper::interact()`] return [`Infallible`] as an error
@@ -740,8 +740,8 @@ pub(crate) trait EncryptableStore {
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 #[derive(Debug)]
-/// Wrapper object for providing interior mutability similar to [`SyncWrapper`] without `Send`
-/// requirement.
+/// Wrapper object for providing interior mutability similar to [`SyncWrapper`]
+/// without `Send` requirement.
 ///
 /// Like [`SyncWrapper`], access to the wrapped object is provided via the
 /// [`SyncOutsideWasmWrapper::interact()`] method.
@@ -763,8 +763,9 @@ impl<T> SyncOutsideWasmWrapper<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        // This async block here is to maintain API compatibility with `SyncWrapper` without
-        // triggering clippy warning for `async fn` without a call to `await` inside
+        // This async block here is to maintain API compatibility with `SyncWrapper`
+        // without triggering clippy warning for `async fn` without a call to
+        // `await` inside
         async {
             let mut value = self.0.borrow_mut();
 
