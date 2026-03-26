@@ -785,7 +785,7 @@ pub(super) async fn search_indexing_task(
 
     // Send a background pagination request for all the known rooms!
     let mut known_rooms = {
-        let client = client.get().unwrap();
+        let client = client.get().expect("unable to promote client at start");
         let ec = &client.event_cache().inner;
 
         // lol @ spin loop
@@ -793,7 +793,11 @@ pub(super) async fn search_indexing_task(
 
         let mut known_rooms = HashSet::new();
 
-        let bg_request_sender = ec.background_requests_sender.get().unwrap().clone();
+        let bg_request_sender = ec
+            .background_requests_sender
+            .get()
+            .expect("background request sender has disappeared at start")
+            .clone();
         for room in client.rooms() {
             if room.state() == RoomState::Joined {
                 let _ = bg_request_sender.send(BackgroundRequest::PaginateRoomUntilStart {
@@ -816,22 +820,24 @@ pub(super) async fn search_indexing_task(
                     continue;
                 };
 
-                if !known_rooms.contains(&room_id) {
+                if !known_rooms.contains(&room_id) &&
                     // New room! Send a request to automatically back-paginate this room over time.
-                    client
-                        .get()
-                        .unwrap()
-                        .event_cache()
-                        .inner
-                        .background_requests_sender
-                        .get()
-                        .unwrap()
-                        .send(BackgroundRequest::PaginateRoomUntilStart {
-                            room_id: room_id.clone(),
-                        })
-                        .unwrap();
-
-                    known_rooms.insert(room_id.clone());
+                    let Some(client) = client.get()
+                {
+                    if let Some(sender) =
+                        client.event_cache().inner.background_requests_sender.get()
+                    {
+                        if sender
+                            .send(BackgroundRequest::PaginateRoomUntilStart {
+                                room_id: room_id.clone(),
+                            })
+                            .is_err()
+                        {
+                            warn!(for_room = %room_id, "Failed to send background pagination request");
+                        } else {
+                            known_rooms.insert(room_id.clone());
+                        }
+                    }
                 }
 
                 let mut timeline_events = room_ec_lc_update.events().peekable();
