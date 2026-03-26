@@ -499,7 +499,11 @@ impl App {
                                     if let Some(query) = view.get_text() {
                                         if *is_global {
                                             let mut search =
-                                                GlobalSearch::new(self.client.clone(), query);
+                                                GlobalSearch::builder(self.client.clone(), query)
+                                                    .only_dm_rooms()
+                                                    .await
+                                                    .unwrap()
+                                                    .build();
 
                                             let mut all_results = HashMap::new();
                                             loop {

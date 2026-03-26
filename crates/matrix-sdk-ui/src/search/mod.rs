@@ -14,7 +14,9 @@
 
 use std::collections::HashMap;
 
+use imbl::HashSet;
 use matrix_sdk::{Client, Room, deserialized_responses::TimelineEvent};
+use matrix_sdk_base::RoomStateFilter;
 use matrix_sdk_search::error::IndexError;
 use ruma::{OwnedEventId, OwnedRoomId};
 
@@ -73,14 +75,68 @@ impl RoomSearch {
     }
 }
 
-#[derive(Default)]
 struct GlobalSearchRoomState {
+    room: Room,
     offset: Option<usize>,
     is_done: bool,
 }
 
+pub struct GlobalSearchBuilder {
+    query: String,
+    room_set: Vec<Room>,
+}
+
+impl GlobalSearchBuilder {
+    pub fn new(client: Client, query: String, room_filter: RoomStateFilter) -> Self {
+        let room_set = client.rooms_filtered(room_filter);
+        Self { query, room_set }
+    }
+
+    /// Create a new global search on all the joined rooms.
+    pub fn new_joined(client: Client, query: String) -> Self {
+        Self::new(client, query, RoomStateFilter::JOINED)
+    }
+
+    /// Keep only the DM rooms from the initial working set.
+    pub async fn only_dm_rooms(mut self) -> Result<Self, matrix_sdk::Error> {
+        let mut to_remove = HashSet::new();
+        for room in &self.room_set {
+            if !room.is_direct().await? {
+                to_remove.insert(room.room_id().to_owned());
+            }
+        }
+        self.room_set.retain(|room| !to_remove.contains(room.room_id()));
+        Ok(self)
+    }
+
+    /// Keep only non-DM rooms (groups) from the initial working set.
+    pub async fn only_groups(mut self) -> Result<Self, matrix_sdk::Error> {
+        let mut to_remove = HashSet::new();
+        for room in &self.room_set {
+            if room.is_direct().await? {
+                to_remove.insert(room.room_id().to_owned());
+            }
+        }
+        self.room_set.retain(|room| !to_remove.contains(room.room_id()));
+        Ok(self)
+    }
+
+    pub fn build(self) -> GlobalSearch {
+        GlobalSearch {
+            query: self.query,
+            offset_per_room: HashMap::from_iter(self.room_set.into_iter().map(|room| {
+                (
+                    room.room_id().to_owned(),
+                    GlobalSearchRoomState { room, offset: None, is_done: false },
+                )
+            })),
+            is_done: false,
+            current_batch: Vec::new(),
+        }
+    }
+}
+
 pub struct GlobalSearch {
-    client: Client,
     query: String,
     offset_per_room: HashMap<OwnedRoomId, GlobalSearchRoomState>,
     is_done: bool,
@@ -89,17 +145,8 @@ pub struct GlobalSearch {
 }
 
 impl GlobalSearch {
-    pub fn new(client: Client, query: String) -> Self {
-        let offset_per_room = HashMap::from_iter(
-            client
-                // TODO allow filtering on room state (joined, left, etc.).
-                // TODO allow filtering on DMs vs non-DMS to reduce the initial set.
-                .joined_rooms()
-                .into_iter()
-                .map(|room| (room.room_id().to_owned(), GlobalSearchRoomState::default())),
-        );
-
-        Self { client, query, offset_per_room, is_done: false, current_batch: Vec::new() }
+    pub fn builder(client: Client, query: String) -> GlobalSearchBuilder {
+        GlobalSearchBuilder::new_joined(client, query)
     }
 
     pub async fn next(&mut self) -> Result<Option<Vec<(OwnedRoomId, OwnedEventId)>>, SearchError> {
@@ -117,13 +164,9 @@ impl GlobalSearch {
                 continue;
             }
 
-            let Some(room) = self.client.get_room(room_id) else {
-                continue;
-            };
-
-            // TODO: optimize, by only having a single async call.
+            // TODO: surely we can take this lock only once!
             let room_results =
-                room.search(&self.query, RESULTS_PER_PAGE, room_state.offset).await?;
+                room_state.room.search(&self.query, RESULTS_PER_PAGE, room_state.offset).await?;
 
             if room_results.is_empty() {
                 room_state.is_done = true;
@@ -159,10 +202,10 @@ impl GlobalSearch {
         };
         let mut results = Vec::new();
         for (room_id, event_id) in event_ids {
-            let Some(room) = self.client.get_room(&room_id) else {
+            let Some(room_state) = self.offset_per_room.get(&room_id) else {
                 continue;
             };
-            results.push((room_id, room.load_or_fetch_event(&event_id, None).await?));
+            results.push((room_id, room_state.room.load_or_fetch_event(&event_id, None).await?));
         }
         Ok(Some(results))
     }
