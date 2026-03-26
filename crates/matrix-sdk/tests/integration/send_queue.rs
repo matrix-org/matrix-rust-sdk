@@ -37,7 +37,7 @@ use ruma::{
         room::{
             MediaSource,
             message::{
-                ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
+                AddMentions, ImageMessageEventContent, MessageType, Relation, ReplyWithinThread,
                 RoomMessageEventContent, TextMessageEventContent,
             },
         },
@@ -1942,6 +1942,7 @@ async fn test_media_uploads() {
         .reply(Some(Reply {
             event_id: replied_to_event_id.into(),
             enforce_thread: matrix_sdk::room::reply::EnforceThread::Threaded(ReplyWithinThread::No),
+            add_mentions: AddMentions::Yes,
         }))
         .info(attachment_info);
 
@@ -2269,6 +2270,7 @@ async fn test_gallery_uploads() {
         .reply(Some(Reply {
             event_id: replied_to_event_id.into(),
             enforce_thread: matrix_sdk::room::reply::EnforceThread::Threaded(ReplyWithinThread::No),
+            add_mentions: AddMentions::Yes,
         }));
 
     // ----------------------
@@ -3754,11 +3756,15 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
     // Assuming a client that's interested in thread subscriptions,
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         })
         .build()
         .await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     client.event_cache().subscribe().unwrap();
 

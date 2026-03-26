@@ -579,10 +579,6 @@ impl Store {
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {
-        // TODO: (bnjbvr, #2624) If configured with a cross-process lock:
-        // - try to take the lock,
-        // - if acquired, look if another process touched the underlying storage,
-        // - if yes, reload everything; if no, return current cache
         Ok(StoreCacheGuard { cache: self.inner.cache.clone().read_owned().await })
     }
 
@@ -590,18 +586,12 @@ impl Store {
         StoreTransaction::new(self.clone()).await
     }
 
-    // Note: bnjbvr lost against borrowck here. Ideally, the `F` parameter would
-    // take a `&StoreTransaction`, but callers didn't quite like that.
-    pub(crate) async fn with_transaction<
-        T,
-        Fut: Future<Output = Result<(StoreTransaction, T), crate::OlmError>>,
-        F: FnOnce(StoreTransaction) -> Fut,
-    >(
+    pub(crate) async fn with_transaction<T>(
         &self,
-        func: F,
+        func: impl AsyncFnOnce(&mut StoreTransaction) -> Result<T, crate::OlmError>,
     ) -> Result<T, crate::OlmError> {
-        let tr = self.transaction().await;
-        let (tr, res) = func(tr).await?;
+        let mut tr = self.transaction().await;
+        let res = func(&mut tr).await?;
         tr.commit().await?;
         Ok(res)
     }
@@ -1916,10 +1906,8 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{
         RoomId, device_id,
-        events::room::{EncryptedFileInit, JsonWebKeyInit},
-        owned_device_id, owned_mxc_uri, room_id,
-        serde::Base64,
-        user_id,
+        events::room::{EncryptedFile, EncryptedFileHashes, V2EncryptedFileInfo},
+        owned_device_id, owned_mxc_uri, room_id, user_id,
     };
     use serde_json::json;
     use vodozemac::{Ed25519Keypair, megolm::SessionKey};
@@ -2369,23 +2357,11 @@ mod tests {
                         room_id: room_id.to_owned(),
                         // This isn't used at all in the method call, so we can fill it with
                         // garbage.
-                        file: EncryptedFileInit {
-                            url: owned_mxc_uri!("mxc://example.com/0"),
-                            key: JsonWebKeyInit {
-                                kty: "oct".to_owned(),
-                                key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-                                alg: "A256CTR.".to_owned(),
-                                k: Base64::new(vec![0u8; 128]),
-                                ext: true,
-                            }
-                            .into(),
-                            iv: Base64::new(vec![0u8; 128]),
-                            hashes: vec![("sha256".to_owned(), Base64::new(vec![0u8; 128]))]
-                                .into_iter()
-                                .collect(),
-                            v: "v2".to_owned(),
-                        }
-                        .into(),
+                        file: EncryptedFile::new(
+                            owned_mxc_uri!("mxc://example.com/0"),
+                            V2EncryptedFileInfo::encode([0; 32], [0; 16]).into(),
+                            EncryptedFileHashes::with_sha256([0; 32]),
+                        ),
                     },
                 },
                 bundle,

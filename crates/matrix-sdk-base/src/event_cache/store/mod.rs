@@ -137,11 +137,11 @@ impl Deref for EventCacheStoreLockGuard {
 }
 
 /// Event cache store specific error type.
-#[derive(Debug, thiserror::Error)]
+#[derive(Clone, Debug, thiserror::Error)]
 pub enum EventCacheStoreError {
     /// An error happened in the underlying database backend.
     #[error(transparent)]
-    Backend(Box<dyn std::error::Error + Send + Sync>),
+    Backend(Arc<dyn std::error::Error + Send + Sync>),
 
     /// The store is locked with a passphrase and an incorrect passphrase
     /// was given.
@@ -154,7 +154,7 @@ pub enum EventCacheStoreError {
 
     /// The store failed to encrypt or decrypt some data.
     #[error("Error encrypting or decrypting data from the event cache store: {0}")]
-    Encryption(#[from] StoreEncryptionError),
+    Encryption(#[from] Arc<StoreEncryptionError>),
 
     /// The store failed to encode or decode some data.
     #[error("Error encoding or decoding data from the event cache store: {0}")]
@@ -162,7 +162,7 @@ pub enum EventCacheStoreError {
 
     /// The store failed to serialize or deserialize some data.
     #[error("Error serializing or deserializing data from the event cache store: {0}")]
-    Serialization(#[from] serde_json::Error),
+    Serialization(#[from] Arc<serde_json::Error>),
 
     /// The database format has changed in a backwards incompatible way.
     #[error(
@@ -188,13 +188,13 @@ impl EventCacheStoreError {
     where
         E: std::error::Error + Send + Sync + 'static,
     {
-        Self::Backend(Box::new(error))
+        Self::Backend(Arc::new(error))
     }
 }
 
 impl From<EventCacheStoreError> for CrossProcessLockError {
     fn from(value: EventCacheStoreError) -> Self {
-        Self::TryLock(Box::new(value))
+        Self::TryLock(Arc::new(value))
     }
 }
 

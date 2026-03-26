@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
@@ -1971,6 +1971,16 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
+    // All rooms get new messages, so their entries will get updates because of read
+    // receipt updates.
+    //
+    // Starting with r0.
+    assert_entries_batch! {
+        [stream]
+        set [ 0 ] [ "!r0:bar.org" ];
+        end;
+    };
+
     // Now we have:
     //
     // | index | room ID | recency | name |
@@ -1985,6 +1995,13 @@ async fn test_room_sorting() -> Result<(), Error> {
         [stream]
         remove [ 3 ];
         insert [ 1 ] [ "!r1:bar.org" ];
+        end;
+    };
+
+    // Read receipt update for r1.
+    assert_entries_batch! {
+        [stream]
+        set [ 1 ] [ "!r1:bar.org" ];
         end;
     };
 
@@ -2005,6 +2022,13 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
+    // Read receipt update for r2.
+    assert_entries_batch! {
+        [stream]
+        set [ 0 ] [ "!r2:bar.org" ];
+        end;
+    };
+
     // Now we have:
     //
     // | index | room ID | recency | name |
@@ -2014,23 +2038,6 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 2     | !r1     | 6       | Aaa  |
     // | 3     | !r4     | 5       |      |
     // | 4     | !r3     | 4       |      |
-
-    // Rooms are individually updated.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r0:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r2:bar.org" ];
-        end;
-    };
 
     assert_pending!(stream);
 
@@ -2134,12 +2141,12 @@ async fn test_room_sorting() -> Result<(), Error> {
     // Rooms are individually updated.
     assert_entries_batch! {
         [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
+        set [ 0 ] [ "!r3:bar.org" ];
         end;
     };
     assert_entries_batch! {
         [stream]
-        set [ 0 ] [ "!r3:bar.org" ];
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
     assert_entries_batch! {
@@ -3024,11 +3031,9 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
     {
         // The first time, don't advertise support for MSC4306; the extension will NOT
         // enabled in this case, despite the client requesting it.
-        let features_map = BTreeMap::new();
-
         server
             .mock_versions()
-            .ok_custom(&["v1.11"], &features_map)
+            .ok()
             .named("/versions, first time")
             // This used to be a `mock_once()`, but we're not caching the versions in the
             // `RoomListService::new()` method anymore, so we're now doing a couple more requests
@@ -3123,11 +3128,10 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
 
     // Then, advertise support with support for MSC4306; the extension will be
     // enabled in this case.
-    let features_map = BTreeMap::from([("org.matrix.msc4306", true)]);
-
     server
         .mock_versions()
-        .ok_custom(&["v1.11"], &features_map)
+        .with_thread_subscriptions()
+        .ok()
         .named("/versions, second time")
         .up_to_n_times(2)
         .mount()

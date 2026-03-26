@@ -4,7 +4,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::test_utils::mocks::MatrixMockServer;
+use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_base::timeout::timeout;
 use matrix_sdk_test::{
     ALICE, BOB, CAROL, JoinedRoomBuilder, async_test, event_factory::EventFactory,
@@ -18,7 +18,6 @@ use ruma::{
     events::{
         Mentions,
         reaction::RedactedReactionEventContent,
-        relation::InReplyTo,
         room::{
             ImageInfo,
             encrypted::{
@@ -83,7 +82,7 @@ async fn test_in_reply_to_details() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 3);
 
         // We get the original message.
@@ -124,7 +123,7 @@ async fn test_in_reply_to_details() {
         .await;
 
     let third_unique_id = {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         assert_let!(VectorDiff::Set { value: _read_receipt_update, .. } = &timeline_updates[0]);
@@ -161,7 +160,7 @@ async fn test_in_reply_to_details() {
     timeline.fetch_details_for_event(eid3).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -207,7 +206,7 @@ async fn test_in_reply_to_details() {
     timeline.fetch_details_for_event(eid3).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -298,7 +297,7 @@ async fn test_fetch_details_utd() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // We get the reply, but with no details.
@@ -324,7 +323,7 @@ async fn test_fetch_details_utd() {
     timeline.fetch_details_for_event(response_event_id).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -410,7 +409,7 @@ async fn test_fetch_details_poll() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // We get the reply, but with no details.
@@ -436,7 +435,7 @@ async fn test_fetch_details_poll() {
     timeline.fetch_details_for_event(response_event_id).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -521,7 +520,7 @@ async fn test_fetch_details_sticker() {
         .await;
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // We get the reply.
@@ -547,7 +546,7 @@ async fn test_fetch_details_sticker() {
     timeline.fetch_details_for_event(response_event_id).await.unwrap();
 
     {
-        assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         assert_eq!(timeline_updates.len(), 2);
 
         // First it's set to pending, because we're starting the request…
@@ -678,7 +677,8 @@ async fn test_send_reply() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -686,8 +686,8 @@ async fn test_send_reply() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, event_id_from_bob);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
@@ -780,7 +780,8 @@ async fn test_send_reply_to_self() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by the current user.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -788,8 +789,8 @@ async fn test_send_reply_to_self() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, event_id_from_self);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, event_id_from_self);
             });
             assert!(reply_event.mentions.is_none());
 
@@ -944,7 +945,8 @@ async fn test_send_reply_with_event_id() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -952,8 +954,8 @@ async fn test_send_reply_with_event_id() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, event_id_from_bob);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);
@@ -1230,7 +1232,8 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
     assert_next_matches!(timeline_stream, VectorDiff::Clear);
 
     // Now, let's reply to a message sent by `BOB`.
-    server.mock_room_send()
+    server
+        .mock_room_send()
         .respond_with(move |req: &Request| {
             use ruma::events::room::message::RoomMessageEventContent;
 
@@ -1238,8 +1241,8 @@ async fn test_send_reply_with_event_id_that_is_redacted() {
                 .body_json::<RoomMessageEventContent>()
                 .expect("Failed to deserialize the event");
 
-            assert_matches!(reply_event.relates_to, Some(Relation::Reply { in_reply_to: InReplyTo { event_id, .. } }) => {
-                assert_eq!(event_id, redacted_event_id_from_bob);
+            assert_matches!(reply_event.relates_to, Some(Relation::Reply(reply)) => {
+                assert_eq!(reply.in_reply_to.event_id, redacted_event_id_from_bob);
             });
             assert_matches!(reply_event.mentions, Some(Mentions { user_ids, room: false, .. }) => {
                 assert_eq!(user_ids.len(), 1);

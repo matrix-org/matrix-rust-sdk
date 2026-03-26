@@ -548,8 +548,8 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                                 // the root, and update its thread summary, if the receipt is for
                                 // ourselves.
                                 //
-                                // TODO(bnjbvr): This is temporary code, and should be removed when
-                                // #4113 is done.
+                                // TODO: This is temporary code, and should be removed when #4113 is
+                                // done.
                                 if user_id == self.meta.own_user_id
                                     && let Some((item_pos, item)) =
                                         rfind_event_by_id(&self.items, &thread_root)

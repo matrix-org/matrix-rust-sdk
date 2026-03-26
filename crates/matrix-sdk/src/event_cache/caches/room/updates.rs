@@ -1,0 +1,139 @@
+// Copyright 2026 The Matrix.org Foundation C.I.C.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::collections::BTreeMap;
+
+use matrix_sdk_base::{
+    deserialized_responses::AmbiguityChange,
+    event_cache::{Event, Gap},
+    linked_chunk::{self, OwnedLinkedChunkId},
+};
+use ruma::{OwnedEventId, OwnedRoomId, events::AnySyncEphemeralRoomEvent, serde::Raw};
+use tokio::sync::broadcast::{Receiver, Sender};
+
+use super::super::TimelineVectorDiffs;
+
+/// An update related to events happened in a room.
+#[derive(Debug, Clone)]
+pub enum RoomEventCacheUpdate {
+    /// The fully read marker has moved to a different event.
+    MoveReadMarkerTo {
+        /// Event at which the read marker is now pointing.
+        event_id: OwnedEventId,
+    },
+
+    /// The members have changed.
+    UpdateMembers {
+        /// Collection of ambiguity changes that room member events trigger.
+        ///
+        /// This is a map of event ID of the `m.room.member` event to the
+        /// details of the ambiguity change.
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    },
+
+    /// The room has received updates for the timeline as _diffs_.
+    UpdateTimelineEvents(TimelineVectorDiffs),
+
+    /// The room has received new ephemeral events.
+    AddEphemeralEvents {
+        /// XXX: this is temporary, until read receipts are handled in the event
+        /// cache
+        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    },
+}
+
+/// Represents a timeline update of a room. It hides the details of
+/// [`RoomEventCacheUpdate`] by being more generic.
+///
+/// This is used by [`EventCache::subscribe_to_room_generic_updates`][0]. Please
+/// read it to learn more about the motivation behind this type.
+///
+/// [0]: super::super::super::EventCache::subscribe_to_room_generic_updates
+#[derive(Clone, Debug)]
+pub struct RoomEventCacheGenericUpdate {
+    /// The room ID owning the timeline.
+    pub room_id: OwnedRoomId,
+}
+
+/// An update being triggered when events change in the persisted event cache
+/// for any room.
+#[derive(Clone, Debug)]
+pub struct RoomEventCacheLinkedChunkUpdate {
+    /// The linked chunk affected by the update.
+    pub linked_chunk_id: OwnedLinkedChunkId,
+
+    /// A vector of all the linked chunk updates that happened during this event
+    /// cache update.
+    pub updates: Vec<linked_chunk::Update<Event, Gap>>,
+}
+
+impl RoomEventCacheLinkedChunkUpdate {
+    /// Return all the new events propagated by this update, in topological
+    /// order.
+    pub fn events(self) -> impl DoubleEndedIterator<Item = Event> {
+        use itertools::Either;
+        self.updates.into_iter().flat_map(|update| match update {
+            linked_chunk::Update::PushItems { items, .. } => {
+                Either::Left(Either::Left(items.into_iter()))
+            }
+            linked_chunk::Update::ReplaceItem { item, .. } => {
+                Either::Left(Either::Right(std::iter::once(item)))
+            }
+            linked_chunk::Update::RemoveItem { .. }
+            | linked_chunk::Update::DetachLastItems { .. }
+            | linked_chunk::Update::StartReattachItems
+            | linked_chunk::Update::EndReattachItems
+            | linked_chunk::Update::NewItemsChunk { .. }
+            | linked_chunk::Update::NewGapChunk { .. }
+            | linked_chunk::Update::RemoveChunk(..)
+            | linked_chunk::Update::Clear => {
+                // All these updates don't contain any new event.
+                Either::Right(std::iter::empty())
+            }
+        })
+    }
+}
+
+/// A small type to send updates in all channels.
+#[derive(Clone)]
+pub struct RoomEventCacheUpdateSender {
+    room_sender: Sender<RoomEventCacheUpdate>,
+    generic_sender: Sender<RoomEventCacheGenericUpdate>,
+}
+
+impl RoomEventCacheUpdateSender {
+    /// Create a new [`RoomEventCacheUpdateSender`].
+    pub fn new(generic_sender: Sender<RoomEventCacheGenericUpdate>) -> Self {
+        Self { room_sender: Sender::new(32), generic_sender }
+    }
+
+    /// Send a [`RoomEventCacheUpdate`] and an optional
+    /// [`RoomEventCacheGenericUpdate`].
+    pub fn send(
+        &self,
+        room_update: RoomEventCacheUpdate,
+        generic_update: Option<RoomEventCacheGenericUpdate>,
+    ) {
+        let _ = self.room_sender.send(room_update);
+
+        if let Some(generic_update) = generic_update {
+            let _ = self.generic_sender.send(generic_update);
+        }
+    }
+
+    /// Create a new [`Receiver`] of [`RoomEventCacheUpdate`].
+    pub(super) fn new_room_receiver(&self) -> Receiver<RoomEventCacheUpdate> {
+        self.room_sender.subscribe()
+    }
+}

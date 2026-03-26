@@ -12,7 +12,7 @@ use url::Url;
 
 use super::{
     AuthorizationCode, AuthorizationError, AuthorizationResponse, OAuth, OAuthAuthorizationData,
-    OAuthError, RedirectUriQueryParseError, UrlOrQuery,
+    OAuthError, RedirectUriQueryParseError,
 };
 use crate::{
     Client, Error, SessionChange,
@@ -28,6 +28,7 @@ use crate::{
         },
         mocks::MatrixMockServer,
     },
+    utils::UrlOrQuery,
 };
 
 const REDIRECT_URI_STRING: &str = "http://127.0.0.1:6778/oauth/callback";
@@ -91,25 +92,21 @@ async fn check_authorization_url(
                 assert!(actual_scopes.len() >= 2, "Expected at least two scopes");
 
                 assert!(
-                    actual_scopes
-                        .contains(&"urn:matrix:org.matrix.msc2967.client:api:*".to_owned()),
+                    actual_scopes.contains(&"urn:matrix:client:api:*".to_owned()),
                     "Expected Matrix API scope not found in scopes"
                 );
 
                 // Only check the device ID if we know it. If it's generated randomly we don't
                 // know it.
                 if let Some(device_id) = device_id {
-                    let device_id_scope =
-                        format!("urn:matrix:org.matrix.msc2967.client:device:{device_id}");
+                    let device_id_scope = format!("urn:matrix:client:device:{device_id}");
                     assert!(
                         actual_scopes.contains(&device_id_scope),
                         "Expected device ID scope not found in scopes"
                     )
                 } else {
                     assert!(
-                        actual_scopes
-                            .iter()
-                            .any(|s| s.starts_with("urn:matrix:org.matrix.msc2967.client:device:")),
+                        actual_scopes.iter().any(|s| s.starts_with("urn:matrix:client:device:")),
                         "Expected device ID scope not found in scopes"
                     );
                 }
@@ -673,7 +670,7 @@ async fn test_register_client() {
 }
 
 #[async_test]
-async fn test_management_url_cache() {
+async fn test_server_metadata_cache() {
     let server = MatrixMockServer::new().await;
 
     let oauth_server = server.oauth();
@@ -685,23 +682,13 @@ async fn test_management_url_cache() {
     // The cache should not contain the entry.
     assert!(!client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
-    let management_url = oauth
-        .account_management_url()
-        .await
-        .expect("We should be able to fetch the account management url");
-
-    assert!(management_url.is_some());
+    oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
 
     // Check that the server metadata has been inserted into the cache.
     assert!(client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
 
     // Another call doesn't make another request for the metadata.
-    let management_url = oauth
-        .account_management_url()
-        .await
-        .expect("We should be able to fetch the account management url");
-
-    assert!(management_url.is_some());
+    oauth.cached_server_metadata().await.expect("We should be able to fetch the server_metadata");
 }
 
 #[async_test]

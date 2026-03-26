@@ -113,6 +113,8 @@ async fn test_thread_can_paginate_even_if_seen_sync_event() {
 
     let outcome = room_event_cache
         .thread_pagination(thread_root_id.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -446,6 +448,8 @@ async fn test_deduplication() {
 
     room_event_cache
         .thread_pagination(thread_root.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -482,11 +486,15 @@ async fn thread_subscription_test_setup() -> ThreadSubscriptionTestSetup {
     // Assuming a client that's interested in thread subscriptions,
     let client = server
         .client_builder()
+        .no_server_versions()
         .on_builder(|builder| {
             builder.with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         })
         .build()
         .await;
+
+    // Make sure to advertise support for thread subscriptions.
+    server.mock_versions().with_thread_subscriptions().ok().mount().await;
 
     // Immediately subscribe the event cache to sync updates.
     client.event_cache().subscribe().unwrap();
@@ -699,6 +707,8 @@ async fn test_auto_subscribe_on_thread_paginate() {
 
     let outcome = room_event_cache
         .thread_pagination(thread_root_id.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -788,6 +798,8 @@ async fn test_auto_subscribe_on_thread_paginate_root_event() {
 
     let outcome = room_event_cache
         .thread_pagination(thread_root_id.to_owned())
+        .await
+        .unwrap()
         .run_backwards_once(42)
         .await
         .unwrap();
@@ -895,12 +907,7 @@ async fn test_redact_touches_threads() {
         {
             assert_let!(VectorDiff::Set { index: 1, value: new_event } = &diffs[1]);
             let deserialized = new_event.raw().deserialize().unwrap();
-
-            // TODO: replace with https://github.com/ruma/ruma/pull/2254 when it's been merged in Ruma.
-            assert!(match deserialized {
-                AnySyncTimelineEvent::MessageLike(ev) => ev.is_redacted(),
-                AnySyncTimelineEvent::State(_ev) => unreachable!(),
-            });
+            assert!(deserialized.is_redacted());
         }
 
         // The thread summary is updated.
@@ -952,12 +959,7 @@ async fn test_redact_touches_threads() {
         {
             assert_let!(VectorDiff::Set { index: 2, value: new_event } = &diffs[1]);
             let deserialized = new_event.raw().deserialize().unwrap();
-
-            // TODO: replace with https://github.com/ruma/ruma/pull/2254 when it's been merged in Ruma.
-            assert!(match deserialized {
-                AnySyncTimelineEvent::MessageLike(ev) => ev.is_redacted(),
-                AnySyncTimelineEvent::State(_ev) => unreachable!(),
-            });
+            assert!(deserialized.is_redacted());
         }
 
         // The thread summary is removed.

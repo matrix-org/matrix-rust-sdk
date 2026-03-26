@@ -753,10 +753,10 @@ impl OlmMachine {
     async fn receive_keys_upload_response(&self, response: &UploadKeysResponse) -> OlmResult<()> {
         self.inner
             .store
-            .with_transaction(|mut tr| async {
+            .with_transaction(async |tr| {
                 let account = tr.account().await?;
                 account.receive_keys_upload_response(response)?;
-                Ok((tr, ()))
+                Ok(())
             })
             .await
     }

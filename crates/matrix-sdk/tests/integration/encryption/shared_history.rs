@@ -1,20 +1,59 @@
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    assert_decrypted_message_eq, assert_next_matches_with_timeout,
+    Client, assert_decrypted_message_eq, assert_next_matches_with_timeout,
     deserialized_responses::{TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason},
     encryption::EncryptionSettings,
     test_utils::mocks::MatrixMockServer,
 };
+use matrix_sdk_base::crypto::types::events::room::encrypted::EncryptedToDeviceEvent;
 use matrix_sdk_test::{
     InvitedRoomBuilder, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use ruma::{
-    RoomVersionId, device_id, event_id, events::room::message::RoomMessageEventContent, mxc_uri,
-    room_id, user_id,
+    OwnedEventId, RoomVersionId, device_id, event_id,
+    events::{
+        AnySyncTimelineEvent,
+        room::{
+            history_visibility::HistoryVisibility, member::MembershipState,
+            message::RoomMessageEventContent,
+        },
+    },
+    mxc_uri, room_id,
+    serde::Raw,
+    user_id,
 };
+use tempfile::tempdir;
 
-#[async_test]
-async fn test_shared_history_out_of_order() {
+/// Helper struct to collect test data together.
+struct Test {
+    matrix_mock_server: MatrixMockServer,
+    alice: Client,
+    bob: Client,
+    bob_room: matrix_sdk::Room,
+    /// The encrypted event Alice sent before Bob joined.
+    event_id: OwnedEventId,
+    /// The raw bytes of the uploaded key bundle.
+    bundle: Vec<u8>,
+    /// The captured to-device event carrying bundle info.
+    bundle_info: Raw<EncryptedToDeviceEvent>,
+    /// Receiver for the original event sent by Alice.
+    event_receiver: tokio::sync::oneshot::Receiver<Raw<AnySyncTimelineEvent>>,
+}
+
+/// Sets up the shared-history scenario up to the point where Bob has joined the
+/// room and the bundle info to-device event is ready to be delivered.
+///
+/// Both tests below share this identical preamble:
+///
+/// - Server + Alice + Bob clients created
+/// - E2EE identities exchanged
+/// - Alice creates an encrypted room and sends a message
+/// - Alice invites Bob, triggering key bundle upload
+/// - Bob syncs the invite and joins
+/// - Bundle details are verified
+async fn setup_shared_history(
+    bob_builder_fn: impl FnOnce(matrix_sdk::ClientBuilder) -> matrix_sdk::ClientBuilder,
+) -> Test {
     let room_id = room_id!("!test:localhost");
     let mxid = mxc_uri!("mxc://localhost/12345");
 
@@ -43,7 +82,7 @@ async fn test_shared_history_out_of_order() {
     let bob = matrix_mock_server
         .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
         .on_builder(|builder| {
-            builder
+            bob_builder_fn(builder)
                 .with_enable_share_history_on_invite(true)
                 .with_encryption_settings(encryption_settings)
         })
@@ -61,7 +100,10 @@ async fn test_shared_history_out_of_order() {
             builder.add_joined_room(
                 JoinedRoomBuilder::new(room_id)
                     .add_state_event(event_factory.create(alice_user_id, RoomVersionId::V1))
-                    .add_state_event(event_factory.room_encryption()),
+                    .add_state_event(event_factory.room_encryption())
+                    .add_state_event(
+                        event_factory.room_history_visibility(HistoryVisibility::Shared),
+                    ),
             );
         })
         .await;
@@ -105,12 +147,6 @@ async fn test_shared_history_out_of_order() {
     room.invite_user_by_id(bob_user_id).await.expect("We should be able to invite Bob");
     let bundle = receiver.await.expect("We should have received a bundle now.");
 
-    let mut bundle_stream = bob
-        .encryption()
-        .historic_room_key_stream()
-        .await
-        .expect("We should be able to get the bundle stream");
-
     let bob_member_event = event_factory.member(alice_user_id).invited(bob_user_id);
 
     matrix_mock_server
@@ -119,7 +155,10 @@ async fn test_shared_history_out_of_order() {
             builder.add_invited_room(
                 InvitedRoomBuilder::new(room_id)
                     .add_state_event(alice_member_event.cast())
-                    .add_state_event(bob_member_event),
+                    .add_state_event(bob_member_event)
+                    .add_state_event(
+                        event_factory.room_history_visibility(HistoryVisibility::Shared),
+                    ),
             );
         })
         .await;
@@ -142,6 +181,33 @@ async fn test_shared_history_out_of_order() {
     );
 
     let bundle_info = bundle_info.await;
+
+    Test { matrix_mock_server, alice, bob, bob_room, event_id, bundle, bundle_info, event_receiver }
+}
+
+#[async_test]
+async fn test_shared_history_out_of_order() {
+    let room_id = room_id!("!test:localhost");
+    let alice_user_id = user_id!("@alice:localhost");
+    let alice_device_id = device_id!("ALICEDEVICE");
+
+    let Test {
+        matrix_mock_server,
+        bob,
+        bob_room,
+        event_id,
+        bundle,
+        bundle_info,
+        event_receiver,
+        ..
+    } = setup_shared_history(|builder| builder).await;
+
+    let mut bundle_stream = bob
+        .encryption()
+        .historic_room_key_stream()
+        .await
+        .expect("We should be able to get the bundle stream");
+
     matrix_mock_server
         .mock_authed_media_download()
         .expect_any_access_token()
@@ -210,4 +276,260 @@ async fn test_shared_history_out_of_order() {
         "It's a secret to everybody",
         "The decrypted event should match the message Alice has sent"
     );
+}
+
+#[cfg(feature = "sqlite")]
+#[async_test]
+async fn test_shared_history_crash_before_import() {
+    let room_id = room_id!("!test:localhost");
+    let alice_user_id = user_id!("@alice:localhost");
+    let alice_device_id = device_id!("ALICEDEVICE");
+    let bob_user_id = user_id!("@bob:localhost");
+    let bob_device_id = device_id!("BOBDEVICE");
+
+    // Use a common store path for Bob so we can persist invite acceptance details
+    // over the crash.
+    let bob_sqlite_path = tempdir().unwrap();
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let Test {
+        matrix_mock_server, alice, bob, event_id, bundle, bundle_info, event_receiver, ..
+    } = setup_shared_history(|builder| builder.sqlite_store(bob_sqlite_path.path(), None)).await;
+
+    matrix_mock_server
+        .mock_authed_media_download()
+        .expect_any_access_token()
+        .ok_bytes(bundle)
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
+
+    let mut bundle_stream = bob
+        .encryption()
+        .historic_room_key_stream()
+        .await
+        .expect("We should be able to get the bundle stream");
+
+    // Abort the bundle receiver, so we can properly test the crash recovery
+    // mechanism.
+    bob.abort_bundle_receiver_task();
+
+    // Bob now receives the bundle info ...
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(
+                bundle_info
+                    .deserialize_as()
+                    .expect("We should be able to deserialize the bundle info"),
+            );
+        })
+        .await;
+
+    let bundle_notification = bundle_stream
+        .next()
+        .now_or_never()
+        .flatten()
+        .expect("We should have been notified about the received bundle");
+
+    assert_eq!(bundle_notification.sender, alice_user_id);
+    assert_eq!(bundle_notification.room_id, room_id);
+
+    // .. but crashes before they finish importing the bundle.
+    drop(bob);
+
+    // Bob restarts their client.
+    let bob_restarted = matrix_mock_server
+        .client_builder_for_crypto_end_to_end(bob_user_id, bob_device_id)
+        .on_builder(|builder| {
+            builder
+                .sqlite_store(bob_sqlite_path.path(), None)
+                .with_enable_share_history_on_invite(true)
+                .with_encryption_settings(encryption_settings)
+        })
+        .build()
+        .await;
+
+    // Bob's restarted client should be able to access the persisted pending key
+    // bundle details.
+    let details = bob_restarted
+        .get_pending_key_bundle_details_for_room(room_id)
+        .await
+        .expect("Bob should be able to get the pending key bundle details for the room")
+        .expect("We should have stored invite acceptance details");
+
+    assert_eq!(
+        details.inviter,
+        alice.user_id().unwrap(),
+        "The persisted pending key bundle details should be identical"
+    );
+
+    // Bob's restarted client should successfully import the room keys.
+    let mut room_key_stream = bob_restarted
+        .encryption()
+        .room_keys_received_stream()
+        .await
+        .expect("We should be able to listen to received room keys");
+
+    assert_next_matches_with_timeout!(room_key_stream, 1000, Ok(room_key_infos) => assert_eq!(room_key_infos.len(), 1));
+
+    let event = event_receiver.await.expect("We should have received Alice's event");
+
+    matrix_mock_server
+        .mock_room_event()
+        .room(room_id)
+        .match_event_id()
+        .ok(TimelineEvent::from_utd(
+            event,
+            UnableToDecryptInfo { session_id: None, reason: UnableToDecryptReason::Unknown },
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    let event = bob_restarted
+        .get_room(room_id)
+        .expect("Bob should have access to the room after restart")
+        .event(&event_id, None)
+        .await
+        .expect("Bob should be able to fetch the event Alice has sent");
+
+    let encryption_info = event.encryption_info().expect("Event did not have encryption info");
+
+    // Check Bob stored information about the key forwarder.
+    let forwarder_info = encryption_info.forwarder.as_ref().unwrap();
+    assert_eq!(forwarder_info.user_id, alice_user_id);
+    assert_eq!(forwarder_info.device_id, alice_device_id);
+
+    assert_decrypted_message_eq!(
+        event,
+        "It's a secret to everybody",
+        "The decrypted event should match the message Alice has sent"
+    );
+
+    assert!(
+        bob_restarted
+            .get_pending_key_bundle_details_for_room(room_id)
+            .await
+            .expect("Bob should be able to get the pending key bundle details for the room")
+            .is_none(),
+        "Bob should have cleared the pending key bundle details for the room"
+    );
+}
+
+/// Verifies that the Megolm session is rotated when a member leave is
+/// delivered only as a state snapshot inside a gappy (limited) sync, not as
+/// an explicit timeline event.
+#[async_test]
+async fn test_room_key_rotation_on_gappy_sync_v3() {
+    let room_id = room_id!("!test:localhost");
+
+    let alice_id = user_id!("@alice:localhost");
+    let bob_id = user_id!("@bob:localhost");
+
+    let matrix_mock_server = MatrixMockServer::new().await;
+    matrix_mock_server.mock_crypto_endpoints_preset().await;
+
+    let encryption_settings =
+        EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
+
+    let alice = matrix_mock_server
+        .client_builder_for_crypto_end_to_end(alice_id, device_id!("BOBDEVICE"))
+        .on_builder(|builder| builder.with_encryption_settings(encryption_settings))
+        .build()
+        .await;
+
+    let alice_factory = EventFactory::new().room(room_id).sender(alice_id);
+    let bob_factory = EventFactory::new().room(room_id).sender(bob_id);
+
+    // Alice and Bob are in a room. Since this is the first sync, Alice should load
+    // the member list.
+    matrix_mock_server
+        .mock_get_members()
+        .ok(vec![alice_factory.member(alice_id).into_raw()])
+        .mock_once()
+        .named("members_post_bob")
+        .mount()
+        .await;
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(alice_factory.create(alice_id, RoomVersionId::V1))
+                    .add_state_event(alice_factory.room_encryption())
+                    .add_state_event(alice_factory.member(alice_id))
+                    .add_state_event(alice_factory.member(bob_id)),
+            );
+        })
+        .await;
+
+    let alice_room = alice.get_room(room_id).expect("Alice should have access to the room");
+
+    // Alice sends M1.
+    let event_id_1 = event_id!("$m1");
+    let (m1_receiver, m1_mock) =
+        matrix_mock_server.mock_room_send().ok_with_capture(event_id_1, alice_id);
+    m1_mock.mock_once().named("send_m1").mount().await;
+
+    alice_room
+        .send(RoomMessageEventContent::text_plain("Before"))
+        .await
+        .expect("Alice should be able to send M1");
+
+    let m1_event = m1_receiver.await.expect("M1 should have been captured by the mock");
+    let m1_session_id = megolm_session_id(&m1_event);
+
+    // Bob leaves, but we get a gappy sync. Alice should fully reload the room
+    // member list.
+    matrix_mock_server
+        .mock_get_members()
+        .ok(vec![alice_factory.member(alice_id).into_raw()])
+        .mock_once()
+        .named("members_post_bob")
+        .mount()
+        .await;
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&alice, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("gap_token".to_owned())
+                    // Event only appears in state, not the timeline
+                    .add_state_event(bob_factory.member(bob_id).membership(MembershipState::Leave)),
+            );
+        })
+        .await;
+
+    // Alice sends M2, which should use a new session.
+    let event_id_2 = event_id!("$m2");
+    let (m2_receiver, m2_mock) =
+        matrix_mock_server.mock_room_send().ok_with_capture(event_id_2, alice_id);
+    m2_mock.mock_once().named("send_m2").mount().await;
+
+    alice_room
+        .send(RoomMessageEventContent::text_plain("After"))
+        .await
+        .expect("Alice should be able to send M2");
+
+    let m2_event = m2_receiver.await.expect("M2 should have been captured by the mock");
+    let m2_session_id = megolm_session_id(&m2_event);
+
+    assert_ne!(m1_session_id, m2_session_id, "Session was not rotated");
+}
+
+/// Extract the Megolm `session_id` from a captured `m.room.encrypted` event.
+fn megolm_session_id(raw: &Raw<AnySyncTimelineEvent>) -> String {
+    let content: serde_json::Value = raw
+        .get_field("content")
+        .expect("`content` field should be deserializable")
+        .expect("`content` field should be present in a room-send event");
+
+    content["session_id"]
+        .as_str()
+        .expect("Encrypted event content should have `session_id` field")
+        .to_owned()
 }

@@ -19,14 +19,13 @@ use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
+    assert_let_timeout,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
-    test_utils::mocks::{
-        MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate,
-    },
+    test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
-    AnyOtherFullStateEventContent, Error, EventSendState, MsgLikeKind, OtherMessageLike,
+    AnyOtherStateEventContentChange, Error, EventSendState, MsgLikeKind, OtherMessageLike,
     RedactError, RoomExt, TimelineBuilder, TimelineEventFocusThreadMode, TimelineEventItemId,
     TimelineEventShieldState, TimelineFocus, TimelineItemContent, VirtualTimelineItem,
     default_event_filter,
@@ -34,15 +33,13 @@ use matrix_sdk_ui::timeline::{
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, event_id,
     events::{
-        AnyTimelineEvent, MessageLikeEventType, TimelineEventType,
+        MessageLikeEventType, TimelineEventType,
         room::{
             encryption::RoomEncryptionEventContent,
             message::{RedactedRoomMessageEventContent, RoomMessageEventContent},
         },
     },
-    owned_event_id, room_id,
-    serde::Raw,
-    user_id,
+    owned_event_id, room_id, user_id,
 };
 use sliding_sync::assert_timeline_stream;
 use stream_assert::assert_pending;
@@ -95,22 +92,20 @@ async fn test_timeline_is_threaded() {
         // An event-focused timeline, focused on a non-thread event, isn't threaded when
         // no context is requested.
         let f = EventFactory::new();
-        let event_id = event_id!("$target");
+        let event_id = event_id!("$target1");
         let event =
             f.text_msg("hello world").event_id(event_id).room(room_id).sender(&ALICE).into_event();
-        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
         server
-            .mock_room_relations()
-            .match_target_event(event_id.to_owned())
-            .ok(RoomRelationsResponseTemplate::default()
-                .events(Vec::<Raw<AnyTimelineEvent>>::new()))
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(RoomContextResponseTemplate::new(event))
             .mock_once()
             .mount()
             .await;
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$target"),
+                target: owned_event_id!("$target1"),
                 num_context_events: 0,
                 thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
             })
@@ -125,7 +120,7 @@ async fn test_timeline_is_threaded() {
         // when no context is requested \o/
         let f = EventFactory::new();
         let thread_root = event_id!("$thread_root");
-        let event_id = event_id!("$thetarget");
+        let event_id = event_id!("$target2");
         let event = f
             .text_msg("hey to you too")
             .event_id(event_id)
@@ -134,19 +129,17 @@ async fn test_timeline_is_threaded() {
             .sender(&ALICE)
             .into_event();
 
-        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
         server
-            .mock_room_relations()
-            .match_target_event(event_id.to_owned())
-            .ok(RoomRelationsResponseTemplate::default()
-                .events(Vec::<Raw<AnyTimelineEvent>>::new()))
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(RoomContextResponseTemplate::new(event))
             .mock_once()
             .mount()
             .await;
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$thetarget"),
+                target: owned_event_id!("$target2"),
                 num_context_events: 0,
                 thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
             })
@@ -160,7 +153,7 @@ async fn test_timeline_is_threaded() {
         // An event-focused timeline, focused on a thread root, is also threaded
         // when no context is requested \o/
         let f = EventFactory::new();
-        let event_id = event_id!("$atarget");
+        let event_id = event_id!("$target3");
         let event = f
             .text_msg("hey to you too")
             .event_id(event_id)
@@ -168,19 +161,17 @@ async fn test_timeline_is_threaded() {
             .sender(&ALICE)
             .into_event();
 
-        server.mock_room_event().match_event_id().ok(event).mock_once().mount().await;
         server
-            .mock_room_relations()
-            .match_target_event(event_id.to_owned())
-            .ok(RoomRelationsResponseTemplate::default()
-                .events(Vec::<Raw<AnyTimelineEvent>>::new()))
+            .mock_room_event_context()
+            .match_event_id()
+            .ok(RoomContextResponseTemplate::new(event))
             .mock_once()
             .mount()
             .await;
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$atarget"),
+                target: owned_event_id!("$target3"),
                 num_context_events: 0,
                 thread_mode: TimelineEventFocusThreadMode::ForceThread,
             })
@@ -195,7 +186,7 @@ async fn test_timeline_is_threaded() {
         let f = EventFactory::new();
         let event = f
             .text_msg("hello world")
-            .event_id(event_id!("$target"))
+            .event_id(event_id!("$target4"))
             .room(room_id)
             .sender(&ALICE)
             .into_event();
@@ -208,7 +199,7 @@ async fn test_timeline_is_threaded() {
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$target"),
+                target: owned_event_id!("$target4"),
                 num_context_events: 2,
                 thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
             })
@@ -224,7 +215,7 @@ async fn test_timeline_is_threaded() {
         let thread_root = event_id!("$thread_root");
         let event = f
             .text_msg("hey to you too")
-            .event_id(event_id!("$target"))
+            .event_id(event_id!("$target5"))
             .in_thread(thread_root, thread_root)
             .room(room_id)
             .sender(&ALICE)
@@ -239,7 +230,7 @@ async fn test_timeline_is_threaded() {
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$target"),
+                target: owned_event_id!("$target5"),
                 num_context_events: 2,
                 thread_mode: TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true },
             })
@@ -254,7 +245,7 @@ async fn test_timeline_is_threaded() {
         let f = EventFactory::new();
         let event = f
             .text_msg("hey to you too")
-            .event_id(event_id!("$target"))
+            .event_id(event_id!("$target6"))
             .room(room_id)
             .sender(&ALICE)
             .into_event();
@@ -268,7 +259,7 @@ async fn test_timeline_is_threaded() {
 
         let timeline = TimelineBuilder::new(&room)
             .with_focus(TimelineFocus::Event {
-                target: owned_event_id!("$target"),
+                target: owned_event_id!("$target6"),
                 num_context_events: 2,
                 thread_mode: TimelineEventFocusThreadMode::ForceThread,
             })
@@ -317,7 +308,7 @@ async fn test_reaction() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 4);
 
     // The new message starts with their author's read receipt.
@@ -362,7 +353,7 @@ async fn test_reaction() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::Set { index: 1, value: updated_message } = &timeline_updates[0]);
@@ -400,7 +391,7 @@ async fn test_redacted_message() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
@@ -437,7 +428,7 @@ async fn test_redact_message() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
@@ -460,7 +451,7 @@ async fn test_redact_message() {
         .await
         .unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
@@ -468,7 +459,7 @@ async fn test_redact_message() {
     let second = second.as_event().unwrap();
     assert_matches!(second.send_state(), Some(EventSendState::NotSentYet { progress: None }));
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // We haven't set a route for sending events, so this will fail.
@@ -482,7 +473,7 @@ async fn test_redact_message() {
     // Let's redact the local echo.
     timeline.redact(&second.identifier(), None).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     // Observe local echo being removed.
@@ -514,7 +505,7 @@ async fn test_redact_local_sent_message() {
         .await
         .unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Assert the local event is in the timeline now and is not sent yet.
@@ -527,7 +518,7 @@ async fn test_redact_local_sent_message() {
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
     // We receive an update in the timeline from the send queue.
@@ -603,7 +594,7 @@ async fn test_read_marker() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
@@ -635,7 +626,7 @@ async fn test_read_marker() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
@@ -679,7 +670,7 @@ async fn test_sync_highlighted() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
@@ -700,7 +691,7 @@ async fn test_sync_highlighted() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
 
     assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
@@ -837,7 +828,7 @@ async fn test_timeline_without_encryption_can_update() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 3);
 
     // Previous timeline event now has a shield.
@@ -848,7 +839,7 @@ async fn test_timeline_without_encryption_can_update() {
     // Room encryption event is received.
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
     assert_let!(TimelineItemContent::OtherState(other_state) = value.as_event().unwrap().content());
-    assert_let!(AnyOtherFullStateEventContent::RoomEncryption(_) = other_state.content());
+    assert_let!(AnyOtherStateEventContentChange::RoomEncryption(_) = other_state.content());
     assert_ne!(value.as_event().unwrap().get_shield(false), TimelineEventShieldState::None);
 
     // New message event is received and has a shield.
@@ -968,7 +959,7 @@ async fn test_custom_msglike_event_in_timeline() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_let!(VectorDiff::PushBack { value: first } = &timeline_updates[0]);
     let event_type = MessageLikeEventType::from("rs.matrix-sdk.custom.test");
     let other_msglike = OtherMessageLike::from_event_type(event_type);

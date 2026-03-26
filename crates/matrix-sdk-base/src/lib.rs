@@ -33,10 +33,10 @@ pub mod event_cache;
 pub mod latest_event;
 pub mod media;
 pub mod notification_settings;
+pub mod read_receipts;
 mod response_processors;
 mod room;
 
-pub mod read_receipts;
 pub mod sliding_sync;
 
 pub mod store;
@@ -57,9 +57,9 @@ pub use http;
 #[cfg(feature = "e2e-encryption")]
 pub use matrix_sdk_crypto as crypto;
 pub use room::{
-    EncryptionState, PredecessorRoom, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
-    RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMember,
-    RoomMembersUpdate, RoomMemberships, RoomRecencyStamp, RoomState, RoomStateFilter,
+    CallIntentConsensus, EncryptionState, PredecessorRoom, Room, RoomCreateWithCreatorEventContent,
+    RoomDisplayName, RoomHero, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons,
+    RoomMember, RoomMembersUpdate, RoomMemberships, RoomRecencyStamp, RoomState, RoomStateFilter,
     SuccessorRoom, apply_redaction,
 };
 pub use store::{
@@ -67,7 +67,7 @@ pub use store::{
     QueueWedgeError, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue, StoreError,
     ThreadSubscriptionCatchupToken,
 };
-pub use utils::{MinimalRoomMemberEvent, MinimalStateEvent, RawSyncStateEventWithKeys};
+pub use utils::{MinimalRoomMemberEvent, MinimalStateEvent, RawStateEventWithKeys};
 
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();

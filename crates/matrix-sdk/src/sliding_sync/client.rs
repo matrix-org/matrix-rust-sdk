@@ -334,41 +334,13 @@ async fn handle_receipts_extension(
     );
 
     // Process each room concurrently.
-    let futures = room_ids.into_iter().map(|room_id| {
-        let new_sync_events = sync_response
-            .rooms
-            .joined
-            .entry(room_id.to_owned())
-            .or_default()
-            .timeline
-            .events
-            .clone();
+    let futures = room_ids.into_iter().map(|room_id| async {
+        let receipt_event = client
+            .base_client()
+            .process_sliding_sync_receipts_extension_for_room(&room_id, response)
+            .await?;
 
-        async {
-            let Ok((room_event_cache, _drop_handle)) =
-                client.event_cache().for_room(&room_id).await
-            else {
-                tracing::info!(
-                    ?room_id,
-                    "Failed to fetch the `RoomEventCache` when computing unread counts"
-                );
-                return Ok::<_, crate::Error>(None);
-            };
-
-            let previous_events = room_event_cache.events().await?;
-
-            let receipt_event = client
-                .base_client()
-                .process_sliding_sync_receipts_extension_for_room(
-                    &room_id,
-                    response,
-                    new_sync_events,
-                    previous_events,
-                )
-                .await?;
-
-            Ok(Some((room_id, receipt_event)))
-        }
+        Result::<_, crate::Error>::Ok(Some((room_id, receipt_event)))
     });
 
     let updates = try_join_all(futures).await?;
@@ -391,12 +363,13 @@ mod tests {
         RequestedRequiredStates, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomState,
         notification_settings::RoomNotificationMode,
     };
-    use matrix_sdk_test::async_test;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
-        api::client::discovery::get_supported_versions, assign, events::AnySyncTimelineEvent,
-        room_id, serde::Raw,
+        api::client::discovery::get_supported_versions, assign, event_id, room_id, serde::Raw,
+        user_id,
     };
     use serde_json::json;
+    use tokio::task::yield_now;
 
     use super::{Version, VersionBuilder};
     use crate::{
@@ -461,7 +434,7 @@ mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
-        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
+        server.mock_versions().with_simplified_sliding_sync().ok().mock_once().mount().await;
 
         let available_versions = client.available_sliding_sync_versions().await;
 
@@ -737,10 +710,10 @@ mod tests {
         // When I send sliding sync response containing a couple of events with no read
         // receipt.
         let room_id = room_id!("!r:e.uk");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@u:h.uk"));
         let events = vec![
-            make_raw_event("m.room.message", "$3"),
-            make_raw_event("m.room.message", "$4"),
-            make_raw_event("m.read", "$5"),
+            f.text_msg("hi").event_id(event_id!("$3")).into_raw_sync(),
+            f.text_msg("hi").event_id(event_id!("$4")).into_raw_sync(),
         ];
         let room = assign!(http::response::Room::new(), {
             timeline: events,
@@ -773,20 +746,30 @@ mod tests {
                 assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::READ_RECEIPT), "{received_reasons:?}");
             }
         );
-        assert!(room_info_notable_update_stream.is_empty());
-    }
 
-    fn make_raw_event(event_type: &str, id: &str) -> Raw<AnySyncTimelineEvent> {
-        Raw::from_json_string(
-            json!({
-                "type": event_type,
-                "event_id": id,
-                "content": { "msgtype": "m.text", "body": "my msg" },
-                "sender": "@u:h.uk",
-                "origin_server_ts": 12344445,
-            })
-            .to_string(),
-        )
-        .unwrap()
+        // At some point, we receive an update for the `LATEST_EVENT` too, since this is
+        // enabled by default.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT), "{received_reasons:?}");
+            }
+        );
+
+        // And another one.
+        // TODO: maybe something to investigate why we receive two in a row?
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::LATEST_EVENT), "{received_reasons:?}");
+            }
+        );
+
+        yield_now().await;
+
+        // Then the stream gets quiet.
+        assert!(room_info_notable_update_stream.is_empty());
     }
 }

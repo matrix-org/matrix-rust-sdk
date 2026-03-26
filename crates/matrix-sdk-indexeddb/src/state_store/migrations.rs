@@ -1591,7 +1591,7 @@ mod tests {
             None => RoomCreateEventContent::new_v11(),
         };
 
-        let event_id = EventId::new(server_name!("dummy.local"));
+        let event_id = EventId::new_v1(server_name!("dummy.local"));
         let create_event = json!({
             "content": create_content,
             "event_id": event_id,

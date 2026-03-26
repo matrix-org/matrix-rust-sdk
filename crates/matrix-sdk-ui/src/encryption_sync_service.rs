@@ -81,7 +81,7 @@ impl EncryptionSyncService {
         let mut builder = client
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
-            //.share_pos() // TODO(bnjbvr) This is racy, needs cross-process lock :')
+            //.share_pos() // TODO: This is racy, needs cross-process lock :')
             .with_to_device_extension(
                 assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
             )

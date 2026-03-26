@@ -32,7 +32,7 @@ use ruma::{
 
 use crate::{
     room_member::MembershipState,
-    ruma::{MessageType, RtcNotificationType},
+    ruma::{MessageType, RtcCallIntent, RtcNotificationType},
     utils::Timestamp,
     ClientError,
 };
@@ -385,6 +385,8 @@ pub enum MessageLikeEventContent {
         notification_type: RtcNotificationType,
         /// The timestamp at which this notification is considered invalid.
         expiration_ts: Timestamp,
+        /// Soft indication of whether it is an audio or video call.
+        call_intent: Option<RtcCallIntent>,
     },
     CallHangup,
     CallCandidates,
@@ -427,6 +429,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 MessageLikeEventContent::RtcNotification {
                     notification_type: original_content.notification_type.into(),
                     expiration_ts,
+                    call_intent: original_content.call_intent.map(|intent| intent.into()),
                 }
             }
             AnySyncMessageLikeEvent::CallHangup(_) => MessageLikeEventContent::CallHangup,
@@ -469,7 +472,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 let original_content = get_message_like_event_original_content(content)?;
                 let in_reply_to_event_id =
                     original_content.relates_to.and_then(|relation| match relation {
-                        Relation::Reply { in_reply_to } => Some(in_reply_to.event_id.to_string()),
+                        Relation::Reply(reply) => Some(reply.in_reply_to.event_id.to_string()),
                         _ => None,
                     });
                 MessageLikeEventContent::RoomMessage {

@@ -22,7 +22,6 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, boxed_into_future};
 use oauth2::{RequestTokenError, basic::BasicErrorResponseType};
 use ruma::api::{
     OutgoingRequest,
-    auth_scheme::{AuthScheme, SendAccessToken},
     client::{error::ErrorKind, media},
     error::FromHttpResponseError,
     path_builder::PathBuilder,
@@ -35,7 +34,7 @@ use crate::{
     authentication::oauth::OAuthError,
     config::RequestConfig,
     error::{HttpError, HttpResult},
-    http_client::SupportedPathBuilder,
+    http_client::{SupportedAuthScheme, SupportedPathBuilder},
     media::MediaError,
 };
 
@@ -80,7 +79,7 @@ impl<R> SendRequest<R> {
 impl<R> IntoFuture for SendRequest<R>
 where
     R: OutgoingRequest + Clone + Debug + SendOutsideWasm + SyncOutsideWasm + 'static,
-    for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+    R::Authentication: SupportedAuthScheme,
     R::PathBuilder: SupportedPathBuilder,
     for<'a> <R::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
     R::IncomingResponse: SendOutsideWasm + SyncOutsideWasm,
@@ -97,7 +96,7 @@ where
                 Box::pin(client.send_inner(request.clone(), config, send_progress.clone())).await;
 
             // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
-            if let Err(Some(ErrorKind::UnknownToken { soft_logout })) =
+            if let Err(Some(ErrorKind::UnknownToken(unknown_token_data))) =
                 res.as_ref().map_err(HttpError::client_api_error_kind)
             {
                 trace!("Token refresh: Unknown token error received.");
@@ -105,7 +104,7 @@ where
                 // If automatic token refresh isn't supported, there is nothing more to do.
                 if !client.inner.auth_ctx.handle_refresh_tokens {
                     trace!("Token refresh: Automatic refresh disabled.");
-                    client.broadcast_unknown_token(soft_logout);
+                    client.broadcast_unknown_token(unknown_token_data);
                     return res;
                 }
 
@@ -115,7 +114,7 @@ where
                         RefreshTokenError::RefreshTokenRequired => {
                             trace!("Token refresh: The session doesn't have a refresh token.");
                             // Refreshing access tokens is not supported by this `Session`, ignore.
-                            client.broadcast_unknown_token(soft_logout);
+                            client.broadcast_unknown_token(unknown_token_data);
                         }
 
                         RefreshTokenError::OAuth(oauth_error) => {
@@ -130,7 +129,7 @@ where
                                          with invalid grant"
                                     );
                                     // The refresh was denied, signal to sign out the user.
-                                    client.broadcast_unknown_token(soft_logout);
+                                    client.broadcast_unknown_token(unknown_token_data);
                                 }
                                 _ => {
                                     trace!(
@@ -147,7 +146,7 @@ where
                             trace!("Token refresh: Token refresh failed.");
                             // This isn't necessarily correct, but matches the behaviour when
                             // implementing OAuth 2.0.
-                            client.broadcast_unknown_token(soft_logout);
+                            client.broadcast_unknown_token(unknown_token_data);
                             return Err(HttpError::RefreshToken(refresh_error));
                         }
                     }

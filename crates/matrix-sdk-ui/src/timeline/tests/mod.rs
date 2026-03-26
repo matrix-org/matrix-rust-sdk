@@ -27,8 +27,6 @@ use futures_core::Stream;
 use imbl::vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
-    BoxFuture,
-    config::RequestConfig,
     deserialized_responses::TimelineEvent,
     paginators::{PaginableRoom, PaginatorError, thread::PaginableThread},
     room::{EventWithContextResponse, Messages, MessagesOptions, Relations},
@@ -43,7 +41,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::{Annotation, RelationType},
+        relation::Annotation,
     },
     room_version_rules::RoomVersionRules,
     serde::Raw,
@@ -63,6 +61,7 @@ mod edit;
 mod encryption;
 mod event_filter;
 mod invalid;
+mod live_location;
 mod polls;
 mod reactions;
 mod read_receipts;
@@ -202,7 +201,6 @@ impl TestTimeline {
         key: &str,
     ) -> Result<(), super::Error> {
         if self.controller.toggle_reaction_local(item_id, key).await? {
-            // TODO(bnjbvr): hacky?
             let items = self.controller.items().await;
             if let Some(event_id) = rfind_event_by_item_id(&items, item_id)
                 .and_then(|(_pos, item)| item.event_id().map(ToOwned::to_owned))
@@ -380,15 +378,6 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
-        unimplemented!();
-    }
-
-    fn load_event_with_relations<'a>(
-        &'a self,
-        _event_id: &'a EventId,
-        _request_config: Option<RequestConfig>,
-        _related_event_filters: Option<Vec<RelationType>>,
-    ) -> BoxFuture<'a, Result<(TimelineEvent, Vec<TimelineEvent>), matrix_sdk::Error>> {
         unimplemented!();
     }
 }

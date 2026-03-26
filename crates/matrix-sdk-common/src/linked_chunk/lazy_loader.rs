@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::marker::PhantomData;
+use std::{cmp::Reverse, marker::PhantomData};
 
 use super::{
     Chunk, ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, Ends, LinkedChunk,
@@ -287,7 +287,7 @@ where
     // Sort by `next` so that the search for the next chunk is faster (it should
     // come first). The chunk with the biggest next chunk identifier comes first.
     // Chunk with no next chunk comes last.
-    chunks.sort_by(|a, b| b.next.cmp(&a.next));
+    chunks.sort_by_key(|item| Reverse(item.next));
 
     let last_chunk = chunks
         .pop()
@@ -330,7 +330,7 @@ where
     Ok(Some(linked_chunk))
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Clone, Debug)]
 pub enum LazyLoaderError {
     #[error("chunk with id {} has a next chunk, it is supposed to be the last chunk", id.index())]
     ChunkIsNotLast { id: ChunkIdentifier },

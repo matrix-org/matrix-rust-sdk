@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Room keys are now rotated whenever the client fully reloads the member list by making a
+  request to `/members`, which prevents clients using keys that may have been shared under
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) even if a gappy
+  sync occurs.
+  ([#6339](https://github.com/matrix-org/matrix-rust-sdk/pull/6339))
+
 - Fix invited/knocked rooms disappearing from the room list after
   join → leave/kick → re-invite when using Sliding Sync. The SDK now always
   emits a room update so the room is surfaced correctly again.
@@ -25,6 +31,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add support in the `MemoryStore`'s implementation of `EventCacheStore` for 
+  having duplicate events in a room, where each duplicate is in a different 
+  `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
+  thread in that room. 
+  (#[6200](https://github.com/matrix-org/matrix-rust-sdk/pull/6200))
 - Add `StateStore::upsert_thread_subscriptions()` method for bulk upserts.
   ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 - The `LatestEventValue::LocalHasBeenSent` variant gains a new `event_id:
@@ -33,9 +44,17 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `RelationalLinkedChunk::apply_updates` returns an error rather
   than panicking. This is necessary in order to ensure certain behaviors are disallowed.
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
+- Add `RoomInfo::active_room_call_consensus_intent()` method to get the call intent for the current call,
+  based on what members are advertising.
+  ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
+- Add `Room::is_call` to check for Call rooms (MSC3417)
+  ([#6315](https://github.com/matrix-org/matrix-rust-sdk/pull/6315))
 
 ### Refactor
 
+- [**breaking**] `Gap::prev_token` has been renamed to `Gap::token` since it's now used for both
+  the previous batch token and the next batch token.
+  ([#6236](https://github.com/matrix-org/matrix-rust-sdk/pull/6236))
 - [**breaking**] Invite acceptance details are no longer stored in `RoomInfo`,
   and the accessors `RoomInfo.invite_acceptance_details()` and
   `Room::invite_acceptance_details` have been removed. Instead, equivalent

@@ -16,11 +16,14 @@ use async_rx::StreamExt as _;
 use async_stream::stream;
 use futures_core::Stream;
 use futures_util::{StreamExt as _, pin_mut};
-use matrix_sdk::event_cache::{self, EventCacheError, PaginationStatus};
-use tracing::{instrument, warn};
+use matrix_sdk::event_cache::PaginationStatus;
+use tracing::instrument;
 
 use super::Error;
-use crate::timeline::{PaginationError::NotSupported, controller::TimelineFocusKind};
+use crate::timeline::{
+    PaginationError::{self, NotSupported},
+    controller::TimelineFocusKind,
+};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -38,27 +41,36 @@ impl super::Timeline {
                     }
                     None => {
                         // We could adjust the skip count to a lower value, while passing the
-                        // requested number of events. We *may* have reached
-                        // the start of the timeline, but since
-                        // we're fulfilling the caller's request, assume it's not the case and
-                        // return false here. A subsequent call will go to
-                        // the `Some()` arm of this match, and cause a call
-                        // to the event cache's pagination.
+                        // requested number of events. We *may* have reached the start of the
+                        // timeline, but since we're fulfilling the caller's request, assume it's
+                        // not the case and return false here. A subsequent call will go to the
+                        // `Some()` arm of this match, and cause a call to the event cache's
+                        // pagination.
                         return Ok(false);
                     }
                 }
 
                 Ok(self.live_paginate_backwards(num_events).await?)
             }
-            TimelineFocusKind::Event { .. } => {
-                Ok(self.controller.focused_paginate_backwards(num_events).await?)
-            }
+
+            TimelineFocusKind::Event { focused_event_id, thread_mode, .. } => Ok(self
+                .event_cache
+                .get_event_focused_cache(focused_event_id.clone(), (*thread_mode).into())
+                .await?
+                .ok_or(PaginationError::MissingCache)?
+                .paginate_backwards(num_events)
+                .await?
+                .hit_end_of_timeline),
+
             TimelineFocusKind::Thread { root_event_id } => Ok(self
                 .event_cache
                 .thread_pagination(root_event_id.to_owned())
+                .await
+                .map_err(PaginationError::EventCache)?
                 .run_backwards_once(num_events)
                 .await
                 .map(|outcome| outcome.reached_start)?),
+
             TimelineFocusKind::PinnedEvents => Err(Error::PaginationError(NotSupported)),
         }
     }
@@ -68,10 +80,21 @@ impl super::Timeline {
     /// Returns whether we hit the end of the timeline.
     #[instrument(skip_all, fields(room_id = ?self.room().room_id()))]
     pub async fn paginate_forwards(&self, num_events: u16) -> Result<bool, Error> {
-        if self.controller.is_live() {
-            Ok(true)
-        } else {
-            Ok(self.controller.focused_paginate_forwards(num_events).await?)
+        match self.controller.focus() {
+            TimelineFocusKind::Live { .. } => Ok(true),
+
+            TimelineFocusKind::Event { focused_event_id, thread_mode, .. } => Ok(self
+                .event_cache
+                .get_event_focused_cache(focused_event_id.clone(), (*thread_mode).into())
+                .await?
+                .ok_or(PaginationError::MissingCache)?
+                .paginate_forwards(num_events)
+                .await?
+                .hit_end_of_timeline),
+
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents => {
+                Err(Error::PaginationError(NotSupported))
+            }
         }
     }
 
@@ -81,29 +104,25 @@ impl super::Timeline {
     /// on a specific event.
     ///
     /// Returns whether we hit the start of the timeline.
-    async fn live_paginate_backwards(&self, batch_size: u16) -> event_cache::Result<bool> {
+    async fn live_paginate_backwards(&self, batch_size: u16) -> Result<bool, Error> {
         loop {
             match self.event_cache.pagination().run_backwards_once(batch_size).await {
                 Ok(outcome) => {
-                    // As an exceptional contract, restart the back-pagination if we received an
-                    // empty chunk.
-                    if outcome.reached_start || !outcome.events.is_empty() {
-                        if outcome.reached_start {
-                            self.controller.insert_timeline_start_if_missing().await;
-                        }
-                        return Ok(outcome.reached_start);
+                    if outcome.reached_start {
+                        self.controller.insert_timeline_start_if_missing().await;
+                        return Ok(true);
                     }
+
+                    if !outcome.events.is_empty() {
+                        return Ok(false);
+                    }
+
+                    // Fallthrough: as a special contract, restart pagination,
+                    // if it returned 0 events.
                 }
 
-                Err(EventCacheError::AlreadyBackpaginating) => {
-                    // Treat an already running pagination exceptionally, returning false so that
-                    // the caller retries later.
-                    warn!("Another pagination request is already happening, returning early");
-                    return Ok(false);
-                }
-
-                // Propagate other errors as such.
-                Err(err) => return Err(err),
+                // Propagate errors as such.
+                Err(err) => return Err(err.into()),
             }
         }
     }

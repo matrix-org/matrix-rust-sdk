@@ -234,7 +234,7 @@ async fn test_redact_failed() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 3);
 
     let item_id = {
@@ -262,7 +262,7 @@ async fn test_redact_failed() {
     // We toggle the reaction, which fails with an error.
     timeline.toggle_reaction(&item_id, "😆").await.unwrap_err();
 
-    assert_let!(Some(timeline_updates) = stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // The local echo is removed (assuming the redaction works)…
@@ -428,7 +428,7 @@ async fn test_local_reaction_to_local_echo() {
         let reactions = item.content().reactions().cloned().unwrap_or_default();
         assert_eq!(reactions.len(), 1);
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
-        // TODO(bnjbvr): why not LocalToRemote here?
+        // TODO: why not LocalToRemote here?
         assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
 
         // And since the local event has been sent, it is inserted in the Event

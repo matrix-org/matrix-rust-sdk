@@ -56,7 +56,9 @@ use ruma::{
             ImageInfo as RumaImageInfo, MediaSource as RumaMediaSource,
             ThumbnailInfo as RumaThumbnailInfo,
         },
-        rtc::notification::NotificationType as RumaNotificationType,
+        rtc::notification::{
+            CallIntent as RumaCallIntent, NotificationType as RumaNotificationType,
+        },
         secret_storage::{
             default_key::SecretStorageDefaultKeyEventContent,
             key::{
@@ -470,11 +472,7 @@ impl TryFrom<RumaMessageType> for MessageType {
                         geo_uri: c.geo_uri,
                         description,
                         zoom_level: zoom_level.and_then(|z| z.get().try_into().ok()),
-                        asset: c.asset.and_then(|a| match a.type_ {
-                            RumaAssetType::Self_ => Some(AssetType::Sender),
-                            RumaAssetType::Pin => Some(AssetType::Pin),
-                            _ => None,
-                        }),
+                        asset: c.asset.map(|a| a.type_).into(),
                     },
                 }
             }
@@ -506,6 +504,31 @@ impl From<RtcNotificationType> for RumaNotificationType {
         match value {
             RtcNotificationType::Ring => RumaNotificationType::Ring,
             RtcNotificationType::Notification => RumaNotificationType::Notification,
+        }
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum RtcCallIntent {
+    Video,
+    Audio,
+}
+
+impl From<RumaCallIntent> for RtcCallIntent {
+    fn from(val: RumaCallIntent) -> Self {
+        match val {
+            RumaCallIntent::Audio => Self::Audio,
+            // No support for custom intents, so we can just use video as default
+            _ => Self::Video,
+        }
+    }
+}
+
+impl From<RtcCallIntent> for RumaCallIntent {
+    fn from(value: RtcCallIntent) -> Self {
+        match value {
+            RtcCallIntent::Video => RumaCallIntent::Video,
+            RtcCallIntent::Audio => RumaCallIntent::Audio,
         }
     }
 }
@@ -543,7 +566,7 @@ impl TryFrom<RumaImageMessageEventContent> for ImageMessageContent {
     fn try_from(value: RumaImageMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -582,7 +605,7 @@ impl TryFrom<RumaAudioMessageEventContent> for AudioMessageContent {
     fn try_from(value: RumaAudioMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(Into::into),
@@ -619,7 +642,7 @@ impl TryFrom<RumaVideoMessageEventContent> for VideoMessageContent {
     fn try_from(value: RumaVideoMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -654,7 +677,7 @@ impl TryFrom<RumaFileMessageEventContent> for FileMessageContent {
     fn try_from(value: RumaFileMessageEventContent) -> Result<Self, Self::Error> {
         Ok(Self {
             filename: value.filename().to_owned(),
-            caption: value.caption().map(ToString::to_string),
+            caption: value.caption().map(str::to_owned),
             formatted_caption: value.formatted_caption().map(Into::into),
             source: Arc::new(value.source.try_into()?),
             info: value.info.as_deref().map(TryInto::try_into).transpose()?,
@@ -900,13 +923,14 @@ pub struct LocationContent {
     pub geo_uri: String,
     pub description: Option<String>,
     pub zoom_level: Option<u8>,
-    pub asset: Option<AssetType>,
+    pub asset: AssetType,
 }
 
 #[derive(Clone, uniffi::Enum)]
 pub enum AssetType {
     Sender,
     Pin,
+    Unknown,
 }
 
 impl From<AssetType> for RumaAssetType {
@@ -914,6 +938,26 @@ impl From<AssetType> for RumaAssetType {
         match value {
             AssetType::Sender => Self::Self_,
             AssetType::Pin => Self::Pin,
+            _ => panic!("Invalid asset type"),
+        }
+    }
+}
+
+impl From<RumaAssetType> for AssetType {
+    fn from(value: RumaAssetType) -> Self {
+        match value {
+            RumaAssetType::Self_ => Self::Sender,
+            RumaAssetType::Pin => Self::Pin,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<Option<RumaAssetType>> for AssetType {
+    fn from(value: Option<RumaAssetType>) -> Self {
+        match value {
+            None => Self::Sender,
+            Some(asset_type) => asset_type.into(),
         }
     }
 }

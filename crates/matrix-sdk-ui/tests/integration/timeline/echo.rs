@@ -18,7 +18,7 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{executor::spawn, test_utils::mocks::MatrixMockServer};
+use matrix_sdk::{assert_let_timeout, executor::spawn, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
 use ruma::{
@@ -61,7 +61,7 @@ async fn test_echo() {
         timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await
     });
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     assert_let!(VectorDiff::PushBack { value: local_echo } = &timeline_updates[0]);
@@ -79,7 +79,7 @@ async fn test_echo() {
     // Wait for the sending to finish and assert everything was successful
     send_hdl.await.unwrap().unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
     // The `EventSendState` has been updated.
@@ -129,7 +129,7 @@ async fn test_echo() {
         .await;
 
     // The Event Cache deduplicates the first event, but we receive a second one.
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
 
     assert_matches!(&timeline_updates[0], VectorDiff::Remove { index: 1 });
@@ -179,8 +179,13 @@ async fn test_retry_failed() {
     });
 
     // Sending fails, because the error is a transient one that's recoverable,
-    // indicating something's wrong on the client side.
-    assert_let!(Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next().await);
+    // indicating something's wrong on the client side. The send queue uses
+    // `short_retry()` (3 retries) with 500ms minimum exponential backoff, so
+    // this can take up to ~1.5s before the failure is surfaced.
+    assert_let_timeout!(
+        Duration::from_secs(5),
+        Some(VectorDiff::Set { index: 0, value: item }) = timeline_stream.next()
+    );
     assert_matches!(
         item.send_state(),
         Some(EventSendState::SendingFailed { is_recoverable: true, .. })
@@ -201,7 +206,7 @@ async fn test_retry_failed() {
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     // After mocking the endpoint and retrying, it succeeds.
-    assert_let!(Some(VectorDiff::Set { index: 0, value }) = timeline_stream.next().await);
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value }) = timeline_stream.next());
     assert_matches!(value.send_state(), Some(EventSendState::Sent { .. }));
 }
 
@@ -235,7 +240,7 @@ async fn test_dedup_by_event_id_late() {
 
     timeline.send(RoomMessageEventContent::text_plain("Hello, World!").into()).await.unwrap();
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Timeline: [local echo]
@@ -261,7 +266,7 @@ async fn test_dedup_by_event_id_late() {
         )
         .await;
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
 
     // Timeline: [remote-echo, date-divider, local echo]
@@ -273,7 +278,8 @@ async fn test_dedup_by_event_id_late() {
     assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[1]);
     assert!(date_divider.is_date_divider());
 
-    assert_let!(Some(timeline_updates) = timeline_stream.next().await);
+    // The mock server has a 500ms delay, so we need more than 100ms here.
+    assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 6);
 
     // Local echo and its date divider are removed.
@@ -331,7 +337,7 @@ async fn test_cancel_failed() {
     });
 
     // Sending fails, the mock server has no matching route
-    assert_let!(Some(VectorDiff::Set { index: 0, value }) = timeline_stream.next().await);
+    assert_let_timeout!(Some(VectorDiff::Set { index: 0, value }) = timeline_stream.next());
     assert_matches!(value.send_state(), Some(EventSendState::SendingFailed { .. }));
 
     // Discard, assert the local echo is found

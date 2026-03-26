@@ -45,12 +45,15 @@ pub(in crate::timeline) struct TimelineState<P: RoomDataProvider> {
     pub meta: TimelineMetadata,
 
     /// The kind of focus of this timeline.
-    pub(super) focus: Arc<TimelineFocusKind<P>>,
+    pub(super) focus: Arc<TimelineFocusKind>,
+
+    /// Phantom data for the room data provider.
+    _phantom: std::marker::PhantomData<P>,
 }
 
 impl<P: RoomDataProvider> TimelineState<P> {
     pub(super) fn new(
-        focus: Arc<TimelineFocusKind<P>>,
+        focus: Arc<TimelineFocusKind>,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
         internal_id_prefix: Option<String>,
@@ -67,6 +70,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 is_room_encrypted,
             ),
             focus,
+            _phantom: std::marker::PhantomData,
         }
     }
 
@@ -192,7 +196,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         let timeline_action = TimelineAction::from_content(content, in_reply_to, thread_root, None);
         TimelineEventHandler::new(&mut txn, ctx)
-            .handle_event(&mut date_divider_adjuster, timeline_action)
+            .handle_event(&mut date_divider_adjuster, timeline_action, None)
             .await;
         txn.adjust_date_dividers(date_divider_adjuster);
 
@@ -252,6 +256,6 @@ impl<P: RoomDataProvider> TimelineState<P> {
     }
 
     pub(super) fn transaction(&mut self) -> TimelineStateTransaction<'_, P> {
-        TimelineStateTransaction::new(&mut self.items, &mut self.meta, &*self.focus)
+        TimelineStateTransaction::new(&mut self.items, &mut self.meta, &self.focus)
     }
 }

@@ -641,7 +641,10 @@ impl SlidingSync {
             Ok(updates)
         };
 
-        spawn(future.instrument(Span::current())).await.unwrap()
+        spawn(future.instrument(Span::current())).await.map_err(|error| Error::JoinError {
+            task_description: "handle_response".to_owned(),
+            error,
+        })?
     }
 
     /// Is the e2ee extension enabled for this sliding sync instance?

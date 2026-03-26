@@ -236,7 +236,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                         .get_gap_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
                         .await?
                         .ok_or(TransactionError::ItemNotFound)?;
-                    ChunkContent::Gap(RawGap { prev_token: gap.prev_token })
+                    ChunkContent::Gap(RawGap { token: gap.token })
                 }
             };
             return Ok(Some(RawChunk {
@@ -348,6 +348,17 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<Option<Event>, TransactionError> {
         let key = self.serializer().encode_key((room_id, event_id));
         self.get_item_by_key::<Event, IndexedEventRoomKey>(key).await
+    }
+
+    /// Query IndexedDB for events that match the given event id in the given
+    /// room.
+    pub async fn get_events_by_room(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let key: IndexedEventRoomKey = self.serializer().encode_key((room_id, event_id));
+        self.get_items_by_key::<Event, IndexedEventRoomKey>(key).await
     }
 
     /// Query IndexedDB for events that are in the given

@@ -377,7 +377,6 @@ impl StoreCache {
 /// should happen as part of a `StoreTransaction`.
 pub(crate) struct StoreCacheGuard {
     pub(super) cache: OwnedRwLockReadGuard<StoreCache>,
-    // TODO: (bnjbvr, #2624) add cross-process lock guard here.
 }
 
 impl StoreCacheGuard {

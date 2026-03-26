@@ -51,7 +51,6 @@ use ruma::{
     RoomAliasId, RoomId, RoomOrAliasId, ServerName, UInt, UserId,
     api::{
         FeatureFlag, MatrixVersion, Metadata, OutgoingRequest, SupportedVersions,
-        auth_scheme::{AuthScheme, SendAccessToken},
         client::{
             account::whoami,
             alias::{create_alias, delete_alias, get_alias},
@@ -63,7 +62,7 @@ use ruma::{
                 get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
-            error::ErrorKind,
+            error::{ErrorKind, UnknownTokenErrorData},
             filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
@@ -108,7 +107,7 @@ use crate::{
         EventHandler, EventHandlerContext, EventHandlerDropGuard, EventHandlerHandle,
         EventHandlerStore, ObservableEventHandler, SyncEvent,
     },
-    http_client::{HttpClient, SupportedPathBuilder},
+    http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
     media::MediaError,
     notification_settings::NotificationSettings,
@@ -165,10 +164,7 @@ pub enum LoopCtrl {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SessionChange {
     /// The session's token is no longer valid.
-    UnknownToken {
-        /// Whether or not the session was soft logged out
-        soft_logout: bool,
-    },
+    UnknownToken(UnknownTokenErrorData),
     /// The session's tokens have been refreshed.
     TokensRefreshed,
 }
@@ -1926,7 +1922,7 @@ impl Client {
     pub fn send<Request>(&self, request: Request) -> SendRequest<Request>
     where
         Request: OutgoingRequest + Clone + Debug,
-        for<'a> Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        Request::Authentication: SupportedAuthScheme,
         Request::PathBuilder: SupportedPathBuilder,
         for<'a> <Request::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
@@ -1947,7 +1943,7 @@ impl Client {
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
-        for<'a> Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        Request::Authentication: SupportedAuthScheme,
         Request::PathBuilder: SupportedPathBuilder,
         for<'a> <Request::PathBuilder as PathBuilder>::Input<'a>: SendOutsideWasm + SyncOutsideWasm,
         HttpError: From<FromHttpResponseError<Request::EndpointError>>,
@@ -1983,12 +1979,12 @@ impl Client {
         result
     }
 
-    fn broadcast_unknown_token(&self, soft_logout: &bool) {
+    fn broadcast_unknown_token(&self, unknown_token_data: &UnknownTokenErrorData) {
         _ = self
             .inner
             .auth_ctx
             .session_change_sender
-            .send(SessionChange::UnknownToken { soft_logout: *soft_logout });
+            .send(SessionChange::UnknownToken(unknown_token_data.clone()));
     }
 
     /// Fetches server versions from network; no caching.
@@ -3244,16 +3240,31 @@ impl Client {
     }
 
     /// Whether the client is configured to take thread subscriptions (MSC4306
-    /// and MSC4308) into account.
+    /// and MSC4308) into account, and the server enabled the experimental
+    /// feature flag for it.
     ///
     /// This may cause filtering out of thread subscriptions, and loading the
     /// thread subscriptions via the sliding sync extension, when the room
     /// list service is being used.
-    pub fn enabled_thread_subscriptions(&self) -> bool {
+    ///
+    /// This is async and fallible as it may use the network to retrieve the
+    /// server supported features, if they aren't cached already.
+    pub async fn enabled_thread_subscriptions(&self) -> Result<bool> {
+        // Check if the client is configured to support thread subscriptions first.
         match self.base_client().threading_support {
-            ThreadingSupport::Enabled { with_subscriptions } => with_subscriptions,
-            ThreadingSupport::Disabled => false,
+            ThreadingSupport::Enabled { with_subscriptions: false }
+            | ThreadingSupport::Disabled => return Ok(false),
+            ThreadingSupport::Enabled { with_subscriptions: true } => {}
         }
+
+        // Now, let's check that the server supports it.
+        let server_enabled = self
+            .supported_versions()
+            .await?
+            .features
+            .contains(&FeatureFlag::from("org.matrix.msc4306"));
+
+        Ok(server_enabled)
     }
 
     /// Fetch thread subscriptions changes between `from` and up to `to`.
@@ -3681,7 +3692,13 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
-        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
+        server
+            .mock_versions()
+            .with_feature("org.matrix.e2e_cross_signing", true)
+            .ok()
+            .mock_once()
+            .mount()
+            .await;
 
         let unstable_features = client.unstable_features().await.unwrap();
         assert!(unstable_features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
@@ -3693,7 +3710,7 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().no_server_versions().build().await;
 
-        server.mock_versions().ok_with_unstable_features().mock_once().mount().await;
+        server.mock_versions().with_push_encrypted_events().ok().mock_once().mount().await;
 
         let msc4028_enabled = client.can_homeserver_push_encrypted_event_to_device().await.unwrap();
         assert!(msc4028_enabled);
@@ -3810,7 +3827,8 @@ pub(crate) mod tests {
         let versions_mock = server
             .mock_versions()
             .expect_default_access_token()
-            .ok_with_unstable_features()
+            .with_feature("org.matrix.e2e_cross_signing", true)
+            .ok()
             .named("first versions mock")
             .expect(1)
             .mount_as_scoped()
@@ -4384,10 +4402,9 @@ pub(crate) mod tests {
 
         server
             .mock_versions()
-            .ok_custom(
-                &["v1.7", "v1.8", "v1.9", "v1.10"],
-                &[("org.matrix.msc3916.stable", true)].into(),
-            )
+            .with_versions(vec!["v1.7", "v1.8", "v1.9", "v1.10"])
+            .with_feature("org.matrix.msc3916.stable", true)
+            .ok()
             .named("versions")
             .expect(1)
             .mount()
@@ -4410,7 +4427,8 @@ pub(crate) mod tests {
 
         server
             .mock_versions()
-            .ok_custom(&["v1.1"], &Default::default())
+            .with_versions(vec!["v1.1"])
+            .ok()
             .named("versions")
             .expect(1)
             .mount()

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(target_os = "android")]
+use std::sync::Arc;
 use std::{
     fmt::Debug,
     mem,
@@ -24,8 +26,16 @@ use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
-use reqwest::{Certificate, tls};
+#[cfg(not(target_family = "wasm"))]
+use reqwest::Certificate;
+#[cfg(target_os = "android")]
+use reqwest::ClientBuilder;
+use reqwest::tls;
 use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
+#[cfg(target_os = "android")]
+use rustls::{RootCertStore, client::WebPkiServerVerifier};
+#[cfg(target_os = "android")]
+use rustls_pki_types::CertificateDer;
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
@@ -149,6 +159,8 @@ pub(crate) struct HttpSettings {
     pub(crate) timeout: Option<Duration>,
     pub(crate) read_timeout: Option<Duration>,
     pub(crate) additional_root_certificates: Vec<Certificate>,
+    #[cfg(target_os = "android")]
+    pub(crate) additional_raw_root_certificates: Vec<Vec<u8>>,
     pub(crate) disable_built_in_root_certificates: bool,
 }
 
@@ -162,6 +174,8 @@ impl Default for HttpSettings {
             timeout: Some(DEFAULT_REQUEST_TIMEOUT),
             read_timeout: None,
             additional_root_certificates: Default::default(),
+            #[cfg(target_os = "android")]
+            additional_raw_root_certificates: Default::default(),
             disable_built_in_root_certificates: false,
         }
     }
@@ -186,26 +200,26 @@ impl HttpSettings {
             http_client = http_client.read_timeout(read_timeout);
         }
 
+        // On Android there is a problem that causes some certificates to be incorrectly
+        // marked as revoked, so we build our own rustls instance with the right
+        // configuration.
+        // Remove when https://github.com/rustls/rustls-platform-verifier/issues/221 is fixed.
+        #[cfg(target_os = "android")]
+        {
+            http_client = self.android_setup_webkpi_verifier(http_client)?;
+        }
+
         if self.disable_ssl_verification {
             warn!("SSL verification disabled in the HTTP client!");
-            http_client = http_client.danger_accept_invalid_certs(true)
+            http_client = http_client.danger_accept_invalid_certs(true);
         }
 
-        if !self.additional_root_certificates.is_empty() {
-            info!(
-                "Adding {} additional root certificates to the HTTP client",
-                self.additional_root_certificates.len()
-            );
-
-            for cert in &self.additional_root_certificates {
-                http_client = http_client.add_root_certificate(cert.clone());
-            }
-        }
-
-        if self.disable_built_in_root_certificates {
+        http_client = if self.disable_built_in_root_certificates {
             info!("Built-in root certificates disabled in the HTTP client.");
-            http_client = http_client.tls_built_in_root_certs(false);
-        }
+            http_client.tls_certs_only(self.additional_root_certificates.clone())
+        } else {
+            http_client.tls_certs_merge(self.additional_root_certificates.clone())
+        };
 
         if let Some(p) = &self.proxy {
             info!(proxy_url = p, "Setting the proxy for the HTTP client");
@@ -213,6 +227,53 @@ impl HttpSettings {
         }
 
         Ok(http_client.build()?)
+    }
+
+    #[cfg(target_os = "android")]
+    fn android_setup_webkpi_verifier(
+        &self,
+        client_builder: ClientBuilder,
+    ) -> Result<ClientBuilder, HttpError> {
+        if !self.disable_ssl_verification {
+            let mut root_store = RootCertStore::empty();
+
+            if self.disable_built_in_root_certificates {
+                info!("Built-in root certificates disabled in the HTTP client.");
+            } else {
+                // This seems to fix the 'revoked certificate' false positives issue
+                root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+                // Also load the native certs
+                let native_certs = rustls_native_certs::load_native_certs().certs;
+                root_store.add_parsable_certificates(native_certs);
+            }
+
+            if !self.additional_raw_root_certificates.is_empty() {
+                let mut additional_certs = Vec::new();
+
+                warn!(
+                    "Adding {} extra user certificates",
+                    self.additional_raw_root_certificates.len()
+                );
+
+                for certificate in self.additional_raw_root_certificates.iter() {
+                    additional_certs.push(CertificateDer::from_slice(certificate));
+                }
+
+                root_store.add_parsable_certificates(additional_certs);
+            }
+
+            let verifier = WebPkiServerVerifier::builder(Arc::new(root_store))
+                .build()
+                .map_err(HttpError::VerifierBuilder)?;
+
+            let config = rustls::ClientConfig::builder()
+                .with_webpki_verifier(verifier)
+                .with_no_client_auth();
+            Ok(client_builder.tls_backend_preconfigured(config))
+        } else {
+            Ok(client_builder)
+        }
     }
 }
 

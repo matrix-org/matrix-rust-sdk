@@ -85,16 +85,11 @@ async fn test_decryption_verification_state() {
 
     let group_session = bob
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = bob
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()
@@ -654,16 +649,11 @@ async fn encrypt_message(
 
     let group_session = recipient
         .store()
-        .with_transaction(|mut tr| async {
+        .with_transaction(async |tr| {
             let res = recipient
-                .decrypt_to_device_event(
-                    &mut tr,
-                    &event,
-                    &mut Changes::default(),
-                    &decryption_settings,
-                )
+                .decrypt_to_device_event(tr, &event, &mut Changes::default(), &decryption_settings)
                 .await?;
-            Ok((tr, res))
+            Ok(res)
         })
         .await
         .unwrap()

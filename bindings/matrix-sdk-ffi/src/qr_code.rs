@@ -21,7 +21,7 @@ use matrix_sdk::authentication::oauth::{
     },
     OAuth,
 };
-use matrix_sdk_base::crypto::types::qr_login;
+use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
 
 use crate::{
@@ -273,6 +273,26 @@ impl QrCodeData {
             qr_login::QrCodeIntentData::Msc4388 { .. } => None,
         }
     }
+
+    /// The base URL of the homeserver contained within the scanned QR code
+    /// data.
+    ///
+    /// Note: This value is only present when scanning a QR code conforming to
+    /// MSC4388.
+    pub fn base_url(&self) -> Option<String> {
+        match self.inner.intent_data() {
+            qrcode::QrCodeIntentData::Msc4108 { .. } => None,
+            qrcode::QrCodeIntentData::Msc4388 { base_url, .. } => Some(base_url.to_string()),
+        }
+    }
+
+    /// Get the [`QrCodeIntent`] of this [`QrCodeData`] object.
+    ///
+    /// This tells us if the creator of the QR code wants to log in or if they
+    /// want to log another device in.
+    pub fn intent(&self) -> QrCodeIntent {
+        self.inner.intent()
+    }
 }
 
 /// Error type for the decoding of the [`QrCodeData`].
@@ -312,6 +332,8 @@ pub enum HumanQrLoginError {
     CheckCodeCannotBeSent,
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,
+    #[error("The QR code specifies an unsupported protocol version")]
+    UnsupportedQrCodeType,
 }
 
 impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
@@ -342,8 +364,10 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
                 SecureChannelError::Utf8(_)
                 | SecureChannelError::MessageDecode(_)
                 | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_)
-                | SecureChannelError::UnsupportedQrCodeType => HumanQrLoginError::Unknown,
+                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::UnsupportedQrCodeType => {
+                    HumanQrLoginError::UnsupportedQrCodeType
+                }
                 SecureChannelError::SecureChannelMessage { .. }
                 | SecureChannelError::Ecies(_)
                 | SecureChannelError::InvalidCheckCode
@@ -398,23 +422,44 @@ pub enum HumanQrGrantLoginError {
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,
 
-    /// The device could not be created.
-    #[error("The device could not be created.")]
-    UnableToCreateDevice,
-
     /// An unknown error has happened.
     #[error("An unknown error has happened.")]
     Unknown(String),
+
+    /// The requested device was not returned by the homeserver.
+    #[error("The requested device was not returned by the homeserver.")]
+    DeviceNotFound,
+
+    /// The other device is already signed in and so does not need to sign in.
+    #[error("The other device is already signed and so does not need to sign in.")]
+    OtherDeviceAlreadySignedIn,
+
+    /// The sign in was cancelled.
+    #[error("The sign in was cancelled.")]
+    Cancelled,
+
+    /// The sign in was not completed in the required time.
+    #[error("The sign in was not completed in the required time.")]
+    Expired,
+
+    /// A secure connection could not have been established between the two
+    /// devices.
+    #[error("A secure connection could not have been established between the two devices.")]
+    ConnectionInsecure,
+
+    /// The QR code specifies an unsupported protocol version.
+    #[error("The QR code specifies an unsupported protocol version")]
+    UnsupportedQrCodeType,
 }
 
 impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
     fn from(value: qrcode::QRCodeGrantLoginError) -> Self {
-        use qrcode::QRCodeGrantLoginError;
+        use qrcode::{QRCodeGrantLoginError, SecureChannelError};
 
         match value {
             QRCodeGrantLoginError::DeviceIDAlreadyInUse => Self::DeviceIDAlreadyInUse,
+            QRCodeGrantLoginError::DeviceNotFound => Self::DeviceNotFound,
             QRCodeGrantLoginError::InvalidCheckCode => Self::InvalidCheckCode,
-            QRCodeGrantLoginError::UnableToCreateDevice => Self::UnableToCreateDevice,
             QRCodeGrantLoginError::UnsupportedProtocol(protocol) => {
                 Self::UnsupportedProtocol(protocol.to_string())
             }
@@ -422,7 +467,28 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
                 Self::MissingSecretsBackup(error.map_or("other".to_owned(), |e| e.to_string()))
             }
             QRCodeGrantLoginError::NotFound => Self::NotFound,
+            QRCodeGrantLoginError::SecureChannel(e) => match e {
+                SecureChannelError::Utf8(_)
+                | SecureChannelError::MessageDecode(_)
+                | SecureChannelError::Json(_)
+                | SecureChannelError::RendezvousChannel(_) => Self::Unknown(e.to_string()),
+                SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
+                SecureChannelError::SecureChannelMessage { .. }
+                | SecureChannelError::Ecies(_)
+                | SecureChannelError::InvalidCheckCode
+                | SecureChannelError::CannotReceiveCheckCode => Self::ConnectionInsecure,
+                SecureChannelError::InvalidIntent => Self::OtherDeviceAlreadySignedIn,
+            },
+            QRCodeGrantLoginError::UnexpectedMessage { .. } => Self::Unknown(value.to_string()),
             QRCodeGrantLoginError::Unknown(string) => Self::Unknown(string),
+            QRCodeGrantLoginError::LoginFailure { reason, .. } => match reason {
+                LoginFailureReason::UnsupportedProtocol => Self::UnsupportedProtocol(
+                    "Other device does not support any of our protocols".to_owned(),
+                ),
+                LoginFailureReason::AuthorizationExpired => Self::Expired,
+                LoginFailureReason::UserCancelled => Self::Cancelled,
+                _ => Self::Unknown(reason.to_string()),
+            },
         }
     }
 }

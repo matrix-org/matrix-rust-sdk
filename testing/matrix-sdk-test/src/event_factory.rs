@@ -38,6 +38,7 @@ use ruma::{
         RoomAccountDataEventContent, StateEvent, StateEventContent, StaticEventContent,
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
+        beacon_info::BeaconInfoEventContent,
         call::{SessionDescription, invite::CallInviteEventContent},
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         fully_read::FullyReadEventContent,
@@ -57,7 +58,7 @@ use ruma::{
         push_rules::PushRulesEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
-        relation::{Annotation, BundledThread, InReplyTo, Reference, Replacement, Thread},
+        relation::{Annotation, BundledThread, Reference, Replacement, Reply, Thread},
         room::{
             ImageInfo,
             avatar::{self, RoomAvatarEventContent},
@@ -86,7 +87,7 @@ use ruma::{
         },
         rtc::{
             decline::RtcDeclineEventContent,
-            notification::{NotificationType, RtcNotificationEventContent},
+            notification::{CallIntent, NotificationType, RtcNotificationEventContent},
         },
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         space_order::SpaceOrderEventContent,
@@ -103,6 +104,8 @@ use ruma::{
 };
 use serde::Serialize;
 use serde_json::json;
+
+use crate::base64_sha256_hash;
 
 pub trait TimestampArg {
     fn to_milliseconds_since_unix_epoch(self) -> MilliSecondsSinceUnixEpoch;
@@ -341,20 +344,6 @@ where
             map.insert("sender".to_owned(), json!(sender));
         }
 
-        if self.format.has_event_id() && !self.no_event_id {
-            let event_id = self.event_id.unwrap_or_else(|| {
-                let server_name = self
-                    .room
-                    .as_ref()
-                    .and_then(|room_id| room_id.server_name())
-                    .unwrap_or(server_name!("dummy.org"));
-
-                EventId::new(server_name)
-            });
-
-            map.insert("event_id".to_owned(), json!(event_id));
-        }
-
         if self.format.has_room_id() {
             let room_id = self.room.expect("TimelineEvent requires a room id");
             map.insert("room_id".to_owned(), json!(room_id));
@@ -364,12 +353,25 @@ where
             map.insert("redacts".to_owned(), json!(redacts));
         }
 
-        if let Some(unsigned) = self.unsigned {
-            map.insert("unsigned".to_owned(), json!(unsigned));
-        }
-
         if let Some(state_key) = self.state_key {
             map.insert("state_key".to_owned(), json!(state_key));
+        }
+
+        if self.format.has_event_id() && !self.no_event_id {
+            let event_id = self.event_id.unwrap_or_else(|| {
+                // Compute a hash of the event to use it as the event ID, similar to how a
+                // server would. This is a little bit different since a server would redact the
+                // event before hashing, but at least the event ID construction will be
+                // deterministic and have the same format as in recent room versions.
+                let bytes = serde_json::to_vec(&map).unwrap();
+                EventId::new_v2_or_v3(&base64_sha256_hash(&bytes)).unwrap()
+            });
+
+            map.insert("event_id".to_owned(), json!(event_id));
+        }
+
+        if let Some(unsigned) = self.unsigned {
+            map.insert("unsigned".to_owned(), json!(unsigned));
         }
 
         json
@@ -443,8 +445,7 @@ impl EventBuilder<RoomEncryptedEventContent> {
 impl EventBuilder<RoomMessageEventContent> {
     /// Adds a reply relation to the current event.
     pub fn reply_to(mut self, event_id: &EventId) -> Self {
-        self.content.relates_to =
-            Some(Relation::Reply { in_reply_to: InReplyTo::new(event_id.to_owned()) });
+        self.content.relates_to = Some(Relation::Reply(Reply::with_event_id(event_id.to_owned())));
         self
     }
 
@@ -518,9 +519,8 @@ impl EventBuilder<UnstablePollStartEventContent> {
     /// Adds a reply relation to the current event.
     pub fn reply_to(mut self, event_id: &EventId) -> Self {
         if let UnstablePollStartEventContent::New(content) = &mut self.content {
-            content.relates_to = Some(RelationWithoutReplacement::Reply {
-                in_reply_to: InReplyTo::new(event_id.to_owned()),
-            });
+            content.relates_to =
+                Some(RelationWithoutReplacement::Reply(Reply::with_event_id(event_id.to_owned())));
         }
         self
     }
@@ -1152,7 +1152,7 @@ impl EventFactory {
 
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
-            event_id: EventId::new(server_name!("dummy.server")),
+            event_id: EventId::new_v1(server_name!("dummy.server")),
             sender: redacter.to_owned(),
             origin_server_ts: self.next_server_ts(),
         };
@@ -1174,7 +1174,7 @@ impl EventFactory {
 
         let redacted_because = RedactedBecause {
             content: RoomRedactionEventContent::default(),
-            event_id: EventId::new(server_name!("dummy.server")),
+            event_id: EventId::new_v1(server_name!("dummy.server")),
             sender: redacter.to_owned(),
             origin_server_ts: self.next_server_ts(),
         };
@@ -1388,6 +1388,42 @@ impl EventFactory {
     ) -> EventBuilder<BeaconEventContent> {
         let geo_uri = format!("geo:{latitude},{longitude};u={uncertainty}");
         self.event(BeaconEventContent::new(beacon_info_event_id, geo_uri, ts))
+    }
+
+    /// Create a new `org.matrix.msc3672.beacon_info` state event.
+    ///
+    /// # Arguments
+    ///
+    /// * `description` - An optional human-readable label for the sharing
+    ///   session.
+    /// * `duration` - How long the location share is active.
+    /// * `live` - Whether the sharing session is active. Pass `true` to start
+    ///   and `false` to stop.
+    /// * `ts` - The start timestamp; if `None` the current time is used.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use std::time::Duration;
+    ///
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{room_id, user_id};
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event = factory
+    ///     .beacon_info(None, Duration::from_secs(60), true, None)
+    ///     .sender(user_id!("@alice:localhost"))
+    ///     .state_key(user_id!("@alice:localhost"));
+    /// ```
+    pub fn beacon_info(
+        &self,
+        description: Option<String>,
+        duration: Duration,
+        live: bool,
+        ts: Option<MilliSecondsSinceUnixEpoch>,
+    ) -> EventBuilder<BeaconInfoEventContent> {
+        self.event(BeaconInfoEventContent::new(description, duration, live, ts))
     }
 
     /// Create a new `m.sticker` event.
@@ -1717,6 +1753,11 @@ impl EventBuilder<RoomAvatarEventContent> {
 impl EventBuilder<RtcNotificationEventContent> {
     pub fn mentions(mut self, users: impl IntoIterator<Item = OwnedUserId>) -> Self {
         self.content.mentions = Some(Mentions::with_user_ids(users));
+        self
+    }
+
+    pub fn call_intent(mut self, call_intent: CallIntent) -> Self {
+        self.content.call_intent = Some(call_intent);
         self
     }
 

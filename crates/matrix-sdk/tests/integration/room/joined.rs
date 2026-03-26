@@ -10,7 +10,7 @@ use futures_util::{future::join_all, pin_mut};
 use matrix_sdk::{
     assert_next_with_timeout, assert_recv_with_timeout,
     config::SyncSettings,
-    room::{Receipts, ReportedContentScore, RoomMemberRole, edit::EditedContent},
+    room::{Receipts, RoomMemberRole, edit::EditedContent},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{EncryptionState, RoomMembersUpdate, RoomState};
@@ -807,13 +807,11 @@ async fn test_report_content() {
     let (client, server) = logged_in_client_with_server().await;
 
     let reason = "I am offended";
-    let score = int!(-80);
 
     Mock::given(method("POST"))
         .and(path_regex(r"^/_matrix/client/r0/rooms/.*/report/\$offensive_event"))
         .and(body_json(json!({
             "reason": reason,
-            "score": score,
         })))
         .and(header("authorization", "Bearer 1234"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
@@ -830,9 +828,8 @@ async fn test_report_content() {
 
     let event_id = owned_event_id!("$offensive_event");
     let reason = "I am offended".to_owned();
-    let score = ReportedContentScore::new(-80).unwrap();
 
-    room.report_content(event_id, Some(score), Some(reason.to_owned())).await.unwrap();
+    room.report_content(event_id, Some(reason.to_owned())).await.unwrap();
 }
 
 #[async_test]

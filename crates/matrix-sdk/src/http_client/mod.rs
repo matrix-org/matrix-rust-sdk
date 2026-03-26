@@ -31,7 +31,7 @@ use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
     OutgoingRequest, SupportedVersions,
-    auth_scheme::{AuthScheme, SendAccessToken},
+    auth_scheme::{self, AuthScheme, SendAccessToken},
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,
 };
@@ -109,7 +109,7 @@ impl HttpClient {
     ) -> Result<http::Request<Bytes>, IntoHttpError>
     where
         R: OutgoingRequest + Debug,
-        for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        R::Authentication: SupportedAuthScheme,
     {
         trace!(request_type = type_name::<R>(), "Serializing request");
 
@@ -121,9 +121,14 @@ impl HttpClient {
             },
             None => SendAccessToken::None,
         };
+        let authentication_input = R::Authentication::authentication_input(send_access_token);
 
         let request = request
-            .try_into_http_request::<BytesMut>(&homeserver, send_access_token, path_builder_input)?
+            .try_into_http_request::<BytesMut>(
+                &homeserver,
+                authentication_input,
+                path_builder_input,
+            )?
             .map(|body| body.freeze());
 
         Ok(request)
@@ -154,7 +159,7 @@ impl HttpClient {
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
-        for<'a> R::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>,
+        R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
         let config = match config {
@@ -255,6 +260,49 @@ async fn response_to_http_response(
 ///
 /// This trait can also be implemented for custom
 /// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
+pub trait SupportedAuthScheme: AuthScheme {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_>;
+}
+
+impl SupportedAuthScheme for auth_scheme::NoAccessToken {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AccessToken {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AccessTokenOptional {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AppserviceToken {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::AppserviceTokenOptional {
+    fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_> {
+        access_token
+    }
+}
+
+impl SupportedAuthScheme for auth_scheme::NoAuthentication {
+    fn authentication_input(_access_token: SendAccessToken<'_>) -> Self::Input<'_> {}
+}
+
+/// Marker trait to identify the path builders that the
+/// [`Client`](crate::Client) supports.
+///
+/// This trait can also be implemented for custom
+/// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
 pub trait SupportedPathBuilder: path_builder::PathBuilder {
     fn get_path_builder_input(
         client: &crate::Client,
@@ -312,6 +360,56 @@ impl SupportedPathBuilder for path_builder::SinglePath {
     async fn get_path_builder_input(_client: &crate::Client, _skip_auth: bool) -> HttpResult<()> {
         Ok(())
     }
+}
+
+#[cfg(feature = "rustls-tls")]
+pub mod rustls {
+    //! Functions for configuring the default [`CryptoProvider`] when using
+    //! `reqwest` with `rustls`'s implementation of TLS.
+
+    use rustls::crypto::CryptoProvider;
+
+    /// The default [`CryptoProvider`] preferred by this crate.
+    ///
+    /// Typically, the default [`CryptoProvider`] for `rustls`
+    /// is `aws-lc-rs`, but due to licensing issues this crate
+    /// prefers `ring`.
+    pub fn default_crypto_provider() -> CryptoProvider {
+        rustls::crypto::ring::default_provider()
+    }
+
+    /// The `rustls-tls` flag enables the `rustls` implementation of TLS for
+    /// `reqwest`, but without a [`CryptoProvider`]. This means that no
+    /// default provider is installed, which will cause `reqwest::Client::new()`
+    /// to panic.
+    ///
+    /// This functions installs the preferred default provider given by
+    /// [`default_crypto_provider`], if no default has previously been
+    /// installed.
+    pub fn install_default_crypto_provider_if_none_installed() {
+        if default_crypto_provider().install_default().is_ok() {
+            // This log message seems to cause `nextest` to get confused,
+            // so it won't be printed when running tests.
+            #[cfg(not(test))]
+            tracing::info!("No rustls crypto provider set, setting default provider to ring.");
+        }
+    }
+
+    /// Install a default [`CryptoProvider`] for `rustls`, if one isn't already
+    /// installed. This uses [`ctor`] to run before any tests.
+    #[cfg(test)]
+    macro_rules! install_default_crypto_provider_for_tests {
+        () => {
+            #[cfg(not(target_family = "wasm"))]
+            #[ctor::ctor]
+            fn install_default_crypto_provider_for_tests() {
+                $crate::http_client::rustls::install_default_crypto_provider_if_none_installed();
+            }
+        };
+    }
+
+    #[cfg(test)]
+    pub(crate) use install_default_crypto_provider_for_tests;
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]

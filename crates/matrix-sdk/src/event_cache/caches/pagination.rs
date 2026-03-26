@@ -14,22 +14,29 @@
 
 //! The logic to paginate a cache (room, thread…) over the disk or the network.
 
-use std::time::Duration;
+use std::{pin::Pin, sync::Arc, time::Duration};
 
-use eyeball::SharedObservable;
+use eyeball::{ObservableWriteGuard, SharedObservable};
 use eyeball_im::VectorDiff;
-use matrix_sdk_base::{event_cache::Event, timeout::timeout};
-use tracing::{debug, instrument, trace};
+use futures_util::{
+    FutureExt as _,
+    future::{Either, Shared, ready},
+};
+use matrix_sdk_base::{
+    SendOutsideWasm, SyncOutsideWasm, event_cache::Event, executor::AbortOnDrop, timeout::timeout,
+};
+use matrix_sdk_common::executor::spawn;
+use tracing::{debug, instrument, trace, warn};
 
-use super::super::{EventCacheError, Result};
+use super::super::Result;
 
 /// Type to run paginations.
 #[derive(Clone, Debug)]
-pub(in super::super) struct Pagination<C> {
+pub(in super::super) struct Pagination<C: SendOutsideWasm + 'static> {
     pub cache: C,
 }
 
-impl<C> Pagination<C> {
+impl<C: SendOutsideWasm + 'static> Pagination<C> {
     /// Create a new [`Pagination`].
     pub fn new(cache: C) -> Self {
         Self { cache }
@@ -38,7 +45,7 @@ impl<C> Pagination<C> {
 
 impl<C> Pagination<C>
 where
-    C: PaginatedCache,
+    C: Clone + PaginatedCache + SendOutsideWasm + 'static + SyncOutsideWasm,
 {
     /// Starts a back-pagination for the requested number of events.
     ///
@@ -99,37 +106,94 @@ where
     /// Returns `Ok(None)` if the pagination token used during a network
     /// pagination has disappeared from the in-memory linked chunk after
     /// handling the response.
-    async fn run_backwards_impl(&self, batch_size: u16) -> Result<Option<BackPaginationOutcome>> {
+    // Implementation note: return a future instead of making the function async, so
+    // as to not cause issues because the `cache` field is borrowed across await
+    // points.
+    fn run_backwards_impl(
+        &self,
+        batch_size: u16,
+    ) -> impl Future<Output = Result<Option<BackPaginationOutcome>>> {
         // There is at least one gap that must be resolved; reach the network.
         // First, ensure there's no other ongoing back-pagination.
         let status_observable = self.cache.status();
 
-        let prev_status = status_observable.set(PaginationStatus::Paginating);
+        let mut status_guard = status_observable.write();
 
-        if !matches!(prev_status, PaginationStatus::Idle { .. }) {
-            return Err(EventCacheError::AlreadyBackpaginating);
+        match &*status_guard {
+            SharedPaginationStatus::Idle { hit_timeline_start } => {
+                if *hit_timeline_start {
+                    // Force an extra notification for observers.
+                    ObservableWriteGuard::set(
+                        &mut status_guard,
+                        SharedPaginationStatus::Idle { hit_timeline_start: true },
+                    );
+
+                    return Either::Left(ready(Ok(Some(BackPaginationOutcome {
+                        reached_start: true,
+                        events: Vec::new(),
+                    }))));
+                }
+            }
+
+            SharedPaginationStatus::Paginating { shared_task: shared } => {
+                // There was already a back-pagination request in progress; wait for it to
+                // finish and return its result.
+                let shared = shared.clone();
+                drop(status_guard);
+                return Either::Right(shared.fut.clone());
+            }
         }
 
         let reset_status_on_drop_guard = ResetStatusOnDrop {
-            prev_status: Some(prev_status),
+            prev_status: Some(status_guard.clone()),
             pagination_status: status_observable.clone(),
         };
 
-        match self.paginate_backwards_impl(batch_size).await? {
-            Some(outcome) => {
-                // Back-pagination's over and successful, don't reset the status to the previous
-                // value.
-                reset_status_on_drop_guard.disarm();
+        let this = self.clone();
 
-                // Notify subscribers that pagination ended.
-                status_observable
-                    .set(PaginationStatus::Idle { hit_timeline_start: outcome.reached_start });
+        let fut: Pin<Box<dyn SharedPaginationFuture>> = Box::pin(async move {
+            match this.paginate_backwards_impl(batch_size).await? {
+                Some(outcome) => {
+                    // Back-pagination's over and successful, don't reset the status to the previous
+                    // value.
+                    reset_status_on_drop_guard.disarm();
 
-                Ok(Some(outcome))
+                    // Notify subscribers that pagination ended.
+                    this.cache.status().set(SharedPaginationStatus::Idle {
+                        hit_timeline_start: outcome.reached_start,
+                    });
+
+                    Ok(Some(outcome))
+                }
+
+                None => Ok(None),
             }
+        });
 
-            None => Ok(None),
-        }
+        let shared_task = fut.shared();
+
+        // Start polling in the background, in a spawned task.
+        let shared_task_clone = shared_task.clone();
+        let join_handle = spawn(async move {
+            if let Err(err) = shared_task_clone.await {
+                warn!("event cache back-pagination failed: {err}");
+            }
+        });
+
+        ObservableWriteGuard::set(
+            &mut status_guard,
+            SharedPaginationStatus::Paginating {
+                shared_task: SharedPaginationTask {
+                    fut: shared_task.clone(),
+                    _join_handle: Arc::new(AbortOnDrop::new(join_handle)),
+                },
+            },
+        );
+
+        // Release the shared lock before waiting for the task to complete.
+        drop(status_guard);
+
+        Either::Right(shared_task)
     }
 
     /// Paginate from either the storage or the network.
@@ -236,32 +300,77 @@ where
     }
 }
 
+trait SharedPaginationFuture:
+    Future<Output = Result<Option<BackPaginationOutcome>>> + SendOutsideWasm
+{
+}
+
+impl<T: Future<Output = Result<Option<BackPaginationOutcome>>> + SendOutsideWasm>
+    SharedPaginationFuture for T
+{
+}
+
+/// State for having a pagination run in the background, and be awaited upon by
+/// several tasks.
+///
+/// Such a pagination may be started automatically or manually. It's possible
+/// for a manual caller to wait upon its completion, by awaiting the underlying
+/// shared future.
+#[derive(Clone)]
+pub(in super::super) struct SharedPaginationTask {
+    /// The shared future for a pagination request running in the background, so
+    /// that multiple callers can await it.
+    fut: Shared<Pin<Box<dyn SharedPaginationFuture>>>,
+
+    /// The owned task that started the above future.
+    _join_handle: Arc<AbortOnDrop<()>>,
+}
+
+#[derive(Clone)]
+pub(in super::super) enum SharedPaginationStatus {
+    /// No pagination is happening right now.
+    Idle {
+        /// Have we hit the start of the timeline, i.e. paginating wouldn't
+        /// have any effect?
+        hit_timeline_start: bool,
+    },
+
+    /// Pagination is already running in the background.
+    Paginating { shared_task: SharedPaginationTask },
+}
+
 pub(in super::super) trait PaginatedCache {
-    fn status(&self) -> &SharedObservable<PaginationStatus>;
+    fn status(&self) -> &SharedObservable<SharedPaginationStatus>;
 
-    async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome>;
-    async fn mark_has_waited_for_initial_prev_token(&self) -> Result<()>;
-    async fn wait_for_prev_token(&self);
+    fn load_more_events_backwards(
+        &self,
+    ) -> impl Future<Output = Result<LoadMoreEventsBackwardsOutcome>> + SendOutsideWasm;
 
-    async fn paginate_backwards_with_network(
+    fn mark_has_waited_for_initial_prev_token(
+        &self,
+    ) -> impl Future<Output = Result<()>> + SendOutsideWasm;
+
+    fn wait_for_prev_token(&self) -> impl Future<Output = ()> + SendOutsideWasm;
+
+    fn paginate_backwards_with_network(
         &self,
         batch_size: u16,
         prev_token: &Option<String>,
-    ) -> Result<Option<(Vec<Event>, Option<String>)>>;
+    ) -> impl Future<Output = Result<Option<(Vec<Event>, Option<String>)>>> + SendOutsideWasm;
 
-    async fn conclude_backwards_pagination_from_disk(
+    fn conclude_backwards_pagination_from_disk(
         &self,
         events: Vec<Event>,
         timeline_event_diffs: Vec<VectorDiff<Event>>,
         reached_start: bool,
-    ) -> BackPaginationOutcome;
+    ) -> impl Future<Output = BackPaginationOutcome> + SendOutsideWasm;
 
-    async fn conclude_backwards_pagination_from_network(
+    fn conclude_backwards_pagination_from_network(
         &self,
         events: Vec<Event>,
         prev_token: Option<String>,
         new_token: Option<String>,
-    ) -> Result<Option<BackPaginationOutcome>>;
+    ) -> impl Future<Output = Result<Option<BackPaginationOutcome>>> + SendOutsideWasm;
 }
 
 /// Status for the pagination on a cache.
@@ -282,8 +391,8 @@ pub enum PaginationStatus {
 /// Small RAII guard to reset the pagination status on drop, if not disarmed in
 /// the meanwhile.
 struct ResetStatusOnDrop {
-    prev_status: Option<PaginationStatus>,
-    pagination_status: SharedObservable<PaginationStatus>,
+    prev_status: Option<SharedPaginationStatus>,
+    pagination_status: SharedObservable<SharedPaginationStatus>,
 }
 
 impl ResetStatusOnDrop {
@@ -302,7 +411,7 @@ impl Drop for ResetStatusOnDrop {
 }
 
 /// The result of a single back-pagination request.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct BackPaginationOutcome {
     /// Did the back-pagination reach the start of the timeline?
     pub reached_start: bool,

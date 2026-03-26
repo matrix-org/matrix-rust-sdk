@@ -1355,21 +1355,13 @@ macro_rules! cryptostore_integration_tests {
                 let test_room = room_id!("!room:example.org");
 
                 fn make_bundle_data(sender_user: &UserId, bundle_uri: &str) -> StoredRoomKeyBundleData {
-                    let jwk = ruma::events::room::JsonWebKeyInit {
-                        kty: "oct".to_owned(),
-                        key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-                        alg: "A256CTR".to_owned(),
-                        k: ruma::serde::Base64::new(vec![0u8; 0]),
-                        ext: true,
-                    }.into();
+                    let info = ruma::events::room::V2EncryptedFileInfo::encode([0; 32], [0;16]).into();
 
-                    let file = ruma::events::room::EncryptedFileInit {
-                        url: ruma::OwnedMxcUri::from(bundle_uri),
-                        key: jwk,
-                        iv: ruma::serde::Base64::new(vec![0u8; 0]),
-                        hashes: Default::default(),
-                        v: "".to_owned(),
-                    }.into();
+                    let file = ruma::events::room::EncryptedFile::new(
+                        ruma::OwnedMxcUri::from(bundle_uri),
+                        info,
+                        Default::default()
+                    );
 
                     StoredRoomKeyBundleData {
                         sender_user: sender_user.to_owned(),
@@ -1426,9 +1418,16 @@ macro_rules! cryptostore_integration_tests {
 
                 let details = store.get_pending_key_bundle_details_for_room(test_room).await.unwrap();
                 assert_matches!(details, Some(details) => {
+                    assert_eq!(details.room_id, test_room);
                     assert_eq!(details.inviter, test_user);
                     assert_eq!(details.invite_accepted_at, timestamp);
                 });
+
+                let all_rooms = store.get_all_rooms_pending_key_bundles().await.unwrap();
+                assert_eq!(all_rooms.len(), 1);
+                assert_eq!(all_rooms[0].room_id, test_room);
+                assert_eq!(all_rooms[0].inviter, test_user);
+                assert_eq!(all_rooms[0].invite_accepted_at, timestamp);
 
                 // Clear the entry, and check it is blank again
                 store.save_changes(Changes {

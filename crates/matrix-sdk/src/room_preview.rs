@@ -19,7 +19,7 @@
 //! well.
 
 use futures_util::future::join_all;
-use matrix_sdk_base::{RawSyncStateEventWithKeys, RoomHero, RoomInfo, RoomState};
+use matrix_sdk_base::{RawStateEventWithKeys, RoomHero, RoomInfo, RoomState};
 use ruma::{
     OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
     api::client::{membership::joined_members, state::get_state_events},
@@ -310,8 +310,7 @@ impl RoomPreview {
         let mut room_info = RoomInfo::new(room_id, RoomState::Joined);
 
         for ev in state.room_state {
-            if let Some(mut raw_event) =
-                RawSyncStateEventWithKeys::try_from_raw_state_event(ev.cast())
+            if let Some(mut raw_event) = RawStateEventWithKeys::try_from_raw_state_event(ev.cast())
             {
                 room_info.handle_state_event(&mut raw_event);
             }

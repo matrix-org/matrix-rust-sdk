@@ -33,10 +33,13 @@ use serde_json::value::{RawValue as RawJsonValue, Value as JsonValue};
 use tokio::sync::broadcast;
 #[cfg(feature = "e2e-encryption")]
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
+use url::Url;
 
 #[cfg(feature = "local-server")]
 pub mod local_server;
 
+#[cfg(feature = "local-server")]
+use self::local_server::QueryString;
 #[cfg(doc)]
 use crate::Room;
 
@@ -236,6 +239,44 @@ pub fn formatted_body_from(
     formatted_body: Option<FormattedBody>,
 ) -> Option<FormattedBody> {
     if formatted_body.is_some() { formatted_body } else { body.and_then(FormattedBody::markdown) }
+}
+
+/// A full URL or just the query part of a URL.
+///
+/// This is a convenience type to be able to access the query part of a URL from
+/// different sources.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UrlOrQuery {
+    /// A full URL.
+    Url(Url),
+
+    /// The query part of a URL.
+    Query(String),
+}
+
+impl UrlOrQuery {
+    /// Get the query part of this [`UrlOrQuery`].
+    ///
+    /// If this is a [`Url`], this extracts the query.
+    pub fn query(&self) -> Option<&str> {
+        match self {
+            Self::Url(url) => url.query(),
+            Self::Query(query) => Some(query),
+        }
+    }
+}
+
+impl From<Url> for UrlOrQuery {
+    fn from(value: Url) -> Self {
+        Self::Url(value)
+    }
+}
+
+#[cfg(feature = "local-server")]
+impl From<QueryString> for UrlOrQuery {
+    fn from(value: QueryString) -> Self {
+        Self::Query(value.0)
+    }
 }
 
 #[cfg(test)]

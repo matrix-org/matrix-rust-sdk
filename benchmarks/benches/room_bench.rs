@@ -10,7 +10,7 @@ use matrix_sdk_base::{
     store::StoreConfig,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
-use matrix_sdk_test::{JoinedRoomBuilder, event_factory::EventFactory};
+use matrix_sdk_test::{JoinedRoomBuilder, base64_sha256_hash, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
@@ -26,7 +26,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
     const MEMBERS_IN_ROOM: usize = 100000;
 
     let runtime = Builder::new_multi_thread().build().expect("Can't create runtime");
-    let room_id = owned_room_id!("!room:example.com");
+    let room_id = owned_room_id!("!homohominilupusest:example.com");
 
     let f = EventFactory::new().room(&room_id);
     let mut member_events: Vec<Raw<RoomMemberEvent>> = Vec::with_capacity(MEMBERS_IN_ROOM);
@@ -105,7 +105,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
     const PINNED_EVENTS_COUNT: usize = 100;
 
     let runtime = Builder::new_multi_thread().enable_all().build().expect("Can't create runtime");
-    let room_id = owned_room_id!("!room:example.com");
+    let room_id = owned_room_id!("!homohominilupusest:example.com");
     let sender_id = owned_user_id!("@sender:example.com");
 
     let f = EventFactory::new().room(&room_id).sender(&sender_id);
@@ -114,7 +114,10 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
         JoinedRoomBuilder::new(&room_id).add_state_event(f.room_encryption());
 
     let pinned_event_ids: Vec<OwnedEventId> = (0..PINNED_EVENTS_COUNT)
-        .map(|i| EventId::parse(format!("${i}")).expect("Invalid event id"))
+        .map(|i| {
+            EventId::new_v2_or_v3(&base64_sha256_hash(format!("${i}").as_bytes()))
+                .expect("Invalid event id")
+        })
         .collect();
     joined_room_builder =
         joined_room_builder.add_state_bulk(vec![f.room_pinned_events(pinned_event_ids).into()]);

@@ -20,13 +20,12 @@ use ruma::{
     events::{AnySyncStateEvent, SyncStateEvent},
     serde::Raw,
 };
-use serde::Deserialize;
-use tracing::{error, warn};
+use tracing::error;
 
 use super::Context;
 #[cfg(feature = "experimental-encrypted-state-events")]
 use super::e2ee;
-use crate::{store::BaseStateStore, utils::RawSyncStateEventWithKeys};
+use crate::{store::BaseStateStore, utils::RawStateEventWithKeys};
 
 /// Collect [`AnySyncStateEvent`].
 pub mod sync {
@@ -48,7 +47,7 @@ pub mod sync {
         RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
         store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
         sync::State,
-        utils::RawSyncStateEventWithKeys,
+        utils::RawStateEventWithKeys,
     };
 
     impl State {
@@ -59,22 +58,22 @@ pub mod sync {
         pub(crate) fn collect(
             &self,
             timeline: &[Raw<AnySyncTimelineEvent>],
-        ) -> Vec<RawSyncStateEventWithKeys> {
+        ) -> Vec<RawStateEventWithKeys<AnySyncStateEvent>> {
             match self {
                 Self::Before(events) => events
                     .iter()
                     .cloned()
-                    .filter_map(RawSyncStateEventWithKeys::try_from_raw_state_event)
+                    .filter_map(RawStateEventWithKeys::try_from_raw_state_event)
                     .chain(
                         timeline
                             .iter()
-                            .filter_map(RawSyncStateEventWithKeys::try_from_raw_timeline_event),
+                            .filter_map(RawStateEventWithKeys::try_from_raw_timeline_event),
                     )
                     .collect(),
                 Self::After(events) => events
                     .iter()
                     .cloned()
-                    .filter_map(RawSyncStateEventWithKeys::try_from_raw_state_event)
+                    .filter_map(RawStateEventWithKeys::try_from_raw_state_event)
                     .collect(),
             }
         }
@@ -92,7 +91,7 @@ pub mod sync {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub async fn dispatch<U>(
         context: &mut Context,
-        raw_events: Vec<RawSyncStateEventWithKeys>,
+        raw_events: Vec<RawStateEventWithKeys<AnySyncStateEvent>>,
         room_info: &mut RoomInfo,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
@@ -176,7 +175,7 @@ pub mod sync {
     async fn dispatch_room_member<U>(
         context: &mut Context,
         room_id: &RoomId,
-        raw_event: &mut RawSyncStateEventWithKeys,
+        raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
         ambiguity_cache: &mut AmbiguityCache,
         new_users: &mut U,
     ) -> StoreResult<()>
@@ -225,7 +224,7 @@ pub mod sync {
     pub fn own_membership_and_update_room_state(
         context: &mut Context,
         user_id: &UserId,
-        state_events: &mut [RawSyncStateEventWithKeys],
+        state_events: &mut [RawStateEventWithKeys<AnySyncStateEvent>],
         room_info: &mut RoomInfo,
     ) {
         // Start from the last event; the first membership event we see in that order is
@@ -262,22 +261,31 @@ pub mod sync {
 
 /// Collect [`AnyStrippedStateEvent`].
 pub mod stripped {
-    use std::{collections::BTreeMap, iter};
+    use std::collections::BTreeMap;
 
-    use ruma::{RoomId, UserId, events::AnyStrippedStateEvent, push::Action};
+    use ruma::{
+        RoomId, UserId,
+        events::{AnyStrippedStateEvent, StateEventType},
+        push::Action,
+    };
     use tracing::instrument;
 
     use super::{
         super::{notification, timeline},
         Context, Raw,
     };
-    use crate::{Result, Room, RoomInfo, RoomInfoNotableUpdateReasons};
+    use crate::{RawStateEventWithKeys, Result, Room, RoomInfo, RoomInfoNotableUpdateReasons};
 
-    /// Collect [`Raw<AnyStrippedStateEvent>`] to [`AnyStrippedStateEvent`].
+    /// Collect [`Raw<AnyStrippedStateEvent>`] to
+    /// [`RawStateEventWithKeys<AnyStrippedStateEvent>`].
     pub fn collect(
         raw_events: &[Raw<AnyStrippedStateEvent>],
-    ) -> (Vec<Raw<AnyStrippedStateEvent>>, Vec<AnyStrippedStateEvent>) {
-        super::collect(raw_events)
+    ) -> Vec<RawStateEventWithKeys<AnyStrippedStateEvent>> {
+        raw_events
+            .iter()
+            .cloned()
+            .filter_map(RawStateEventWithKeys::try_from_raw_state_event)
+            .collect()
     }
 
     /// Dispatch the stripped state events.
@@ -299,7 +307,7 @@ pub mod stripped {
     #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
     pub(crate) async fn dispatch_invite_or_knock(
         context: &mut Context,
-        (raw_events, events): (&[Raw<AnyStrippedStateEvent>], &[AnyStrippedStateEvent]),
+        raw_events: Vec<RawStateEventWithKeys<AnyStrippedStateEvent>>,
         room: &Room,
         room_info: &mut RoomInfo,
         user_id: &UserId,
@@ -307,16 +315,16 @@ pub mod stripped {
     ) -> Result<()> {
         let mut state_events = BTreeMap::new();
 
-        for (raw_event, event) in iter::zip(raw_events, events) {
-            room_info.handle_stripped_state_event(event);
+        own_membership(context, room.room_id(), user_id, &raw_events);
+
+        for mut raw_event in raw_events {
+            room_info.handle_stripped_state_event(&mut raw_event);
 
             state_events
-                .entry(event.event_type())
+                .entry(raw_event.event_type)
                 .or_insert_with(BTreeMap::new)
-                .insert(event.state_key().to_owned(), raw_event.clone());
+                .insert(raw_event.state_key, raw_event.raw);
         }
-
-        own_membership(context, room.room_id(), user_id, events);
 
         context
             .state_changes
@@ -349,20 +357,15 @@ pub mod stripped {
         context: &mut Context,
         room_id: &RoomId,
         user_id: &UserId,
-        state_events: &[AnyStrippedStateEvent],
+        raw_state_events: &[RawStateEventWithKeys<AnyStrippedStateEvent>],
     ) {
         // Start from the last event; the first membership event we see in that order is
         // the last in the regular order, so that's the only one we need to
         // consider.
-        if state_events.iter().rev().any(|event| {
+        if raw_state_events.iter().rev().any(|raw_event| {
             // Find the event that updates the current user's membership.
-            if let AnyStrippedStateEvent::RoomMember(member) = &event
-                && member.state_key.as_str() == user_id.as_str()
-            {
-                true
-            } else {
-                false
-            }
+            raw_event.event_type == StateEventType::RoomMember
+                && raw_event.state_key == user_id.as_str()
         }) {
             // Update an existing notable update entry or create a new one
             context
@@ -374,23 +377,6 @@ pub mod stripped {
     }
 }
 
-fn collect<'a, I, T>(raw_events: I) -> (Vec<Raw<T>>, Vec<T>)
-where
-    I: IntoIterator<Item = &'a Raw<T>>,
-    T: Deserialize<'a> + 'a,
-{
-    raw_events
-        .into_iter()
-        .filter_map(|raw_event| match raw_event.deserialize() {
-            Ok(event) => Some((raw_event.clone(), event)),
-            Err(e) => {
-                warn!("Couldn't deserialize stripped state event: {e}");
-                None
-            }
-        })
-        .unzip()
-}
-
 /// Check if the `predecessor` in `m.room.create` isn't creating a loop of
 /// rooms.
 ///
@@ -398,7 +384,7 @@ where
 pub fn validate_create_event_predecessor(
     context: &mut Context,
     room_id: &RoomId,
-    raw_event: &mut RawSyncStateEventWithKeys,
+    raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     state_store: &BaseStateStore,
 ) {
     let mut already_seen = BTreeSet::new();
@@ -469,7 +455,7 @@ pub fn validate_create_event_predecessor(
 pub fn is_tombstone_event_valid(
     context: &mut Context,
     room_id: &RoomId,
-    raw_event: &mut RawSyncStateEventWithKeys,
+    raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     state_store: &BaseStateStore,
 ) -> bool {
     let mut already_seen = BTreeSet::new();
@@ -524,10 +510,10 @@ pub fn is_tombstone_event_valid(
 /// its keys were deserialized.
 #[cfg(feature = "experimental-encrypted-state-events")]
 async fn decrypt_state_event(
-    raw_event: &mut RawSyncStateEventWithKeys,
+    raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     room_id: &RoomId,
     e2ee: &e2ee::E2EE<'_>,
-) -> Option<RawSyncStateEventWithKeys> {
+) -> Option<RawStateEventWithKeys<AnySyncStateEvent>> {
     use matrix_sdk_crypto::RoomEventDecryptionResult;
     use ruma::OwnedEventId;
     use tracing::{trace, warn};
@@ -565,9 +551,7 @@ async fn decrypt_state_event(
 
     // Cast to `AnySync*Event`, safe since this is a supertype of
     // `AnyTimelineEvent`.
-    match RawSyncStateEventWithKeys::try_from_raw_state_event(
-        decrypted_event.event.cast_unchecked(),
-    ) {
+    match RawStateEventWithKeys::try_from_raw_state_event(decrypted_event.event.cast_unchecked()) {
         Some(event) => {
             trace!(?event_id, "Decrypted state event successfully.");
             Some(event)

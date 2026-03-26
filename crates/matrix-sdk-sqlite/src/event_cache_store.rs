@@ -62,13 +62,6 @@ mod keys {
 /// The database name.
 const DATABASE_NAME: &str = "matrix-sdk-event-cache.sqlite3";
 
-/// Identifier of the latest database version.
-///
-/// This is used to figure whether the SQLite database requires a migration.
-/// Every new SQL migration should imply a bump of this number, and changes in
-/// the [`run_migrations`] function.
-const DATABASE_VERSION: u8 = 14;
-
 /// The string used to identify a chunk of type events, in the `type` field in
 /// the database.
 const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
@@ -320,7 +313,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         )?;
         let prev_token_bytes = store.decode_value(&encoded_prev_token)?;
         let prev_token = serde_json::from_slice(&prev_token_bytes)?;
-        Ok(Gap { prev_token })
+        Ok(Gap { token: prev_token })
     }
 
     fn load_events_content(
@@ -356,18 +349,11 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
-    if version == 0 {
-        debug!("Creating database");
-    } else if version < DATABASE_VERSION {
-        debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
-    } else {
-        return Ok(());
-    }
-
     // Always enable foreign keys for the current connection.
     conn.execute_batch("PRAGMA foreign_keys = ON;").await?;
 
     if version < 1 {
+        debug!("Creating database");
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
@@ -379,6 +365,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 2 {
+        debug!("Upgrading database to version 2");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/002_lease_locks.sql"))?;
             txn.set_db_version(2)
@@ -387,6 +374,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 3 {
+        debug!("Upgrading database to version 3");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/003_events.sql"))?;
             txn.set_db_version(3)
@@ -395,6 +383,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 4 {
+        debug!("Upgrading database to version 4");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/004_ignore_policy.sql"
@@ -405,6 +394,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 5 {
+        debug!("Upgrading database to version 5");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/005_events_index_on_event_id.sql"
@@ -415,6 +405,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 6 {
+        debug!("Upgrading database to version 6");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/006_events.sql"))?;
             txn.set_db_version(6)
@@ -423,6 +414,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 7 {
+        debug!("Upgrading database to version 7");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/007_event_chunks.sql"
@@ -433,6 +425,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 8 {
+        debug!("Upgrading database to version 8");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/008_linked_chunk_id.sql"
@@ -443,6 +436,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 9 {
+        debug!("Upgrading database to version 9");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/009_related_event_index.sql"
@@ -453,6 +447,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 10 {
+        debug!("Upgrading database to version 10");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/010_drop_media.sql"))?;
             txn.set_db_version(10)
@@ -467,6 +462,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 11 {
+        debug!("Upgrading database to version 11");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/011_empty_event_cache.sql"
@@ -477,6 +473,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 12 {
+        debug!("Upgrading database to version 12");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/012_store_event_type.sql"
@@ -487,6 +484,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 13 {
+        debug!("Upgrading database to version 13");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/013_lease_locks_with_generation.sql"
@@ -497,6 +495,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     if version < 14 {
+        debug!("Upgrading database to version 14");
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!(
                 "../migrations/event_cache_store/014_event_chunks_event_id_index.sql"
@@ -598,7 +597,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::NewGapChunk { previous, new, next, gap } => {
-                        let serialized = serde_json::to_vec(&gap.prev_token)?;
+                        let serialized = serde_json::to_vec(&gap.token)?;
                         let prev_token = this.encode_value(serialized)?;
 
                         let previous = previous.as_ref().map(ChunkIdentifier::index);
@@ -1658,13 +1657,12 @@ mod tests {
     use matrix_sdk_base::{
         event_cache::store::{
             EventCacheStore, EventCacheStoreError, IntoEventCacheStore,
-            integration_tests::{EventCacheStoreIntegrationTests, make_test_event_with_event_id},
+            integration_tests::EventCacheStoreIntegrationTests,
         },
         event_cache_store_integration_tests, event_cache_store_integration_tests_time,
-        linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Position, Update},
+        linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
-    use ruma::event_id;
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -1827,84 +1825,6 @@ mod tests {
         // rolled back.
         let chunks = store.load_all_chunks(linked_chunk_id).await.unwrap();
         assert!(chunks.is_empty());
-    }
-
-    #[async_test]
-    async fn test_event_chunks_allows_same_event_in_room_and_thread() {
-        // This test verifies that the same event can appear in both a room's linked
-        // chunk and a thread's linked chunk. This is the real-world use case:
-        // a thread reply appears in both the main room timeline and the thread.
-
-        let store = get_event_cache_store().await.expect("creating cache store failed");
-
-        let room_id = *DEFAULT_TEST_ROOM_ID;
-        let thread_root = event_id!("$thread_root");
-
-        // Create an event that will be inserted into both the room and thread linked
-        // chunks.
-        let event = make_test_event_with_event_id(
-            room_id,
-            "thread reply",
-            Some(event_id!("$thread_reply")),
-        );
-
-        let room_linked_chunk_id = LinkedChunkId::Room(room_id);
-        let thread_linked_chunk_id = LinkedChunkId::Thread(room_id, thread_root);
-
-        // Insert the event into the room's linked chunk.
-        store
-            .handle_linked_chunk_updates(
-                room_linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![event.clone()],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        // Insert the same event into the thread's linked chunk.
-        store
-            .handle_linked_chunk_updates(
-                thread_linked_chunk_id,
-                vec![
-                    Update::NewItemsChunk {
-                        previous: None,
-                        new: ChunkIdentifier::new(1),
-                        next: None,
-                    },
-                    Update::PushItems {
-                        at: Position::new(ChunkIdentifier::new(1), 0),
-                        items: vec![event],
-                    },
-                ],
-            )
-            .await
-            .unwrap();
-
-        // Verify both entries exist by loading chunks from both linked chunk IDs.
-        let room_chunks = store.load_all_chunks(room_linked_chunk_id).await.unwrap();
-        let thread_chunks = store.load_all_chunks(thread_linked_chunk_id).await.unwrap();
-
-        assert_eq!(room_chunks.len(), 1);
-        assert_eq!(thread_chunks.len(), 1);
-
-        // Verify the event is in both.
-        assert_matches!(&room_chunks[0].content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
-        });
-        assert_matches!(&thread_chunks[0].content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 1);
-            assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$thread_reply")));
-        });
     }
 }
 

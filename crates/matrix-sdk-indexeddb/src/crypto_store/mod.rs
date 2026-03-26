@@ -1608,6 +1608,24 @@ impl_crypto_store! {
         Ok(result)
     }
 
+    async fn get_all_rooms_pending_key_bundles(&self) -> Result<Vec<RoomPendingKeyBundleDetails>> {
+        let result = self
+            .inner
+            .transaction(keys::ROOMS_PENDING_KEY_BUNDLE)
+            .with_mode(TransactionMode::Readonly)
+            .build()?
+            .object_store(keys::ROOMS_PENDING_KEY_BUNDLE)?
+            .get_all()
+            .await?
+            .map(|result| {
+                result
+                    .map_err(Into::into)
+                    .and_then(|v| self.serializer.deserialize_value(v).map_err(Into::into))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(result)
+    }
+
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         self.inner
             .transaction(keys::CORE)

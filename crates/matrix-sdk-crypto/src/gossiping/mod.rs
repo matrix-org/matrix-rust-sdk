@@ -27,7 +27,8 @@ use ruma::{
         AnyToDeviceEventContent, ToDeviceEventType,
         room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
         secret::request::{
-            RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
+            RequestAction, SecretName, SecretRequestAction,
+            ToDeviceSecretRequestEvent as SecretRequestEvent,
             ToDeviceSecretRequestEventContent as SecretRequestEventContent,
         },
     },
@@ -176,7 +177,7 @@ impl GossipRequest {
             SecretInfo::SecretRequest(s) => {
                 let content =
                     AnyToDeviceEventContent::SecretRequest(SecretRequestEventContent::new(
-                        RequestAction::Request(s.clone()),
+                        RequestAction::Request(SecretRequestAction::new(s.clone())),
                         own_device_id.to_owned(),
                         self.request_id.clone(),
                     ));

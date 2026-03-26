@@ -123,6 +123,7 @@ impl GroupSessionCache {
     ///
     /// * `room_id` - The id of the room for which we should get the outbound
     ///   group session.
+    #[cfg(test)]
     fn get(&self, room_id: &RoomId) -> Option<OutboundGroupSession> {
         self.sessions.read().get(room_id).cloned()
     }
@@ -159,7 +160,7 @@ impl GroupSessionManager {
     }
 
     pub async fn invalidate_group_session(&self, room_id: &RoomId) -> StoreResult<bool> {
-        if let Some(s) = self.sessions.get(room_id) {
+        if let Some(s) = self.sessions.get_or_load(room_id).await {
             s.invalidate_session();
 
             let mut changes = Changes::default();
@@ -745,8 +746,8 @@ impl GroupSessionManager {
         // Filter out the devices that already received this room key or have a
         // to-device message already queued up.
         let devices: Vec<_> = devices
-            .into_iter()
-            .flat_map(|(_, d)| {
+            .into_values()
+            .flat_map(|d| {
                 d.into_iter().filter(|d| match outbound.sharing_view().get_share_state(d) {
                     ShareState::NotShared => true,
                     ShareState::Shared { message_index: _, olm_wedging_index } => {
@@ -1097,11 +1098,8 @@ mod tests {
             to_device::send_event_to_device::v3::Response as ToDeviceResponse,
         },
         device_id,
-        events::room::{
-            EncryptedFileInit, JsonWebKey, JsonWebKeyInit, history_visibility::HistoryVisibility,
-        },
+        events::room::{EncryptedFile, V2EncryptedFileInfo, history_visibility::HistoryVisibility},
         owned_device_id, owned_room_id, room_id,
-        serde::Base64,
         to_device::DeviceIdOrAllDevices,
         user_id,
     };
@@ -1840,21 +1838,11 @@ mod tests {
 
         let content = RoomKeyBundleContent {
             room_id: owned_room_id!("!room:id"),
-            file: (EncryptedFileInit {
-                url: OwnedMxcUri::from("test"),
-                key: JsonWebKey::from(JsonWebKeyInit {
-                    kty: "oct".to_owned(),
-                    key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-                    alg: "A256CTR".to_owned(),
-                    #[allow(clippy::unnecessary_to_owned)]
-                    k: Base64::new(vec![0u8; 0]),
-                    ext: true,
-                }),
-                iv: Base64::new(vec![0u8; 0]),
-                hashes: Default::default(),
-                v: "".to_owned(),
-            })
-            .into(),
+            file: EncryptedFile::new(
+                OwnedMxcUri::from("test"),
+                V2EncryptedFileInfo::encode([0; 32], [0; 16]).into(),
+                Default::default(),
+            ),
         };
 
         let requests = alice

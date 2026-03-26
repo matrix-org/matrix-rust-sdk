@@ -8,6 +8,13 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Added `android_platform.rs` for fixing the `rustls` integration on Android, which was broken. 
+  ([#6306](https://github.com/matrix-org/matrix-rust-sdk/pull/6306)) 
+- [**breaking**] `OtherState` properly supports redacted events that still have fields in the
+  content. The following fields are no longer optional:
+  - `federate` in `OtherState::RoomCreate`.
+  - `history_visibility` in `OtherState::RoomHistoryVisibility`.
+  - `thresholds` in `OtherState::RoomPowerLevels`.
 - `omit_checksums` option is now enabled for the Kotlin bindings in all FFI-exporting crates.
   We enabled them because with JNA direct mapping enabled they result in invalid checks in
   ARM 32bit devices, preventing the SDK from working altogether (see
@@ -31,6 +38,36 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Introduce a `ThreadListService` which offers reactive interfaces for rendering
+  and managing the list of threads from a particular room.
+  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
+- [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
+  so it has access to `MsgLikeContent` `reactions`.
+  ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
+- Add `HumanQrLoginError::UnsupportedQrCodeType` for when a QR is parseable but cannot be used to
+  complete a login.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6285)
+- Add `HumanQrGrantLoginError::UnsupportedQrCodeType` for when a QR is parseable but cannot be used
+  to grant a login.
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6285)
+- Add the `QrCodeData::base_url` and `QrCodeData::intent` methods.
+  ([#6283](https://github.com/matrix-org/matrix-rust-sdk/pull/6283))
+- Add `Encryption::recover_and_fix_backup` to automatically fix key storage backup if the
+  private backup decryption key is missing, invalid or inconsistent with the public key.
+  ([#6252](https://github.com/matrix-org/matrix-rust-sdk/pull/6252))
+- Add support for [MSC3489](https://github.com/matrix-org/matrix-spec-proposals/pull/3489)  
+  live location sharing through a new `TimelineItemContent::LiveLocation` variant.
+  ([#6232](https://github.com/matrix-org/matrix-rust-sdk/pull/6232))
+- Add `HumanQrGrantLoginError::ConnectionInsecure` for errors establishing the secure channel
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Expired` for when a timeout is encountered during the grant
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::Cancelled` for when the grant is cancelled
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::OtherDeviceAlreadySignedIn` for when the other device is already signed in
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
+- Add `HumanQrGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `RoomInfo::is_low_priority` for getting the room's `m.lowpriority` tag state
   ([#6183](https://github.com/matrix-org/matrix-rust-sdk/pull/6183))
 - Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
@@ -76,10 +113,30 @@ All notable changes to this project will be documented in this file.
   the user who forwarded the keys used to decrypt the event as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
-- Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991))
+- Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991)
+- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207))
+- Add `RoomInfo::active_room_call_consensus_intent` method to get the call intent for the current call,
+  based on what members are advertising.
+  ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
 
 ### Refactor
 
+- `Client::new` no longer unnecessarily instantiates an `OAuth` component if `CrossProcessLockConfig::SingleProcess` 
+  is used. ([#6293](https://github.com/matrix-org/matrix-rust-sdk/pull/6293))
+- [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
+  removed from the Matrix specification.
+  ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))
+- [**breaking**] The `current_version` field of `ErrorKind::WrongRoomKeysVersion`
+  is no longer optional.
+  ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
+- [**breaking**] The following variants of `AccountManagementAction` were
+  renamed to match their new names after being merge in the Matrix specification:
+  - `SessionsList` is renamed to `DevicesList`
+  - `SessionView` is renamed to `DeviceView`
+  - `SessionEnd` is renamed to `DeviceDelete`
+  ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
+- [**breaking**] `HumanQrGrantLoginError::UnableToCreateDevice` has been removed
+  ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - [**breaking**] Removed `ClientBuilder::enable_oidc_refresh_lock` in favour of using `ClientBuilder::cross_process_lock_config`
   to configure that lock when a `MultiProcess` configuration is supplied. ([#6204](https://github.com/matrix-org/matrix-rust-sdk/pull/6204))
 - `RoomPaginationStatus` is renamed to `PaginationStatus`.

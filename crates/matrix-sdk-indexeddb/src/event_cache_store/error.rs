@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+use std::sync::Arc;
+
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
 use serde::de::Error;
 use thiserror::Error;
@@ -32,6 +34,8 @@ pub enum IndexeddbEventCacheStoreError {
     UnableToLoadChunk,
     #[error("no max chunk id")]
     NoMaxChunkId,
+    #[error("event without id")]
+    EventWithoutId,
     #[error("transaction: {0}")]
     Transaction(#[from] TransactionError),
 }
@@ -68,7 +72,8 @@ impl From<IndexeddbEventCacheStoreError> for EventCacheStoreError {
             | ChunksContainCycle
             | ChunksContainDisjointLists
             | NoMaxChunkId
-            | UnableToLoadChunk => Self::InvalidData { details: value.to_string() },
+            | UnableToLoadChunk
+            | EventWithoutId => Self::InvalidData { details: value.to_string() },
             Transaction(inner) => inner.into(),
         }
     }
@@ -80,7 +85,9 @@ impl From<TransactionError> for EventCacheStoreError {
 
         match value {
             DomException { .. } => Self::InvalidData { details: value.to_string() },
-            Serialization(e) => Self::Serialization(serde_json::Error::custom(e.to_string())),
+            Serialization(e) => {
+                Self::Serialization(Arc::new(serde_json::Error::custom(e.to_string())))
+            }
             ItemIsNotUnique | ItemNotFound | NumericalOverflow => {
                 Self::InvalidData { details: value.to_string() }
             }

@@ -312,7 +312,7 @@ mod test {
                 "displayname": display_name,
                 "membership": "join"
             },
-            "event_id": EventId::new(server_name),
+            "event_id": EventId::new_v1(server_name),
             "origin_server_ts": 152037280,
             "sender": user_id,
             "state_key": user_id,
