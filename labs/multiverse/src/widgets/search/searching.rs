@@ -84,17 +84,19 @@ impl Widget for &mut SearchingView {
         let [search_area, results_area] =
             Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(inner_area);
 
-        let messages = if let Some(results) = &self.results
-            && !results.is_empty()
-        {
-            results
-                .iter()
-                .map(|(sender, time, message)| {
-                    MessageWidget::new(sender.to_string(), time.clone(), message.clone())
-                })
-                .collect()
+        let messages = if let Some(results) = &self.results {
+            if !results.is_empty() {
+                results
+                    .iter()
+                    .map(|(sender, time, message)| {
+                        MessageWidget::new(sender.to_string(), time.clone(), message.clone())
+                    })
+                    .collect()
+            } else {
+                vec![MessageWidget::new("", "", "No results found!")]
+            }
         } else {
-            vec![MessageWidget::new("", "", "No results found!")]
+            Vec::new()
         };
 
         let count = messages.len();
