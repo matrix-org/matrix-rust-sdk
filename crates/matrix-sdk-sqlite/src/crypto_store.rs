@@ -1643,22 +1643,11 @@ impl CryptoStore for SqliteCryptoStore {
 
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
         let key = key.to_owned();
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.write()
-                .await
-                .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
-                .await
-                .unwrap()?;
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::execute(
-                &self.write().await.borrow(),
-                "DELETE FROM kv WHERE key = ?1",
-                (&key,),
-            )?;
-        }
+        self.write()
+            .await
+            .interact(move |conn| conn.execute("DELETE FROM kv WHERE key = ?1", (&key,)))
+            .await
+            .unwrap()?;
         Ok(())
     }
 
