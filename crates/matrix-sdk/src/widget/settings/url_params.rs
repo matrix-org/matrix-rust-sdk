@@ -23,7 +23,7 @@ pub const DISPLAY_NAME: &str = "$matrix_display_name";
 pub const LANGUAGE: &str = "$org.matrix.msc2873.client_language";
 pub const CLIENT_THEME: &str = "$org.matrix.msc2873.client_theme";
 pub const CLIENT_ID: &str = "$org.matrix.msc2873.client_id";
-pub const DEVICE_ID: &str = "$org.matrix.msc2873.matrix_device_id";
+pub const DEVICE_ID: &str = "$org.matrix.msc3819.matrix_device_id";
 pub const HOMESERVER_URL: &str = "$org.matrix.msc4039.matrix_base_url";
 
 pub struct QueryProperties {
@@ -92,7 +92,7 @@ mod tests {
     const EXAMPLE_URL: &str = "\
         https://my.widget.org/custom/path/using/$matrix_display_name/in/it\
             ?widgetId=$matrix_widget_id\
-            &deviceId=$org.matrix.msc2873.matrix_device_id\
+            &deviceId=$org.matrix.msc3819.matrix_device_id\
             &avatarUrl=$matrix_avatar_url\
             &displayName=$matrix_display_name\
             &lang=$org.matrix.msc2873.client_language\
