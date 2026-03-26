@@ -58,7 +58,7 @@ we'll need to set the `ANDROID_NDK` environment variable to the location of our
 Android NDK installation.
 
 ```
-$ export ANDROID_NDK=$HOME/Android/Sdk/ndk/<some-version>/
+$ export ANDROID_NDK=$HOME/Android/Sdk/ndk/<some-installed-version>
 ```
 
 Also, include the NDK tools directory in your `PATH`:
