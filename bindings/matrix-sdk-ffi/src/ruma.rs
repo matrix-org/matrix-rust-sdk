@@ -134,6 +134,7 @@ pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
         return Some(MatrixEntity {
             id: matrix_uri.id().into(),
             via: matrix_uri.via().iter().map(|via| via.to_string()).collect(),
+            action: matrix_uri.action().map(Into::into),
         });
     }
 
@@ -141,6 +142,7 @@ pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
         return Some(MatrixEntity {
             id: matrix_to_uri.id().into(),
             via: matrix_to_uri.via().iter().map(|via| via.to_string()).collect(),
+            action: None,
         });
     }
 
@@ -153,6 +155,7 @@ pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
 pub struct MatrixEntity {
     id: MatrixId,
     via: Vec<String>,
+    action: Option<String>,
 }
 
 /// A Matrix ID that can be a room, room alias, user, or event.
