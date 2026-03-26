@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_ui::search::RoomSearch;
+use matrix_sdk_ui::search::{GlobalSearch, RoomSearch};
 use ruma::OwnedUserId;
 use tokio::sync::Mutex;
 
 use crate::{
+    client::Client,
     error::ClientError,
     room::Room,
     timeline::{ProfileDetails, TimelineItemContent},
@@ -104,5 +105,96 @@ impl RoomSearchResult {
             content: TimelineItemContent::from(content),
             timestamp,
         })
+    }
+}
+
+#[derive(Clone, uniffi::Enum)]
+pub enum SearchRoomFilter {
+    /// All the joined rooms (= DMs + groups).
+    AllJoinedRooms,
+    /// Only DM rooms.
+    AllJoinedDms,
+    /// Only non-DM (group) rooms.
+    AllJoinedGroups,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    pub async fn search(
+        &self,
+        query: String,
+        filter: SearchRoomFilter,
+    ) -> Result<GlobalSearchIterator, ClientError> {
+        let sdk_client = (*self.inner).clone();
+        let mut search = GlobalSearch::builder(sdk_client.clone(), query);
+
+        match filter {
+            SearchRoomFilter::AllJoinedRooms => {}
+            SearchRoomFilter::AllJoinedDms => search = search.only_dm_rooms().await?,
+            SearchRoomFilter::AllJoinedGroups => search = search.only_groups().await?,
+        }
+
+        Ok(GlobalSearchIterator { sdk_client, inner: Mutex::new(search.build()) })
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct BasicGlobalSearchResult {
+    room_id: String,
+    event_id: String,
+}
+
+#[derive(uniffi::Record)]
+pub struct GlobalSearchResult {
+    room_id: String,
+    result: RoomSearchResult,
+}
+
+#[derive(uniffi::Object)]
+pub struct GlobalSearchIterator {
+    sdk_client: matrix_sdk::Client,
+    inner: Mutex<GlobalSearch>,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl GlobalSearchIterator {
+    /// Return a list of (room, event ids) for the next batch of search results,
+    /// or `None` if there are no more results.
+    pub async fn next(&self) -> Result<Option<Vec<BasicGlobalSearchResult>>, ClientError> {
+        let Some(results) = self.inner.lock().await.next().await? else {
+            return Ok(None);
+        };
+        Ok(Some(
+            results
+                .into_iter()
+                .map(|(room_id, event_id)| BasicGlobalSearchResult {
+                    room_id: room_id.to_string(),
+                    event_id: event_id.to_string(),
+                })
+                .collect(),
+        ))
+    }
+
+    /// Return a list of events for the next batch of search results, or `None`
+    /// if there are no more results.
+    pub async fn next_events(&self) -> Result<Option<Vec<GlobalSearchResult>>, ClientError> {
+        let Some(events) = self.inner.lock().await.next_events().await? else {
+            return Ok(None);
+        };
+
+        let mut results = Vec::with_capacity(events.len());
+
+        for (room_id, event) in events {
+            let Some(room) = self.sdk_client.get_room(&room_id) else {
+                continue;
+            };
+            if let Some(result) = RoomSearchResult::from(&room, event).await {
+                results.push(GlobalSearchResult { room_id: room_id.to_string(), result });
+            }
+        }
+
+        results.shrink_to_fit();
+
+        Ok(Some(results))
     }
 }
