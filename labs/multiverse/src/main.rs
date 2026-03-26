@@ -964,29 +964,29 @@ async fn get_events_from_event_ids(
     room: &Room,
     event_ids: Vec<OwnedEventId>,
 ) -> Vec<TimelineEvent> {
-    if let Ok(cache_lock) = client.event_cache_store().lock().await {
-        let cache_lock =
-            cache_lock.as_clean().expect("Only one process must access the event cache store");
-
-        futures_util::future::join_all(event_ids.iter().map(|event_id| async {
-            let event_id = event_id.clone();
-            match cache_lock.find_event(room.room_id(), &event_id).await {
-                Ok(ev) => ev,
-                Err(_) => room
-                    .event(&event_id, None)
-                    .await
-                    .inspect_err(|err| {
-                        debug!("Failed to find event {event_id} in event cache and server: {err}");
-                    })
-                    .ok(),
-            }
-        }))
-        .await
-        .into_iter()
-        .flatten()
-        .collect::<Vec<TimelineEvent>>()
-    } else {
+    let Ok(cache_lock) = client.event_cache_store().lock().await else {
         debug!("Couldnt get event cache store lock.");
-        Vec::new()
-    }
+        return Vec::new();
+    };
+
+    let cache_lock =
+        cache_lock.as_clean().expect("Only one process must access the event cache store");
+
+    futures_util::future::join_all(event_ids.iter().map(|event_id| async {
+        let event_id = event_id.clone();
+        match cache_lock.find_event(room.room_id(), &event_id).await {
+            Ok(ev) => ev,
+            Err(_) => room
+                .event(&event_id, None)
+                .await
+                .inspect_err(|err| {
+                    debug!("Failed to find event {event_id} in event cache and server: {err}");
+                })
+                .ok(),
+        }
+    }))
+    .await
+    .into_iter()
+    .flatten()
+    .collect::<Vec<TimelineEvent>>()
 }
