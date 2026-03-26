@@ -64,8 +64,6 @@
 //! [spawn_blocking]: https://github.com/deadpool-rs/deadpool/blob/d6f7d58756f0cc7bdd1f3d54d820c1332d67e4d5/crates/deadpool-sync/src/lib.rs#L113-L131
 //! [WAL]: https://www.sqlite.org/wal.html
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::cell::RefCell;
 use std::{convert::Infallible, path::PathBuf};
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -74,6 +72,9 @@ pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics};
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use deadpool_sync::SyncWrapper;
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use crate::utils::SyncOutsideWasmWrapper;
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
 pub const RUNTIME: Runtime = Runtime::Tokio1;
@@ -113,7 +114,7 @@ impl managed::Manager for Manager {
     //
     // As WASM is mostly single-threaded, current implementation of using `RefCell`
     // should suffice
-    type Type = RefCell<rusqlite::Connection>;
+    type Type = SyncOutsideWasmWrapper<rusqlite::Connection>;
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
@@ -126,7 +127,7 @@ impl managed::Manager for Manager {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
             let conn = rusqlite::Connection::open(path)?;
-            Ok(RefCell::new(conn))
+            Ok(SyncOutsideWasmWrapper::new(conn))
         }
     }
 

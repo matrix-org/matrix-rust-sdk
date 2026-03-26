@@ -1,5 +1,3 @@
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::cell::RefCell;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -1126,14 +1124,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
 #[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            Ok(rusqlite::Connection::set_kv_blob(&RefCell::borrow(&self), &key, &value)?)
-        }
+        Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
     }
 }
 

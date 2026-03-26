@@ -14,13 +14,15 @@
 
 use core::fmt;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::cell::{RefCell, RefMut};
+use std::ops::DerefMut;
 use std::{
     borrow::{Borrow, Cow},
     cmp::min,
     iter,
     ops::Deref,
 };
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::{cell::RefCell, convert::Infallible};
 
 use async_trait::async_trait;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -259,32 +261,18 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     where
         P: Params + SendOutsideWasm + 'static,
     {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| conn.execute(sql.as_ref(), params))
-                .await
-                .map_err(map_interact_err)?
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::execute(&RefCell::borrow(&self), sql.as_ref(), params)
-        }
+        self.interact(move |conn| conn.execute(sql.as_ref(), params))
+            .await
+            .map_err(map_interact_err)?
     }
 
     async fn execute_batch(
         &self,
         sql: impl AsRef<str> + SendOutsideWasm + 'static,
     ) -> rusqlite::Result<()> {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| conn.execute_batch(sql.as_ref()))
-                .await
-                .map_err(map_interact_err)?
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::execute_batch(&RefCell::borrow(&self), sql.as_ref())
-        }
+        self.interact(move |conn| conn.execute_batch(sql.as_ref()))
+            .await
+            .map_err(map_interact_err)?
     }
 
     async fn prepare<T, F>(
@@ -296,16 +284,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         T: SendOutsideWasm + 'static,
         F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| f(conn.prepare(sql.as_ref())?))
-                .await
-                .map_err(map_interact_err)?
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            f(rusqlite::Connection::prepare(&RefCell::borrow(&self), sql.as_ref())?)
-        }
+        self.interact(move |conn| f(conn.prepare(sql.as_ref())?)).await.map_err(map_interact_err)?
     }
 
     async fn query_row<T, P, F>(
@@ -319,16 +298,9 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         P: Params + SendOutsideWasm + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
-                .await
-                .map_err(map_interact_err)?
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::query_row(&RefCell::borrow(&self), sql.as_ref(), params, f)
-        }
+        self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
+            .await
+            .map_err(map_interact_err)?
     }
 
     async fn query_many<T, P, F>(
@@ -342,21 +314,12 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         P: Params + SendOutsideWasm + 'static,
         F: FnMut(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| {
-                let mut stmt = conn.prepare(sql.as_ref())?;
-                stmt.query_and_then(params, f)?.collect()
-            })
-            .await
-            .map_err(map_interact_err)?
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            let conn = RefCell::borrow(&self);
-            let mut stmt = rusqlite::Connection::prepare(&conn, sql.as_ref())?;
-            stmt.query_and_then(params, f)?.collect::<Result<Vec<_>, _>>()
-        }
+        self.interact(move |conn| {
+            let mut stmt = conn.prepare(sql.as_ref())?;
+            stmt.query_and_then(params, f)?.collect()
+        })
+        .await
+        .map_err(map_interact_err)?
     }
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
@@ -365,29 +328,15 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         E: From<rusqlite::Error> + SendOutsideWasm + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + SendOutsideWasm + 'static,
     {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| {
-                let txn = conn.transaction()?;
-                let result = f(&txn)?;
-                txn.commit()?;
-                Ok(result)
-            })
-            .await
-            .map_err(map_interact_err)
-            .map_err(E::from)?
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            {
-                let mut conn: RefMut<'_, rusqlite::Connection> = RefCell::borrow_mut(&self);
-                let txn = rusqlite::Connection::transaction(&mut conn)?;
-                let result = f(&txn)?;
-                txn.commit()?;
-                Ok(result)
-            }
-            .map_err(E::from)
-        }
+        self.interact(move |conn| {
+            let txn = conn.transaction()?;
+            let result = f(&txn)?;
+            txn.commit()?;
+            Ok(result)
+        })
+        .await
+        .map_err(map_interact_err)
+        .map_err(E::from)?
     }
 
     /// Chunk a large query over some keys.
@@ -427,6 +376,16 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
             None,
         ),
     }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+/// An unreachable function to avoid having to put conditional compilation everywhere
+/// we want to use [`SyncOutsideWasmWrapper::interact()`].
+///
+/// This function should not be reachable under normal circumstance since
+/// [`SyncOutsideWasmWrapper::interact()`] return [`Infallible`] as an error
+fn map_interact_err(_error: Infallible) -> rusqlite::Error {
+    unreachable!()
 }
 
 pub(crate) trait SqliteTransactionExt {
@@ -641,14 +600,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
 impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::set_kv(&RefCell::borrow(&self), &key, &value)?;
-        }
+        self.interact(move |conn| conn.set_kv(&key, &value)).await.unwrap()?;
 
         Ok(())
     }
@@ -659,28 +611,14 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         value: T,
     ) -> Result<()> {
         let key = key.to_owned();
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| conn.set_serialized_kv(&key, value)).await.unwrap()?;
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::set_serialized_kv(&RefCell::borrow(&self), &key, value)?;
-        }
+        self.interact(move |conn| conn.set_serialized_kv(&key, value)).await.unwrap()?;
 
         Ok(())
     }
 
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()> {
         let key = key.to_owned();
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            self.interact(move |conn| conn.clear_kv(&key)).await.unwrap()?;
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            rusqlite::Connection::clear_kv(&RefCell::borrow(&self), &key)?;
-        }
+        self.interact(move |conn| conn.clear_kv(&key)).await.unwrap()?;
 
         Ok(())
     }
@@ -792,6 +730,42 @@ pub(crate) trait EncryptableStore {
 
             err.into_inner().into()
         })
+    }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[derive(Debug)]
+/// Wrapper object for providing interior mutability similar to [`SyncWrapper`] without `Send`
+/// requirement.
+///
+/// Like [`SyncWrapper`], access to the wrapped object is provided via the
+/// [`SyncOutsideWasmWrapper::interact()`] method.
+///
+/// [`SyncWrapper`]: deadpool_sync::SyncWrapper
+pub struct SyncOutsideWasmWrapper<T>(RefCell<T>);
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+impl<T> SyncOutsideWasmWrapper<T> {
+    /// Creates a new wrapped object.
+    pub fn new(value: T) -> Self {
+        Self(RefCell::new(value))
+    }
+
+    /// Interacts with the underlying object.
+    ///
+    /// Expects a closure that takes the object as its parameter.
+    pub async fn interact<F, R>(&self, f: F) -> Result<R, Infallible>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        // This async block here is to maintain API compatibility with `SyncWrapper` without
+        // triggering clippy warning for `async fn` without a call to `await` inside
+        async {
+            let mut value = self.0.borrow_mut();
+
+            Ok(f(value.deref_mut()))
+        }
+        .await
     }
 }
 
