@@ -308,7 +308,7 @@ async fn run_background_pagination(
 
     let room_pagination_batch_size = inner.config.read().unwrap().room_pagination_batch_size;
 
-    match pagination.run_backwards_once(room_pagination_batch_size).await {
+    match pagination.run_backwards_until(room_pagination_batch_size).await {
         Ok(outcome) => {
             trace!(for_room = %room_id, "pagination completed: reached_start={}, events_fetched={}", outcome.reached_start, outcome.events.len());
 
