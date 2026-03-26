@@ -51,6 +51,7 @@ fn test_get_supported_api_versions() {
                     "org.matrix.msc2762_update_state",
                     "org.matrix.msc2871",
                     "org.matrix.msc3819",
+                    "org.matrix.msc4039",
                 ]
             },
         }),
