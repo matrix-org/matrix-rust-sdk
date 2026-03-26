@@ -114,7 +114,7 @@ pub(crate) enum BackgroundRequest {
 #[instrument(skip_all)]
 pub(super) async fn background_requests_task(
     inner: Arc<EventCacheInner>,
-    mut receiver: mpsc::Receiver<BackgroundRequest>,
+    mut receiver: mpsc::UnboundedReceiver<BackgroundRequest>,
 ) {
     trace!("Spawning the background request task");
 
@@ -271,8 +271,8 @@ fn process_worker_result(
         // Enqueue a new request in the background request channel.
         let request =
             BackgroundRequest::PaginateRoomUntilStart { room_id: worker_result.room_id.clone() };
-        if let Err(err) = inner.background_requests_sender.get().unwrap().try_send(request) {
-            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request: {err}");
+        if inner.background_requests_sender.get().unwrap().send(request).is_err() {
+            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request");
         }
         return;
     }
@@ -281,8 +281,8 @@ fn process_worker_result(
         // Enqueue a new request in the background request channel.
         let request =
             BackgroundRequest::PaginateRoomBackwards { room_id: worker_result.room_id.clone() };
-        if let Err(err) = inner.background_requests_sender.get().unwrap().try_send(request) {
-            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request: {err}");
+        if inner.background_requests_sender.get().unwrap().send(request).is_err() {
+            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request");
         }
     }
 }
@@ -777,11 +777,9 @@ pub(super) async fn search_indexing_task(
         let bg_request_sender = ec.background_requests_sender.get().unwrap().clone();
         for room in client.rooms() {
             if room.state() == RoomState::Joined {
-                let _ = bg_request_sender
-                    .send(BackgroundRequest::PaginateRoomUntilStart {
-                        room_id: room.room_id().to_owned(),
-                    })
-                    .await;
+                let _ = bg_request_sender.send(BackgroundRequest::PaginateRoomUntilStart {
+                    room_id: room.room_id().to_owned(),
+                });
 
                 known_rooms.insert(room.room_id().to_owned());
             }
@@ -812,7 +810,6 @@ pub(super) async fn search_indexing_task(
                         .send(BackgroundRequest::PaginateRoomUntilStart {
                             room_id: room_id.clone(),
                         })
-                        .await
                         .unwrap();
 
                     known_rooms.insert(room_id.clone());
@@ -888,7 +885,9 @@ mod tests {
     };
 
     impl super::super::EventCache {
-        fn background_requests_sender(&self) -> Option<mpsc::Sender<super::BackgroundRequest>> {
+        fn background_requests_sender(
+            &self,
+        ) -> Option<mpsc::UnboundedSender<super::BackgroundRequest>> {
             self.inner.background_requests_sender.get().cloned()
         }
     }
@@ -935,7 +934,7 @@ mod tests {
 
         // Send a request for a background pagination,
         let sender = event_cache.background_requests_sender().unwrap();
-        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
 
         // The room pagination happens in the background.
         assert_let_timeout!(
@@ -1012,7 +1011,7 @@ mod tests {
 
         // Send a request for a background pagination,
         let sender = event_cache.background_requests_sender().unwrap();
-        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
 
         // The room pagination happens in the background.
         assert_let_timeout!(
@@ -1035,7 +1034,7 @@ mod tests {
         assert!(room_cache_updates.is_empty());
 
         // One can send another request to back-paginate…
-        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).await.unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
 
         sleep(Duration::from_millis(300)).await;
         // But it doesn't happen, because we don't have enough credits for automatic

@@ -50,7 +50,7 @@ impl Caches {
         linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
         auto_shrink_sender: mpsc::Sender<OwnedRoomId>,
         store: EventCacheStoreLock,
-        background_request_sender: Option<mpsc::Sender<BackgroundRequest>>,
+        background_request_sender: Option<mpsc::UnboundedSender<BackgroundRequest>>,
     ) -> Result<Self> {
         let Some(client) = weak_client.get() else {
             return Err(EventCacheError::ClientDropped);
