@@ -15,16 +15,18 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
+use matrix_sdk::{Room, deserialized_responses::TimelineEvent};
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
-        AnyStateEventContentChange, Mentions, MessageLikeEventType, StateEventContentChange,
-        StateEventType,
+        AnyMessageLikeEventContent, AnyStateEventContentChange, Mentions, MessageLikeEventType,
+        StateEventContentChange, StateEventType,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        relation::Replacement,
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -36,7 +38,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::MessageType,
+            message::{MessageType, RoomMessageEventContent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -74,6 +76,11 @@ pub use self::{
     reply::{EmbeddedEvent, InReplyToDetails},
 };
 use super::ReactionsByKeyBySender;
+use crate::timeline::{
+    Profile, TimelineDetails,
+    event_handler::{HandleAggregationKind, TimelineAction},
+    traits::RoomDataProvider as _,
+};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[allow(clippy::large_enum_variant)]
@@ -119,6 +126,65 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
+    // TODO: commonize with the latest event implementation, likely?
+    pub async fn from_raw_event(
+        room: &Room,
+        timeline_event: TimelineEvent,
+    ) -> Option<(Self, TimelineDetails<Profile>)> {
+        let raw_any_sync_timeline_event = timeline_event.into_raw();
+        let any_sync_timeline_event = raw_any_sync_timeline_event.deserialize().ok()?;
+
+        let sender = any_sync_timeline_event.sender().to_owned();
+
+        let profile = room
+            .profile_from_user_id(&sender)
+            .await
+            .map(TimelineDetails::Ready)
+            .unwrap_or(TimelineDetails::Unavailable);
+
+        match TimelineAction::from_event(
+            any_sync_timeline_event,
+            &raw_any_sync_timeline_event,
+            room,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            // Easy path: no aggregation, direct event.
+            Some(TimelineAction::AddItem { content }) => Some((content, profile)),
+
+            // Aggregated event.
+            //
+            // Only edits are supported for the moment.
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
+                ..
+            }) => {
+                // Let's map the edit into a regular message.
+                match TimelineAction::from_content(
+                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
+                        new_content.msgtype,
+                    )),
+                    // We don't care about the `InReplyToDetails` in the context of a
+                    // `LatestEventValue`.
+                    None,
+                    // We don't care about the thread information in the context of a
+                    // `LatestEventValue`.
+                    None,
+                    None,
+                ) {
+                    TimelineAction::AddItem { content } => Some((content, profile)),
+                    _ => None,
+                }
+            }
+
+            _ => None,
+        }
+    }
+
     pub fn as_msglike(&self) -> Option<&MsgLikeContent> {
         as_variant!(self, TimelineItemContent::MsgLike)
     }
