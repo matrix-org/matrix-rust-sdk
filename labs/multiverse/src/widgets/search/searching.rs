@@ -93,8 +93,10 @@ impl Widget for &mut SearchingView {
                     MessageWidget::new(sender.to_string(), time.clone(), message.clone())
                 })
                 .collect()
-        } else {
+        } else if !self.input.is_empty() {
             vec![MessageWidget::new("", "", "No results found!")]
+        } else {
+            Vec::new()
         };
 
         let count = messages.len();
