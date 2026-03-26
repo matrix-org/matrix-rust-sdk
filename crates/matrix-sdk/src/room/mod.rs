@@ -1281,11 +1281,15 @@ impl Room {
         &self,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        self.client
+        info!("Call get_state_events for {:?}", event_type);
+        let res = self
+            .client
             .state_store()
-            .get_state_events(self.room_id(), event_type)
+            .get_state_events(self.room_id(), event_type.clone())
             .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+        info!("get_state_events for {:?} returned {:?}", event_type, res);
+        res
     }
 
     /// Get all state events of a given statically-known type in this room.
