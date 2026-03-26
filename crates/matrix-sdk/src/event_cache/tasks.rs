@@ -121,6 +121,7 @@ pub(super) async fn background_requests_task(
     let max_concurrent_workers = inner.config.read().unwrap().max_concurrent_background_paginations;
 
     let mut room_pagination_credits = HashMap::new();
+    let mut pending_paginate_until_start_rooms: HashSet<OwnedRoomId> = HashSet::new();
     let mut join_set = JoinSet::new();
 
     let in_flight_rooms = Arc::new(Mutex::new(HashSet::new()));
@@ -131,6 +132,27 @@ pub(super) async fn background_requests_task(
             if let Some(join_result) = join_set.join_next().await {
                 process_worker_result(inner.clone(), join_result, &mut room_pagination_credits);
             }
+        }
+
+        if let Some(room_id) = pending_paginate_until_start_rooms.iter().next() {
+            trace!(for_room = %room_id, "re-dispatching pending paginate until start request");
+
+            // Remove the room from the pending set, and re-dispatch a request for it.
+            let room_id = room_id.to_owned();
+            pending_paginate_until_start_rooms.remove(&room_id);
+
+            let until_start = true;
+
+            start_room_pagination(
+                inner.clone(),
+                room_id,
+                until_start,
+                in_flight_rooms.clone(),
+                &mut join_set,
+                &mut pending_paginate_until_start_rooms,
+            );
+
+            continue;
         }
 
         select! {
@@ -168,27 +190,7 @@ pub(super) async fn background_requests_task(
                     }
                 };
 
-                let Some(room) = inner.client.get().and_then(|client| client.get_room(&room_id)) else {
-                    break;
-                };
-
-                // Check that the room is in the joined state, otherwise it doesn't make sense to
-                // automatically paginate it.
-                if room.state() != RoomState::Joined {
-                    trace!(for_room = %room_id, "Not joined to the room anymore, skipping pagination");
-                    continue;
-                }
-
-                // Check that we're not already paginating.
-                if !in_flight_rooms.lock().insert(room_id.clone()) {
-                    trace!(for_room = %room_id, "Pagination already in-flight, skipping");
-                    continue;
-                }
-
-                trace!(for_room = %room_id, "running pagination until start");
-
-                // Spawn the pagination work onto a worker task.
-                join_set.spawn(run_background_pagination(inner.clone(), room_id, in_flight_rooms.clone(), until_start));
+                start_room_pagination(inner.clone(), room_id, until_start, in_flight_rooms.clone(), &mut join_set, &mut pending_paginate_until_start_rooms);
             }
         }
     }
@@ -197,6 +199,48 @@ pub(super) async fn background_requests_task(
     join_set.abort_all();
 
     info!("Closing the background request task because receiver closed");
+}
+
+fn start_room_pagination(
+    inner: Arc<EventCacheInner>,
+    room_id: OwnedRoomId,
+    until_start: bool,
+    in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
+    join_set: &mut JoinSet<BackgroundPaginationResult>,
+    pending_paginate_until_start_rooms: &mut HashSet<OwnedRoomId>,
+) {
+    let Some(room) = inner.client.get().and_then(|client| client.get_room(&room_id)) else {
+        return;
+    };
+
+    // Check that the room is in the joined state, otherwise it doesn't make sense
+    // to automatically paginate it.
+    if room.state() != RoomState::Joined {
+        trace!(for_room = %room_id, "Not joined to the room anymore, skipping pagination");
+        return;
+    }
+
+    // Check that we're not already paginating.
+    if !in_flight_rooms.lock().insert(room_id.clone()) {
+        trace!(for_room = %room_id, "Pagination already in-flight, skipping");
+        if until_start {
+            // If the request is to paginate until the start, we need to make sure that
+            // another request gets triggered once the current pagination finishes, to
+            // continue paginating until the start.
+            pending_paginate_until_start_rooms.insert(room_id.clone());
+        }
+        return;
+    }
+
+    trace!(for_room = %room_id, "running pagination until start");
+
+    // Spawn the pagination work onto a worker task.
+    join_set.spawn(run_background_pagination(
+        inner.clone(),
+        room_id,
+        in_flight_rooms.clone(),
+        until_start,
+    ));
 }
 
 /// Process the result of a completed worker task.
