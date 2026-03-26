@@ -126,11 +126,6 @@ impl PopupInput {
     pub fn get_input(&self) -> String {
         self.textarea.lines().join("\n")
     }
-
-    /// Whether the input is empty.
-    pub fn is_empty(&self) -> bool {
-        self.textarea.is_empty()
-    }
 }
 
 impl Widget for &mut PopupInput {

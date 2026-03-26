@@ -101,7 +101,7 @@ pub enum GlobalMode {
     /// Mode where we have opened the create room screen
     CreateRoom { view: CreateRoomView },
     /// Mode where we have opened the search screen
-    Searching { view: SearchingView },
+    Searching { view: SearchingView, is_global: bool },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -391,9 +391,17 @@ impl App {
                 self.set_global_mode(GlobalMode::CreateRoom { view: CreateRoomView::new() })
             }
 
-            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => {
-                self.set_global_mode(GlobalMode::Searching { view: SearchingView::new() })
-            }
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => self
+                .set_global_mode(GlobalMode::Searching {
+                    view: SearchingView::new(false),
+                    is_global: false,
+                }),
+
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('g'), .. }) => self
+                .set_global_mode(GlobalMode::Searching {
+                    view: SearchingView::new(true),
+                    is_global: true,
+                }),
 
             _ => self.room_view.handle_event(event).await,
         }
@@ -486,13 +494,50 @@ impl App {
                             }
                         }
                     }
-                    GlobalMode::Searching { view } => {
+                    GlobalMode::Searching { view, is_global } => {
                         if let Event::Key(key) = event {
                             match key.code {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
-                                        if let Some(room) = self.room_view.room() {
-                                            if let Ok(results) =
+                                        if *is_global {
+                                            // Get the (room, [event_id]s) results from the SDK.
+                                            let tuple_results =
+                                                self.client.search_joined_rooms(&query, 100).await;
+
+                                            // Now that we have search results, get the
+                                            // corresponding
+                                            // events for each tuple.
+                                            let results = futures_util::future::join_all(
+                                                tuple_results.into_iter().map(
+                                                    |(room_id, event_ids)| {
+                                                        let client = self.client.clone();
+                                                        async move {
+                                                            let room = client.get_room(&room_id)?;
+
+                                                            Some((
+                                                                room_id,
+                                                                get_events_from_event_ids(
+                                                                    &room, event_ids,
+                                                                )
+                                                                .await,
+                                                            ))
+                                                        }
+                                                    },
+                                                ),
+                                            )
+                                            .await
+                                            .into_iter()
+                                            .filter_map(|opt| {
+                                                let (room_id, events) = opt?;
+                                                Some((Some(room_id), events))
+                                            })
+                                            .collect();
+
+                                            view.set_results(results);
+                                        } else {
+                                            if let Some(query) = view.get_text() {
+                                                if let Some(room) = self.room_view.room() {
+                                                    if let Ok(results) =
                                                 room.search(&query, 100, None).await.inspect_err(|err| {
                                                     error!("error occurred while searching index: {err:?}");
                                                 })
@@ -503,16 +548,22 @@ impl App {
                                                 )
                                                 .await;
 
-                                                view.results(results);
+                                                view.set_results(vec![(None, results)]);
                                             }
-                                        } else {
-                                            warn!("No room in view.")
+                                                } else {
+                                                    warn!("No room in view.")
+                                                }
+                                            }
                                         }
                                     }
                                 }
+
                                 Esc => self.set_global_mode(GlobalMode::Default),
+
                                 Up => view.list_state.previous(),
+
                                 Down => view.list_state.next(),
+
                                 _ => view.handle_key_press(key),
                             }
                         }
@@ -593,7 +644,7 @@ impl Widget for &mut App {
             GlobalMode::CreateRoom { view } => {
                 view.render(area, buf);
             }
-            GlobalMode::Searching { view } => {
+            GlobalMode::Searching { view, .. } => {
                 view.render(room_view_area, buf);
             }
         }
