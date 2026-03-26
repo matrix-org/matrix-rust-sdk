@@ -20,29 +20,27 @@ use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
-    AuthSession, Client, Room, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
     ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
-    deserialized_responses::TimelineEvent,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{
-        OwnedEventId, OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
-    },
+    ruma::{OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest},
     search_index::SearchIndexStoreKind,
 };
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, locks::Mutex};
 use matrix_sdk_ui::{
     Timeline as SdkTimeline,
     room_list_service::{self, filters::new_filter_non_left},
+    search::{GlobalSearch, RoomSearch},
     sync_service::SyncService,
     timeline::{RoomExt as _, TimelineFocus, TimelineItem},
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{spawn, task::JoinHandle};
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 use widgets::{
     recovery::create_centered_throbber_area, room_view::RoomView, settings::SettingsView,
@@ -500,59 +498,46 @@ impl App {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if *is_global {
-                                            // Get the (room, [event_id]s) results from the SDK.
-                                            let tuple_results =
-                                                self.client.search_joined_rooms(&query, 100).await;
+                                            let mut search =
+                                                GlobalSearch::new(self.client.clone(), query);
 
-                                            // Now that we have search results, get the
-                                            // corresponding
-                                            // events for each tuple.
-                                            let results = futures_util::future::join_all(
-                                                tuple_results.into_iter().map(
-                                                    |(room_id, event_ids)| {
-                                                        let client = self.client.clone();
-                                                        async move {
-                                                            let room = client.get_room(&room_id)?;
-
-                                                            Some((
-                                                                room_id,
-                                                                get_events_from_event_ids(
-                                                                    &room, event_ids,
-                                                                )
-                                                                .await,
-                                                            ))
-                                                        }
-                                                    },
-                                                ),
-                                            )
-                                            .await
-                                            .into_iter()
-                                            .filter_map(|opt| {
-                                                let (room_id, events) = opt?;
-                                                Some((Some(room_id), events))
-                                            })
-                                            .collect();
-
-                                            view.set_results(results);
-                                        } else {
-                                            if let Some(query) = view.get_text() {
-                                                if let Some(room) = self.room_view.room() {
-                                                    if let Ok(results) =
-                                                room.search(&query, 100, None).await.inspect_err(|err| {
-                                                    error!("error occurred while searching index: {err:?}");
-                                                })
-                                            {
-                                                let results = get_events_from_event_ids(
-                                                    &room,
-                                                    results,
-                                                )
-                                                .await;
-
-                                                view.set_results(vec![(None, results)]);
-                                            }
-                                                } else {
-                                                    warn!("No room in view.")
+                                            let mut all_results = HashMap::new();
+                                            loop {
+                                                let Ok(results) = search.next_events().await else {
+                                                    continue;
+                                                };
+                                                let Some(results) = results else {
+                                                    break;
+                                                };
+                                                for (room_id, event_id) in results {
+                                                    all_results
+                                                        .entry(room_id)
+                                                        .or_insert_with(Vec::new)
+                                                        .push(event_id);
                                                 }
+                                            }
+
+                                            view.set_results(
+                                                all_results
+                                                    .into_iter()
+                                                    .map(|(room_id, events)| {
+                                                        (Some(room_id), events)
+                                                    })
+                                                    .collect(),
+                                            );
+                                        } else {
+                                            if let Some((query, room)) =
+                                                view.get_text().zip(self.room_view.room())
+                                            {
+                                                let mut room_search = RoomSearch::new(room, query);
+
+                                                let mut all_results = Vec::new();
+                                                while let Some(results) =
+                                                    room_search.next_events().await?
+                                                {
+                                                    all_results.extend(results);
+                                                }
+                                                view.set_results(vec![(None, all_results)]);
                                             }
                                         }
                                     }
@@ -748,22 +733,4 @@ async fn login_with_password(client: &Client) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn get_events_from_event_ids(
-    room: &Room,
-    event_ids: Vec<OwnedEventId>,
-) -> Vec<TimelineEvent> {
-    futures_util::future::join_all(event_ids.iter().map(|event_id| async move {
-        room.load_or_fetch_event(event_id, None)
-            .await
-            .inspect_err(|err| {
-                debug!("Failed to find event {event_id} in event cache and server: {err}");
-            })
-            .ok()
-    }))
-    .await
-    .into_iter()
-    .flatten()
-    .collect::<Vec<TimelineEvent>>()
 }
