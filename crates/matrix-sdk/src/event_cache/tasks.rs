@@ -267,6 +267,20 @@ fn process_worker_result(
         *credit = credit.saturating_sub(1);
     }
 
+    if worker_result.reached_start {
+        // Try to shrink the linked chunk, as we might have loaded lots of events in
+        // memory.
+        trace!(for_room = %worker_result.room_id, "hit the start of the room, trying to auto-shrink the linked chunk");
+        if let Some(sender) = inner.auto_shrink_sender.get() {
+            if sender.try_send(worker_result.room_id.clone()).is_err() {
+                warn!(for_room = %worker_result.room_id, "Failed to send auto-shrink request");
+            }
+        } else {
+            warn!(for_room = %worker_result.room_id, "Auto-shrink channel not available");
+        }
+        return;
+    }
+
     if worker_result.until_start {
         // Enqueue a new request in the background request channel.
         let request =
@@ -297,6 +311,8 @@ struct BackgroundPaginationResult {
     retry: bool,
     /// Whether the pagination must paginate until the start of the room.
     until_start: bool,
+
+    reached_start: bool,
 }
 
 /// Run a single background pagination for a room.
@@ -344,6 +360,7 @@ async fn run_background_pagination(
                 // TODO: finer error handling
                 retry: false,
                 until_start: false,
+                reached_start: false,
             };
         }
     };
@@ -369,6 +386,7 @@ async fn run_background_pagination(
                 should_decrement_credit,
                 retry: false,
                 until_start,
+                reached_start: outcome.reached_start,
             }
         }
 
@@ -380,6 +398,7 @@ async fn run_background_pagination(
                 should_decrement_credit: false,
                 retry: true,
                 until_start,
+                reached_start: false,
             }
         }
     }
