@@ -17,7 +17,7 @@
 
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_family = "wasm", target_os = "android")))]
 use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
