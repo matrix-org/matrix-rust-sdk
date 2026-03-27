@@ -72,38 +72,36 @@ use ruma::{
 };
 pub use state::*;
 use thiserror::Error;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 /// The default `required_state` constant value for sliding sync lists and
 /// sliding sync room subscriptions.
-const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
-    (StateEventType::RoomName, ""),
-    (StateEventType::RoomEncryption, ""),
-    (StateEventType::RoomMember, "$LAZY"),
-    (StateEventType::RoomMember, "$ME"),
-    (StateEventType::RoomTopic, ""),
-    // Temporary workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5285
-    (StateEventType::RoomAvatar, ""),
-    (StateEventType::RoomCanonicalAlias, ""),
-    (StateEventType::RoomPowerLevels, ""),
-    (StateEventType::CallMember, "*"),
-    (StateEventType::RoomJoinRules, ""),
-    (StateEventType::RoomTombstone, ""),
-    // Those two events are required to properly compute room previews.
-    // `StateEventType::RoomCreate` is also necessary to compute the room
-    // version, and thus handling the tombstoned room correctly.
-    (StateEventType::RoomCreate, ""),
-    (StateEventType::RoomHistoryVisibility, ""),
-    // Required to correctly calculate the room display name.
-    (StateEventType::MemberHints, ""),
-    (StateEventType::SpaceParent, "*"),
-    (StateEventType::SpaceChild, "*"),
-];
-
-/// The default `required_state` constant value for sliding sync room
-/// subscriptions that must be added to `DEFAULT_REQUIRED_STATE`.
-const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] =
-    &[(StateEventType::RoomPinnedEvents, "")];
+fn DEFAULT_REQUIRED_STATE() -> [(StateEventType, &'static str); 17] {
+    [
+        (StateEventType::RoomName, ""),
+        (StateEventType::RoomEncryption, ""),
+        (StateEventType::RoomMember, "$LAZY"),
+        (StateEventType::RoomMember, "$ME"),
+        (StateEventType::RoomTopic, ""),
+        // Temporary workaround for https://github.com/matrix-org/matrix-rust-sdk/issues/5285
+        (StateEventType::RoomAvatar, ""),
+        (StateEventType::RoomCanonicalAlias, ""),
+        (StateEventType::RoomPowerLevels, ""),
+        (StateEventType::CallMember, "*"),
+        (StateEventType::RoomJoinRules, ""),
+        (StateEventType::RoomTombstone, ""),
+        // Those two events are required to properly compute room previews.
+        // `StateEventType::RoomCreate` is also necessary to compute the room
+        // version, and thus handling the tombstoned room correctly.
+        (StateEventType::RoomCreate, ""),
+        (StateEventType::RoomHistoryVisibility, ""),
+        // Required to correctly calculate the room display name.
+        (StateEventType::MemberHints, ""),
+        (StateEventType::SpaceParent, "*"),
+        (StateEventType::SpaceChild, "*"),
+        (StateEventType::from("im.vector.modular.widgets"), "*"),
+    ]
+}
 
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
@@ -462,9 +460,15 @@ impl RoomListService {
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
     pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+        let DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] = &[
+            (StateEventType::RoomPinnedEvents, ""),
+            // TODO add this to ruma properly
+            (StateEventType::from("im.vector.modular.widgets"), "*"),
+        ];
+
         // Calculate the settings for the room subscriptions.
         let settings = assign!(http::request::RoomSubscription::default(), {
-            required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
+            required_state: DEFAULT_REQUIRED_STATE().iter().map(|(state_event, value)| {
                 (state_event.clone(), (*value).to_owned())
             })
             .chain(
@@ -497,6 +501,11 @@ impl RoomListService {
                 }
             }
         }
+
+        info!(
+            "Subscribing to rooms: {:?} with required state: {:?}",
+            room_ids, settings.required_state
+        );
 
         // Subscribe to the rooms.
         self.sliding_sync.clear_and_subscribe_to_rooms(

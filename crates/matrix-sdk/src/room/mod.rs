@@ -96,7 +96,7 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         room::{get_room_event, report_content, report_room},
-        state::{get_state_event_for_key, send_state_event},
+        state::{get_state_event_for_key, get_state_events, send_state_event},
         tag::{create_tag, delete_tag},
         threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
         typing::create_typing_event::{
@@ -1281,11 +1281,15 @@ impl Room {
         &self,
         event_type: StateEventType,
     ) -> Result<Vec<RawAnySyncOrStrippedState>> {
-        self.client
+        info!("Call get_state_events for {:?}", event_type);
+        let res = self
+            .client
             .state_store()
-            .get_state_events(self.room_id(), event_type)
+            .get_state_events(self.room_id(), event_type.clone())
             .await
-            .map_err(Into::into)
+            .map_err(Into::into);
+        info!("get_state_events for {:?} returned {:?}", event_type, res);
+        res
     }
 
     /// Get all state events of a given statically-known type in this room.
