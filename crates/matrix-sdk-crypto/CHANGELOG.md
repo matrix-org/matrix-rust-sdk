@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Implement streaming file attachment support via a new streaming API
+  (`file_encryption/stream_attachments.rs`), backed by the [STREAM
+  construction](https://eprint.iacr.org/2015/189.pdf). Gated behind
+  `stream-attachment-encryption` feature flag.
 - Add `Store::{store,clear}_room_pending_key_bundle`,
   `CryptoStore::get_pending_key_bundle_details_for_room` and
   `CryptoStore::get_all_rooms_pending_key_bundle`, which can be used by
@@ -15,10 +19,8 @@ All notable changes to this project will be documented in this file.
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) key
   bundle.
   ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)), ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233)),
-
 - Add MSC4388 support to the QrcodeData struct.
   ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
-
 - Improved logging when we are sending secrets in `GossipMachine`.
   ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
   ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))

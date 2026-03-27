@@ -85,6 +85,11 @@ pub use file_encryption::{
     AttachmentDecryptor, AttachmentEncryptor, DecryptorError, KeyExportError, MediaEncryptionInfo,
     decrypt_room_key_export, encrypt_room_key_export,
 };
+#[cfg(feature = "stream-attachment-encryption")]
+pub use file_encryption::{
+    StreamAttachmentDecryptor, StreamAttachmentEncryptor, StreamDecryptorError,
+    StreamMediaEncryptionInfo,
+};
 pub use gossiping::{GossipRequest, GossippedSecret};
 pub use identities::{
     Device, DeviceData, LocalTrust, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentity,

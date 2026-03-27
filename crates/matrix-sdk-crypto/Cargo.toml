@@ -29,6 +29,7 @@ experimental-encrypted-state-events = [
 js = ["ruma/js", "vodozemac/js", "matrix-sdk-common/js"]
 qrcode = ["dep:matrix-sdk-qrcode"]
 experimental-algorithms = []
+stream-attachment-encryption = ["dep:aead", "dep:chacha20poly1305"]
 uniffi = ["dep:uniffi"]
 _disable-minimum-rotation-period-ms = []
 
@@ -41,6 +42,7 @@ test-send-sync = []
 testing = ["matrix-sdk-test"]
 
 [dependencies]
+aead = { workspace = true, optional = true }
 aes = { version = "0.8.4", default-features = false }
 aquamarine.workspace = true
 as_variant.workspace = true
@@ -48,6 +50,7 @@ async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
 cfg-if.workspace = true
+chacha20poly1305 = { workspace = true, optional = true }
 ctr = { version = "0.9.2", default-features = false }
 eyeball.workspace = true
 futures-core.workspace = true
