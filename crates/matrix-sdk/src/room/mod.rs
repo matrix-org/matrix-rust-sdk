@@ -96,7 +96,7 @@ use ruma::{
         receipt::create_receipt,
         redact::redact_event,
         room::{get_room_event, report_content, report_room},
-        state::{get_state_event_for_key, send_state_event},
+        state::{get_state_event_for_key, get_state_events, send_state_event},
         tag::{create_tag, delete_tag},
         threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
         typing::create_typing_event::{
