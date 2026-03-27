@@ -2221,7 +2221,6 @@ mod encrypted_tests {
     use tokio::fs;
 
     use super::SqliteCryptoStore;
-
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use crate::utils::setup_db_fs;
 
