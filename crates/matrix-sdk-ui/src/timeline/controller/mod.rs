@@ -16,6 +16,7 @@ use std::{
     collections::BTreeSet,
     fmt,
     sync::{Arc, OnceLock},
+    time::Duration,
 };
 
 use as_variant::as_variant;
@@ -447,8 +448,29 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::PinnedEvents => {
-                let (initial_events, _update_receiver) =
+                let (initial_events, mut update_receiver) =
                     room_event_cache.subscribe_to_pinned_events().await?;
+
+                // The pinned events cache loads asynchronously in a background task.
+                // If the initial events are empty, wait briefly for the first update
+                // which indicates the background task has finished loading.
+                // Use a timeout to avoid hanging if there are truly no pinned events.
+                let initial_events = if initial_events.is_empty() {
+                    let mut events: Vector<_> = initial_events.into();
+                    if let Ok(Ok(diffs)) = matrix_sdk_common::timeout::timeout(
+                        update_receiver.recv(),
+                        Duration::from_secs(1),
+                    )
+                    .await
+                    {
+                        for diff in diffs.diffs {
+                            diff.apply(&mut events);
+                        }
+                    }
+                    events.into_iter().collect()
+                } else {
+                    initial_events
+                };
 
                 let has_events = !initial_events.is_empty();
 
