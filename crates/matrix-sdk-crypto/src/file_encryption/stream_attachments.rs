@@ -444,9 +444,8 @@ impl<R: Read> Read for StreamAttachmentDecryptor<'_, R> {
                             io::Error::other("STREAM decryptor already finalized")
                         })?;
 
-                        self.plaintext_buf = decryptor
-                            .decrypt_next(&self.segment_buf[..])
-                            .map_err(|_| {
+                        self.plaintext_buf =
+                            decryptor.decrypt_next(&self.segment_buf[..]).map_err(|_| {
                                 io::Error::other("STREAM decryption error: authentication failed")
                             })?;
                     }
@@ -673,9 +672,9 @@ mod tests {
 
     #[test]
     fn prefix_non_stability() {
-        // Encrypting a prefix of some data (e.g. data[..n], for some n) MUST NOT produce a prefix
-        // of encrypting data as a whole, because STREAM includes the "last segment" flag as part
-        // of the nonce. 
+        // Encrypting a prefix of some data (e.g. data[..n], for some n) MUST NOT
+        // produce a prefix of encrypting data as a whole, because STREAM
+        // includes the "last segment" flag as part of the nonce.
         let key = [0x42u8; KEY_SIZE];
         let nonce_prefix = [0x13u8; NONCE_PREFIX_SIZE];
 
