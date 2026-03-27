@@ -135,7 +135,7 @@ pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
             id: matrix_uri.id().into(),
             via: matrix_uri.via().iter().map(|via| via.to_string()).collect(),
             action: matrix_uri.action().map(ToString::to_string),
-            secret: matrix_uri._param("secret").map(ToString::to_string),
+            msk: matrix_uri._param("msk").map(ToString::to_string),
         });
     }
 
@@ -144,7 +144,7 @@ pub fn parse_matrix_entity_from(uri: String) -> Option<MatrixEntity> {
             id: matrix_to_uri.id().into(),
             via: matrix_to_uri.via().iter().map(|via| via.to_string()).collect(),
             action: None,
-            secret: None,
+            msk: None,
         });
     }
 
@@ -159,7 +159,7 @@ pub struct MatrixEntity {
     via: Vec<String>,
     action: Option<String>,
     /// If action=verify, this contains a secret that assists with verification
-    secret: Option<String>,
+    msk: Option<String>,
 }
 
 /// A Matrix ID that can be a room, room alias, user, or event.
