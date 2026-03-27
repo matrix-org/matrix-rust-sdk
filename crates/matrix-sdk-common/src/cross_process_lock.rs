@@ -62,6 +62,31 @@ use crate::{
 /// This is used to know if a lock has been dirtied.
 pub type CrossProcessLockGeneration = u64;
 
+/// A trait that represents any function which can be used to
+/// acquire the underlying lock of a [`CrossProcessLock`].
+///
+/// For example, this can be useful when writing a function which
+/// is parameterized to acquire the underlying lock through either
+/// [`CrossProcessLock::spin_lock`] or [`CrossProcessLock::try_lock_once`].
+pub trait AcquireCrossProcessLockFn<L>
+where
+    Self: AsyncFn(&CrossProcessLock<L>) -> AcquireCrossProcessLockResult<L::LockError>,
+    L: TryLock + Clone + SendOutsideWasm + 'static,
+{
+}
+
+impl<L, T> AcquireCrossProcessLockFn<L> for T
+where
+    T: AsyncFn(&CrossProcessLock<L>) -> AcquireCrossProcessLockResult<L::LockError>,
+    L: TryLock + Clone + SendOutsideWasm + 'static,
+{
+}
+
+/// A convenience type for the [`Result`] returned from calling
+/// or [`CrossProcessLock::try_lock_once`] or [`CrossProcessLock::spin_lock`].
+pub type AcquireCrossProcessLockResult<E> =
+    Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, E>;
+
 /// Trait used to try to take a lock. Foundation of [`CrossProcessLock`].
 pub trait TryLock {
     #[cfg(not(target_family = "wasm"))]
@@ -276,10 +301,8 @@ where
     ///
     /// The lock can be obtained but it can be dirty. In all cases, the renew
     /// task will run in the background.
-    #[instrument(skip(self), fields(?self.lock_key, ?self.config))]
-    pub async fn try_lock_once(
-        &self,
-    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
+    #[instrument(skip(self), fields(?self.lock_key, ?self.config, ?self.generation))]
+    pub async fn try_lock_once(&self) -> AcquireCrossProcessLockResult<L::LockError> {
         // If it's not `MultiProcess`, this behaves as a no-op
         let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {
             let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
@@ -447,7 +470,7 @@ where
     pub async fn spin_lock(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Result<CrossProcessLockState, CrossProcessLockUnobtained>, L::LockError> {
+    ) -> AcquireCrossProcessLockResult<L::LockError> {
         // If there is no holder, this behaves as a no-op
         let max_backoff = max_backoff.unwrap_or(MAX_BACKOFF_MS);
 
