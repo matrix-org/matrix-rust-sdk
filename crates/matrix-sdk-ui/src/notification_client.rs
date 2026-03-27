@@ -941,8 +941,10 @@ pub struct NotificationItem {
     /// Is the room a space?
     pub is_space: bool,
 
-    /// Is it a noisy notification? (i.e. does any push action contain a sound
-    /// action)
+    /// Is it a noisy notification?
+    ///
+    /// Notifications are considered noisy when their push actions notify. If a
+    /// sound tweak is present, it is treated as noisy as well.
     ///
     /// It is set if and only if the push actions could be determined.
     pub is_noisy: Option<bool>,
@@ -1019,7 +1021,12 @@ impl NotificationItem {
             }
         }
 
-        let is_noisy = push_actions.map(|actions| actions.iter().any(|a| a.sound().is_some()));
+        // Treat notify actions as noisy by default, even when servers don't
+        // include an explicit sound tweak in the matching rule.
+        let is_noisy = push_actions.map(|actions| {
+            actions.iter().any(Action::should_notify)
+                || actions.iter().any(|action| action.sound().is_some())
+        });
         let has_mention = push_actions.map(|actions| actions.iter().any(|a| a.is_highlight()));
         let thread_id = event.thread_id().clone();
 

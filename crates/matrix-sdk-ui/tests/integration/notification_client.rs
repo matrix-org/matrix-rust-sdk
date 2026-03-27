@@ -524,7 +524,7 @@ async fn test_notification_client_sliding_sync() {
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
-    assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.is_noisy, Some(true));
 }
 
 #[async_test]
@@ -669,7 +669,7 @@ async fn test_notification_client_sliding_sync_invites() {
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
-    assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.is_noisy, Some(true));
 }
 
 #[async_test]
@@ -813,7 +813,7 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
-    assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.is_noisy, Some(true));
 }
 
 #[async_test]
@@ -1008,7 +1008,7 @@ async fn test_notification_client_mixed() {
     assert_eq!(item.sender_display_name.as_deref(), Some(sender_display_name));
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
-    assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.is_noisy, Some(true));
 }
 
 #[async_test]
