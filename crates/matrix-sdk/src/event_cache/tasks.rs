@@ -13,22 +13,23 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{Arc, Weak},
 };
 
 use eyeball::Subscriber;
 use matrix_sdk_base::{
-    linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
-    sync::RoomUpdates,
+    RoomState, linked_chunk::OwnedLinkedChunkId, locks::Mutex,
+    serde_helpers::extract_thread_root_from_content, sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId};
+use ruma::{OwnedEventId, OwnedRoomId, OwnedTransactionId};
 use tokio::{
     select,
     sync::{
         broadcast::{Receiver, Sender, error::RecvError},
         mpsc,
     },
+    task::JoinSet,
 };
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
@@ -83,6 +84,321 @@ pub(super) async fn room_updates_task(
                 // The sender has shut down, exit.
                 info!("Closing the event cache global listen task because receiver closed");
                 break;
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum BackgroundRequest {
+    PaginateRoomBackwards { room_id: OwnedRoomId },
+    PaginateRoomUntilStart { room_id: OwnedRoomId },
+}
+
+/// Listen to background requests, and dispatch them to worker tasks.
+///
+/// Instead of processing pagination requests one at a time, this task acts as a
+/// dispatcher: it receives requests from an mpsc channel and spawns them onto a
+/// bounded pool of worker tasks. This allows paginations for different rooms to
+/// run concurrently, while the dispatcher itself remains mostly idle.
+///
+/// Concurrency is bounded by
+/// [`EventCacheConfig::max_concurrent_background_paginations`]. Paginations for
+/// the *same* room are serialized by the dispatcher: when a request arrives for
+/// a room that already has an in-flight worker, it is queued and re-dispatched
+/// once the current worker completes. This avoids coalescing with a potentially
+/// failing in-flight pagination, ensuring retries get their own network
+/// request.
+///
+/// [`EventCacheConfig`]: super::EventCacheConfig
+#[instrument(skip_all)]
+pub(super) async fn background_requests_task(
+    inner: Arc<EventCacheInner>,
+    mut receiver: mpsc::UnboundedReceiver<BackgroundRequest>,
+) {
+    trace!("Spawning the background request task");
+
+    let max_concurrent_workers = inner.config.read().unwrap().max_concurrent_background_paginations;
+
+    let mut room_pagination_credits = HashMap::new();
+    let mut pending_paginate_until_start_rooms: HashSet<OwnedRoomId> = HashSet::new();
+    let mut join_set = JoinSet::new();
+
+    let in_flight_rooms = Arc::new(Mutex::new(HashSet::new()));
+
+    loop {
+        // Back-pressure: if at capacity, wait for a worker to finish.
+        while join_set.len() >= max_concurrent_workers {
+            if let Some(join_result) = join_set.join_next().await {
+                process_worker_result(inner.clone(), join_result, &mut room_pagination_credits);
+            }
+        }
+
+        if let Some(room_id) = pending_paginate_until_start_rooms.iter().next() {
+            trace!(for_room = %room_id, "re-dispatching pending paginate until start request");
+
+            // Remove the room from the pending set, and re-dispatch a request for it.
+            let room_id = room_id.to_owned();
+            pending_paginate_until_start_rooms.remove(&room_id);
+
+            let until_start = true;
+
+            start_room_pagination(
+                inner.clone(),
+                room_id,
+                until_start,
+                in_flight_rooms.clone(),
+                &mut join_set,
+                &mut pending_paginate_until_start_rooms,
+            );
+
+            continue;
+        }
+
+        select! {
+            // Prefer cleaning up completed workers when available.
+            biased;
+
+            Some(join_result) = join_set.join_next(), if !join_set.is_empty() => {
+                process_worker_result(inner.clone(), join_result, &mut room_pagination_credits);
+            }
+
+            request = receiver.recv() => {
+                let Some(request) = request else {
+                    break;
+                };
+
+                let (room_id, until_start) = match request {
+                    BackgroundRequest::PaginateRoomBackwards { room_id } => {
+                        trace!(for_room = %room_id, "running single pagination");
+
+                        // Check credits before spawning.
+                        let credits = room_pagination_credits
+                            .entry(room_id.clone())
+                            .or_insert_with(|| inner.config.read().unwrap().room_pagination_per_room_credit);
+
+                        if *credits == 0 {
+                            trace!(for_room = %room_id, "No more credits to paginate this room, skipping");
+                            continue;
+                        }
+
+                        (room_id, false)
+                    }
+
+                    BackgroundRequest::PaginateRoomUntilStart { room_id } => {
+                        (room_id, true)
+                    }
+                };
+
+                start_room_pagination(inner.clone(), room_id, until_start, in_flight_rooms.clone(), &mut join_set, &mut pending_paginate_until_start_rooms);
+            }
+        }
+    }
+
+    // Shut down all the worker tasks, if any are still running.
+    join_set.abort_all();
+
+    info!("Closing the background request task because receiver closed");
+}
+
+fn start_room_pagination(
+    inner: Arc<EventCacheInner>,
+    room_id: OwnedRoomId,
+    until_start: bool,
+    in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
+    join_set: &mut JoinSet<BackgroundPaginationResult>,
+    pending_paginate_until_start_rooms: &mut HashSet<OwnedRoomId>,
+) {
+    let Some(room) = inner.client.get().and_then(|client| client.get_room(&room_id)) else {
+        return;
+    };
+
+    // Check that the room is in the joined state, otherwise it doesn't make sense
+    // to automatically paginate it.
+    if room.state() != RoomState::Joined {
+        trace!(for_room = %room_id, "Not joined to the room anymore, skipping pagination");
+        return;
+    }
+
+    // Check that we're not already paginating.
+    if !in_flight_rooms.lock().insert(room_id.clone()) {
+        trace!(for_room = %room_id, "Pagination already in-flight, skipping");
+        if until_start {
+            // If the request is to paginate until the start, we need to make sure that
+            // another request gets triggered once the current pagination finishes, to
+            // continue paginating until the start.
+            pending_paginate_until_start_rooms.insert(room_id.clone());
+        }
+        return;
+    }
+
+    trace!(for_room = %room_id, "running pagination until start");
+
+    // Spawn the pagination work onto a worker task.
+    join_set.spawn(run_background_pagination(
+        inner.clone(),
+        room_id,
+        in_flight_rooms.clone(),
+        until_start,
+    ));
+}
+
+/// Process the result of a completed worker task.
+///
+/// This handles credit bookkeeping, removes the room from the in-flight set,
+/// and re-dispatches any pending request for the same room.
+fn process_worker_result(
+    inner: Arc<EventCacheInner>,
+    result: Result<BackgroundPaginationResult, tokio::task::JoinError>,
+    room_pagination_credits: &mut HashMap<OwnedRoomId, usize>,
+) {
+    let worker_result = match result {
+        Ok(r) => r,
+        Err(err) => {
+            warn!("Background pagination worker panicked: {err}");
+            return;
+        }
+    };
+
+    // Update credits based on the pagination outcome.
+    if worker_result.should_decrement_credit
+        && let Some(credit) = room_pagination_credits.get_mut(&worker_result.room_id)
+    {
+        *credit = credit.saturating_sub(1);
+    }
+
+    if worker_result.reached_start {
+        // Try to shrink the linked chunk, as we might have loaded lots of events in
+        // memory.
+        trace!(for_room = %worker_result.room_id, "hit the start of the room, trying to auto-shrink the linked chunk");
+        if let Some(sender) = inner.auto_shrink_sender.get() {
+            if sender.try_send(worker_result.room_id.clone()).is_err() {
+                warn!(for_room = %worker_result.room_id, "Failed to send auto-shrink request");
+            }
+        } else {
+            warn!(for_room = %worker_result.room_id, "Auto-shrink channel not available");
+        }
+        return;
+    }
+
+    if worker_result.until_start {
+        // Enqueue a new request in the background request channel.
+        let request =
+            BackgroundRequest::PaginateRoomUntilStart { room_id: worker_result.room_id.clone() };
+        if inner.background_requests_sender.get().unwrap().send(request).is_err() {
+            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request");
+        }
+        return;
+    }
+
+    if worker_result.retry {
+        // Enqueue a new request in the background request channel.
+        let request =
+            BackgroundRequest::PaginateRoomBackwards { room_id: worker_result.room_id.clone() };
+        if inner.background_requests_sender.get().unwrap().send(request).is_err() {
+            warn!(for_room = %worker_result.room_id, "Failed to re-dispatch background pagination request");
+        }
+    }
+}
+
+/// The result returned by a background pagination worker.
+struct BackgroundPaginationResult {
+    /// The room that was paginated.
+    room_id: OwnedRoomId,
+    /// Whether the dispatcher should decrement a credit for this room.
+    should_decrement_credit: bool,
+    /// Whether the pagination ended in an error, and should be retried later.
+    retry: bool,
+    /// Whether the pagination must paginate until the start of the room.
+    until_start: bool,
+
+    reached_start: bool,
+}
+
+/// Run a single background pagination for a room.
+///
+/// This is spawned as an independent task by [`background_requests_task`].
+/// It returns a [`BackgroundPaginationResult`] so the dispatcher can handle
+/// credit bookkeeping and per-room re-dispatch.
+///
+/// It is expected that the room id is already in the in_flight_rooms set at the
+/// beginning of this function call.
+async fn run_background_pagination(
+    inner: Arc<EventCacheInner>,
+    room_id: OwnedRoomId,
+    in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
+    until_start: bool,
+) -> BackgroundPaginationResult {
+    debug_assert!(
+        { in_flight_rooms.lock().contains(&room_id) },
+        "API contract not respected by the caller: room_id should be in in_flight_rooms at the beginning of run_background_pagination"
+    );
+
+    /// RAII to remove the room from the in-flight set when the worker finishes,
+    /// even if it panics.
+    struct RemoveInFlightGuard {
+        room_id: OwnedRoomId,
+        in_flight_rooms: Arc<Mutex<HashSet<OwnedRoomId>>>,
+    }
+
+    impl Drop for RemoveInFlightGuard {
+        fn drop(&mut self) {
+            self.in_flight_rooms.lock().remove(&self.room_id);
+        }
+    }
+
+    let _guard = RemoveInFlightGuard { room_id: room_id.clone(), in_flight_rooms };
+
+    let pagination = match inner.all_caches_for_room(&room_id).await {
+        Ok(caches) => caches.room.pagination(),
+        Err(err) => {
+            warn!(for_room = %room_id, "Failed to get the `Caches`: {err}");
+            return BackgroundPaginationResult {
+                room_id,
+                should_decrement_credit: false,
+                // No need to retry, it's unlikely to work later.
+                // TODO: finer error handling
+                retry: false,
+                until_start: false,
+                reached_start: false,
+            };
+        }
+    };
+
+    trace!(for_room = %room_id, "automatic backpagination triggered");
+
+    let room_pagination_batch_size = inner.config.read().unwrap().room_pagination_batch_size;
+
+    match pagination.run_backwards_until(room_pagination_batch_size).await {
+        Ok(outcome) => {
+            trace!(for_room = %room_id, "pagination completed: reached_start={}, events_fetched={}", outcome.reached_start, outcome.events.len());
+
+            // Only decrement the credit if we did meaningful progress (i.e. reached the
+            // start or there was new events).
+            let should_decrement_credit =
+                !until_start && (!outcome.reached_start || !outcome.events.is_empty());
+
+            // Make sure that we don't iloop despite the start has been reached.
+            let until_start = until_start && !outcome.reached_start;
+
+            BackgroundPaginationResult {
+                room_id,
+                should_decrement_credit,
+                retry: false,
+                until_start,
+                reached_start: outcome.reached_start,
+            }
+        }
+
+        Err(err) => {
+            warn!(for_room = %room_id, "Failed to run background pagination: {err}");
+
+            BackgroundPaginationResult {
+                room_id,
+                should_decrement_credit: false,
+                retry: true,
+                until_start,
+                reached_start: false,
             }
         }
     }
@@ -467,6 +783,34 @@ pub(super) async fn search_indexing_task(
 ) {
     let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
 
+    // Send a background pagination request for all the known rooms!
+    let mut known_rooms = {
+        let client = client.get().expect("unable to promote client at start");
+        let ec = &client.event_cache().inner;
+
+        // lol @ spin loop
+        while ec.background_requests_sender.get().is_none() {}
+
+        let mut known_rooms = HashSet::new();
+
+        let bg_request_sender = ec
+            .background_requests_sender
+            .get()
+            .expect("background request sender has disappeared at start")
+            .clone();
+        for room in client.rooms() {
+            if room.state() == RoomState::Joined {
+                let _ = bg_request_sender.send(BackgroundRequest::PaginateRoomUntilStart {
+                    room_id: room.room_id().to_owned(),
+                });
+
+                known_rooms.insert(room.room_id().to_owned());
+            }
+        }
+
+        known_rooms
+    };
+
     loop {
         match linked_chunk_update_receiver.recv().await {
             Ok(room_ec_lc_update) => {
@@ -476,6 +820,26 @@ pub(super) async fn search_indexing_task(
                     continue;
                 };
 
+                if !known_rooms.contains(&room_id) &&
+                    // New room! Send a request to automatically back-paginate this room over time.
+                    let Some(client) = client.get()
+                {
+                    if let Some(sender) =
+                        client.event_cache().inner.background_requests_sender.get()
+                    {
+                        if sender
+                            .send(BackgroundRequest::PaginateRoomUntilStart {
+                                room_id: room_id.clone(),
+                            })
+                            .is_err()
+                        {
+                            warn!(for_room = %room_id, "Failed to send background pagination request");
+                        } else {
+                            known_rooms.insert(room_id.clone());
+                        }
+                    }
+                }
+
                 let mut timeline_events = room_ec_lc_update.events().peekable();
 
                 if timeline_events.peek().is_none() {
@@ -483,7 +847,7 @@ pub(super) async fn search_indexing_task(
                 }
 
                 let Some(client) = client.get() else {
-                    trace!("Client is shutting down, not spawning thread subscriber task");
+                    trace!("Client is shutting down, exiting search task");
                     return;
                 };
 
@@ -524,5 +888,194 @@ pub(super) async fn search_indexing_task(
                 warn!(num_skipped, "Lagged behind linked chunk updates");
             }
         }
+    }
+}
+
+// MatrixMockServer et al. aren't available on wasm.
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use std::time::Duration;
+
+    use matrix_sdk_base::sleep::sleep;
+    use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
+    use ruma::{event_id, room_id};
+    use tokio::sync::mpsc;
+
+    use crate::{
+        assert_let_timeout,
+        event_cache::{
+            EventsOrigin, RoomEventCacheUpdate, tasks::BackgroundRequest::PaginateRoomBackwards,
+        },
+        test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
+    };
+
+    impl super::super::EventCache {
+        fn background_requests_sender(
+            &self,
+        ) -> Option<mpsc::UnboundedSender<super::BackgroundRequest>> {
+            self.inner.background_requests_sender.get().cloned()
+        }
+    }
+
+    /// Test that we can send background requests and trigger room paginations.
+    #[async_test]
+    async fn test_background_room_paginations() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.config_mut().experimental_auto_backpagination = true;
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Starting with an empty, inactive room,
+        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert!(room_events.is_empty());
+        assert!(room_cache_updates.is_empty());
+
+        // Set up the mock for /messages,
+        server
+            .mock_room_messages()
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Send a request for a background pagination,
+        let sender = event_cache.background_requests_sender().unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
+
+        // The room pagination happens in the background.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+        );
+        assert_eq!(update.diffs.len(), 1);
+
+        assert_eq!(update.origin, EventsOrigin::Pagination);
+
+        let mut room_events = room_events.into();
+        for diff in update.diffs {
+            diff.apply(&mut room_events);
+        }
+
+        assert_eq!(room_events.len(), 2);
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
+        assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+
+        // And there's no more updates.
+        assert!(room_cache_updates.is_empty());
+    }
+
+    /// Test that the credit system works.
+    #[async_test]
+    async fn test_room_pagination_respects_credits_system() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.config_mut().experimental_auto_backpagination = true;
+
+        // Only allow 1 background pagination per room, to test that the credit system
+        // is properly taken into account.
+        event_cache.config_mut().room_pagination_per_room_credit = 1;
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Starting with an empty, inactive room,
+        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert!(room_events.is_empty());
+        assert!(room_cache_updates.is_empty());
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = room_cache_updates.recv()
+        );
+
+        // Set up the mock for /messages, so that it returns another prev-batch token,
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default()
+                .events(vec![
+                    f.text_msg("comté").event_id(event_id!("$2")),
+                    f.text_msg("beaufort").event_id(event_id!("$1")),
+                ])
+                .end_token("prev_batch_2"))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Send a request for a background pagination,
+        let sender = event_cache.background_requests_sender().unwrap();
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
+
+        // The room pagination happens in the background.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+        );
+        assert_eq!(update.diffs.len(), 1);
+
+        assert_eq!(update.origin, EventsOrigin::Pagination);
+
+        let mut room_events = room_events.into();
+        for diff in update.diffs {
+            diff.apply(&mut room_events);
+        }
+
+        assert_eq!(room_events.len(), 2);
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
+        assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+
+        // And there's no more updates yet.
+        assert!(room_cache_updates.is_empty());
+
+        // One can send another request to back-paginate…
+        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
+
+        sleep(Duration::from_millis(300)).await;
+        // But it doesn't happen, because we don't have enough credits for automatic
+        // backpagination.
+        assert!(room_cache_updates.is_empty());
+
+        // We can still manually backpaginate with success, though.
+        server
+            .mock_room_messages()
+            .match_from("prev_batch_2")
+            .ok(RoomMessagesResponseTemplate::default())
+            .mock_once()
+            .mount()
+            .await;
+
+        let outcome = room_event_cache.pagination().run_backwards_once(30).await.unwrap();
+        assert!(outcome.reached_start);
     }
 }

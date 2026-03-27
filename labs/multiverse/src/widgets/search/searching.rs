@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     ruma::{
-        OwnedUserId,
+        OwnedRoomId, OwnedUserId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent,
             room::message::{MessageType, SyncRoomMessageEvent},
@@ -30,16 +30,18 @@ const MESSAGE_PADDING_BOTTOM: u16 = 0;
 #[derive(Default)]
 pub struct SearchingView {
     input: PopupInput,
-    results: Option<Vec<(OwnedUserId, String, String)>>,
+    results: Option<Vec<(Option<OwnedRoomId>, OwnedUserId, String, String)>>,
     pub(crate) list_state: ListState,
 }
 
 impl SearchingView {
-    pub fn new() -> Self {
+    pub fn new(is_global: bool) -> Self {
         let border_set = Set { bottom_left: "╟", bottom_right: "╢", ..symbols::border::PLAIN };
 
+        let title = if is_global { "Search across all rooms:" } else { "Search in room:" };
+
         Self {
-            input: PopupInputBuilder::new("", "(Enter search query)")
+            input: PopupInputBuilder::new(title, "(Enter search query)")
                 .height_constraint(Constraint::Percentage(100))
                 .width_constraint(Constraint::Percentage(100))
                 .border_set(border_set)
@@ -51,9 +53,16 @@ impl SearchingView {
         }
     }
 
-    pub fn results(&mut self, values: Vec<TimelineEvent>) {
-        let values: Vec<(OwnedUserId, String, String)> =
-            values.iter().filter_map(get_message_from_timeline_event).collect();
+    pub fn set_results(&mut self, values: Vec<(Option<OwnedRoomId>, Vec<TimelineEvent>)>) {
+        let values: Vec<(Option<OwnedRoomId>, OwnedUserId, String, String)> = values
+            .iter()
+            .flat_map(|(room_id, events)| {
+                events.into_iter().filter_map(|ev| {
+                    let (user_id, time, body) = get_message_from_timeline_event(ev)?;
+                    Some((room_id.clone(), user_id, time, body))
+                })
+            })
+            .collect();
 
         self.results = Some(values);
     }
@@ -65,6 +74,7 @@ impl SearchingView {
 
     pub fn handle_key_press(&mut self, key: KeyEvent) {
         self.input.handle_key_press(key);
+        self.results = None;
     }
 }
 
@@ -84,17 +94,25 @@ impl Widget for &mut SearchingView {
         let [search_area, results_area] =
             Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(inner_area);
 
-        let messages = if let Some(results) = &self.results
-            && !results.is_empty()
-        {
-            results
-                .iter()
-                .map(|(sender, time, message)| {
-                    MessageWidget::new(sender.to_string(), time.clone(), message.clone())
-                })
-                .collect()
+        let messages = if let Some(results) = &self.results {
+            if results.is_empty() {
+                vec![MessageWidget::new("", "", "No results found!")]
+            } else {
+                results
+                    .iter()
+                    .map(|(room_id, sender, time, message)| {
+                        let title = if let Some(room_id) = room_id {
+                            format!("{} - {}", room_id, sender)
+                        } else {
+                            sender.to_string()
+                        };
+
+                        MessageWidget::new(title, time.clone(), message.clone())
+                    })
+                    .collect()
+            }
         } else {
-            vec![MessageWidget::new("", "", "No results found!")]
+            Vec::new()
         };
 
         let count = messages.len();
@@ -109,15 +127,13 @@ impl Widget for &mut SearchingView {
                     .len()
                     + 3;
 
-            if context.index % 2 == 0 {
-                message_widget.style = Style::default().fg(TEXT_COLOR).bg(ALT_ROW_COLOR);
+            message_widget.style = if context.is_selected {
+                Style::default().bg(NORMAL_ROW_COLOR).fg(SELECTED_STYLE_FG)
+            } else if context.index % 2 == 0 {
+                Style::default().fg(TEXT_COLOR).bg(ALT_ROW_COLOR)
             } else {
-                message_widget.style = Style::default().fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR);
-            }
-
-            if context.is_selected {
-                message_widget.style = Style::default().bg(NORMAL_ROW_COLOR).fg(SELECTED_STYLE_FG);
-            }
+                Style::default().fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR)
+            };
 
             (message_widget, main_axis_size as u16)
         });
@@ -137,13 +153,13 @@ impl Widget for &mut SearchingView {
 
 fn get_message_from_timeline_event(ev: &TimelineEvent) -> Option<(OwnedUserId, String, String)> {
     if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
-        SyncRoomMessageEvent::Original(ev),
+        SyncRoomMessageEvent::Original(msg_ev),
     ))) = ev.raw().deserialize()
-        && let MessageType::Text(content) = &ev.content.msgtype
+        && let MessageType::Text(content) = &msg_ev.content.msgtype
     {
-        let time = format!("{:?}", ev.origin_server_ts);
+        let time = format!("{:?}", ev.timestamp().unwrap());
 
-        return Some((ev.sender.to_owned(), time, content.body.clone()));
+        return Some((msg_ev.sender.to_owned(), time, content.body.clone()));
     }
     None
 }

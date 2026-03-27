@@ -21,8 +21,8 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
 };
 use tantivy::{
-    Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
-    query::QueryParser, schema::Value,
+    Index, IndexReader, Order, TantivyDocument, collector::TopDocs,
+    directory::error::OpenDirectoryError, query::QueryParser, schema::Value,
 };
 use tracing::{debug, error, warn};
 
@@ -125,8 +125,9 @@ impl RoomIndex {
     }
 
     /// Search the [`RoomIndex`] for some query. Returns a list of
-    /// results with a maximum given length. If `pagination_offset` is
-    /// set then the results will start there, i.e.
+    /// results ordered by event timestamp (most recent first), with a
+    /// maximum given length. If `pagination_offset` is set then the
+    /// results will start there, i.e.
     ///
     /// if `max_number_of_results = 3` and `pagination_offset = 10`
     /// (and there are a surplus of results)
@@ -142,12 +143,17 @@ impl RoomIndex {
 
         let offset = pagination_offset.unwrap_or(0);
 
-        let results = searcher
-            .search(&query, &TopDocs::with_limit(max_number_of_results).and_offset(offset))?;
+        let date_field_name = self.schema.get_field_name(self.schema.date_key());
+        let results = searcher.search(
+            &query,
+            &TopDocs::with_limit(max_number_of_results)
+                .and_offset(offset)
+                .order_by_fast_field::<tantivy::DateTime>(date_field_name, Order::Desc),
+        )?;
         let mut ret: Vec<OwnedEventId> = Vec::new();
         let pk = self.schema.primary_key();
 
-        for (_score, doc_address) in results {
+        for (_timestamp, doc_address) in results {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
             match retrieved_doc.get_first(pk).and_then(|maybe_value| maybe_value.as_str()) {
                 Some(value) => match OwnedEventId::try_from(value) {
@@ -559,6 +565,49 @@ mod tests {
 
         assert!(!index.contains(old_event_id), "Index should not contain old event");
         assert!(index.contains(new_event_id), "Index should contain edited event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_search_results_ordered_by_timestamp_descending() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+
+        let event_id_old = event_id!("$old:localhost");
+        let event_id_mid = event_id!("$mid:localhost");
+        let event_id_new = event_id!("$new:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id);
+
+        // Index three events with distinct timestamps sharing the word
+        // "hello", inserted in a scrambled order.
+        f.set_next_ts(1000);
+        index_message(
+            &mut index,
+            f.text_msg("hello old").event_id(event_id_old).into_any_sync_message_like_event(),
+        )?;
+
+        f.set_next_ts(3000);
+        index_message(
+            &mut index,
+            f.text_msg("hello new").event_id(event_id_new).into_any_sync_message_like_event(),
+        )?;
+
+        f.set_next_ts(2000);
+        index_message(
+            &mut index,
+            f.text_msg("hello mid").event_id(event_id_mid).into_any_sync_message_like_event(),
+        )?;
+
+        let result = index.search("hello", 10, None)?;
+
+        assert_eq!(result.len(), 3, "expected 3 results, got {result:?}");
+        assert_eq!(
+            result,
+            vec![event_id_new.to_owned(), event_id_mid.to_owned(), event_id_old.to_owned()],
+            "results should be ordered most-recent first"
+        );
 
         Ok(())
     }

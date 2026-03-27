@@ -20,35 +20,27 @@ use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
-    AuthSession, Client, Room, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
     ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
-    deserialized_responses::TimelineEvent,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{
-        OwnedEventId, OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
-    },
-    search_index::{SearchIndexGuard, SearchIndexStoreKind},
+    ruma::{OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest},
+    search_index::SearchIndexStoreKind,
 };
-use matrix_sdk_base::{RoomStateFilter, event_cache::store::EventCacheStoreLockGuard};
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, locks::Mutex};
 use matrix_sdk_ui::{
     Timeline as SdkTimeline,
-    room_list_service::{self, State, filters::new_filter_non_left},
+    room_list_service::{self, filters::new_filter_non_left},
+    search::{GlobalSearch, RoomSearch},
     sync_service::SyncService,
     timeline::{RoomExt as _, TimelineFocus, TimelineItem},
 };
 use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
 use throbber_widgets_tui::{Throbber, ThrobberState};
-use tokio::{
-    spawn,
-    sync::mpsc::{Receiver, Sender, channel, error::TryRecvError},
-    task::JoinHandle,
-    time::timeout,
-};
-use tracing::{debug, error, warn};
+use tokio::{spawn, task::JoinHandle};
+use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 use widgets::{
     recovery::create_centered_throbber_area, room_view::RoomView, settings::SettingsView,
@@ -58,10 +50,7 @@ use crate::widgets::{
     create_room::CreateRoomView,
     help::HelpView,
     room_list::{ExtraRoomInfo, RoomInfos, RoomList, Rooms},
-    search::{
-        indexing::{IndexingMessage, IndexingView},
-        searching::SearchingView,
-    },
+    search::searching::SearchingView,
     status::Status,
 };
 
@@ -110,9 +99,7 @@ pub enum GlobalMode {
     /// Mode where we have opened the create room screen
     CreateRoom { view: CreateRoomView },
     /// Mode where we have opened the search screen
-    Searching { view: SearchingView },
-    /// Mode where we have opened the indexing screen
-    Indexing { view: IndexingView },
+    Searching { view: SearchingView, is_global: bool },
 }
 
 /// Helper function to create a centered rect using up certain percentage of the
@@ -153,6 +140,12 @@ async fn main() -> Result<()> {
     });
 
     let event_cache = client.event_cache();
+    {
+        let mut config = event_cache.config_mut();
+        config.experimental_auto_backpagination = true;
+        config.room_pagination_batch_size = 100;
+        config.max_concurrent_background_paginations = 16;
+    }
     event_cache.subscribe()?;
 
     let terminal = ratatui::init();
@@ -198,12 +191,6 @@ struct App {
     /// Task listening to room list service changes, and spawning timelines.
     listen_task: JoinHandle<()>,
 
-    /// Task that is indexing events for search.
-    indexing_task: JoinHandle<()>,
-
-    /// Receiver that notifies when indexing is complete.
-    indexing_receiver: Receiver<(bool, IndexingMessage)>,
-
     /// The status widget at the bottom of the screen.
     status: Status,
 
@@ -243,12 +230,6 @@ impl App {
 
         let room_view = RoomView::new(client.clone(), timelines.clone(), status.handle());
 
-        let (indexing_sender, indexing_receiver) = channel::<(bool, IndexingMessage)>(1024);
-        let indexing_task =
-            spawn(App::indexing_task(client.clone(), indexing_sender, sync_service.clone()));
-
-        let indexing_view = IndexingView::new();
-
         Ok(Self {
             sync_service,
             timelines,
@@ -256,13 +237,8 @@ impl App {
             room_view,
             client,
             listen_task,
-            indexing_task,
-            indexing_receiver,
             status,
-            state: AppState {
-                global_mode: GlobalMode::Indexing { view: indexing_view },
-                ..Default::default()
-            },
+            state: AppState::default(),
             last_tick: Instant::now(),
         })
     }
@@ -362,208 +338,6 @@ impl App {
         }
     }
 
-    async fn wait_for_room_sync(
-        update_sender: &Sender<(bool, IndexingMessage)>,
-        sync_service: Arc<SyncService>,
-    ) {
-        let mut sync_subscriber = sync_service.room_list_service().state();
-
-        // Spin until there are rooms to index
-        while let Some(state) = sync_subscriber.next().await {
-            match state {
-                State::Running => return,
-                State::Terminated { from: _prev } => {
-                    while let Err(e) =
-                        update_sender.send((true, IndexingMessage::Progress(0))).await
-                    {
-                        debug!("Failed to send final message, trying again: {e:?}");
-                    }
-                    return;
-                }
-                _ => {
-                    debug!("Sync service not running. Waiting to start indexing. {state:?}");
-                }
-            }
-        }
-    }
-
-    async fn index_event_cache(
-        client: &Client,
-        update_sender: &Sender<(bool, IndexingMessage)>,
-        store: &EventCacheStoreLockGuard,
-        search_index_guard: &mut SearchIndexGuard<'_>,
-        mut count: usize,
-    ) -> Result<usize, ()> {
-        for room in client.rooms_filtered(RoomStateFilter::JOINED.union(RoomStateFilter::LEFT)) {
-            let room_id = room.room_id();
-
-            let maybe_room_cache = room.event_cache().await;
-            let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
-                warn!("Failed to get RoomEventCache: {maybe_room_cache:?}");
-                continue;
-            };
-
-            let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
-
-            let maybe_timeline_events = store.get_room_events(room_id, None, None).await;
-            let Ok(timeline_events) = maybe_timeline_events else {
-                warn!("Failed to get room's events: {maybe_timeline_events:?}");
-                continue;
-            };
-
-            let no_of_events = timeline_events.len();
-
-            if let Err(err) = search_index_guard
-                .bulk_handle_timeline_event(
-                    timeline_events.clone().into_iter(),
-                    &room_cache,
-                    room_id,
-                    &redaction_rules,
-                )
-                .await
-            {
-                error!("Failed to handle event for indexing: {err}");
-                let mut error = Some(err);
-                while let Some(err) = error.take() {
-                    if let Err(e) =
-                        update_sender.send((true, IndexingMessage::Error(err.to_string()))).await
-                    {
-                        debug!("Failed to send final error message, trying again: {e:?}");
-                    }
-                }
-                return Err(());
-            }
-
-            count += no_of_events;
-            let _ = update_sender.send((false, IndexingMessage::Progress(count))).await;
-        }
-        Ok(count)
-    }
-
-    async fn index_from_server(
-        client: &Client,
-        update_sender: &Sender<(bool, IndexingMessage)>,
-        search_index_guard: &mut SearchIndexGuard<'_>,
-        mut count: usize,
-    ) -> Result<usize, ()> {
-        let batch_size = 25;
-
-        let mut rooms = client.rooms_filtered(RoomStateFilter::JOINED);
-        let mut idx = 0;
-
-        while !rooms.is_empty() {
-            let room = &rooms[idx];
-
-            let room_id = room.room_id();
-
-            let maybe_room_cache = room.event_cache().await;
-            let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
-                warn!("Failed to get RoomEventCache: {maybe_room_cache:?}");
-                idx = (idx + 1) % rooms.len();
-                continue;
-            };
-
-            let redaction_rules = room.clone_info().room_version_rules_or_default().redaction;
-
-            let Ok(pagination) = room_cache.pagination().run_backwards_until(batch_size).await
-            else {
-                error!("Failed to backpaginate {room_id}");
-                idx = (idx + 1) % rooms.len();
-                continue;
-            };
-
-            let no_of_events = pagination.events.len();
-
-            if let Err(err) = search_index_guard
-                .bulk_handle_timeline_event(
-                    pagination.events.clone().into_iter(),
-                    &room_cache,
-                    room_id,
-                    &redaction_rules,
-                )
-                .await
-            {
-                warn!("Failed to handle event for indexing: {err}");
-                let mut error = Some(err);
-                while let Some(err) = error.take() {
-                    if let Err(e) =
-                        update_sender.send((true, IndexingMessage::Error(err.to_string()))).await
-                    {
-                        debug!("Failed to send final error message, trying again: {e:?}");
-                    }
-                }
-                return Err(());
-            }
-
-            count += no_of_events;
-            let _ = update_sender.send((false, IndexingMessage::Progress(count))).await;
-
-            if pagination.reached_start {
-                rooms.remove(idx);
-                let len = rooms.len();
-                if len > 0 {
-                    idx %= len;
-                }
-            } else {
-                idx = (idx + 1) % rooms.len();
-            }
-        }
-        Ok(count)
-    }
-
-    /// The sender sends (progress, done?, error?).
-    async fn indexing_task(
-        client: Client,
-        update_sender: Sender<(bool, IndexingMessage)>,
-        sync_service: Arc<SyncService>,
-    ) {
-        if timeout(Duration::from_secs(30), App::wait_for_room_sync(&update_sender, sync_service))
-            .await
-            .is_err()
-        {
-            debug!("Waiting for sync to run timed out. Quitting indexing task.");
-            return;
-        }
-
-        let Ok(store) = client.event_cache_store().lock().await else {
-            error!("Failed to get EventCacheStore");
-            return;
-        };
-
-        let mut search_index_guard = client.search_index().lock().await;
-        let count = 0;
-
-        debug!("Start indexing from the event cache.");
-
-        // First index everything in the cache
-        let Ok(count) = App::index_event_cache(
-            &client,
-            &update_sender,
-            store.as_clean().expect("Only one process should access the event cache store"),
-            &mut search_index_guard,
-            count,
-        )
-        .await
-        else {
-            debug!("Quitting index task.");
-            return;
-        };
-
-        // Now index from the server
-        debug!("Start indexing from the server.");
-
-        let Ok(count) =
-            App::index_from_server(&client, &update_sender, &mut search_index_guard, count).await
-        else {
-            debug!("Quitting index task.");
-            return;
-        };
-
-        while let Err(err) = update_sender.send((true, IndexingMessage::Progress(count))).await {
-            debug!("couldn't send final update {err}, trying again.");
-        }
-    }
-
     fn set_global_mode(&mut self, mode: GlobalMode) {
         self.state.global_mode = mode;
     }
@@ -615,9 +389,17 @@ impl App {
                 self.set_global_mode(GlobalMode::CreateRoom { view: CreateRoomView::new() })
             }
 
-            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => {
-                self.set_global_mode(GlobalMode::Searching { view: SearchingView::new() })
-            }
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => self
+                .set_global_mode(GlobalMode::Searching {
+                    view: SearchingView::new(false),
+                    is_global: false,
+                }),
+
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('g'), .. }) => self
+                .set_global_mode(GlobalMode::Searching {
+                    view: SearchingView::new(true),
+                    is_global: true,
+                }),
 
             _ => self.room_view.handle_event(event).await,
         }
@@ -637,32 +419,13 @@ impl App {
             GlobalMode::Settings { view } => {
                 view.on_tick();
             }
-            GlobalMode::Indexing { view } => {
-                view.on_tick();
-            }
         }
     }
 
     async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
         use KeyCode::*;
 
-        let mut check_channel = true;
-
         loop {
-            if check_channel {
-                match self.indexing_receiver.try_recv() {
-                    Ok((done, message)) => {
-                        if !matches!(message, IndexingMessage::Error(_)) && done {
-                            self.set_global_mode(GlobalMode::Default);
-                        } else if let GlobalMode::Indexing { view } = &mut self.state.global_mode {
-                            view.set_message(message);
-                        }
-                    }
-                    Err(TryRecvError::Disconnected) => check_channel = false,
-                    Err(TryRecvError::Empty) => {}
-                }
-            }
-
             terminal.draw(|f| f.render_widget(&mut *self, f.area()))?;
 
             if event::poll(Duration::from_millis(100))? {
@@ -674,13 +437,11 @@ impl App {
                             let sync_service = self.sync_service.clone();
                             let timelines = self.timelines.clone();
                             let listen_task = self.listen_task.abort_handle();
-                            let indexing_task = self.indexing_task.abort_handle();
 
                             let shutdown_task = spawn(async move {
                                 sync_service.stop().await;
 
                                 listen_task.abort();
-                                indexing_task.abort();
 
                                 for timeline in timelines.lock().values() {
                                     timeline.task.abort();
@@ -731,45 +492,69 @@ impl App {
                             }
                         }
                     }
-                    GlobalMode::Searching { view } => {
+                    GlobalMode::Searching { view, is_global } => {
                         if let Event::Key(key) = event {
                             match key.code {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
-                                        if let Some(room) = self.room_view.room() {
-                                            if let Ok(results) =
-                                                room.search(&query, 100, None).await.inspect_err(|err| {
-                                                    error!("error occurred while searching index: {err:?}");
-                                                })
-                                            {
-                                                let results = get_events_from_event_ids(
-                                                    &self.client,
-                                                    &room,
-                                                    results,
-                                                )
-                                                .await;
+                                        if *is_global {
+                                            let mut search =
+                                                GlobalSearch::builder(self.client.clone(), query)
+                                                    .only_dm_rooms()
+                                                    .await
+                                                    .unwrap()
+                                                    .build();
 
-                                                view.results(results);
+                                            let mut all_results = HashMap::new();
+                                            loop {
+                                                let Ok(results) = search.next_events().await else {
+                                                    continue;
+                                                };
+                                                let Some(results) = results else {
+                                                    break;
+                                                };
+                                                for (room_id, event_id) in results {
+                                                    all_results
+                                                        .entry(room_id)
+                                                        .or_insert_with(Vec::new)
+                                                        .push(event_id);
+                                                }
                                             }
+
+                                            view.set_results(
+                                                all_results
+                                                    .into_iter()
+                                                    .map(|(room_id, events)| {
+                                                        (Some(room_id), events)
+                                                    })
+                                                    .collect(),
+                                            );
                                         } else {
-                                            warn!("No room in view.")
+                                            if let Some((query, room)) =
+                                                view.get_text().zip(self.room_view.room())
+                                            {
+                                                let mut room_search = RoomSearch::new(room, query);
+
+                                                let mut all_results = Vec::new();
+                                                while let Some(results) =
+                                                    room_search.next_events().await?
+                                                {
+                                                    all_results.extend(results);
+                                                }
+                                                view.set_results(vec![(None, all_results)]);
+                                            }
                                         }
                                     }
                                 }
+
                                 Esc => self.set_global_mode(GlobalMode::Default),
+
                                 Up => view.list_state.previous(),
+
                                 Down => view.list_state.next(),
+
                                 _ => view.handle_key_press(key),
                             }
-                        }
-                    }
-                    GlobalMode::Indexing { .. } => {
-                        if let Event::Key(key) = event
-                            && let KeyModifiers::NONE = key.modifiers
-                            && let Esc = key.code
-                        {
-                            self.indexing_task.abort();
-                            self.set_global_mode(GlobalMode::Default);
                         }
                     }
                     GlobalMode::Exiting { .. } => {}
@@ -781,7 +566,6 @@ impl App {
                 | GlobalMode::Help
                 | GlobalMode::CreateRoom { .. }
                 | GlobalMode::Searching { .. }
-                | GlobalMode::Indexing { .. }
                 | GlobalMode::Settings { .. } => {}
                 GlobalMode::Exiting { shutdown_task } => {
                     if shutdown_task.is_finished() {
@@ -849,11 +633,8 @@ impl Widget for &mut App {
             GlobalMode::CreateRoom { view } => {
                 view.render(area, buf);
             }
-            GlobalMode::Searching { view } => {
+            GlobalMode::Searching { view, .. } => {
                 view.render(room_view_area, buf);
-            }
-            GlobalMode::Indexing { view } => {
-                view.render(area, buf);
             }
         }
     }
@@ -956,36 +737,4 @@ async fn login_with_password(client: &Client) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn get_events_from_event_ids(
-    client: &Client,
-    room: &Room,
-    event_ids: Vec<OwnedEventId>,
-) -> Vec<TimelineEvent> {
-    if let Ok(cache_lock) = client.event_cache_store().lock().await {
-        let cache_lock =
-            cache_lock.as_clean().expect("Only one process must access the event cache store");
-
-        futures_util::future::join_all(event_ids.iter().map(|event_id| async {
-            let event_id = event_id.clone();
-            match cache_lock.find_event(room.room_id(), &event_id).await {
-                Ok(ev) => ev,
-                Err(_) => room
-                    .event(&event_id, None)
-                    .await
-                    .inspect_err(|err| {
-                        debug!("Failed to find event {event_id} in event cache and server: {err}");
-                    })
-                    .ok(),
-            }
-        }))
-        .await
-        .into_iter()
-        .flatten()
-        .collect::<Vec<TimelineEvent>>()
-    } else {
-        debug!("Couldnt get event cache store lock.");
-        Vec::new()
-    }
 }

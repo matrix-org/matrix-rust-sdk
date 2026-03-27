@@ -24,7 +24,7 @@ use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{broadcast::Sender, mpsc};
 
 use super::{EventCacheError, EventsOrigin, Result};
-use crate::{client::WeakClient, room::WeakRoom};
+use crate::{client::WeakClient, event_cache::tasks::BackgroundRequest, room::WeakRoom};
 
 pub mod event_focused;
 pub mod event_linked_chunk;
@@ -50,6 +50,7 @@ impl Caches {
         linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
         auto_shrink_sender: mpsc::Sender<OwnedRoomId>,
         store: EventCacheStoreLock,
+        background_request_sender: Option<mpsc::UnboundedSender<BackgroundRequest>>,
     ) -> Result<Self> {
         let Some(client) = weak_client.get() else {
             return Err(EventCacheError::ClientDropped);
@@ -84,6 +85,7 @@ impl Caches {
             linked_chunk_update_sender,
             store,
             pagination_status.clone(),
+            background_request_sender,
         )
         .await?;
 

@@ -131,7 +131,6 @@ impl StatefulWidget for &mut Status {
                 GlobalMode::Settings { .. } => "Press ESC to exit the settings screen",
                 GlobalMode::CreateRoom { .. } => "Press ESC to exit the create room screen",
                 GlobalMode::Searching { .. } => "Press ESC to exit the search screen",
-                GlobalMode::Indexing { .. } => "Press ESC to cancel indexing",
                 GlobalMode::Default => "Press F1 to show the help screen",
                 GlobalMode::Exiting { .. } => "",
             }

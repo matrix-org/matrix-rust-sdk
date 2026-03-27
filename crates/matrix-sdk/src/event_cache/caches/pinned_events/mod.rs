@@ -463,7 +463,7 @@ impl PinnedEventCache {
     async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
         let (max_events_to_load, max_concurrent_requests) = {
             let client = room.client();
-            let config = client.event_cache().config().await;
+            let config = client.event_cache().config();
             (config.max_pinned_events_to_load, config.max_pinned_events_concurrent_requests)
         };
 
