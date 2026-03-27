@@ -415,8 +415,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         states = SettingUp => Running,
         // The previous `pos`.
         assert pos Some("0"),
-        // Still no long-polling because the list isn't fully-loaded.
-        assert timeout Some(0),
+        // Long-polling is enabled for all post-init states.
+        assert timeout Some(30000),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -443,8 +443,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         [server, room_list, sync]
         states = Running => Running,
         assert pos Some("1"),
-        // Still no long-polling because the list isn't fully-loaded.
-        assert timeout Some(0),
+        // Long-polling is enabled for all post-init states.
+        assert timeout Some(30000),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -471,9 +471,8 @@ async fn test_sync_all_states() -> Result<(), Error> {
         [server, room_list, sync]
         states = Running => Running,
         assert pos Some("2"),
-        // Still no long-polling because the list isn't fully-loaded,
-        // but it's about to be!
-        assert timeout Some(0),
+        // Long-polling is enabled for all post-init states.
+        assert timeout Some(30000),
         assert request >= {
             "conn_id": "room-list",
             "lists": {
@@ -500,7 +499,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
         [server, room_list, sync]
         states = Running => Running,
         assert pos Some("3"),
-        // The list is fully-loaded, we can start long-polling.
+        // Long-polling is enabled for all post-init states.
         assert timeout Some(30000),
         assert request >= {
             "conn_id": "room-list",

@@ -234,8 +234,7 @@ impl RoomListService {
                                 PollTimeout::Default
                             }
 
-                            // The sync loop doesn't keep running in these states, but keeping an
-                            // explicit value here makes the policy exhaustive.
+                            // Terminal states — included for exhaustiveness.
                             State::Error { .. } | State::Terminated { .. } => PollTimeout::Some(0),
                         }
                     }),
@@ -680,7 +679,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_setting_up_uses_long_poll_timeout_after_first_sync() -> Result<(), Error> {
+    async fn test_long_poll_after_first_sync() -> Result<(), Error> {
         let (client, server) = new_client().await;
         let room_list = RoomListService::new(client).await?;
 
