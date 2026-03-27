@@ -21,10 +21,11 @@ use as_variant::as_variant;
 use matrix_sdk_base::{
     crypto::CollectStrategy,
     deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+    media::{MediaFormat, MediaRequestParameters},
     sync::State,
 };
 use ruma::{
-    EventId, OwnedDeviceId, OwnedUserId, RoomId, TransactionId,
+    EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
@@ -36,8 +37,9 @@ use ruma::{
         AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
         MessageLikeEventType, StateEventType, TimelineEventType, ToDeviceEventType,
+        room::MediaSource,
     },
-    serde::{Raw, from_raw_json_value},
+    serde::{Base64, Raw, from_raw_json_value},
     to_device::DeviceIdOrAllDevices,
 };
 use serde::{Deserialize, Serialize};
@@ -142,6 +144,15 @@ impl MatrixDriver {
         };
 
         Ok(events)
+    }
+
+    pub(crate) async fn download_attachment(&self, mxc_uri: OwnedMxcUri) -> Result<Base64> {
+        let req = MediaRequestParameters {
+            source: MediaSource::Plain(mxc_uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let response = self.room.client().media().get_media_content(&req, true).await?;
+        Ok(Base64::new(response))
     }
 
     /// Sends the given `event` to the room.

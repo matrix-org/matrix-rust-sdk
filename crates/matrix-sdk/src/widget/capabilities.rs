@@ -57,6 +57,9 @@ pub struct Capabilities {
     pub update_delayed_event: bool,
     /// This allows the widget to send events with a delay.
     pub send_delayed_event: bool,
+
+    /// This allows the widget to download files as per MSC4039.
+    pub download_file: bool,
 }
 
 impl Capabilities {
@@ -113,6 +116,8 @@ pub(super) const READ_TODEVICE: &str = "org.matrix.msc3819.receive.to_device";
 pub(super) const REQUIRES_CLIENT: &str = "io.element.requires_client";
 pub(super) const SEND_DELAYED_EVENT: &str = "org.matrix.msc4157.send.delayed_event";
 pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed_event";
+
+pub(super) const DOWNLOAD_FILE: &str = "org.matrix.msc4039.download_file";
 
 impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -174,6 +179,9 @@ impl Serialize for Capabilities {
         if self.send_delayed_event {
             seq.serialize_element(SEND_DELAYED_EVENT)?;
         }
+        if self.download_file {
+            seq.serialize_element(DOWNLOAD_FILE)?;
+        }
         for filter in &self.read {
             let name = match filter {
                 Filter::MessageLike(_) => READ_EVENT,
@@ -204,6 +212,7 @@ impl<'de> Deserialize<'de> for Capabilities {
             RequiresClient,
             UpdateDelayedEvent,
             SendDelayedEvent,
+            DownloadFile,
             Read(Filter),
             Send(Filter),
             Unknown,
@@ -223,6 +232,9 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
                 if s == SEND_DELAYED_EVENT {
                     return Ok(Self::SendDelayedEvent);
+                }
+                if s == DOWNLOAD_FILE {
+                    return Ok(Self::DownloadFile);
                 }
 
                 match s.split_once(':') {
@@ -284,6 +296,7 @@ impl<'de> Deserialize<'de> for Capabilities {
                 Permission::Unknown => {}
                 Permission::UpdateDelayedEvent => capabilities.update_delayed_event = true,
                 Permission::SendDelayedEvent => capabilities.send_delayed_event = true,
+                Permission::DownloadFile => capabilities.download_file = true,
             }
         }
 
@@ -321,7 +334,8 @@ mod tests {
             "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member#@user:matrix.server",
             "org.matrix.msc3819.send.to_device:io.element.call.encryption_keys",
             "org.matrix.msc4157.send.delayed_event",
-            "org.matrix.msc4157.update_delayed_event"
+            "org.matrix.msc4157.update_delayed_event",
+            "org.matrix.msc4039.download_file"
         ]"#;
 
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
@@ -351,6 +365,7 @@ mod tests {
             requires_client: true,
             update_delayed_event: true,
             send_delayed_event: true,
+            download_file: true,
         };
 
         assert_eq!(parsed, expected);
@@ -381,6 +396,7 @@ mod tests {
             requires_client: true,
             update_delayed_event: false,
             send_delayed_event: false,
+            download_file: false,
         };
 
         let capabilities_str = serde_json::to_string(&capabilities).unwrap();
