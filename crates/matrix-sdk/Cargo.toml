@@ -15,9 +15,6 @@ version = "0.16.0"
 features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
-[package.metadata.cargo-machete]
-ignored = ["ring", "rustls-pki-types"]
-
 [features]
 default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-tls"]
 testing = [
@@ -39,8 +36,6 @@ e2e-encryption = [
 js = [
     "matrix-sdk-common/js",
     "matrix-sdk-base/js",
-    "rustls-pki-types?/web",
-    "ring?/wasm32_unknown_unknown_js"
 ]
 
 sqlite = [
@@ -70,7 +65,7 @@ experimental-encrypted-state-events = [
 
 markdown = ["ruma/markdown"]
 native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-no-provider", "dep:rustls", "dep:rustls-pki-types", "dep:ring"]
+rustls-tls = ["reqwest/rustls"]
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
 sso-login = ["local-server"]
@@ -130,7 +125,6 @@ oauth2-reqwest.workspace = true
 percent-encoding = "2.3.2"
 pin-project-lite.workspace = true
 rand = { workspace = true, optional = true }
-ring = { workspace = true, optional = true }
 ruma = { workspace = true, features = [
     "rand",
     "unstable-msc2448",
@@ -139,8 +133,6 @@ ruma = { workspace = true, features = [
     "unstable-msc4108",
     "unstable-msc4278",
 ] }
-rustls = { workspace = true, optional = true, features = ["std", "logging"] }
-rustls-pki-types = { workspace = true, optional = true }
 serde.workspace = true
 serde_html_form.workspace = true
 serde_json.workspace = true
@@ -198,6 +190,8 @@ wiremock.workspace = true
 wasm-bindgen-test.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
+rustls = "0.23.37"
+rustls-pki-types = "1.14.0"
 rustls-native-certs = "0.8.3"
 webpki-roots = "1.0.6"
 
