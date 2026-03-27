@@ -55,7 +55,7 @@ use crate::{
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
     error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
-    event::TimelineEvent,
+    event::{RawSyncOrStrippedStateEvent, StateEventType, TimelineEvent},
     identity_status_change::IdentityStatusChange,
     live_location_share::{LastLocation, LiveLocationShare},
     room_member::{RoomMember, RoomMemberWithSenderInfo},
@@ -363,6 +363,24 @@ impl Room {
     ) -> Result<(), ClientError> {
         self.inner.set_own_member_display_name(display_name).await?;
         Ok(())
+    }
+
+    /// Get all state events of a given type in this room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the state event to retrieve.
+    ///
+    /// # Returns
+    ///
+    /// A list of raw state events, either synced or stripped (for invited
+    /// rooms). Each event contains its raw JSON representation.
+    pub async fn get_state_events(
+        &self,
+        event_type: StateEventType,
+    ) -> Result<Vec<RawSyncOrStrippedStateEvent>, ClientError> {
+        let events = self.inner.get_state_events(event_type.into()).await?;
+        Ok(events.into_iter().map(Into::into).collect())
     }
 
     /// Get the membership details for the current user.
