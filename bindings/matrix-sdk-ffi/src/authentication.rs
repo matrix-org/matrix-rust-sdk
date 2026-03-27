@@ -101,6 +101,7 @@ impl SsoHandler {
         let builder =
             auth.login_with_sso_callback(url.into()).map_err(|_| SsoError::CallbackUrlInvalid)?;
         builder.await.map_err(|_| SsoError::LoginWithTokenFailed)?;
+
         Ok(())
     }
 }
