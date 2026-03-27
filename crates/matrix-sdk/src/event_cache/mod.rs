@@ -145,13 +145,30 @@ pub type Result<T> = std::result::Result<T, EventCacheError>;
 /// Hold handles to the tasks spawn by a [`EventCache`].
 pub struct EventCacheDropHandles {
     /// Task that listens to room updates.
-    listen_updates_task: BackgroundTaskHandle,
+    _listen_updates_task: BackgroundTaskHandle,
 
     /// Task that listens to updates to the user's ignored list.
-    ignore_user_list_update_task: BackgroundTaskHandle,
+    _ignore_user_list_update_task: BackgroundTaskHandle,
 
     /// The task used to automatically shrink the linked chunks.
-    auto_shrink_linked_chunk_task: BackgroundTaskHandle,
+    _auto_shrink_linked_chunk_task: BackgroundTaskHandle,
+
+    /// A background task listening to room and send queue updates, and
+    /// automatically subscribing the user to threads when needed, based on
+    /// the semantics of MSC4306.
+    ///
+    /// One important constraint is that there is only one such task per
+    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    _thread_subscriber_task: BackgroundTaskHandle,
+
+    /// A background task listening to room updates, and
+    /// automatically handling search index operations add/remove/edit
+    /// depending on the event type.
+    ///
+    /// One important constraint is that there is only one such task per
+    /// [`EventCache`], so it does listen to *all* rooms at the same time.
+    #[cfg(feature = "experimental-search")]
+    _search_indexing_task: BackgroundTaskHandle,
 
     /// The task used to automatically redecrypt UTDs.
     #[cfg(feature = "e2e-encryption")]
@@ -161,14 +178,6 @@ pub struct EventCacheDropHandles {
 impl fmt::Debug for EventCacheDropHandles {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EventCacheDropHandles").finish_non_exhaustive()
-    }
-}
-
-impl Drop for EventCacheDropHandles {
-    fn drop(&mut self) {
-        self.listen_updates_task.abort();
-        self.ignore_user_list_update_task.abort();
-        self.auto_shrink_linked_chunk_task.abort();
     }
 }
 
@@ -198,29 +207,6 @@ impl EventCache {
         let weak_client = WeakClient::from_inner(client);
 
         let (thread_subscriber_sender, _thread_subscriber_receiver) = channel(128);
-        let thread_subscriber_task = client
-            .task_monitor
-            .spawn_background_task(
-                "event_cache::thread_subscriber",
-                tasks::thread_subscriber_task(
-                    weak_client.clone(),
-                    linked_chunk_update_sender.clone(),
-                    thread_subscriber_sender,
-                ),
-            )
-            .abort_on_drop();
-
-        #[cfg(feature = "experimental-search")]
-        let search_indexing_task = client
-            .task_monitor
-            .spawn_background_task(
-                "event_cache::search_indexing",
-                tasks::search_indexing_task(
-                    weak_client.clone(),
-                    linked_chunk_update_sender.clone(),
-                ),
-            )
-            .abort_on_drop();
 
         #[cfg(feature = "e2e-encryption")]
         let redecryption_channels = redecryptor::RedecryptorChannels::new();
@@ -236,13 +222,9 @@ impl EventCache {
                 auto_shrink_sender: Default::default(),
                 generic_update_sender,
                 linked_chunk_update_sender,
-                _thread_subscriber_task: thread_subscriber_task,
-                #[cfg(feature = "experimental-search")]
-                _search_indexing_task: search_indexing_task,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
-                #[cfg(feature = "testing")]
-                thread_subscriber_receiver: _thread_subscriber_receiver,
+                thread_subscriber_sender,
             }),
         }
     }
@@ -263,7 +245,7 @@ impl EventCache {
     /// For testing purposes only.
     #[cfg(feature = "testing")]
     pub fn subscribe_thread_subscriber_updates(&self) -> Receiver<()> {
-        self.inner.thread_subscriber_receiver.resubscribe()
+        self.inner.thread_subscriber_sender.subscribe()
     }
 
     /// Starts subscribing the [`EventCache`] to sync responses, if not done
@@ -282,12 +264,12 @@ impl EventCache {
             let listen_updates_task = task_monitor.spawn_background_task("event_cache::room_updates_task", tasks::room_updates_task(
                 self.inner.clone(),
                 client.subscribe_to_all_room_updates(),
-            ));
+            )).abort_on_drop();
 
             let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
                 self.inner.clone(),
                 client.subscribe_to_ignore_user_list_changes(),
-            ));
+            )).abort_on_drop();
 
             let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(32);
 
@@ -297,7 +279,7 @@ impl EventCache {
             let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
                 Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
-            ));
+            )).abort_on_drop();
 
             #[cfg(feature = "e2e-encryption")]
             let redecryptor = {
@@ -312,13 +294,39 @@ impl EventCache {
                 redecryptor::Redecryptor::new(&client, Arc::downgrade(&self.inner), receiver, &self.inner.linked_chunk_update_sender)
             };
 
+        let thread_subscriber_task = client
+            .task_monitor()
+            .spawn_background_task(
+                "event_cache::thread_subscriber",
+                tasks::thread_subscriber_task(
+                    self.inner.client.clone(),
+                    self.inner.linked_chunk_update_sender.clone(),
+                    self.inner.thread_subscriber_sender.clone(),
+                ),
+            )
+            .abort_on_drop();
+
+        #[cfg(feature = "experimental-search")]
+        let search_indexing_task = client
+            .task_monitor()
+            .spawn_background_task(
+                "event_cache::search_indexing",
+                tasks::search_indexing_task(
+                    self.inner.client.clone(),
+                    self.inner.linked_chunk_update_sender.clone(),
+                ),
+            )
+            .abort_on_drop();
 
             Arc::new(EventCacheDropHandles {
-                listen_updates_task,
-                ignore_user_list_update_task,
-                auto_shrink_linked_chunk_task,
+                _listen_updates_task: listen_updates_task,
+                _ignore_user_list_update_task: ignore_user_list_update_task,
+                _auto_shrink_linked_chunk_task: auto_shrink_linked_chunk_task,
                 #[cfg(feature = "e2e-encryption")]
                 _redecryptor: redecryptor,
+                _thread_subscriber_task: thread_subscriber_task,
+                #[cfg(feature = "experimental-search")]
+                _search_indexing_task: search_indexing_task,
             })
         });
 
@@ -451,30 +459,12 @@ struct EventCacheInner {
     /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 
-    /// A background task listening to room and send queue updates, and
-    /// automatically subscribing the user to threads when needed, based on
-    /// the semantics of MSC4306.
-    ///
-    /// One important constraint is that there is only one such task per
-    /// [`EventCache`], so it does listen to *all* rooms at the same time.
-    _thread_subscriber_task: BackgroundTaskHandle,
-
-    /// A background task listening to room updates, and
-    /// automatically handling search index operations add/remove/edit
-    /// depending on the event type.
-    ///
-    /// One important constraint is that there is only one such task per
-    /// [`EventCache`], so it does listen to *all* rooms at the same time.
-    #[cfg(feature = "experimental-search")]
-    _search_indexing_task: BackgroundTaskHandle,
-
     /// A test helper receiver that will be emitted every time the thread
     /// subscriber task subscribed to a new thread.
     ///
     /// This is helpful for tests to coordinate that a new thread subscription
     /// has been sent or not.
-    #[cfg(feature = "testing")]
-    thread_subscriber_receiver: Receiver<()>,
+    thread_subscriber_sender: Sender<()>,
 
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
