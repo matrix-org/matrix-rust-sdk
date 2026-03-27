@@ -95,13 +95,25 @@ pub type Connection = Object;
 #[derive(Debug)]
 pub struct Manager {
     database_path: PathBuf,
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    /// VFS used by this database connection in WASM environment.
+    vfs: String,
 }
 
 impl Manager {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     /// Creates a new [`Manager`] for a database.
     #[must_use]
     pub fn new(database_path: PathBuf) -> Self {
         Self { database_path }
+    }
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    /// Creates a new [`Manager`] for a database.
+    #[must_use]
+    pub fn new(database_path: PathBuf, vfs: String) -> Self {
+        Self { database_path, vfs }
     }
 }
 
@@ -126,7 +138,13 @@ impl managed::Manager for Manager {
         }
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         {
-            let conn = rusqlite::Connection::open(path)?;
+            use rusqlite::OpenFlags;
+
+            let conn = rusqlite::Connection::open_with_flags_and_vfs(
+                path,
+                OpenFlags::default(),
+                self.vfs.as_str(),
+            )?;
             Ok(SyncOutsideWasmWrapper::new(conn))
         }
     }
