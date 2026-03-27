@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v3};
+    use super::{Version, v4};
 
-    pub const VERSION: Version = Version::V3;
-    pub use v3::keys;
+    pub const VERSION: Version = Version::V4;
+    pub use v4::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -58,6 +58,8 @@ pub enum Version {
     V2 = 2,
     /// Version 3 of the database, for details see [`v3`].
     V3 = 3,
+    /// Version 4 of the database, for details see [`v4`].
+    V4 = 4,
 }
 
 impl Version {
@@ -67,7 +69,8 @@ impl Version {
             Self::V0 => v0::upgrade(transaction).map(Some),
             Self::V1 => v1::upgrade(transaction).map(Some),
             Self::V2 => v2::upgrade(transaction).map(Some),
-            Self::V3 => Ok(None),
+            Self::V3 => v3::upgrade(transaction).map(Some),
+            Self::V4 => Ok(None),
         }
     }
 }
@@ -85,6 +88,7 @@ impl TryFrom<u32> for Version {
             1 => Ok(Version::V1),
             2 => Ok(Version::V2),
             3 => Ok(Version::V3),
+            4 => Ok(Version::V4),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -250,6 +254,10 @@ mod v3 {
     ///
     /// Note that this operation removes the existing events object store and
     /// all of its contents.
+    ///
+    /// **Bug**: This migration failed to also clear the `linked_chunks` and
+    /// `gaps` stores, leaving orphaned chunk structures that reference events
+    /// which no longer exist. This is corrected by the V4 migration.
     pub fn update_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
         remove_events_object_store(transaction)?;
         create_events_object_store(transaction.db())?;
@@ -290,6 +298,38 @@ mod v3 {
         let _ = events
             .create_index(keys::EVENTS_RELATION, keys::EVENTS_RELATION_KEY_PATH.into())
             .build()?;
+        Ok(())
+    }
+
+    /// Upgrade database from `v3` to `v4`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v4::empty_event_cache(transaction)?;
+        Ok(Version::V4)
+    }
+}
+
+mod v4 {
+    // Re-use all the same keys from `v3`.
+    pub use super::v3::keys;
+    use super::*;
+
+    /// The V3 migration only cleared the events object store but left
+    /// linked_chunks and gaps intact. This created an inconsistent state where
+    /// chunk structures reference events that no longer exist, and no gap
+    /// chunks exist to trigger backfill from the server.
+    ///
+    /// This migration clears linked_chunks and gaps for users who were already
+    /// migrated to V3, so rooms start fresh and properly re-sync.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
         Ok(())
     }
 }
