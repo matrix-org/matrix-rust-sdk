@@ -20,7 +20,8 @@ use super::{
     Sticker,
 };
 use crate::timeline::{
-    ReactionsByKeyBySender, TimelineDetails, event_item::content::other::OtherMessageLike,
+    ReactionsByKeyBySender, TimelineDetails, TimelineItemContent,
+    event_item::content::other::OtherMessageLike,
 };
 
 #[derive(Clone, Debug)]
@@ -35,7 +36,12 @@ pub enum MsgLikeKind {
     Poll(PollState),
 
     /// A redacted message.
-    Redacted,
+    Redacted {
+        /// If a redaction for this event is currently being sent but the server
+        /// hasn't yet acknowledged it via its remote echo, the original content
+        /// before redaction. Otherwise, None.
+        unredacted_content: Option<Box<TimelineItemContent>>,
+    },
 
     /// An `m.room.encrypted` event that could not be decrypted.
     UnableToDecrypt(EncryptedMessage),
@@ -90,7 +96,7 @@ impl MsgLikeContent {
             MsgLikeKind::Message(_) => "a message",
             MsgLikeKind::Sticker(_) => "a sticker",
             MsgLikeKind::Poll(_) => "a poll",
-            MsgLikeKind::Redacted => "a redacted message",
+            MsgLikeKind::Redacted { .. } => "a redacted message",
             MsgLikeKind::UnableToDecrypt(_) => "an encrypted message we couldn't decrypt",
             MsgLikeKind::Other(_) => "a custom message-like event",
             MsgLikeKind::LiveLocation(_) => "a live location share",
@@ -99,7 +105,7 @@ impl MsgLikeContent {
 
     pub fn redacted() -> Self {
         Self {
-            kind: MsgLikeKind::Redacted,
+            kind: MsgLikeKind::Redacted { unredacted_content: None },
             reactions: Default::default(),
             thread_root: None,
             in_reply_to: None,

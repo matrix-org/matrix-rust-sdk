@@ -218,8 +218,22 @@ impl TimelineItemContent {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::UnableToDecrypt(_), .. }))
     }
 
+    /// Whether the underlying event was redacted (either locally or remotely).
     pub fn is_redacted(&self) -> bool {
-        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }))
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted { .. }, .. }))
+    }
+
+    /// Whether the underlying event was redacted locally. This means the
+    /// redaction was sent to the server but we're still waiting on the
+    /// server to acknowledge it with its remote echo.
+    pub fn is_redacted_locally(&self) -> bool {
+        matches!(
+            self,
+            Self::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Redacted { unredacted_content: Some(_) },
+                ..
+            })
+        )
     }
 
     // These constructors could also be `From` implementations, but that would
@@ -328,16 +342,42 @@ impl TimelineItemContent {
         }
     }
 
-    pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
+    pub(in crate::timeline) fn redact(&self, rules: &RedactionRules, is_local: bool) -> Self {
         match self {
             Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
-                TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+                if is_local {
+                    TimelineItemContent::MsgLike(MsgLikeContent {
+                        kind: MsgLikeKind::Redacted {
+                            unredacted_content: Some(Box::new(self.clone())),
+                        },
+                        reactions: Default::default(),
+                        thread_root: None,
+                        in_reply_to: None,
+                        thread_summary: None,
+                    })
+                } else {
+                    TimelineItemContent::MsgLike(MsgLikeContent::redacted())
+                }
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
             Self::ProfileChange(ev) => Self::ProfileChange(ev.redact()),
             Self::OtherState(ev) => Self::OtherState(ev.redact(rules)),
             Self::FailedToParseMessageLike { .. } | Self::FailedToParseState { .. } => self.clone(),
         }
+    }
+
+    /// Create a clone of the current item, with content restored from the
+    /// item's unredacted_content (if it was previously set by a call to
+    /// the `redact(...)` method).
+    pub(in crate::timeline) fn unredact(&self) -> Self {
+        let Self::MsgLike(MsgLikeContent {
+            kind: MsgLikeKind::Redacted { unredacted_content: Some(content) },
+            ..
+        }) = self
+        else {
+            return self.clone();
+        };
+        *content.clone()
     }
 
     /// Event ID of the thread root, if this is a message in a thread.
@@ -893,7 +933,7 @@ mod tests {
             change: Some(MembershipChange::Banned),
         });
 
-        let redacted = content.redact(&RedactionRules::V11);
+        let redacted = content.redact(&RedactionRules::V11, false);
         assert_let!(TimelineItemContent::MembershipChange(inner) = redacted);
         assert_eq!(inner.change, Some(MembershipChange::Banned));
         assert_let!(StateEventContentChange::Redacted(inner_content_redacted) = inner.content);

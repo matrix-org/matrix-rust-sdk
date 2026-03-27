@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Handle local echoes of redactions in the timeline.
+  ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
 - Don't show a "sent in clear" shield on live location timeline items in
   encrypted rooms, since `beacon_info` is a state event that cannot be
   encrypted by design.

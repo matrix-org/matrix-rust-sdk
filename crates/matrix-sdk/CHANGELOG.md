@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Enable sending redaction events through the send queue via `RoomSendQueue::send_redaction`.
+  This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
+  variant.
+  ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
 - [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
   a cross-signing reset does not succeed after some period of time.
   ([#6325](https://github.com/matrix-org/matrix-rust-sdk/pull/6325))
