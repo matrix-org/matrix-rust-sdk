@@ -505,6 +505,56 @@ impl Encryption {
             Ok(None)
         }
     }
+
+    /// Manually verify the user with the given user ID, if the supplied
+    /// master_key (as base64) matches the public master signing key.
+    ///
+    /// This method will attempt to sign the user identity using our
+    /// private cross signing key.
+    ///
+    /// Returns an error if used with our own ID, or if we cannot find an
+    /// identity for the user.
+    ///
+    /// This method can fail if we don't have the private part of our
+    /// user-signing key.
+    ///
+    /// Returns a request that needs to be sent out for the user identity to be
+    /// marked as verified.
+    pub async fn verify_identity_if_matches(
+        &self,
+        user_id: String,
+        master_key: String,
+    ) -> Result<(), ClientError> {
+        // TODO: logic probably should not be in FFI layer?
+
+        let Some(user) = self.user_identity(user_id, true).await? else {
+            return Err(ClientError::Generic {
+                msg: "Could not find the user".to_owned(),
+                details: None,
+            });
+        };
+
+        let Some(msk) = user.master_key() else {
+            return Err(ClientError::Generic {
+                msg: "The user has no master signing key".to_owned(),
+                details: None,
+            });
+        };
+
+        if msk != master_key {
+            return Err(ClientError::Generic {
+                msg: "The supplied master key does not match the user's master key".to_owned(),
+                details: None,
+            });
+        }
+
+        user.inner
+            .verify()
+            .await
+            .map_err(|e| ClientError::Generic { msg: e.to_string(), details: None })?;
+
+        Ok(())
+    }
 }
 
 /// The E2EE identity of a user.

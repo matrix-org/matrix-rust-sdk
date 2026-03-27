@@ -41,6 +41,10 @@ pub enum SignatureError {
     UnknownDevice(OwnedUserId, String),
     #[error("Unknown user identity {0}")]
     UnknownUserIdentity(String),
+    #[error("The supplied master key {0} did not match the user's master key {1}")]
+    WrongMasterKey(String, String),
+    #[error("The user ({0}) has not uploaded a master key")]
+    MissingMasterKey(String),
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
