@@ -51,6 +51,7 @@ rusqlite = { version = "0.38.0", default-features = false, features = ["limits",
 sqlite-wasm-rs = "0.5.2"
 sqlite-wasm-vfs = "0.2.0"
 web-time = { version = "1.1.0", features = ["serde"] }
+uri_encode = "1.0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 deadpool-sync = { version = "0.2", default-features = false }
@@ -65,6 +66,14 @@ matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 similar-asserts.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+gloo-timers = { workspace = true, features = ["futures"] }
+uuid = { workspace = true, features = ["js", "v4"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 

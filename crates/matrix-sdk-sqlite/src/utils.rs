@@ -35,7 +35,7 @@ use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, install};
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, OpfsSAHPoolUtil, install};
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::fs;
 use tracing::{error, trace, warn};
@@ -775,23 +775,36 @@ impl<T> SyncOutsideWasmWrapper<T> {
     }
 }
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+/// Configure VFS name using provided path.
+pub fn get_vfs_name(path: &Path) -> String {
+    format!(
+        "matrix-opfs-sahpool+{}",
+        uri_encode::encode_uri_component(path.to_string_lossy().as_ref())
+    )
+}
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 /// Setup file system for SQLite database depending on compilation target.
 pub async fn setup_db_fs(path: &Path) -> Result<(), OpenStoreError> {
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     // Use system native file system for non-WASM targets.
     fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
 
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    // Use emulated virtual file system for WASM target
-    {
-        let cfg = OpfsSAHPoolCfgBuilder::new()
-            .vfs_name("opfs-sahpool")
-            .directory(path.to_string_lossy().as_ref())
-            .build();
-        install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, true).await?;
-    }
-
     Ok(())
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+/// Setup file system for SQLite database depending on compilation target.
+pub async fn setup_db_fs(path: &Path) -> Result<OpfsSAHPoolUtil, OpenStoreError> {
+    // Use emulated virtual file system for WASM target.
+    let cfg = OpfsSAHPoolCfgBuilder::new()
+        .vfs_name(&get_vfs_name(path))
+        .directory(path.to_string_lossy().as_ref())
+        .build();
+    // Avoid global installation, due to being harder to test.
+    let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
+
+    Ok(util)
 }
 
 #[cfg(test)]

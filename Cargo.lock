@@ -3679,6 +3679,7 @@ dependencies = [
  "deadpool 0.13.0",
  "deadpool-sync",
  "glob",
+ "gloo-timers",
  "itertools 0.14.0",
  "matrix-sdk-base",
  "matrix-sdk-common",
@@ -3700,7 +3701,10 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
+ "uri_encode",
+ "uuid",
  "vodozemac",
+ "wasm-bindgen-test",
  "web-time",
  "zeroize",
 ]
@@ -6919,6 +6923,12 @@ dependencies = [
  "httparse",
  "log",
 ]
+
+[[package]]
+name = "uri_encode"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9666edb2c10ee91354ec062e9e2d84896c2437378484c566d3523f9b8daf0129"
 
 [[package]]
 name = "url"
