@@ -249,6 +249,14 @@ jobs:
           - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
+          # [m]-sqlite is not supported on Node.js yet, due to
+          # dedicated worker requirement for OPFS
+          - name: '[m]-sqlite, chrome'
+            cmd: sqlite
+
+          - name: '[m]-sqlite, firefox'
+            cmd: sqlite
+
     steps:
       - name: Checkout the repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -266,6 +274,14 @@ jobs:
         if: '!matrix.check_only'
         with:
           version: v0.13.1
+
+      # Required in order to compile SQLite to WebAssembly
+      - name: Install emscripten toolchains
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git
+          cd emsdk
+          ./emsdk install latest
+          ./emsdk activate latest
 
       - name: Load cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
@@ -290,11 +306,13 @@ jobs:
 
       - name: Rust Check
         run: |
+          source ./emsdk/emsdk_env.sh
           target/debug/xtask ci wasm ${{ matrix.cmd }}
 
       - name: Wasm-Pack test
         if: '!matrix.check_only'
         run: |
+          source ./emsdk/emsdk_env.sh
           target/debug/xtask ci wasm-pack ${{ matrix.cmd }}
 
   typos:
