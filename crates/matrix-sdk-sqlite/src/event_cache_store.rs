@@ -1644,6 +1644,9 @@ fn insert_chunk(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::{
         path::PathBuf,
         sync::{
@@ -1662,6 +1665,7 @@ mod tests {
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
@@ -1671,12 +1675,25 @@ mod tests {
         utils::{EncryptableStore as _, SqliteAsyncConnExt},
     };
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    static TMP_DIR: LazyLock<uuid::Uuid> = LazyLock::new(|| uuid::Uuid::new_v4());
+
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_event_cache_store_workspace() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        TMP_DIR.path().join(name)
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            TMP_DIR.path().join(name)
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // We cannot create a temp directory in WASM environment due to non-existence file system.
+        // Instead we will rely on VFS to handle it for us.
+        {
+            PathBuf::from(format!("{}/{name}", *TMP_DIR))
+        }
     }
 
     async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
@@ -1829,6 +1846,11 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    use std::path::PathBuf;
     use std::sync::{
         LazyLock,
         atomic::{AtomicU32, Ordering::SeqCst},
@@ -1844,16 +1866,27 @@ mod encrypted_tests {
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
         room_id, user_id,
     };
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    static TMP_DIR: LazyLock<uuid::Uuid> = LazyLock::new(|| uuid::Uuid::new_v4());
+
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
         let name = NUM.fetch_add(1, SeqCst).to_string();
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         let tmpdir_path = TMP_DIR.path().join(name);
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // We cannot create a temp directory in WASM environment due to non-existence file system.
+        // Instead we will rely on VFS to handle it for us.
+        let tmpdir_path = PathBuf::from(format!("{}/{name}", *TMP_DIR));
 
         tracing::info!("using event cache store @ {}", tmpdir_path.to_str().unwrap());
 
