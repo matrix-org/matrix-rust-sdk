@@ -254,6 +254,77 @@ pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_change(&self, event: AccountDataEvent);
 }
 
+/// A listener for the sync loop.
+///
+/// Called after each successful sync response when using [`Client::sync`].
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SyncListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called after each successful sync response.
+    fn on_update(&self, response: SyncResponse);
+}
+
+/// Settings for a sync call.
+#[derive(uniffi::Record)]
+pub struct SyncSettings {
+    /// Timeout in milliseconds for the server long-poll.
+    /// If not set, defaults to 30 seconds.
+    #[uniffi(default = None)]
+    pub timeout_ms: Option<u64>,
+    /// Whether to request full state on the first sync.
+    #[uniffi(default = false)]
+    pub full_state: bool,
+}
+
+impl From<SyncSettings> for matrix_sdk::config::SyncSettings {
+    fn from(value: SyncSettings) -> Self {
+        let mut settings = matrix_sdk::config::SyncSettings::new();
+        if let Some(timeout_ms) = value.timeout_ms {
+            settings = settings.timeout(Duration::from_millis(timeout_ms));
+        }
+        if value.full_state {
+            settings = settings.full_state(true);
+        }
+        settings
+    }
+}
+
+/// The response from a sync call.
+#[derive(uniffi::Record)]
+pub struct SyncResponse {
+    /// The batch token to supply in the `since` param of the next `/sync`
+    /// request.
+    pub next_batch: String,
+    /// Updates to rooms.
+    pub rooms: SyncResponseRooms,
+}
+
+/// Room updates from a sync response.
+#[derive(uniffi::Record)]
+pub struct SyncResponseRooms {
+    /// Room IDs of rooms the user has been invited to.
+    pub invited: Vec<String>,
+    /// Room IDs of joined rooms that had updates.
+    pub joined: Vec<String>,
+    /// Room IDs of rooms the user has left.
+    pub left: Vec<String>,
+    /// Room IDs of rooms the user has knocked on.
+    pub knocked: Vec<String>,
+}
+
+impl From<matrix_sdk::sync::SyncResponse> for SyncResponse {
+    fn from(value: matrix_sdk::sync::SyncResponse) -> Self {
+        Self {
+            next_batch: value.next_batch,
+            rooms: SyncResponseRooms {
+                invited: value.rooms.invited.keys().map(ToString::to_string).collect(),
+                joined: value.rooms.joined.keys().map(ToString::to_string).collect(),
+                left: value.rooms.left.keys().map(ToString::to_string).collect(),
+                knocked: value.rooms.knocked.keys().map(ToString::to_string).collect(),
+            },
+        }
+    }
+}
+
 /// A listener for duplicate key upload errors triggered by requests to
 /// /keys/upload.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -1608,6 +1679,48 @@ impl Client {
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
+    }
+
+    /// Start a sync loop.
+    ///
+    /// This is an alternative to [`Client::sync_service`] (which uses Sliding
+    /// Sync / MSC4186). It works with any homeserver, including older
+    /// Synapse versions that do not support Sliding Sync.
+    ///
+    /// Returns a `TaskHandle` that can be used to cancel the sync loop.
+    /// The listener is called after each successful sync response.
+    pub fn sync(&self, settings: SyncSettings, listener: Box<dyn SyncListener>) -> Arc<TaskHandle> {
+        let client = (*self.inner).clone();
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let listener: Arc<dyn SyncListener> = Arc::from(listener);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let result = client
+                .sync_with_result_callback(sdk_settings, |result| {
+                    let listener = listener.clone();
+                    async move {
+                        let response = result?;
+                        let ffi_response: SyncResponse = response.into();
+                        listener.on_update(ffi_response);
+                        Ok(matrix_sdk::LoopCtrl::Continue)
+                    }
+                })
+                .await;
+
+            if let Err(e) = result {
+                tracing::error!("Sync loop ended with error: {e}");
+            }
+        })))
+    }
+
+    /// Perform a single sync call.
+    ///
+    /// This is useful for performing an initial sync or a one-shot sync
+    /// without entering a continuous loop.
+    pub async fn sync_once(&self, settings: SyncSettings) -> Result<SyncResponse, ClientError> {
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let response = self.inner.sync_once(sdk_settings).await?;
+        Ok(response.into())
     }
 
     pub async fn space_service(&self) -> Arc<SpaceService> {
