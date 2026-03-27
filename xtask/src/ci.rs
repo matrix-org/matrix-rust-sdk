@@ -164,6 +164,18 @@ enum WasmFeatureSet {
     /// Equivalent to `indexeddb-all-features`, `indexeddb-crypto` and
     /// `indexeddb-state`
     Indexeddb,
+    /// Check `matrix-sdk-sqlite` crate with all features
+    SqliteAllFeatures,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` and
+    /// `crypto-store` feature
+    SqliteCrypto,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature
+    SqliteState,
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature
+    SqliteCache,
+    /// Equivalent to `sqlite-all-features`, `sqlite-crypto`, `sqlite-state`,
+    /// and `sqlite-cache`
+    Sqlite,
 }
 
 impl CiArgs {
@@ -371,6 +383,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(WasmFeatureSet::Sqlite) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::SqliteAllFeatures))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCrypto))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteState))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCache))?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode --features js"),
         (
@@ -396,6 +416,22 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (
             WasmFeatureSet::IndexeddbState,
             "-p matrix-sdk-indexeddb --no-default-features --features state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteAllFeatures,
+            "-p matrix-sdk-sqlite --no-default-features --features js,crypto-store,experimental-encrypted-state-events,state-store,event-cache",
+        ),
+        (
+            WasmFeatureSet::SqliteCrypto,
+            "-p matrix-sdk-sqlite --no-default-features --features js,state-store,crypto-store",
+        ),
+        (
+            WasmFeatureSet::SqliteState,
+            "-p matrix-sdk-sqlite --no-default-features --features js,state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteCache,
+            "-p matrix-sdk-sqlite --no-default-features --features js,event-cache",
         ),
     ]);
 
@@ -430,6 +466,14 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         return Ok(());
     }
 
+    if let Some(WasmFeatureSet::Sqlite) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), runner)?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
@@ -457,6 +501,38 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         (
             WasmFeatureSet::IndexeddbState,
             ("crates/matrix-sdk-indexeddb", "--no-default-features --features state-store"),
+        ),
+        // SQLite WASM test suites has to be ran in release mode due to
+        // a harmless debug assertion when closing database.
+        //
+        // Ref: https://github.com/Spxg/sqlite-wasm-rs/blob/master/crates/sqlite-wasm-vfs/src/sahpool.rs#L672
+        (
+            WasmFeatureSet::SqliteAllFeatures,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--features js,experimental-encrypted-state-events,crypto-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCrypto,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,state-store,crypto-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteState,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,state-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCache,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,event-cache --release",
+            ),
         ),
     ]);
 
