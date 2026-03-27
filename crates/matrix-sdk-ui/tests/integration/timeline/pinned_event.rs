@@ -44,6 +44,66 @@ use wiremock::{
 use crate::mock_sync;
 
 #[async_test]
+async fn test_pinned_events_are_available_immediately_on_first_timeline_build() {
+    // This test verifies that pinned events are available immediately when the
+    // timeline is first built, without needing to wait for stream updates.
+    // The timeline builder now waits for the background pinned events cache task
+    // to complete loading before returning.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!test:localhost");
+
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+    let event_id = event_id!("$1");
+    let event_1 = f
+        .text_msg("pinned message")
+        .event_id(event_id)
+        .server_ts(MilliSecondsSinceUnixEpoch::now())
+        .into_raw_sync();
+
+    // Mock /event endpoint for event $1.
+    mock_events_endpoint(&server, room_id, vec![event_1]).await;
+
+    // Mock /relations for event $1.
+    server
+        .mock_room_relations()
+        .match_target_event(event_id.to_owned())
+        .match_limit(256)
+        .ok(RoomRelationsResponseTemplate::default().events(Vec::<Raw<AnyTimelineEvent>>::new()))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Sync the room with a pinned event.
+    let room = PinnedEventsSync::new(room_id)
+        .with_pinned_event_ids(vec!["$1"])
+        .mock_and_sync(&client, &server)
+        .await
+        .expect("Room should be synced");
+
+    // Build the pinned events timeline for the FIRST time.
+    let timeline =
+        TimelineBuilder::new(&room).with_focus(TimelineFocus::PinnedEvents).build().await.unwrap();
+
+    // Subscribe and verify items are immediately available - no need to wait for
+    // stream updates. This is the key assertion: before the fix, items would be
+    // empty on first access and we'd need to wait for the stream.
+    let (items, _timeline_stream) = timeline.subscribe().await;
+
+    // Items should be available immediately without waiting for stream updates.
+    assert!(
+        !items.is_empty(),
+        "Pinned events should be available immediately on first timeline build"
+    );
+    assert_eq!(items.len(), 2); // date divider + message
+    assert!(items[0].is_date_divider());
+    assert_eq!(
+        items[1].as_event().unwrap().content().as_message().unwrap().body(),
+        "pinned message"
+    );
+}
+
+#[async_test]
 async fn test_new_pinned_events_are_not_added_on_sync() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

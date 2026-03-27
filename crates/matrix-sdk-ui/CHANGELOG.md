@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix the pinned events timeline returning no items the first time a room's
+  timeline is built, when the event cache had not been loaded yet.
+  ([#6360](https://github.com/matrix-org/matrix-rust-sdk/pull/6360))
 - Don't show a "sent in clear" shield on live location timeline items in
   encrypted rooms, since `beacon_info` is a state event that cannot be
   encrypted by design.
