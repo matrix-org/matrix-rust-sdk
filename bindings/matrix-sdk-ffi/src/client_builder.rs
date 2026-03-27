@@ -553,7 +553,7 @@ impl ClientBuilder {
             let mut config = sdk_client.event_cache().config_mut();
             config.experimental_auto_backpagination = true;
             config.room_pagination_batch_size = 100;
-            config.max_concurrent_background_paginations = 16;
+            config.max_concurrent_background_paginations = 4;
         }
 
         Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
