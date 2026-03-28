@@ -91,6 +91,8 @@ All notable changes to this project will be documented in this file.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
 - Support SQLite backed store when compiling to `wasm32-unknown-unknown` target
   ([#6329](https://github.com/matrix-org/matrix-rust-sdk/pull/6329))
+- Implement configurable SQLite VFS backends for WASM targets
+  ([#6365](https://github.com/matrix-org/matrix-rust-sdk/pull/6365))
 
 ### Bugfix
 

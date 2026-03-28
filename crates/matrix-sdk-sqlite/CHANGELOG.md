@@ -21,6 +21,8 @@ All notable changes to this project will be documented in this file.
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 - Support compiling to `wasm32-unknown-unknown` target + bump [rusqlite](https://github.com/rusqlite/rusqlite/releases/tag/v0.38.0) version to `0.38`
   ([#6329](https://github.com/matrix-org/matrix-rust-sdk/pull/6329))
+- Implement configurable VFS backends when compiling to WASM targets
+  ([#6365](https://github.com/matrix-org/matrix-rust-sdk/pull/6365))
 
 ### Bug Fixes
 
