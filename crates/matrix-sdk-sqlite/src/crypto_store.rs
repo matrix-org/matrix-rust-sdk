@@ -1772,10 +1772,42 @@ mod tests {
 
         // Import our test fixture into destination database. Unchecked because
         // we couldn't check encrypted bytes.
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+        ))]
+        // Full database path is required for in-memory VFS.
+        tool.import_db_unchecked(
+            tmpdir.join(super::DATABASE_NAME).to_string_lossy().as_ref(),
+            db_source,
+            8192, /* 8 KiB page size */
+        )
+        .unwrap();
+        #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+        // OPFS import operation is synchronous.
         tool.import_db_unchecked(super::DATABASE_NAME, db_source).unwrap();
+        #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+        // IndexedDB import operation is asynchronous.
+        tool.import_db_unchecked(super::DATABASE_NAME, db_source, 8192 /* 8 KiB page size */)
+            .unwrap()
+            .await
+            .unwrap();
 
         // Make sure that we successfully imported the database.
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+        ))]
+        assert!(
+            tool.exists(tmpdir.join(super::DATABASE_NAME).to_string_lossy().as_ref()),
+            "imported db must exists"
+        );
+        #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
         assert!(tool.exists(super::DATABASE_NAME).unwrap(), "imported db must exists");
+        #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+        assert!(tool.exists(super::DATABASE_NAME), "imported db must exists");
 
         tmpdir
     }
@@ -2195,7 +2227,24 @@ mod tests {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         if clear_data {
             let tool = setup_db_fs(&tmpdir_path).await.unwrap();
+            #[cfg(all(
+                target_family = "wasm",
+                target_os = "unknown",
+                not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+            ))]
+            tool.delete_db(tmpdir_path.join(super::DATABASE_NAME).to_string_lossy().as_ref());
+            #[cfg(all(
+                target_family = "wasm",
+                target_os = "unknown",
+                feature = "vfs-opfs-sahpool"
+            ))]
             tool.delete_db(super::DATABASE_NAME).unwrap();
+            #[cfg(all(
+                target_family = "wasm",
+                target_os = "unknown",
+                feature = "vfs-relaxed-idb"
+            ))]
+            tool.delete_db(super::DATABASE_NAME).unwrap().await.unwrap();
         }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
@@ -2247,7 +2296,24 @@ mod encrypted_tests {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         if clear_data {
             let tool = setup_db_fs(&tmpdir_path).await.unwrap();
+            #[cfg(all(
+                target_family = "wasm",
+                target_os = "unknown",
+                not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+            ))]
+            tool.delete_db(tmpdir_path.join(super::DATABASE_NAME).to_string_lossy().as_ref());
+            #[cfg(all(
+                target_family = "wasm",
+                target_os = "unknown",
+                feature = "vfs-opfs-sahpool"
+            ))]
             tool.delete_db(super::DATABASE_NAME).unwrap();
+            #[cfg(all(
+                target_family = "wasm",
+                target_os = "unknown",
+                feature = "vfs-relaxed-idb"
+            ))]
+            tool.delete_db(super::DATABASE_NAME).unwrap().await.unwrap();
         }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
