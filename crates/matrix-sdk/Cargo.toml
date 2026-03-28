@@ -50,6 +50,8 @@ sqlite = [
     "matrix-sdk-sqlite?/event-cache",
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
+vfs-opfs-sahpool = ["matrix-sdk-sqlite?/vfs-opfs-sahpool"]
+vfs-relaxed-idb = ["matrix-sdk-sqlite?/vfs-relaxed-idb"]
 indexeddb = [
     "matrix-sdk-indexeddb/state-store",
     "matrix-sdk-indexeddb/event-cache-store",
