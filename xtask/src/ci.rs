@@ -467,10 +467,16 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
     }
 
     if let Some(WasmFeatureSet::Sqlite) = cmd {
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), runner)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), runner)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), runner)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), runner)?;
+        // Current VFS backend is not supported in Node.JS just yet.
+        // We force them to run in browser only for now.
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), WasmTestRunner::Chrome)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), WasmTestRunner::Firefox)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), WasmTestRunner::Chrome)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), WasmTestRunner::Firefox)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), WasmTestRunner::Chrome)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), WasmTestRunner::Firefox)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), WasmTestRunner::Chrome)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), WasmTestRunner::Firefox)?;
         return Ok(());
     }
 
