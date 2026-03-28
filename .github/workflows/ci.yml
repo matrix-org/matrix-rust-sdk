@@ -249,16 +249,34 @@ jobs:
           - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
-          # [m]-sqlite is not supported on Node.js yet, due to
-          # dedicated worker requirement for OPFS
-          - name: '[m]-sqlite'
-            cmd: sqlite
+          - name: '[m]-sqlite, in-memory vfs'
+            cmd: sqlite-in-memory
 
-          - name: '[m], sqlite stores'
-            cmd: matrix-sdk-sqlite-stores
+          - name: '[m], sqlite stores, in-memory vfs'
+            cmd: matrix-sdk-sqlite-stores-in-memory
 
-          - name: '[m], sqlite stores, no crypto'
-            cmd: matrix-sdk-sqlite-stores-no-crypto
+          - name: '[m], sqlite stores, no crypto, in-memory vfs'
+            cmd: matrix-sdk-sqlite-stores-no-crypto-in-memory
+
+          # [m]-sqlite, OPFS vfs is not supported on Node.js, due to
+          # dedicated worker requirement for OPFS sync access handle
+          - name: '[m]-sqlite, OPFS vfs'
+            cmd: sqlite-opfs
+
+          - name: '[m], sqlite stores, OPFS vfs'
+            cmd: matrix-sdk-sqlite-stores-opfs
+
+          - name: '[m], sqlite stores, no crypto, OPFS vfs'
+            cmd: matrix-sdk-sqlite-stores-no-crypto-opfs
+
+          - name: '[m]-sqlite, IndexedDB vfs'
+            cmd: sqlite-indexeddb
+
+          - name: '[m], sqlite stores, IndexedDB vfs'
+            cmd: matrix-sdk-sqlite-stores-indexeddb
+
+          - name: '[m], sqlite stores, no crypto, IndexedDB vfs'
+            cmd: matrix-sdk-sqlite-stores-no-crypto-indexeddb
 
     steps:
       - name: Checkout the repo
