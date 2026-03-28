@@ -96,7 +96,11 @@ pub type Connection = Object;
 pub struct Manager {
     database_path: PathBuf,
 
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+    ))]
     /// VFS used by this database connection in WASM environment.
     vfs: String,
 }
@@ -109,8 +113,23 @@ impl Manager {
         Self { database_path }
     }
 
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+    ))]
     /// Creates a new [`Manager`] for a database.
+    #[must_use]
+    pub fn new(database_path: PathBuf) -> Self {
+        Self { database_path }
+    }
+
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+    ))]
+    /// Creates a new [`Manager`] for a database with chosen VFS.
     #[must_use]
     pub fn new(database_path: PathBuf, vfs: String) -> Self {
         Self { database_path, vfs }
@@ -136,7 +155,20 @@ impl managed::Manager for Manager {
         {
             SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
         }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+        ))]
+        {
+            let conn = rusqlite::Connection::open(path)?;
+            Ok(SyncOutsideWasmWrapper::new(conn))
+        }
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+        ))]
         {
             use rusqlite::OpenFlags;
 

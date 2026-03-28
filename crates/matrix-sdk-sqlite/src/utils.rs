@@ -31,10 +31,18 @@ use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_base::SendOutsideWasm;
 use matrix_sdk_store_encryption::StoreCipher;
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+))]
+use rsqlite_vfs::memvfs::MemVfsUtil;
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+use sqlite_wasm_vfs::relaxed_idb::{Preload, RelaxedIdbCfgBuilder, RelaxedIdbUtil, install};
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
 use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, OpfsSAHPoolUtil, install};
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::fs;
@@ -788,17 +796,23 @@ impl<T> SyncOutsideWasmWrapper<T> {
     }
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+))]
 /// Configure VFS name using provided path.
 pub fn get_vfs_name(path: &Path) -> String {
-    format!(
-        "matrix-opfs-sahpool+{}",
-        uri_encode::encode_uri_component(path.to_string_lossy().as_ref())
-    )
+    #[cfg(feature = "vfs-opfs-sahpool")]
+    let vfs_prefix = "matrix-opfs-sahpool";
+    #[cfg(feature = "vfs-relaxed-idb")]
+    let vfs_prefix = "matrix-relaxed-idb";
+
+    format!("{vfs_prefix}+{}", uri_encode::encode_uri_component(path.to_string_lossy().as_ref()))
 }
 
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-/// Setup file system for SQLite database depending on compilation target.
+/// Setup native file system for SQLite database for non-WASM target.
 pub async fn setup_db_fs(path: &Path) -> Result<(), OpenStoreError> {
     // Use system native file system for non-WASM targets.
     fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
@@ -806,14 +820,44 @@ pub async fn setup_db_fs(path: &Path) -> Result<(), OpenStoreError> {
     Ok(())
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-/// Setup file system for SQLite database depending on compilation target.
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+))]
+/// Get in-memory file system management tool without registration.
+///
+/// Interface of this function is kept this way for compatibility
+/// with other VFS.
+pub async fn setup_db_fs(
+    _path: &Path,
+) -> Result<MemVfsUtil<sqlite_wasm_rs::WasmOsCallback>, OpenStoreError> {
+    // Get VFS management tool directly, no registration required.
+    let tool = MemVfsUtil::new();
+
+    Ok(tool)
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+/// Setup OPFS for SQLite database for WASM target.
 pub async fn setup_db_fs(path: &Path) -> Result<OpfsSAHPoolUtil, OpenStoreError> {
     // Use emulated virtual file system for WASM target.
     let cfg = OpfsSAHPoolCfgBuilder::new()
         .vfs_name(&get_vfs_name(path))
         .directory(path.to_string_lossy().as_ref())
         .build();
+    // Avoid global installation, due to being harder to test.
+    let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
+
+    Ok(util)
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+/// Setup IndexedDB for SQLite database for WASM target.
+pub async fn setup_db_fs(path: &Path) -> Result<RelaxedIdbUtil, OpenStoreError> {
+    // Use emulated virtual file system for WASM target.
+    let cfg =
+        RelaxedIdbCfgBuilder::new().vfs_name(&get_vfs_name(path)).preload(Preload::All).build();
     // Avoid global installation, due to being harder to test.
     let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
 

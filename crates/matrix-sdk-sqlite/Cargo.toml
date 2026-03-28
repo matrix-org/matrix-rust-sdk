@@ -25,6 +25,9 @@ experimental-encrypted-state-events = [
 
 js = ["matrix-sdk-common/js", "matrix-sdk-base?/js", "matrix-sdk-crypto?/js", "matrix-sdk-store-encryption/js"]
 
+vfs-opfs-sahpool = ["dep:sqlite-wasm-vfs", "rusqlite/wasm32-wasi-vfs"]
+vfs-relaxed-idb = ["dep:sqlite-wasm-vfs", "rusqlite/wasm32-wasi-vfs"]
+
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
@@ -47,9 +50,10 @@ zeroize.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 tokio = { workspace = true }
-rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint", "buildtime_bindgen", "wasm32-wasi-vfs"] }
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint", "buildtime_bindgen"] }
 sqlite-wasm-rs = "0.5.2"
-sqlite-wasm-vfs = "0.2.0"
+sqlite-wasm-vfs = { version = "0.2.0", optional = true }
+rsqlite-vfs = "0.1.0"
 web-time = { version = "1.1.0", features = ["serde"] }
 uri_encode = "1.0.4"
 

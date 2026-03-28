@@ -213,12 +213,28 @@ impl SqliteStoreConfig {
         &self,
         database_name: &str,
     ) -> Result<connection::Pool, connection::CreatePoolError> {
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+        ))]
         use std::path::PathBuf;
 
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         let path = self.path.join(database_name);
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+        ))]
+        // Prefix database name with parent directory for
+        // in-mem VFS.
+        let path = self.path.join(database_name);
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+        ))]
         // We don't need to prefix our database name with parent
         // directories, since VFS already handle the directory
         // management for us.
@@ -226,9 +242,20 @@ impl SqliteStoreConfig {
 
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         let manager = connection::Manager::new(path);
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+        ))]
+        // We don't need to specify VFS for in-memory VFS.
+        let manager = connection::Manager::new(path);
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+        ))]
         // In WASM environment, we will need to specify which VFS
-        // configuration we want to use.
+        // configuration we want to use, if selected.
         let manager = connection::Manager::new(path, utils::get_vfs_name(&self.path));
 
         connection::Pool::builder(manager)
@@ -270,6 +297,14 @@ impl Default for RuntimeConfig {
         }
     }
 }
+
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    feature = "vfs-opfs-sahpool",
+    feature = "vfs-relaxed-idb"
+))]
+compile_error!("vfs-opfs-sahpool and vfs-relaxed-idb cannot be enabled at the same time");
 
 #[cfg(test)]
 mod tests {
