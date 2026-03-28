@@ -2195,8 +2195,7 @@ mod tests {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         if clear_data {
             let tool = setup_db_fs(&tmpdir_path).await.unwrap();
-            tool.delete_db(tmpdir_path.join(super::DATABASE_NAME).to_string_lossy().as_ref())
-                .unwrap();
+            tool.delete_db(super::DATABASE_NAME).unwrap();
         }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
@@ -2248,8 +2247,7 @@ mod encrypted_tests {
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         if clear_data {
             let tool = setup_db_fs(&tmpdir_path).await.unwrap();
-            tool.delete_db(tmpdir_path.join(super::DATABASE_NAME).to_string_lossy().as_ref())
-                .unwrap();
+            tool.delete_db(super::DATABASE_NAME).unwrap();
         }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))
