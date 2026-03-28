@@ -92,6 +92,7 @@ pub(crate) trait SqliteAsyncConnExt {
         sql: impl AsRef<str> + SendOutsideWasm + 'static,
     ) -> rusqlite::Result<()>;
 
+    #[allow(dead_code)]
     async fn prepare<T, F>(
         &self,
         sql: impl AsRef<str> + SendOutsideWasm + 'static,
@@ -112,6 +113,7 @@ pub(crate) trait SqliteAsyncConnExt {
         P: Params + SendOutsideWasm + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static;
 
+    #[allow(dead_code)]
     async fn query_many<T, P, F>(
         &self,
         sql: impl AsRef<str> + SendOutsideWasm + 'static,
@@ -129,6 +131,7 @@ pub(crate) trait SqliteAsyncConnExt {
         E: From<rusqlite::Error> + SendOutsideWasm + 'static,
         F: FnOnce(&Transaction<'_>) -> Result<T, E> + SendOutsideWasm + 'static;
 
+    #[allow(dead_code)]
     async fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
@@ -464,6 +467,7 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
     /// Store the given value for the given key.
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
 
+    #[allow(dead_code)]
     /// Store the given value for the given key by serializing it.
     fn set_serialized_kv<T: Serialize + SendOutsideWasm>(&self, key: &str, value: T) -> Result<()> {
         let serialized_value = rmp_serde::to_vec_named(&value)?;
@@ -472,6 +476,7 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
         Ok(())
     }
 
+    #[allow(dead_code)]
     /// Removes the current key and value if exists.
     fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
@@ -528,6 +533,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
             .optional()
     }
 
+    #[allow(dead_code)]
     /// Get the stored serialized value for the given key.
     async fn get_serialized_kv<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let Some(bytes) = self.get_kv(key).await? else {
@@ -540,6 +546,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
 
+    #[allow(dead_code)]
     /// Store the given value for the given key by serializing it.
     async fn set_serialized_kv<T: Serialize + SendOutsideWasm + 'static>(
         &self,
@@ -547,6 +554,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
         value: T,
     ) -> Result<()>;
 
+    #[allow(dead_code)]
     /// Clears the given value for the given key.
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
@@ -636,6 +644,7 @@ pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
     iter::repeat_n("?", count).format(",")
 }
 
+#[allow(dead_code)]
 /// Convert the given `SystemTime` to a timestamp, as the number of seconds
 /// since Unix Epoch.
 ///
@@ -692,21 +701,25 @@ pub(crate) trait EncryptableStore {
         }
     }
 
+    #[allow(dead_code)]
     fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
         let serialized = rmp_serde::to_vec_named(value)?;
         self.encode_value(serialized)
     }
 
+    #[allow(dead_code)]
     fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
         let decoded = self.decode_value(value)?;
         Ok(rmp_serde::from_slice(&decoded)?)
     }
 
+    #[allow(dead_code)]
     fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
         let serialized = serde_json::to_vec(value)?;
         self.encode_value(serialized)
     }
 
+    #[allow(dead_code)]
     fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
         let decoded = self.decode_value(data)?;
 
