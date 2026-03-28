@@ -23,7 +23,9 @@ use matrix_sdk_base::media::store::MediaStoreError;
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::CryptoStoreError;
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+use sqlite_wasm_vfs::relaxed_idb::RelaxedIdbError;
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
 use sqlite_wasm_vfs::sahpool::OpfsSAHError;
 use thiserror::Error;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -76,10 +78,15 @@ pub enum OpenStoreError {
     #[error("Failed to save the store cipher to the DB: {0}")]
     SaveCipher(#[source] rusqlite::Error),
 
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
     /// Failed to setup vfs for wasm environment
     #[error("Failed to setup vfs for WASM environment: {0}")]
     SetupOpfs(#[from] OpfsSAHError),
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    /// Failed to setup vfs for wasm environment
+    #[error("Failed to setup vfs for WASM environment: {0}")]
+    SetupOpfs(#[from] RelaxedIdbError),
 }
 
 #[derive(Debug, Error)]

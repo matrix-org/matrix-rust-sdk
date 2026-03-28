@@ -24,7 +24,6 @@ use std::{convert::Infallible, path::PathBuf};
 
 pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics};
-use rusqlite::OpenFlags;
 
 use crate::utils::SyncOutsideWasmWrapper;
 
@@ -48,11 +47,32 @@ pub type Connection = Object;
 pub struct Manager {
     database_path: PathBuf,
 
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+    ))]
     /// VFS used by this database connection in WASM environment.
     vfs: String,
 }
 
 impl Manager {
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+    ))]
+    /// Creates a new [`Manager`] for a database.
+    #[must_use]
+    pub fn new(database_path: PathBuf) -> Self {
+        Self { database_path }
+    }
+
+    #[cfg(all(
+        target_family = "wasm",
+        target_os = "unknown",
+        any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+    ))]
     /// Creates a new [`Manager`] for a database.
     #[must_use]
     pub fn new(database_path: PathBuf, vfs: String) -> Self {
@@ -67,12 +87,31 @@ impl managed::Manager for Manager {
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let path = self.database_path.clone();
 
-        let conn = rusqlite::Connection::open_with_flags_and_vfs(
-            path,
-            OpenFlags::default(),
-            self.vfs.as_str(),
-        )?;
-        Ok(SyncOutsideWasmWrapper::new(conn))
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+        ))]
+        {
+            let conn = rusqlite::Connection::open(path)?;
+            Ok(SyncOutsideWasmWrapper::new(conn))
+        }
+
+        #[cfg(all(
+            target_family = "wasm",
+            target_os = "unknown",
+            any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+        ))]
+        {
+            use rusqlite::OpenFlags;
+
+            let conn = rusqlite::Connection::open_with_flags_and_vfs(
+                path,
+                OpenFlags::default(),
+                self.vfs.as_str(),
+            )?;
+            Ok(SyncOutsideWasmWrapper::new(conn))
+        }
     }
 
     async fn recycle(
