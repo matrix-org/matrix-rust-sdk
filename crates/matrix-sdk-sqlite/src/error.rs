@@ -80,13 +80,13 @@ pub enum OpenStoreError {
 
     #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
     /// Failed to setup vfs for wasm environment
-    #[error("Failed to setup vfs for WASM environment: {0}")]
+    #[error("Failed to setup OPFS vfs for WASM environment: {0}")]
     SetupOpfs(#[from] OpfsSAHError),
 
     #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
     /// Failed to setup vfs for wasm environment
-    #[error("Failed to setup vfs for WASM environment: {0}")]
-    SetupOpfs(#[from] RelaxedIdbError),
+    #[error("Failed to setup IndexedDB vfs for WASM environment: {0}")]
+    SetupIdb(#[from] RelaxedIdbError),
 }
 
 #[derive(Debug, Error)]
