@@ -529,7 +529,10 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         (WasmFeatureSet::MatrixSdkCommon, ("crates/matrix-sdk-common", "--features js")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            ("crates/matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,indexeddb,rustls-tls,testing --lib",
+            ),
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
@@ -555,7 +558,7 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
             WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
             (
                 "crates/matrix-sdk",
-                "--no-default-features --features js,sqlite,bundled-sqlite,rustls-tls --lib --release",
+                "--no-default-features --features js,sqlite,bundled-sqlite,rustls-tls,testing --lib --release",
             ),
         ),
         (
