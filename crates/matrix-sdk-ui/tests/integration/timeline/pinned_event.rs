@@ -389,7 +389,7 @@ async fn test_max_events_to_load_is_honored() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    client.event_cache().config_mut().await.max_pinned_events_to_load = 1;
+    client.event_cache().config_mut().max_pinned_events_to_load = 1;
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
@@ -869,7 +869,7 @@ async fn test_ensure_max_concurrency_is_observed() {
     let max_concurrent_requests = 10;
 
     // Define the max concurrent requests allowed for the event cache.
-    client.event_cache().config_mut().await.max_pinned_events_concurrent_requests =
+    client.event_cache().config_mut().max_pinned_events_concurrent_requests =
         max_concurrent_requests;
 
     let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
