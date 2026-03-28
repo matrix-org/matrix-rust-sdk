@@ -23,37 +23,57 @@ experimental-encrypted-state-events = [
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
 ]
 
+js = ["matrix-sdk-common/js", "matrix-sdk-base?/js", "matrix-sdk-crypto?/js", "matrix-sdk-store-encryption/js"]
+
 [dependencies]
 as_variant.workspace = true
 async-trait.workspace = true
 deadpool = { version = "0.13", default-features = false, features = ["managed", "rt_tokio_1"] }
-deadpool-sync = { version = "0.2", default-features = false }
 itertools.workspace = true
 matrix-sdk-base = { workspace = true, optional = true }
+matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
 num_cpus = { version = "1.17.0", default-features = false }
 rmp-serde.workspace = true
 ruma.workspace = true
-rusqlite = { version = "0.37.0", default-features = false, features = ["limits"] }
 serde.workspace = true
 serde_json.workspace = true
 serde_path_to_error = { version = "0.1.20", default-features = false }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs"] }
 tracing.workspace = true
 vodozemac.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true }
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint", "buildtime_bindgen", "wasm32-wasi-vfs"] }
+sqlite-wasm-rs = "0.5.2"
+sqlite-wasm-vfs = "0.2.0"
+web-time = { version = "1.1.0", features = ["serde"] }
+uri_encode = "1.0.4"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+deadpool-sync = { version = "0.2", default-features = false }
+tokio = { workspace = true, features = ["fs"] }
+rusqlite = { version = "0.38.0", default-features = false, features = ["limits", "cache", "fallible_uint"] }
 
 [dev-dependencies]
 assert_matches.workspace = true
 glob = "0.3.3"
 matrix-sdk-base = { workspace = true, features = ["testing"] }
-matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 similar-asserts.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+gloo-timers = { workspace = true, features = ["futures"] }
+uuid = { workspace = true, features = ["js", "v4"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
