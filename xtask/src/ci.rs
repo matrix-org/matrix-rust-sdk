@@ -164,6 +164,11 @@ enum WasmFeatureSet {
     /// Equivalent to `indexeddb-all-features`, `indexeddb-crypto` and
     /// `indexeddb-state`
     Indexeddb,
+    /// Check `matrix-sdk` crate with `sqlite` feature (but not
+    /// `e2e-encryption`)
+    MatrixSdkSqliteStoresNoCrypto,
+    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
+    MatrixSdkSqliteStores,
     /// Check `matrix-sdk-sqlite` crate with all features
     SqliteAllFeatures,
     /// Check `matrix-sdk-sqlite` crate with `state-store` and
@@ -418,6 +423,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             "-p matrix-sdk-indexeddb --no-default-features --features state-store",
         ),
         (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,rustls-tls",
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStores,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls",
+        ),
+        (
             WasmFeatureSet::SqliteAllFeatures,
             "-p matrix-sdk-sqlite --no-default-features --features js,crypto-store,experimental-encrypted-state-events,state-store,event-cache",
         ),
@@ -463,6 +476,32 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbAllFeatures), runner)?;
         run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbCrypto), runner)?;
         run_wasm_pack_tests(Some(WasmFeatureSet::IndexeddbState), runner)?;
+        return Ok(());
+    }
+
+    if let Some(WasmFeatureSet::MatrixSdkSqliteStores) = cmd
+        && let WasmTestRunner::All = runner
+    {
+        // Current VFS backend is not supported in Node.JS just yet.
+        // We force them to run in browser only for now.
+        run_wasm_pack_tests(Some(WasmFeatureSet::MatrixSdkSqliteStores), WasmTestRunner::Chrome)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::MatrixSdkSqliteStores), WasmTestRunner::Firefox)?;
+        return Ok(());
+    }
+
+    if let Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto) = cmd
+        && let WasmTestRunner::All = runner
+    {
+        // Current VFS backend is not supported in Node.JS just yet.
+        // We force them to run in browser only for now.
+        run_wasm_pack_tests(
+            Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto),
+            WasmTestRunner::Chrome,
+        )?;
+        run_wasm_pack_tests(
+            Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto),
+            WasmTestRunner::Firefox,
+        )?;
         return Ok(());
     }
 
@@ -513,10 +552,24 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         //
         // Ref: https://github.com/Spxg/sqlite-wasm-rs/blob/master/crates/sqlite-wasm-vfs/src/sahpool.rs#L672
         (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,sqlite,bundled-sqlite,rustls-tls --lib --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStores,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls,testing --lib --release",
+            ),
+        ),
+        (
             WasmFeatureSet::SqliteAllFeatures,
             (
                 "crates/matrix-sdk-sqlite",
-                "--features js,experimental-encrypted-state-events,crypto-store --release",
+                "--features js,state-store,experimental-encrypted-state-events,crypto-store,event-cache --release",
             ),
         ),
         (
