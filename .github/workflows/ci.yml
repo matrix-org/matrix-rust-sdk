@@ -251,10 +251,7 @@ jobs:
 
           # [m]-sqlite is not supported on Node.js yet, due to
           # dedicated worker requirement for OPFS
-          - name: '[m]-sqlite, chrome'
-            cmd: sqlite
-
-          - name: '[m]-sqlite, firefox'
+          - name: '[m]-sqlite'
             cmd: sqlite
 
     steps:
