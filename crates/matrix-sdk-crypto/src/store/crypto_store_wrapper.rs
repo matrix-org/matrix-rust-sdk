@@ -13,10 +13,13 @@ use super::{
     types::RoomKeyBundleInfo,
 };
 use crate::{
-    CryptoStoreError, GossippedSecret, OwnUserIdentityData, Session, UserIdentityData,
+    CryptoStoreError, OwnUserIdentityData, Session, UserIdentityData,
     olm::InboundGroupSession,
     store,
-    store::{Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo},
+    store::{
+        Changes, DynCryptoStore, IntoCryptoStore, RoomKeyInfo, RoomKeyWithheldInfo,
+        types::SecretsInboxItem,
+    },
 };
 
 /// A wrapper for crypto store implementations that adds update notifiers.
@@ -43,7 +46,7 @@ pub(crate) struct CryptoStoreWrapper {
 
     /// The sender side of a broadcast channel which sends out secrets we
     /// received as a `m.secret.send` event.
-    secrets_broadcaster: broadcast::Sender<GossippedSecret>,
+    secrets_broadcaster: broadcast::Sender<SecretsInboxItem>,
 
     /// The sender side of a broadcast channel which sends out devices and user
     /// identities which got updated or newly created.
@@ -340,7 +343,7 @@ impl CryptoStoreWrapper {
 
     /// Receive notifications of gossipped secrets being received and stored in
     /// the secret inbox as a [`Stream`].
-    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> + use<> {
+    pub fn secrets_stream(&self) -> impl Stream<Item = SecretsInboxItem> + use<> {
         let stream = BroadcastStream::new(self.secrets_broadcaster.subscribe());
         Self::filter_errors_out_of_stream(stream, "secrets_stream")
     }

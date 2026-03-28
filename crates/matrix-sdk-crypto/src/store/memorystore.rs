@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ use ruma::{
 use tokio::sync::{Mutex, RwLock};
 use tracing::warn;
 use vodozemac::Curve25519PublicKey;
+use zeroize::Zeroizing;
 
 use super::{
     Account, CryptoStore, InboundGroupSession, Session,
@@ -43,7 +44,7 @@ use super::{
     },
 };
 use crate::{
-    gossiping::{GossipRequest, GossippedSecret, SecretInfo},
+    gossiping::{GossipRequest, SecretInfo},
     identities::{DeviceData, UserIdentityData},
     olm::{
         OutboundGroupSession, PickledAccount, PickledInboundGroupSession, PickledSession,
@@ -104,7 +105,7 @@ pub struct MemoryStore {
     direct_withheld_info: StdRwLock<HashMap<OwnedRoomId, HashMap<String, RoomKeyWithheldEntry>>>,
     custom_values: StdRwLock<HashMap<String, Vec<u8>>>,
     leases: StdRwLock<HashMap<String, Lease>>,
-    secret_inbox: StdRwLock<HashMap<String, Vec<GossippedSecret>>>,
+    secret_inbox: StdRwLock<HashMap<String, Vec<Zeroizing<String>>>>,
     backup_keys: RwLock<BackupKeys>,
     dehydrated_device_pickle_key: RwLock<Option<DehydratedDeviceKey>>,
     next_batch_token: RwLock<Option<String>>,
@@ -306,7 +307,7 @@ impl CryptoStore for MemoryStore {
         {
             let mut secret_inbox = self.secret_inbox.write();
             for secret in changes.secrets {
-                secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret);
+                secret_inbox.entry(secret.secret_name.to_string()).or_default().push(secret.secret);
             }
         }
 
@@ -749,7 +750,7 @@ impl CryptoStore for MemoryStore {
     async fn get_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
-    ) -> Result<Vec<GossippedSecret>> {
+    ) -> Result<Vec<Zeroizing<String>>> {
         Ok(self.secret_inbox.write().entry(secret_name.to_string()).or_default().to_owned())
     }
 
@@ -1322,10 +1323,11 @@ mod integration_tests {
         DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
     };
     use vodozemac::Curve25519PublicKey;
+    use zeroize::Zeroizing;
 
     use super::MemoryStore;
     use crate::{
-        Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, Session, UserIdentityData,
+        Account, DeviceData, GossipRequest, SecretInfo, Session, UserIdentityData,
         cryptostore_integration_tests, cryptostore_integration_tests_time,
         olm::{
             InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
@@ -1593,7 +1595,7 @@ mod integration_tests {
         async fn get_secrets_from_inbox(
             &self,
             secret_name: &SecretName,
-        ) -> Result<Vec<GossippedSecret>, Self::Error> {
+        ) -> Result<Vec<Zeroizing<String>>, Self::Error> {
             self.0.get_secrets_from_inbox(secret_name).await
         }
 

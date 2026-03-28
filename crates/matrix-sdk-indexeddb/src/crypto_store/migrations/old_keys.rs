@@ -30,3 +30,6 @@ pub const BACKUP_KEY_V1: &str = "backup_key_v1";
 /// Old format of the [`withheld_sessions`](WITHHELD_SESSIONS) store which
 /// lacked useful indexes.
 pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
+
+/// Old format for secrets inbox, which stored a full `GossippedSecret` event
+pub const SECRETS_INBOX_V1: &str = "secrets_inbox";
