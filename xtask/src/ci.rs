@@ -586,36 +586,6 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         return Ok(());
     }
 
-    if let Some(WasmFeatureSet::MatrixSdkSqliteStoresOpfs) = cmd
-        && let WasmTestRunner::All = runner
-    {
-        // OPFS vfs is not supported in Node.JS. We will force them to run in browser only.
-        run_wasm_pack_tests(
-            Some(WasmFeatureSet::MatrixSdkSqliteStoresOpfs),
-            WasmTestRunner::Chrome,
-        )?;
-        run_wasm_pack_tests(
-            Some(WasmFeatureSet::MatrixSdkSqliteStoresOpfs),
-            WasmTestRunner::Firefox,
-        )?;
-        return Ok(());
-    }
-
-    if let Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoOpfs) = cmd
-        && let WasmTestRunner::All = runner
-    {
-        // OPFS vfs is not supported in Node.JS. We will force them to run in browser only.
-        run_wasm_pack_tests(
-            Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoOpfs),
-            WasmTestRunner::Chrome,
-        )?;
-        run_wasm_pack_tests(
-            Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoOpfs),
-            WasmTestRunner::Firefox,
-        )?;
-        return Ok(());
-    }
-
     if let Some(WasmFeatureSet::SqliteInMemory) = cmd {
         run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesInMemory), runner)?;
         run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheInMemory), runner)?;
@@ -625,15 +595,10 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
     }
 
     if let Some(WasmFeatureSet::SqliteOpfs) = cmd {
-        // OPFS vfs is not supported in Node.JS. We will force them to run in browser only.
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesOpfs), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesOpfs), WasmTestRunner::Firefox)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheOpfs), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheOpfs), WasmTestRunner::Firefox)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteStateOpfs), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteStateOpfs), WasmTestRunner::Firefox)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCryptoOpfs), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCryptoOpfs), WasmTestRunner::Firefox)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesOpfs), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheOpfs), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteStateOpfs), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCryptoOpfs), runner)?;
         return Ok(());
     }
 
