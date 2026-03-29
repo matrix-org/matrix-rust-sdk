@@ -2368,8 +2368,10 @@ struct ReceiptData {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     use std::path::PathBuf;
@@ -2411,8 +2413,10 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use std::{
         path::PathBuf,
@@ -2511,8 +2515,10 @@ mod encrypted_tests {
 
 #[cfg(test)]
 mod migration_tests {
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     use std::{
         path::{Path, PathBuf},
