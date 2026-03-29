@@ -23,7 +23,12 @@ use matrix_sdk_base::media::store::MediaStoreError;
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::CryptoStoreError;
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+use sqlite_wasm_vfs::relaxed_idb::RelaxedIdbError;
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+use sqlite_wasm_vfs::sahpool::OpfsSAHError;
 use thiserror::Error;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use tokio::io;
 
 use crate::connection::{CreatePoolError, PoolError};
@@ -32,6 +37,7 @@ use crate::connection::{CreatePoolError, PoolError};
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum OpenStoreError {
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     /// Failed to create the DB's parent directory.
     #[error("Failed to create the database's parent directory: {0}")]
     CreateDir(#[source] io::Error),
@@ -71,6 +77,16 @@ pub enum OpenStoreError {
     /// Failed to save the store cipher to the DB.
     #[error("Failed to save the store cipher to the DB: {0}")]
     SaveCipher(#[source] rusqlite::Error),
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+    /// Failed to setup vfs for wasm environment
+    #[error("Failed to setup OPFS vfs for WASM environment: {0}")]
+    SetupOpfs(#[from] OpfsSAHError),
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    /// Failed to setup vfs for wasm environment
+    #[error("Failed to setup IndexedDB vfs for WASM environment: {0}")]
+    SetupIdb(#[from] RelaxedIdbError),
 }
 
 #[derive(Debug, Error)]

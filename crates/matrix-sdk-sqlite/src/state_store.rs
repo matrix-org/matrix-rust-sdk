@@ -37,10 +37,7 @@ use ruma::{
 };
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, instrument, warn};
 
 use crate::{
@@ -49,7 +46,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, repeat_vars,
+        SqliteKeyValueStoreConnExt, repeat_vars, setup_db_fs,
     },
 };
 
@@ -115,7 +112,7 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
+        setup_db_fs(&config.path).await?;
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
@@ -871,7 +868,8 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     async fn get_kv_blob(&self, key: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
@@ -1108,14 +1106,16 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
         Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl StateStore for SqliteStateStore {
     type Error = Error;
 
@@ -2368,22 +2368,40 @@ struct ReceiptData {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    use std::path::PathBuf;
     use std::sync::{
         LazyLock,
         atomic::{AtomicU32, Ordering::SeqCst},
     };
 
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    static TMP_DIR: LazyLock<uuid::Uuid> = LazyLock::new(|| uuid::Uuid::new_v4());
+
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_store() -> Result<impl StateStore, StoreError> {
         let name = NUM.fetch_add(1, SeqCst).to_string();
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         let tmpdir_path = TMP_DIR.path().join(name);
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // We cannot create a temp directory in WASM environment due to non-existence file system.
+        // Instead we will rely on VFS to handle it for us.
+        let tmpdir_path = PathBuf::from(format!("{}/{name}", *TMP_DIR));
 
         tracing::info!("using store @ {}", tmpdir_path.to_str().unwrap());
 
@@ -2395,6 +2413,11 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use std::{
         path::PathBuf,
         sync::{
@@ -2405,17 +2428,31 @@ mod encrypted_tests {
 
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
     use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    static TMP_DIR: LazyLock<uuid::Uuid> = LazyLock::new(|| uuid::Uuid::new_v4());
+
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_state_store_workspace() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        TMP_DIR.path().join(name)
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            TMP_DIR.path().join(name)
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // We cannot create a temp directory in WASM environment due to non-existence file system.
+        // Instead we will rely on VFS to handle it for us.
+        {
+            PathBuf::from(format!("{}/{name}", *TMP_DIR))
+        }
     }
 
     async fn get_store() -> Result<impl StateStore, StoreError> {
@@ -2478,6 +2515,11 @@ mod encrypted_tests {
 
 #[cfg(test)]
 mod migration_tests {
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+    #[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
     use std::{
         path::{Path, PathBuf},
         sync::{
@@ -2508,30 +2550,46 @@ mod migration_tests {
     use rusqlite::Transaction;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     use tempfile::{TempDir, tempdir};
-    use tokio::{fs, sync::Mutex};
+    use tokio::sync::Mutex;
     use zeroize::Zeroizing;
 
     use super::{DATABASE_NAME, SqliteStateStore, init, keys};
     use crate::{
-        OpenStoreError, Secret, SqliteStoreConfig,
+        Secret, SqliteStoreConfig,
         error::{Error, Result},
-        utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+        utils::{
+            EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, setup_db_fs,
+        },
     };
 
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    static TMP_DIR: LazyLock<uuid::Uuid> = LazyLock::new(|| uuid::Uuid::new_v4());
+
     static NUM: AtomicU32 = AtomicU32::new(0);
     const SECRET: &str = "secret";
 
     fn new_path() -> PathBuf {
         let name = NUM.fetch_add(1, SeqCst).to_string();
-        TMP_DIR.path().join(name)
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            TMP_DIR.path().join(name)
+        }
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // We cannot create a temp directory in WASM environment due to non-existence file system.
+        // Instead we will rely on VFS to handle it for us.
+        {
+            PathBuf::from(format!("{}/{name}", *TMP_DIR))
+        }
     }
 
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
         let config = SqliteStoreConfig::new(path);
 
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir).unwrap();
+        setup_db_fs(&config.path).await.unwrap();
 
         let pool = config.build_pool_of_connections(DATABASE_NAME).unwrap();
         let conn = pool.get().await?;
