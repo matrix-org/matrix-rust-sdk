@@ -197,26 +197,34 @@ enum WasmFeatureSet {
     /// Check `matrix-sdk-sqlite` crate with `state-store` and
     /// `crypto-store` feature using IndexedDB vfs
     SqliteCryptoIndexeddb,
-    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using in-memory vfs
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using
+    /// in-memory vfs
     SqliteStateInMemory,
-    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using OPFS vfs
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using
+    /// OPFS vfs
     SqliteStateOpfs,
-    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using IndexedDB vfs
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using
+    /// IndexedDB vfs
     SqliteStateIndexeddb,
-    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using in-memory vfs
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using
+    /// in-memory vfs
     SqliteCacheInMemory,
-    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using OPFS vfs
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using
+    /// OPFS vfs
     SqliteCacheOpfs,
-    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using IndexedDB vfs
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using
+    /// IndexedDB vfs
     SqliteCacheIndexeddb,
-    /// Equivalent to `sqlite-all-features-in-memory`, `sqlite-crypto-in-memory`,
-    /// `sqlite-state-in-memory`, and `sqlite-cache-in-memory`
+    /// Equivalent to `sqlite-all-features-in-memory`,
+    /// `sqlite-crypto-in-memory`, `sqlite-state-in-memory`, and
+    /// `sqlite-cache-in-memory`
     SqliteInMemory,
     /// Equivalent to `sqlite-all-features-opfs`, `sqlite-crypto-opfs`,
     /// `sqlite-state-opfs`, and `sqlite-cache-opfs`
     SqliteOpfs,
-    /// Equivalent to `sqlite-all-features-indexeddb`, `sqlite-crypto-indexeddb`,
-    /// `sqlite-state-indexeddb`, and `sqlite-cache-indexeddb`
+    /// Equivalent to `sqlite-all-features-indexeddb`,
+    /// `sqlite-crypto-indexeddb`, `sqlite-state-indexeddb`, and
+    /// `sqlite-cache-indexeddb`
     SqliteIndexeddb,
 }
 
