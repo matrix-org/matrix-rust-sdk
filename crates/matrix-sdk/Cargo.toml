@@ -36,8 +36,6 @@ e2e-encryption = [
 js = [
     "matrix-sdk-common/js",
     "matrix-sdk-base/js",
-    "rustls-pki-types?/web",
-    "ring?/wasm32_unknown_unknown_js",
     "matrix-sdk-sqlite?/js",
 ]
 
