@@ -89,6 +89,7 @@ mod tests {
     use std::time::Duration;
 
     use assert_matches::assert_matches;
+    use eyeball_im::VectorDiff;
     use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id};
@@ -124,7 +125,17 @@ mod tests {
         let room_id = room_id!("!omelette:fromage.fr");
         let f = EventFactory::new().room(room_id).sender(*BOB);
 
-        let room = server
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Starting with an empty, inactive room,
+        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert!(room_events.is_empty());
+        assert!(room_cache_updates.is_empty());
+
+        // We get a gappy sync (so as to have a previous-batch token),
+        server
             .sync_room(
                 &client,
                 JoinedRoomBuilder::new(room_id)
@@ -133,12 +144,14 @@ mod tests {
             )
             .await;
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-
-        // Starting with an empty, inactive room,
-        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
-        assert!(room_events.is_empty());
-        assert!(room_cache_updates.is_empty());
+        {
+            assert_let_timeout!(
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+            );
+            assert_eq!(update.diffs.len(), 1);
+            assert_matches!(update.diffs[0], VectorDiff::Clear);
+            assert_matches!(update.origin, EventsOrigin::Sync);
+        }
 
         // Set up the mock for /messages,
         server
@@ -210,9 +223,14 @@ mod tests {
             )
             .await;
 
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(_)) = room_cache_updates.recv()
-        );
+        {
+            assert_let_timeout!(
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+            );
+            assert_eq!(update.diffs.len(), 1);
+            assert_matches!(update.diffs[0], VectorDiff::Clear);
+            assert_matches!(update.origin, EventsOrigin::Sync);
+        }
 
         // Set up the mock for /messages, so that it returns another prev-batch token,
         server
