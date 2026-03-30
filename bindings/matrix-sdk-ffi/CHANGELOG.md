@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix devices on Android 11 crashing because the SDK could not be initialized using `libloading` 
+  to get a reference to the JVM. Replaced `libloading` with `jvm-getter`, which works like a 
+  compatibility layer. ([#6370](https://github.com/matrix-org/matrix-rust-sdk/pull/6370))
 - Added `android_platform.rs` for fixing the `rustls` integration on Android, which was broken. 
   ([#6306](https://github.com/matrix-org/matrix-rust-sdk/pull/6306)) 
 - [**breaking**] `OtherState` properly supports redacted events that still have fields in the
