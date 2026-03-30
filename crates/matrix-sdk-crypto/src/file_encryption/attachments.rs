@@ -18,7 +18,7 @@ use aes::{
     Aes256,
     cipher::{KeyIvInit, StreamCipher},
 };
-use rand::{RngCore, thread_rng};
+use rand::{Rng, rng};
 use ruma::{
     events::room::{
         EncryptedFile, EncryptedFileHash, EncryptedFileHashAlgorithm, EncryptedFileHashes,
@@ -216,7 +216,7 @@ impl<'a, R: Read + ?Sized + 'a> AttachmentEncryptor<'a, R> {
         let mut key = [0u8; KEY_SIZE];
         let mut iv = [0u8; IV_SIZE];
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         rng.fill_bytes(&mut key);
         // Only populate the first 8 bytes with randomness, the rest is 0
