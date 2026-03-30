@@ -53,10 +53,11 @@ use tracing::{error, instrument, trace};
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
-    event_cache::tasks::BackgroundRequest,
+    event_cache::automatic_pagination::{BackgroundRequest, background_requests_task},
     paginators::PaginatorError,
 };
 
+mod automatic_pagination;
 mod caches;
 mod deduplicator;
 mod persistence;
@@ -328,7 +329,7 @@ impl EventCache {
                 self.inner.background_requests_sender.get_or_init(|| sender);
 
                 trace!("spawning the backgrounds requests task");
-                Some(task_monitor.spawn_background_task("event_cache::background_requests_task", tasks::background_requests_task(
+                Some(task_monitor.spawn_background_task("event_cache::background_requests_task", background_requests_task(
                     self.inner.clone(), receiver
                 )))
             } else {

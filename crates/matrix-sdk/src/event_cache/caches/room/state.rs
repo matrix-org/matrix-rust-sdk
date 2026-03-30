@@ -76,7 +76,9 @@ use super::{
 };
 use crate::{
     Room,
-    event_cache::{caches::pagination::SharedPaginationStatus, tasks::BackgroundRequest},
+    event_cache::{
+        automatic_pagination::BackgroundRequest, caches::pagination::SharedPaginationStatus,
+    },
     room::WeakRoom,
 };
 

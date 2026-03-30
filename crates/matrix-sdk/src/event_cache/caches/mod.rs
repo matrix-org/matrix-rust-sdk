@@ -24,7 +24,9 @@ use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{broadcast::Sender, mpsc};
 
 use super::{EventCacheError, EventsOrigin, Result};
-use crate::{client::WeakClient, event_cache::tasks::BackgroundRequest, room::WeakRoom};
+use crate::{
+    client::WeakClient, event_cache::automatic_pagination::BackgroundRequest, room::WeakRoom,
+};
 
 pub mod event_focused;
 pub mod event_linked_chunk;

@@ -111,7 +111,9 @@ use ruma::{
 use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, instrument, trace, warn};
 
-use crate::event_cache::{caches::event_linked_chunk::EventLinkedChunk, tasks::BackgroundRequest};
+use crate::event_cache::{
+    automatic_pagination::BackgroundRequest, caches::event_linked_chunk::EventLinkedChunk,
+};
 
 trait RoomReadReceiptsExt {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
