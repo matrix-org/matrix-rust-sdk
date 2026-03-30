@@ -46,10 +46,10 @@ All notable changes to this project will be documented in this file.
   requiring Sliding Sync support on the homeserver. `Client.sync()`
   accepts a `SyncListener` callback that receives a `SyncResponse`
   after each successful sync.
-  ([#6348](https://github.com/matrix-org/matrix-rust-sdk/issues/6348))
+  ([#6359](https://github.com/matrix-org/matrix-rust-sdk/pull/6359))
 - Expose `Room.send_state_event_raw()` for sending arbitrary state events
   through the FFI layer.
-  ([#6349](https://github.com/matrix-org/matrix-rust-sdk/issues/6349))
+  ([#6350](https://github.com/matrix-org/matrix-rust-sdk/pull/6350))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
   and managing the list of threads from a particular room.
   ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
