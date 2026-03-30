@@ -83,7 +83,8 @@ pub struct EventTimelineItem {
     pub(super) content: TimelineItemContent,
     /// If a redaction for this event is currently being sent but the server
     /// hasn't yet acknowledged it via its remote echo, the original content
-    /// before redaction. Otherwise, None.
+    /// before redaction. This applies to all sorts of timeline items, including
+    /// state events. If no redaction is in flight, None.
     pub(super) unredacted_content: Option<TimelineItemContent>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
