@@ -66,15 +66,9 @@
 
 use std::{convert::Infallible, path::PathBuf};
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-use deadpool::managed::RecycleError;
 pub use deadpool::managed::reexports::*;
-use deadpool::managed::{self, Metrics};
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use deadpool::managed::{self, Metrics, RecycleError};
 use deadpool_sync::SyncWrapper;
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use crate::utils::SyncOutsideWasmWrapper;
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
 pub const RUNTIME: Runtime = Runtime::Tokio1;
@@ -95,67 +89,31 @@ pub type Connection = Object;
 #[derive(Debug)]
 pub struct Manager {
     database_path: PathBuf,
-
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    /// VFS used by this database connection in WASM environment.
-    vfs: String,
 }
 
 impl Manager {
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     /// Creates a new [`Manager`] for a database.
     #[must_use]
     pub fn new(database_path: PathBuf) -> Self {
         Self { database_path }
     }
-
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    /// Creates a new [`Manager`] for a database.
-    #[must_use]
-    pub fn new(database_path: PathBuf, vfs: String) -> Self {
-        Self { database_path, vfs }
-    }
 }
 
 impl managed::Manager for Manager {
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     type Type = SyncWrapper<rusqlite::Connection>;
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    // Since `SyncWrapper` provide interior-mutability, we will need a similar API
-    // without `Send` constraint
-    //
-    // As WASM is mostly single-threaded, current implementation of using `RefCell`
-    // should suffice
-    type Type = SyncOutsideWasmWrapper<rusqlite::Connection>;
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
         let path = self.database_path.clone();
-
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
-        }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            use rusqlite::OpenFlags;
-
-            let conn = rusqlite::Connection::open_with_flags_and_vfs(
-                path,
-                OpenFlags::default(),
-                self.vfs.as_str(),
-            )?;
-            Ok(SyncOutsideWasmWrapper::new(conn))
-        }
+        SyncWrapper::new(RUNTIME, move || rusqlite::Connection::open(path)).await
     }
 
     async fn recycle(
         &self,
-        _conn: &mut Self::Type,
+        conn: &mut Self::Type,
         _: &Metrics,
     ) -> managed::RecycleResult<Self::Error> {
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        if _conn.is_mutex_poisoned() {
+        if conn.is_mutex_poisoned() {
             return Err(RecycleError::Message(
                 "Mutex is poisoned. Connection is considered unusable.".into(),
             ));
