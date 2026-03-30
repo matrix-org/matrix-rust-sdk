@@ -30,8 +30,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    ops::{Deref, DerefMut},
-    sync::{Arc, OnceLock, RwLock as StdRwLock},
+    sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use futures_util::future::try_join_all;
@@ -258,12 +257,12 @@ impl EventCache {
 
     /// Get a read-only handle to the global configuration of the
     /// [`EventCache`].
-    pub fn config(&self) -> impl Deref<Target = EventCacheConfig> + '_ {
+    pub fn config(&self) -> RwLockReadGuard<'_, EventCacheConfig> {
         self.inner.config.read().unwrap()
     }
 
     /// Get a writable handle to the global configuration of the [`EventCache`].
-    pub fn config_mut(&self) -> impl DerefMut<Target = EventCacheConfig> + '_ {
+    pub fn config_mut(&self) -> RwLockWriteGuard<'_, EventCacheConfig> {
         self.inner.config.write().unwrap()
     }
 
