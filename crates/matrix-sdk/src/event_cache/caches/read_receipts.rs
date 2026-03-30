@@ -112,7 +112,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tracing::{debug, instrument, trace, warn};
 
 use crate::event_cache::{
-    automatic_pagination::BackgroundRequest, caches::event_linked_chunk::EventLinkedChunk,
+    automatic_pagination::AutomaticPaginationRequest, caches::event_linked_chunk::EventLinkedChunk,
 };
 
 trait RoomReadReceiptsExt {
@@ -366,7 +366,7 @@ pub(crate) fn compute_unread_counts(
     linked_chunk: &EventLinkedChunk,
     read_receipts: &mut RoomReadReceipts,
     with_threading_support: bool,
-    background_request_sender: Option<&UnboundedSender<BackgroundRequest>>,
+    automatic_pagination_request_sender: Option<&UnboundedSender<AutomaticPaginationRequest>>,
 ) {
     debug!(?read_receipts, "Starting");
 
@@ -381,11 +381,11 @@ pub(crate) fn compute_unread_counts(
 
     if select_best_receipt_result.request_pagination {
         trace!("Requesting pagination to find a better receipt");
-        // Note: we use `try_send` here to keep the method sync, as computing the
-        // perfect receipt is best effort.
-        if let Some(sender) = background_request_sender
+        if let Some(sender) = automatic_pagination_request_sender
             && sender
-                .send(BackgroundRequest::PaginateRoomBackwards { room_id: room_id.to_owned() })
+                .send(AutomaticPaginationRequest::PaginateRoomBackwards {
+                    room_id: room_id.to_owned(),
+                })
                 .is_err()
         {
             warn!("Failed to request pagination to find a better receipt");

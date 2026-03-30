@@ -77,7 +77,8 @@ use super::{
 use crate::{
     Room,
     event_cache::{
-        automatic_pagination::BackgroundRequest, caches::pagination::SharedPaginationStatus,
+        automatic_pagination::AutomaticPaginationRequest,
+        caches::pagination::SharedPaginationStatus,
     },
     room::WeakRoom,
 };
@@ -151,9 +152,9 @@ pub struct RoomEventCacheState {
     /// [`super::RoomEventCache`].
     subscriber_count: Arc<AtomicUsize>,
 
-    /// A notifier to trigger backpagination under certain predefined
-    /// conditions.
-    background_request_sender: Option<mpsc::UnboundedSender<BackgroundRequest>>,
+    /// A sender to trigger automatic pagination requests under certain
+    /// predefined conditions.
+    automatic_pagination_request_sender: Option<mpsc::UnboundedSender<AutomaticPaginationRequest>>,
 }
 
 impl RoomEventCacheState {
@@ -314,7 +315,9 @@ impl LockedRoomEventCacheState {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
         pagination_status: SharedObservable<SharedPaginationStatus>,
-        background_request_sender: Option<mpsc::UnboundedSender<BackgroundRequest>>,
+        automatic_pagination_request_sender: Option<
+            mpsc::UnboundedSender<AutomaticPaginationRequest>,
+        >,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
@@ -397,7 +400,7 @@ impl LockedRoomEventCacheState {
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
             pinned_event_cache: OnceLock::new(),
-            background_request_sender,
+            automatic_pagination_request_sender,
         }))
     }
 }
@@ -1061,7 +1064,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             &self.state.room_linked_chunk,
             &mut read_receipts,
             self.state.enabled_thread_support,
-            self.state.background_request_sender.as_ref(),
+            self.state.automatic_pagination_request_sender.as_ref(),
         );
 
         if prev_read_receipts != read_receipts {

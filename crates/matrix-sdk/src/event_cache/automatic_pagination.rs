@@ -21,23 +21,24 @@ use tracing::{info, instrument, trace, warn};
 use crate::event_cache::EventCacheInner;
 
 #[derive(Clone, Debug)]
-pub(crate) enum BackgroundRequest {
+pub(crate) enum AutomaticPaginationRequest {
     PaginateRoomBackwards { room_id: OwnedRoomId },
 }
 
-/// Listen to background requests, and execute them in real-time.
+/// Listen to background automatic pagination requests, and execute them in
+/// real-time.
 #[instrument(skip_all)]
-pub(super) async fn background_requests_task(
+pub(super) async fn automatic_paginations_task(
     inner: Arc<EventCacheInner>,
-    mut receiver: mpsc::UnboundedReceiver<BackgroundRequest>,
+    mut receiver: mpsc::UnboundedReceiver<AutomaticPaginationRequest>,
 ) {
-    trace!("Spawning the background request task");
+    trace!("Spawning the automatic pagination task");
 
     let mut room_pagination_credits = HashMap::new();
 
     while let Some(request) = receiver.recv().await {
         match request {
-            BackgroundRequest::PaginateRoomBackwards { room_id } => {
+            AutomaticPaginationRequest::PaginateRoomBackwards { room_id } => {
                 let config = *inner.config.read().unwrap();
 
                 let credits = room_pagination_credits
@@ -61,12 +62,13 @@ pub(super) async fn background_requests_task(
 
                 match pagination.run_backwards_once(config.room_pagination_batch_size).await {
                     Ok(outcome) => {
-                        // Background requests must be idempotent, so we only decrement credits if
+                        // Pagination requests must be idempotent, so we only decrement credits if
                         // we actually paginated something new.
                         if !outcome.reached_start || !outcome.events.is_empty() {
                             *credits -= 1;
                         }
                     }
+
                     Err(err) => {
                         warn!(for_room = %room_id, "Failed to run background pagination: {err}");
                         // Don't decrement credits in this case, to allow a
@@ -78,7 +80,7 @@ pub(super) async fn background_requests_task(
     }
 
     // The sender has shut down, exit.
-    info!("Closing the background request task because receiver closed");
+    info!("Closing the automatic pagination task because receiver closed");
 }
 
 // MatrixMockServer et al. aren't available on wasm.
@@ -96,20 +98,20 @@ mod tests {
         assert_let_timeout,
         event_cache::{
             EventsOrigin, RoomEventCacheUpdate,
-            automatic_pagination::BackgroundRequest::PaginateRoomBackwards,
+            automatic_pagination::AutomaticPaginationRequest::PaginateRoomBackwards,
         },
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     };
 
     impl super::super::EventCache {
-        fn background_requests_sender(
+        fn pagination_requests_sender(
             &self,
-        ) -> Option<mpsc::UnboundedSender<super::BackgroundRequest>> {
-            self.inner.background_requests_sender.get().cloned()
+        ) -> Option<mpsc::UnboundedSender<super::AutomaticPaginationRequest>> {
+            self.inner.automatic_pagination_requests_sender.get().cloned()
         }
     }
 
-    /// Test that we can send background requests and trigger room paginations.
+    /// Test that we can send automatic pagination requests.
     #[async_test]
     async fn test_background_room_paginations() {
         let server = MatrixMockServer::new().await;
@@ -150,7 +152,7 @@ mod tests {
             .await;
 
         // Send a request for a background pagination,
-        let sender = event_cache.background_requests_sender().unwrap();
+        let sender = event_cache.pagination_requests_sender().unwrap();
         sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
 
         // The room pagination happens in the background.
@@ -227,7 +229,7 @@ mod tests {
             .await;
 
         // Send a request for a background pagination,
-        let sender = event_cache.background_requests_sender().unwrap();
+        let sender = event_cache.pagination_requests_sender().unwrap();
         sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
 
         // The room pagination happens in the background.
