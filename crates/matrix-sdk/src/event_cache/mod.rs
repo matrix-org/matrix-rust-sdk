@@ -720,7 +720,7 @@ impl EventCacheInner {
 }
 
 /// Indicate where events are coming from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum EventsOrigin {
     /// Events are coming from a sync.
     Sync,

@@ -593,6 +593,7 @@ pub(super) async fn search_indexing_task(
 mod tests {
     use std::time::Duration;
 
+    use assert_matches::assert_matches;
     use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id};
@@ -662,7 +663,7 @@ mod tests {
         );
         assert_eq!(update.diffs.len(), 1);
 
-        assert_eq!(update.origin, EventsOrigin::Pagination);
+        assert_matches!(update.origin, EventsOrigin::Pagination);
 
         let mut room_events = room_events.into();
         for diff in update.diffs {
@@ -739,7 +740,7 @@ mod tests {
         );
         assert_eq!(update.diffs.len(), 1);
 
-        assert_eq!(update.origin, EventsOrigin::Pagination);
+        assert_matches!(update.origin, EventsOrigin::Pagination);
 
         let mut room_events = room_events.into();
         for diff in update.diffs {
