@@ -321,7 +321,7 @@ impl EventCache {
             };
 
             let background_requests_task = if self.config().experimental_auto_backpagination {
-                let (sender, receiver) = mpsc::channel(4096);
+                let (sender, receiver) = mpsc::unbounded_channel();
 
                 // Run the deferred initialization of the background request sender, that is shared
                 // with every room.
@@ -501,7 +501,7 @@ struct EventCacheInner {
     ///
     /// It's a `OnceLock` because its initialization is deferred to
     /// [`EventCache::subscribe`].
-    background_requests_sender: OnceLock<mpsc::Sender<BackgroundRequest>>,
+    background_requests_sender: OnceLock<mpsc::UnboundedSender<BackgroundRequest>>,
 
     /// A sender for room generic update.
     ///

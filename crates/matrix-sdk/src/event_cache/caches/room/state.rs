@@ -151,7 +151,7 @@ pub struct RoomEventCacheState {
 
     /// A notifier to trigger backpagination under certain predefined
     /// conditions.
-    background_request_sender: Option<mpsc::Sender<BackgroundRequest>>,
+    background_request_sender: Option<mpsc::UnboundedSender<BackgroundRequest>>,
 }
 
 impl RoomEventCacheState {
@@ -312,7 +312,7 @@ impl LockedRoomEventCacheState {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
         pagination_status: SharedObservable<SharedPaginationStatus>,
-        background_request_sender: Option<mpsc::Sender<BackgroundRequest>>,
+        background_request_sender: Option<mpsc::UnboundedSender<BackgroundRequest>>,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
