@@ -15,7 +15,7 @@
 use std::io::{Cursor, Read, Seek, SeekFrom};
 
 use byteorder::{BigEndian, ReadBytesExt};
-use rand::{RngCore, thread_rng};
+use rand::{Rng, rng};
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 use vodozemac::{base64_decode, base64_encode};
@@ -149,7 +149,7 @@ pub fn encrypt_room_key_export(
 
 fn encrypt_helper(plaintext: &[u8], passphrase: &str, rounds: u32) -> String {
     let mut salt = [0u8; SALT_SIZE];
-    let mut rng = thread_rng();
+    let mut rng = rng();
 
     rng.fill_bytes(&mut salt);
 

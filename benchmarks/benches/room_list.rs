@@ -6,7 +6,7 @@ use matrix_sdk_test::{JoinedRoomBuilder, base64_sha256_hash, event_factory::Even
 use matrix_sdk_ui::{
     RoomListService, eyeball_im::VectorDiff, room_list_service::filters::new_filter_non_left,
 };
-use rand::{distributions::Uniform, prelude::Distribution};
+use rand::{distr::Uniform, prelude::Distribution};
 use ruma::{OwnedRoomId, RoomId, owned_user_id};
 use tokio::runtime::Builder;
 
@@ -26,8 +26,8 @@ pub fn create(c: &mut Criterion) {
     });
 
     let sender_id = owned_user_id!("@mnt_io:matrix.org");
-    let mut rand = rand::thread_rng();
-    let server_ts_range = Uniform::from(100..1000);
+    let mut rand = rand::rng();
+    let server_ts_range = Uniform::try_from(100..1000).unwrap();
 
     for room_nth in 0..NUMBER_OF_ROOMS {
         // Synapse's room IDs for rooms v1 to v11 have an 18 characters localpart.

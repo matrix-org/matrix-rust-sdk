@@ -22,6 +22,7 @@ use std::{
     time::Duration,
 };
 
+use rand::Rng;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, base64_encode};
@@ -261,13 +262,14 @@ impl BackupDecryptionKey {
     pub const KEY_SIZE: usize = 32;
 
     /// Create a new random decryption key.
-    pub fn new() -> Result<Self, rand::Error> {
-        let mut rng = rand::thread_rng();
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let mut rng = rand::rng();
 
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
-        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+        rng.fill_bytes(key.as_mut_slice());
 
-        Ok(Self { inner: key })
+        Self { inner: key }
     }
 
     /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
@@ -298,13 +300,14 @@ impl DehydratedDeviceKey {
     pub const KEY_SIZE: usize = 32;
 
     /// Generates a new random pickle key.
-    pub fn new() -> Result<Self, rand::Error> {
-        let mut rng = rand::thread_rng();
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let mut rng = rand::rng();
 
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
-        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+        rng.fill_bytes(key.as_mut_slice());
 
-        Ok(Self { inner: key })
+        Self { inner: key }
     }
 
     /// Creates a new dehydration pickle key from the given slice.

@@ -850,9 +850,9 @@ pub struct DehydratedDeviceKey {
 
 impl DehydratedDeviceKey {
     /// Generates a new random pickle key.
-    pub fn new() -> Result<Self, DehydrationError> {
-        let inner = InnerDehydratedDeviceKey::new()?;
-        Ok(inner.into())
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        InnerDehydratedDeviceKey::new().into()
     }
 
     /// Creates a new dehydration pickle key from the given slice.
