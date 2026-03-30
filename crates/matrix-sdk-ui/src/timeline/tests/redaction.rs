@@ -219,19 +219,19 @@ async fn test_local_and_remote_echo_of_redaction() {
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(!item.content().is_redacted());
-    assert!(!item.content().is_redacted_locally());
+    assert!(item.unredacted_content.is_none());
 
     // Now redact the message. We first emit the local echo of the redaction event.
     // The timeline event should be marked as being under redaction.
     timeline.handle_local_redaction(event_id.clone()).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert!(item.content().is_redacted_locally());
+    assert!(item.unredacted_content.is_some());
 
     // Then comes the remote echo of the redaction event. The timeline event should
     // now be redacted.
     timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert!(!item.content().is_redacted_locally());
+    assert!(item.unredacted_content.is_none());
 }

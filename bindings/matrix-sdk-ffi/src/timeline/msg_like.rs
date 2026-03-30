@@ -178,8 +178,7 @@ impl TryFrom<matrix_sdk_ui::timeline::MsgLikeContent> for MsgLikeContent {
                     thread_summary,
                 }
             }
-            Kind::Redacted { unredacted_content: _ } => Self {
-                // TODO: Expose the unredacted content over FFI
+            Kind::Redacted => Self {
                 kind: MsgLikeKind::Redacted,
                 reactions,
                 in_reply_to,

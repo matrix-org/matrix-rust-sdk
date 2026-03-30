@@ -81,6 +81,10 @@ pub struct EventTimelineItem {
     /// The content of the event. Might be redacted if a redaction for this
     /// event is currently being sent or has been received from the server.
     pub(super) content: TimelineItemContent,
+    /// If a redaction for this event is currently being sent but the server
+    /// hasn't yet acknowledged it via its remote echo, the original content
+    /// before redaction. Otherwise, None.
+    pub(super) unredacted_content: Option<TimelineItemContent>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
@@ -136,6 +140,7 @@ impl EventTimelineItem {
             forwarder_profile,
             timestamp,
             content,
+            unredacted_content: None,
             kind,
             is_room_encrypted,
         }
@@ -508,7 +513,7 @@ impl EventTimelineItem {
 
     /// Create a clone of the current item, with content that's been redacted.
     pub(super) fn redact(&self, rules: &RedactionRules, is_local: bool) -> Self {
-        let content = self.content.redact(rules, is_local);
+        let content = self.content.redact(rules);
         let kind = match &self.kind {
             EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
             EventTimelineItemKind::Remote(r) => EventTimelineItemKind::Remote(r.redact()),
@@ -520,6 +525,7 @@ impl EventTimelineItem {
             forwarder_profile: self.forwarder_profile.clone(),
             timestamp: self.timestamp,
             content,
+            unredacted_content: is_local.then(|| self.content.clone()),
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -529,6 +535,7 @@ impl EventTimelineItem {
     /// item's unredacted_content field (if it was previously set by a call to
     /// the `redact(...)` method).
     pub(super) fn unredact(&self) -> Self {
+        let Some(content) = &self.unredacted_content else { return self.clone() };
         let kind = match &self.kind {
             EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
             EventTimelineItemKind::Remote(r) => EventTimelineItemKind::Remote(r.redact()),
@@ -539,7 +546,8 @@ impl EventTimelineItem {
             forwarder: self.forwarder.clone(),
             forwarder_profile: self.forwarder_profile.clone(),
             timestamp: self.timestamp,
-            content: self.content.unredact(),
+            content: content.clone(),
+            unredacted_content: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -601,7 +609,7 @@ impl EventTimelineItem {
                 },
                 MsgLikeKind::Sticker(_)
                 | MsgLikeKind::Poll(_)
-                | MsgLikeKind::Redacted { .. }
+                | MsgLikeKind::Redacted
                 | MsgLikeKind::UnableToDecrypt(_)
                 | MsgLikeKind::Other(_)
                 | MsgLikeKind::LiveLocation(_) => None,
