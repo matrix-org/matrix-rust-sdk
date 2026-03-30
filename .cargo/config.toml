@@ -11,3 +11,6 @@ rustdoc-map = true
 [target.aarch64-linux-android]
 # These rust flags improve the performance on Android on arm64
 rustflags = ["-C", "target-feature=+neon,+aes,+sha2,+sha3,+pmuv3"]
+
+[env]
+IPHONEOS_DEPLOYMENT_TARGET = "16.0"
