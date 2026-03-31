@@ -53,7 +53,6 @@ use tracing::{error, instrument, trace};
 use crate::{
     Client,
     client::{ClientInner, WeakClient},
-    event_cache::automatic_pagination::AutomaticPagination,
     paginators::PaginatorError,
 };
 
@@ -78,6 +77,8 @@ pub use caches::{
 };
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
+
+pub use crate::event_cache::automatic_pagination::AutomaticPagination;
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Clone, Debug)]
