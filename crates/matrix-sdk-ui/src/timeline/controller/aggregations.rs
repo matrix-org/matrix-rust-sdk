@@ -738,10 +738,17 @@ impl Aggregations {
                 AggregationKind::PollResponse { .. }
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
-                | AggregationKind::Redaction { .. }
                 | AggregationKind::BeaconUpdate { .. }
                 | AggregationKind::BeaconStop { .. } => {
                     // Nothing particular to do.
+                }
+
+                AggregationKind::Redaction { is_local } => {
+                    // Mark the redaction as being remote and apply it (irreversibly).
+                    *is_local = false;
+
+                    let found = found.clone();
+                    find_item_and_apply_aggregation(self, items, &target, found, rules);
                 }
 
                 AggregationKind::Reaction { reaction_status, .. } => {
