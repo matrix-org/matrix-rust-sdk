@@ -1125,7 +1125,7 @@ macro_rules! cryptostore_integration_tests {
                 };
 
                 let mut changes = Changes::default();
-                changes.secrets.push(another_secret.into());
+                changes.secrets.push(another_secret.clone().into());
                 store.save_changes(changes).await.unwrap();
 
                 let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
@@ -1133,6 +1133,18 @@ macro_rules! cryptostore_integration_tests {
 
                 let restored = store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
                 assert!(restored.is_empty(), "We should not have secrets of a different type stored");
+
+                // if we push a secret with the same name and secret, it should
+                // succeed
+                let mut changes = Changes::default();
+                changes.secrets.push(another_secret.into());
+                store.save_changes(changes).await.unwrap();
+
+                let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
+                tracing::debug!(length = ?restored.len(), "length");
+                // the store may store the secrets separately, or combine them
+                // if they have the same name and secret
+                assert!(restored.len() == 2 || restored.len() == 3, "We should only have two or three secrets stored");
 
                 store.delete_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
 
@@ -1166,8 +1178,14 @@ macro_rules! cryptostore_integration_tests {
                 assert_eq!(first_secret.deref(), secret);
                 assert_eq!(restored.len(), 1, "We should only have one secret stored for now");
 
+                let secret2 = "It is another secret to everybody";
+                let another_secret = SecretPushContent::new(
+                    SecretName::RecoveryKey,
+                    secret2.to_owned(),
+                );
+
                 let mut changes = Changes::default();
-                changes.secrets.push(value.into());
+                changes.secrets.push(another_secret.into());
                 store.save_changes(changes).await.unwrap();
 
                 let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
