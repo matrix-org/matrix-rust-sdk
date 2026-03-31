@@ -2497,7 +2497,7 @@ impl Client {
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = info.session.clone();

@@ -152,7 +152,7 @@ async fn test_delete_devices() {
 
         let auth_data = uiaa::AuthData::Password(assign!(
             uiaa::Password::new(
-                uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+                uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
                 "wordpass".to_owned(),
             ), {
                 session: info.session.clone(),

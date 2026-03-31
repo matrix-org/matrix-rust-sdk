@@ -19,7 +19,7 @@ use ruma::{
             error::StandardErrorBody,
             keys::upload_signatures::v3::SignedKeys,
             session::get_login_types::v3::LoginType,
-            uiaa::{self, AuthData, UserIdentifier},
+            uiaa::{self, AuthData, MatrixUserIdentifier, UserIdentifier},
         },
     },
     assign,
@@ -407,7 +407,7 @@ async fn test_login_with_cross_signing_bootstrapping() {
                     assert_let!(Some(AuthData::Password(password)) = &params.auth);
                     assert_eq!(
                         password.identifier,
-                        UserIdentifier::UserIdOrLocalpart("example".to_owned())
+                        UserIdentifier::Matrix(MatrixUserIdentifier::new("example".to_owned()))
                     );
                     assert_eq!(password.password, "hunter2");
 
