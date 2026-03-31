@@ -1904,12 +1904,11 @@ mod tests {
     use futures_util::StreamExt;
     use insta::{_macro_support::Content, assert_json_snapshot, internals::ContentPath};
     use matrix_sdk_test::async_test;
+    use rand::RngExt;
     use ruma::{
         RoomId, device_id,
-        events::room::{EncryptedFileInit, JsonWebKeyInit},
-        owned_device_id, owned_mxc_uri, room_id,
-        serde::Base64,
-        user_id,
+        events::room::{EncryptedFile, EncryptedFileHashes, V2EncryptedFileInfo},
+        owned_device_id, owned_mxc_uri, room_id, user_id,
     };
     use serde_json::json;
     use vodozemac::{Ed25519Keypair, megolm::SessionKey};
@@ -2043,8 +2042,6 @@ mod tests {
     /// Make a Megolm [`SessionKey`] using the given Ed25519 key as a signing
     /// key/session ID.
     fn make_session_key(signing_key: &Ed25519Keypair) -> SessionKey {
-        use rand::Rng;
-
         // `SessionKey::new` is not public, so the easiest way to construct a Megolm
         // session using a known Ed25519 key is to build a byte array in the export
         // format.
@@ -2054,7 +2051,7 @@ mod tests {
         session_key_bytes[0] = 2;
         // 1..5: index
         // 5..133: ratchet key
-        rand::thread_rng().fill(&mut session_key_bytes[5..133]);
+        rand::rng().fill(&mut session_key_bytes[5..133]);
         // 133..165: public ed25519 key
         session_key_bytes[133..165].copy_from_slice(signing_key.public_key().as_bytes());
         // 165..229: signature
@@ -2203,8 +2200,7 @@ mod tests {
 
     #[async_test]
     async fn test_create_dehydrated_device_key() {
-        let pickle_key = DehydratedDeviceKey::new()
-            .expect("Should be able to create a random dehydrated device key");
+        let pickle_key = DehydratedDeviceKey::new();
 
         let to_vec = pickle_key.inner.to_vec();
         let pickle_key_from_slice = DehydratedDeviceKey::from_slice(to_vec.as_slice())
@@ -2359,23 +2355,11 @@ mod tests {
                         room_id: room_id.to_owned(),
                         // This isn't used at all in the method call, so we can fill it with
                         // garbage.
-                        file: EncryptedFileInit {
-                            url: owned_mxc_uri!("mxc://example.com/0"),
-                            key: JsonWebKeyInit {
-                                kty: "oct".to_owned(),
-                                key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-                                alg: "A256CTR.".to_owned(),
-                                k: Base64::new(vec![0u8; 128]),
-                                ext: true,
-                            }
-                            .into(),
-                            iv: Base64::new(vec![0u8; 128]),
-                            hashes: vec![("sha256".to_owned(), Base64::new(vec![0u8; 128]))]
-                                .into_iter()
-                                .collect(),
-                            v: "v2".to_owned(),
-                        }
-                        .into(),
+                        file: EncryptedFile::new(
+                            owned_mxc_uri!("mxc://example.com/0"),
+                            V2EncryptedFileInfo::encode([0; 32], [0; 16]).into(),
+                            EncryptedFileHashes::with_sha256([0; 32]),
+                        ),
                     },
                 },
                 bundle,

@@ -105,10 +105,7 @@ impl Backups {
             let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 
             // Create a new backup recovery key.
-            let decryption_key = BackupDecryptionKey::new().expect(
-                "We should be able to generate enough randomness to create a new backup recovery \
-                 key",
-            );
+            let decryption_key = BackupDecryptionKey::new();
 
             // Get the info about the new backup key, this needs to be uploaded to the
             // homeserver[1].
@@ -1162,7 +1159,7 @@ mod test {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let backups = client.encryption().backups();
-        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+        let backup_decryption_key = BackupDecryptionKey::new();
 
         let matching_public_key = derive_public_key_from(&backup_decryption_key);
 
@@ -1199,9 +1196,9 @@ mod test {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let backups = client.encryption().backups();
-        let backup_decryption_key = BackupDecryptionKey::new().unwrap();
+        let backup_decryption_key = BackupDecryptionKey::new();
 
-        let non_matching_public_key = derive_public_key_from(&BackupDecryptionKey::new().unwrap());
+        let non_matching_public_key = derive_public_key_from(&BackupDecryptionKey::new());
 
         server
             .mock_room_keys_version()

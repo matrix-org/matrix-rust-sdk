@@ -759,9 +759,10 @@ impl OAuth {
         additional_scopes: Option<Vec<Scope>>,
     ) -> (Vec<Scope>, OwnedDeviceId) {
         /// Scope to grand full access to the client-server API.
-        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str = "urn:matrix:client:api:*";
+        const SCOPE_MATRIX_CLIENT_SERVER_API_FULL_ACCESS: &str =
+            "urn:matrix:org.matrix.msc2967.client:api:*";
         /// Prefix of the scope to bind a device ID to an access token.
-        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:client:device:";
+        const SCOPE_MATRIX_DEVICE_ID_PREFIX: &str = "urn:matrix:org.matrix.msc2967.client:device:";
 
         // Generate the device ID if it is not provided.
         let device_id = device_id.unwrap_or_else(DeviceId::new);

@@ -62,8 +62,11 @@ mod reply;
 
 pub use pinned_events::RoomPinnedEventsChange;
 
-pub(in crate::timeline) use self::message::{
-    extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+pub(in crate::timeline) use self::{
+    live_location::beacon_info_matches,
+    message::{
+        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+    },
 };
 pub use self::{
     live_location::{BeaconInfo, LiveLocationState},

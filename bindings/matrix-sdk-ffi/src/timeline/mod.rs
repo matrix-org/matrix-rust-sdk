@@ -284,8 +284,17 @@ impl Timeline {
         // be that the listener be called before the initial items have been
         // handled by the caller. See #3535 for details.
 
-        // First, pass all the items as a reset update.
-        listener.on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
+        // Note we pass initial items as a reset update, as a way to give the callers a
+        // unified way to handle the initial batch of items as well as other
+        // batches, instead of having a separate callback for the initial items.
+        //
+        // Start with passing all the items of a *non-empty* timeline as a reset update
+        // (if the initial items are empty, then the timeline would transition
+        // from empty to empty, which is a no-op).
+        if !timeline_items.is_empty() {
+            listener
+                .on_update(vec![TimelineDiff::new(VectorDiff::Reset { values: timeline_items })]);
+        }
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             pin_mut!(timeline_stream);

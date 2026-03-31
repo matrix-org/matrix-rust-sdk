@@ -49,7 +49,7 @@ use matrix_sdk_ui::{
     RoomListService, room_list_service::filters::new_filter_all, sync_service::SyncService,
     timeline::RoomExt,
 };
-use rand::Rng as _;
+use rand::{Rng as _, RngExt};
 use serde_json::Value;
 use stream_assert::assert_pending;
 use tokio::{
@@ -946,7 +946,7 @@ async fn test_room_preview() -> Result<()> {
         .await?;
 
     // Alice creates a room in which they're alone, to start with.
-    let suffix: u128 = rand::thread_rng().r#gen();
+    let suffix: u128 = rand::rng().random();
     let room_alias = format!("aliasy_mac_alias{suffix}");
 
     let room = alice

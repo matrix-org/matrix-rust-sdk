@@ -27,7 +27,7 @@ use std::{
 
 use aes::cipher::{KeyInit, KeyIvInit, StreamCipher};
 use hmac::Mac;
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use sha2::digest::{FixedOutputReset, Update};
 
 const BUFFER_SIZE: usize = 8192;
@@ -73,9 +73,8 @@ impl<
         iv_size: usize,
     ) -> Result<AesWriter<E, M, W>> {
         let mut iv = vec![0u8; iv_size];
-        let mut rng = thread_rng();
-        rng.try_fill(&mut iv[0..iv_size / 2])
-            .map_err(|e| Error::other(format!("error generating iv: {:?}", e)))?;
+        let mut rng = rng();
+        rng.fill_bytes(&mut iv[0..iv_size / 2]);
 
         let mac = <M as Mac>::new_from_slice(mac_key)
             .map_err(|e| Error::other(format!("error creating mac: {:?}", e)))?;

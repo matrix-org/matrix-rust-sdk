@@ -1273,7 +1273,7 @@ macro_rules! cryptostore_integration_tests {
                 let restored = store.load_backup_keys().await.unwrap();
                 assert!(restored.decryption_key.is_none(), "Initially no backup decryption key should be present");
 
-                let backup_decryption_key = Some(BackupDecryptionKey::new().unwrap());
+                let backup_decryption_key = Some(BackupDecryptionKey::new());
 
                 let changes = Changes { backup_decryption_key, ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -1297,7 +1297,7 @@ macro_rules! cryptostore_integration_tests {
                 let restored = store.load_dehydrated_device_pickle_key().await.unwrap();
                 assert!(restored.is_none(), "Initially no pickle key should be present");
 
-                let dehydrated_device_pickle_key = Some(DehydratedDeviceKey::new().unwrap());
+                let dehydrated_device_pickle_key = Some(DehydratedDeviceKey::new());
                 let exported_base64 = dehydrated_device_pickle_key.clone().unwrap().to_base64();
 
                 let changes = Changes { dehydrated_device_pickle_key, ..Default::default() };
@@ -1321,7 +1321,7 @@ macro_rules! cryptostore_integration_tests {
             async fn test_delete_dehydration_pickle_key() {
                 let (_account, store) = get_loaded_store("delete_dehydration_pickle_key").await;
 
-                let dehydrated_device_pickle_key = DehydratedDeviceKey::new().unwrap();
+                let dehydrated_device_pickle_key = DehydratedDeviceKey::new();
 
                 let changes = Changes { dehydrated_device_pickle_key: Some(dehydrated_device_pickle_key), ..Default::default() };
                 store.save_changes(changes).await.unwrap();
@@ -1355,21 +1355,13 @@ macro_rules! cryptostore_integration_tests {
                 let test_room = room_id!("!room:example.org");
 
                 fn make_bundle_data(sender_user: &UserId, bundle_uri: &str) -> StoredRoomKeyBundleData {
-                    let jwk = ruma::events::room::JsonWebKeyInit {
-                        kty: "oct".to_owned(),
-                        key_ops: vec!["encrypt".to_owned(), "decrypt".to_owned()],
-                        alg: "A256CTR".to_owned(),
-                        k: ruma::serde::Base64::new(vec![0u8; 0]),
-                        ext: true,
-                    }.into();
+                    let info = ruma::events::room::V2EncryptedFileInfo::encode([0; 32], [0;16]).into();
 
-                    let file = ruma::events::room::EncryptedFileInit {
-                        url: ruma::OwnedMxcUri::from(bundle_uri),
-                        key: jwk,
-                        iv: ruma::serde::Base64::new(vec![0u8; 0]),
-                        hashes: Default::default(),
-                        v: "".to_owned(),
-                    }.into();
+                    let file = ruma::events::room::EncryptedFile::new(
+                        ruma::OwnedMxcUri::from(bundle_uri),
+                        info,
+                        Default::default()
+                    );
 
                     StoredRoomKeyBundleData {
                         sender_user: sender_user.to_owned(),

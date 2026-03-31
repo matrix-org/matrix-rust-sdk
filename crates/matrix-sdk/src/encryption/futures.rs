@@ -21,7 +21,7 @@ use std::{future::IntoFuture, io::Read};
 
 use eyeball::{SharedObservable, Subscriber};
 use matrix_sdk_common::boxed_into_future;
-use ruma::events::room::{EncryptedFile, EncryptedFileInit};
+use ruma::events::room::EncryptedFile;
 
 use crate::{Client, Media, Result, TransmissionProgress, config::RequestConfig};
 
@@ -102,14 +102,7 @@ where
 
             let file: EncryptedFile = {
                 let keys = encryptor.finish();
-                EncryptedFileInit {
-                    url: response.content_uri,
-                    key: keys.key,
-                    iv: keys.iv,
-                    hashes: keys.hashes,
-                    v: keys.version,
-                }
-                .into()
+                EncryptedFile::new(response.content_uri, keys.encryption_info, keys.hashes)
             };
 
             Ok(file)

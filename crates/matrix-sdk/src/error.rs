@@ -26,7 +26,8 @@ use matrix_sdk_base::crypto::{
 };
 use matrix_sdk_base::{
     Error as SdkBaseError, QueueWedgeError, RoomState, StoreError,
-    event_cache::store::EventCacheStoreError, media::store::MediaStoreError,
+    cross_process_lock::CrossProcessLockUnobtained, event_cache::store::EventCacheStoreError,
+    media::store::MediaStoreError,
 };
 use reqwest::Error as ReqwestError;
 use ruma::{
@@ -478,6 +479,12 @@ impl From<CryptoStoreError> for Error {
 impl From<CrossProcessLockError> for Error {
     fn from(error: CrossProcessLockError) -> Self {
         Error::CrossProcessLockError(Box::new(error))
+    }
+}
+
+impl From<CrossProcessLockUnobtained> for Error {
+    fn from(error: CrossProcessLockUnobtained) -> Self {
+        CrossProcessLockError::from(error).into()
     }
 }
 

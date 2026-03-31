@@ -59,7 +59,6 @@ use ruma::{
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
                 discover_homeserver::{self, RtcFocusInfo},
-                get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
             error::{ErrorKind, UnknownTokenErrorData},
@@ -98,7 +97,10 @@ use crate::{
         AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
         oauth::OAuth,
     },
-    client::thread_subscriptions::ThreadSubscriptionCatchup,
+    client::{
+        homeserver_capabilities::HomeserverCapabilities,
+        thread_subscriptions::ThreadSubscriptionCatchup,
+    },
     config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
@@ -129,6 +131,7 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+pub(crate) mod homeserver_capabilities;
 pub(crate) mod thread_subscriptions;
 
 pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
@@ -243,27 +246,6 @@ pub(crate) struct ClientLocks {
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
-
-    /// Latest "generation" of data known by the crypto store.
-    ///
-    /// This is a counter that only increments, set in the database (and can
-    /// wrap). It's incremented whenever some process acquires a lock for the
-    /// first time. *This assumes the crypto store lock is being held, to
-    /// avoid data races on writing to this value in the store*.
-    ///
-    /// The current process will maintain this value in local memory and in the
-    /// DB over time. Observing a different value than the one read in
-    /// memory, when reading from the store indicates that somebody else has
-    /// written into the database under our feet.
-    ///
-    /// TODO: this should live in the `OlmMachine`, since it's information
-    /// related to the lock. As of today (2023-07-28), we blow up the entire
-    /// olm machine when there's a generation mismatch. So storing the
-    /// generation in the olm machine would make the client think there's
-    /// *always* a mismatch, and that's why we need to store the generation
-    /// outside the `OlmMachine`.
-    #[cfg(feature = "e2e-encryption")]
-    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 pub(crate) struct ClientInner {
@@ -567,30 +549,10 @@ impl Client {
         Ok(())
     }
 
-    /// Get the capabilities of the homeserver.
-    ///
-    /// This method should be used to check what features are supported by the
-    /// homeserver.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use matrix_sdk::Client;
-    /// # use url::Url;
-    /// # async {
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver).await?;
-    ///
-    /// let capabilities = client.get_capabilities().await?;
-    ///
-    /// if capabilities.change_password.enabled {
-    ///     // Change password
-    /// }
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
-        let res = self.send(get_capabilities::v3::Request::new()).await?;
-        Ok(res.capabilities)
+    /// Retrieves a helper component to access the [`HomeserverCapabilities`]
+    /// supported or disabled by the homeserver.
+    pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
+        HomeserverCapabilities::new(self.clone())
     }
 
     /// Get the server vendor information from the federation API.
