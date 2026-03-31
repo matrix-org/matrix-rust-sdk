@@ -97,8 +97,17 @@ impl EncryptableStore for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
-    /// Create an `SqliteCryptoStore` struct without trying to do any
-    /// initialization or migration
+    /// Create an `SqliteCryptoStore` struct without trying to do create the
+    /// database or migrate to a newer version.  This is only for use
+    /// internally, and for testing.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret` - The secret used to encrypt the data.
+    ///
+    /// * `pool` - A connection pool to use for reading from the store.
+    ///
+    /// * `conn` - The connection to use for writing to the store.
     pub(crate) async fn create_raw(
         secret: Option<Secret>,
         pool: SqlitePool,
@@ -247,9 +256,15 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
 
 /// Run migrations for the given version of the database.
 ///
-/// max_version is the maximum version that the database will be migrated to,
-/// and is only used for testing, so will only be checked for the versions that
-/// are needed for tests.
+/// # Arguments
+///
+/// * `store` - The store to run the migrations on
+///
+/// * `version` - the current version of the database.
+///
+/// * `max_version` - the maximum version that the database will be migrated to,
+///   and is only used for testing, so will only be checked for the versions
+///   that are needed for tests.
 pub(crate) async fn run_migrations(
     store: &SqliteCryptoStore,
     version: u8,
@@ -2182,7 +2197,11 @@ mod tests {
         assert!(backup_keys.decryption_key.is_some());
     }
 
-    /// Test that we migrate the secrets inbox properly
+    /// Test that we migrate the secrets inbox properly.
+    ///
+    /// The format for the secrets inbox changed in version 15.  Previously, the
+    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 15,
+    /// the secrets inbox now stores only the secret.
     #[async_test]
     async fn test_secrets_inbox_migration() {
         use std::ops::Deref;
@@ -2199,7 +2218,7 @@ mod tests {
 
         use crate::utils::{EncryptableStore, SqliteAsyncConnExt};
 
-        // Create a database
+        // Create a database with version 14
         let tmpdir = tempdir().unwrap();
         let config = SqliteStoreConfig::new(tmpdir.path());
         let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
@@ -2210,6 +2229,7 @@ mod tests {
             SqliteCryptoStore::create_raw(config.secret.clone(), pool, conn).await.unwrap();
         super::run_migrations(&old_data_store, version, Some(15)).await.unwrap();
 
+        // Store a secret using the old format
         let secret = GossippedSecret {
             secret_name: SecretName::CrossSigningMasterKey,
             gossip_request: GossipRequest {
@@ -2240,10 +2260,10 @@ mod tests {
             .await
             .unwrap();
 
-        // After we open the store, which will migrate the data
+        // After we open the store, the data will be migrated
         let store = SqliteCryptoStore::open_with_config(config).await.unwrap();
 
-        // we should be able to read the secrets from the inbox
+        // and we should be able to read the secrets from the inbox
         let secrets =
             store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
         assert_eq!(secrets.len(), 1);

@@ -40,8 +40,6 @@ use ruma::{
         RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
     },
 };
-#[cfg(feature = "experimental-push-secrets")]
-use tracing::error;
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
 use vodozemac::Curve25519PublicKey;
 
@@ -323,7 +321,7 @@ impl GossipMachine {
             if !device.is_our_own_device() && device.is_verified() {
                 let event_type = content.event_type().to_owned();
                 match device.encrypt(&event_type, content.clone()).await {
-                    Ok((_used_session, content, _message_id)) => {
+                    Ok((_used_session, content, message_id)) => {
                         let encrypted_event_type = content.event_type().to_owned();
                         let request = ToDeviceRequest::new(
                             device.user_id(),
@@ -335,6 +333,14 @@ impl GossipMachine {
                             request_id: request.txn_id.clone(),
                             request: Arc::new(request.into()),
                         };
+                        debug!(
+                            device = ?device.device_id(),
+                            event_type,
+                            request_id = ?request.request_id,
+                            ?secret_name,
+                            ?message_id,
+                            "Creating outgoing `io.element.msc4385.secret.push` to-device request"
+                        );
                         self.inner
                             .outgoing_requests
                             .write()
@@ -365,16 +371,16 @@ impl GossipMachine {
         let sender = &event.sender;
         if sender != self.user_id() {
             // Ignore if sent from a different user
-            error!(?sender, "Received secret push from a different user");
+            warn!(?sender, "Received secret push from a different user");
             return Ok(());
         }
         let Some(device) = self.inner.store.get_device_from_curve_key(sender, *sender_key).await?
         else {
-            error!(?sender, ?sender_key, "Received secret push from unknown device");
+            warn!(?sender, ?sender_key, "Received secret push from unknown device");
             return Ok(());
         };
         if !device.is_verified() {
-            error!(?sender, device_id = ?device.device_id(), "Received secret push from unverified device");
+            warn!(?sender, device_id = ?device.device_id(), "Received secret push from unverified device");
             return Ok(());
         }
         changes.secrets.push(event.content.clone().into());

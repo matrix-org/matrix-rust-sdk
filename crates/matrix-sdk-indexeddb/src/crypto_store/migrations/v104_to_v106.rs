@@ -37,7 +37,7 @@ pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
 pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) -> Result<()> {
     let db = MigrationDb::new(name, 11).await?;
 
-    // The new store has been made for inbound group sessions; time to populate it.
+    // The new store has been made for secrets; time to populate it.
     let txn = db
         .transaction([old_keys::SECRETS_INBOX_V1, keys::SECRETS_INBOX_V2])
         .with_mode(TransactionMode::Readwrite)

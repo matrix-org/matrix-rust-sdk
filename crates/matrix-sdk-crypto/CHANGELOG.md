@@ -8,6 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add support for MSC4385.
+  ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
+  - Add new method `OlmMachine::push_secret_to_verified_devices`.
+  - Pushed secrets that we receive from verified devices are added to the
+    secrets inbox.
+
 - Add `Store::{store,clear}_room_pending_key_bundle`,
   `CryptoStore::get_pending_key_bundle_details_for_room` and
   `CryptoStore::get_all_rooms_pending_key_bundle`, which can be used by
@@ -33,13 +39,17 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
   ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
-- Add support for MSC4385.
-  - Add new method `OlmMachine::push_secret_to_verified_devices`.
-  - Pushed secrets that we receive from verified devices are added to the
-    secrets inbox.
 
 ### Refactor
 
+- [**breaking**] `CryptoStore::get_secrets_from_inbox` now returns a `Vec` of
+  the secrets as strings, rather than a `Vec` of `GossippedSecret` structs.
+  ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
+
+- [**breaking] `store::types::Changes::sessions` now stores a `Vec` of
+  `SecretsInboxItem`.
+
+([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
 - [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
   ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
@@ -52,10 +62,6 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
   been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
-
-- [**breaking**] `CryptoStore::get_secrets_from_inbox` now returns a `Vec` of
-  the secrets as strings, rather than a `Vec` of `GossippedSecret` structs.
-  ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
 
 ## [0.16.0] - 2025-12-04
 
