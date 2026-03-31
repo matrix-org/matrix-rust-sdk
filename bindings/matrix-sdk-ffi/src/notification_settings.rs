@@ -27,9 +27,11 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{
     events::push_rules::PushRulesEventContent,
     push::{
-        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, HighlightTweakValue,
+        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, EventMatchConditionData,
+        EventPropertyContainsConditionData, EventPropertyIsConditionData, HighlightTweakValue,
         PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition as SdkPushCondition,
-        RoomMemberCountIs, RuleKind as SdkRuleKind, ScalarJsonValue as SdkJsonValue,
+        RoomMemberCountConditionData, RoomMemberCountIs, RuleKind as SdkRuleKind,
+        ScalarJsonValue as SdkJsonValue, SenderNotificationPermissionConditionData,
         Tweak as SdkTweak,
     },
     Int, RoomId, UInt,
@@ -182,20 +184,22 @@ impl TryFrom<SdkPushCondition> for PushCondition {
 
     fn try_from(value: SdkPushCondition) -> Result<Self, Self::Error> {
         Ok(match value {
-            SdkPushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            SdkPushCondition::EventMatch(data) => {
+                Self::EventMatch { key: data.key, pattern: data.pattern }
+            }
             #[allow(deprecated)]
             SdkPushCondition::ContainsDisplayName => Self::ContainsDisplayName,
-            SdkPushCondition::RoomMemberCount { is } => {
-                Self::RoomMemberCount { prefix: is.prefix.into(), count: is.count.into() }
+            SdkPushCondition::RoomMemberCount(data) => {
+                Self::RoomMemberCount { prefix: data.is.prefix.into(), count: data.is.count.into() }
             }
-            SdkPushCondition::SenderNotificationPermission { key } => {
-                Self::SenderNotificationPermission { key: key.to_string() }
+            SdkPushCondition::SenderNotificationPermission(data) => {
+                Self::SenderNotificationPermission { key: data.key.to_string() }
             }
-            SdkPushCondition::EventPropertyIs { key, value } => {
-                Self::EventPropertyIs { key, value: value.into() }
+            SdkPushCondition::EventPropertyIs(data) => {
+                Self::EventPropertyIs { key: data.key, value: data.value.into() }
             }
-            SdkPushCondition::EventPropertyContains { key, value } => {
-                Self::EventPropertyContains { key, value: value.into() }
+            SdkPushCondition::EventPropertyContains(data) => {
+                Self::EventPropertyContains { key: data.key, value: data.value.into() }
             }
             _ => return Err("Unsupported condition type".to_owned()),
         })
@@ -205,24 +209,28 @@ impl TryFrom<SdkPushCondition> for PushCondition {
 impl From<PushCondition> for SdkPushCondition {
     fn from(value: PushCondition) -> Self {
         match value {
-            PushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            PushCondition::EventMatch { key, pattern } => {
+                Self::EventMatch(EventMatchConditionData::new(key, pattern))
+            }
             #[allow(deprecated)]
             PushCondition::ContainsDisplayName => Self::ContainsDisplayName,
-            PushCondition::RoomMemberCount { prefix, count } => Self::RoomMemberCount {
-                is: RoomMemberCountIs {
+            PushCondition::RoomMemberCount { prefix, count } => {
+                Self::RoomMemberCount(RoomMemberCountConditionData::new(RoomMemberCountIs {
                     prefix: prefix.into(),
                     count: UInt::new(count).unwrap_or_default(),
-                },
-            },
+                }))
+            }
             PushCondition::SenderNotificationPermission { key } => {
-                Self::SenderNotificationPermission { key: key.into() }
+                Self::SenderNotificationPermission(SenderNotificationPermissionConditionData::new(
+                    key.into(),
+                ))
             }
             PushCondition::EventPropertyIs { key, value } => {
-                Self::EventPropertyIs { key, value: value.into() }
+                Self::EventPropertyIs(EventPropertyIsConditionData::new(key, value.into()))
             }
-            PushCondition::EventPropertyContains { key, value } => {
-                Self::EventPropertyContains { key, value: value.into() }
-            }
+            PushCondition::EventPropertyContains { key, value } => Self::EventPropertyContains(
+                EventPropertyContainsConditionData::new(key, value.into()),
+            ),
         }
     }
 }

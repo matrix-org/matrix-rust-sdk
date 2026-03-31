@@ -595,8 +595,9 @@ mod tests {
     use ruma::{
         OwnedRoomId, RoomId, owned_room_id,
         push::{
-            Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Ruleset,
+            Action, AnyPushRuleRef, EventMatchConditionData, NewPatternedPushRule, NewPushRule,
+            PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
+            PushCondition, RuleKind, Ruleset,
         },
     };
     use stream_assert::{assert_next_eq, assert_pending};
@@ -1634,10 +1635,10 @@ mod tests {
             .await;
 
         let actions = vec![Action::Notify];
-        let conditions = vec![ruma::push::PushCondition::EventMatch {
-            key: "content.body".to_owned(),
-            pattern: "hello".to_owned(),
-        }];
+        let conditions = vec![PushCondition::EventMatch(EventMatchConditionData::new(
+            "content.body".to_owned(),
+            "hello".to_owned(),
+        ))];
 
         settings
             .create_custom_conditional_push_rule(
@@ -1664,10 +1665,10 @@ mod tests {
         let settings = client.notification_settings().await;
 
         let actions = vec![Action::Notify];
-        let conditions = vec![ruma::push::PushCondition::EventMatch {
-            key: "content.body".to_owned(),
-            pattern: "hello".to_owned(),
-        }];
+        let conditions = vec![PushCondition::EventMatch(EventMatchConditionData::new(
+            "content.body".to_owned(),
+            "hello".to_owned(),
+        ))];
 
         let result = settings
             .create_custom_conditional_push_rule(
