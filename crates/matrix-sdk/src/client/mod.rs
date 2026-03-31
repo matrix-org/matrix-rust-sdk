@@ -849,8 +849,8 @@ impl Client {
     ///         async move {
     ///             // A `Vec<Action>` parameter allows you to know which push actions
     ///             // are applicable for an event. For example, an event with
-    ///             // `Action::SetTweak(Tweak::Highlight(true))` should be highlighted
-    ///             // in the timeline.
+    ///             // `Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))`
+    ///             // should be highlighted in the timeline.
     ///         }
     ///     },
     /// );
@@ -1003,7 +1003,7 @@ impl Client {
     ///     );
     ///
     /// // Observe `SyncRoomMessageEvent` and fetch `Room` + push actions.
-    /// // For example, an event with `Action::SetTweak(Tweak::Highlight(true))`
+    /// // For example, an event with `Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))`
     /// // should be highlighted in the timeline.
     /// let _ =
     ///     client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();

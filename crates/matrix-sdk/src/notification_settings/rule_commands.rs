@@ -228,7 +228,7 @@ mod tests {
         push::{
             Action, NewPushRule, NewSimplePushRule, PredefinedContentRuleId,
             PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RemovePushRuleError, RuleKind,
-            Tweak,
+            SoundTweakValue, Tweak,
         },
     };
 
@@ -558,7 +558,7 @@ mod tests {
             .set_rule_actions(
                 RuleKind::Underride,
                 PredefinedUnderrideRuleId::Message.as_str(),
-                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))],
             )
             .unwrap();
 
@@ -578,9 +578,7 @@ mod tests {
                 assert_eq!(rule_id, PredefinedUnderrideRuleId::Message.as_str());
                 assert_eq!(actions.len(), 2);
                 assert_matches!(&actions[0], Action::Notify);
-                assert_matches!(&actions[1], Action::SetTweak(Tweak::Sound(sound)) => {
-                    assert_eq!(sound, "default");
-                });
+                assert_matches!(&actions[1], Action::SetTweak(Tweak::Sound(SoundTweakValue::Default)));
             }
         );
     }

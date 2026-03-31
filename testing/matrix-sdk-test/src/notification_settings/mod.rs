@@ -4,7 +4,7 @@ use ruma::{
     push::{
         Action, ConditionalPushRule, ConditionalPushRuleInit, NewConditionalPushRule, NewPushRule,
         NewSimplePushRule, PatternedPushRule, PatternedPushRuleInit, PredefinedContentRuleId,
-        PredefinedOverrideRuleId, PushCondition, RuleKind, Ruleset, Tweak,
+        PredefinedOverrideRuleId, PushCondition, RuleKind, Ruleset, SoundTweakValue, Tweak,
     },
     user_id,
 };
@@ -25,7 +25,7 @@ pub fn build_ruleset(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Ruleset {
     let mut ruleset = get_server_default_ruleset();
     for (kind, room_id, notify) in rule_list {
         let actions = if notify {
-            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))]
         } else {
             vec![]
         };

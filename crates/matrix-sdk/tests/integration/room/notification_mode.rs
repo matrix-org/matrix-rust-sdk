@@ -13,7 +13,7 @@ use matrix_sdk_test::{
 use ruma::{
     api::client::sync::sync_events::v5,
     events::AnyGlobalAccountDataEvent,
-    push::{Action, ConditionalPushRule, NewSimplePushRule, Ruleset, Tweak},
+    push::{Action, ConditionalPushRule, NewSimplePushRule, Ruleset, SoundTweakValue, Tweak},
     room_id,
     serde::Raw,
 };
@@ -47,7 +47,7 @@ async fn test_get_notification_mode() {
     ruleset.room.insert(
         NewSimplePushRule::new(
             (*DEFAULT_TEST_ROOM_ID).into(),
-            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))],
         )
         .into(),
     );
@@ -121,7 +121,7 @@ async fn test_cached_notification_mode_is_updated_when_syncing() {
     ruleset.room.insert(
         NewSimplePushRule::new(
             (*DEFAULT_TEST_ROOM_ID).into(),
-            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))],
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))],
         )
         .into(),
     );
