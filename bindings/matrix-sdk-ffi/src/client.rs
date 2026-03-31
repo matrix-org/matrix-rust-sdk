@@ -138,6 +138,7 @@ use crate::{
     runtime::get_runtime_handle,
     spaces::SpaceService,
     sync_service::{SyncService, SyncServiceBuilder},
+    sync_v2::{SyncListenerV2, SyncResponseV2, SyncSettingsV2},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
@@ -1608,6 +1609,55 @@ impl Client {
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
+    }
+
+    /// Start a sync v2 loop.
+    ///
+    /// This is an alternative to [`Client::sync_service`] (which uses Sliding
+    /// Sync / MSC4186). It works with any homeserver, including older
+    /// Synapse versions that do not support Sliding Sync.
+    ///
+    /// Returns a `TaskHandle` that can be used to cancel the sync loop.
+    /// The listener is called after each successful sync response.
+    pub fn sync_v2(
+        &self,
+        settings: SyncSettingsV2,
+        listener: Box<dyn SyncListenerV2>,
+    ) -> Arc<TaskHandle> {
+        let client = (*self.inner).clone();
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let listener: Arc<dyn SyncListenerV2> = Arc::from(listener);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let result = client
+                .sync_with_result_callback(sdk_settings, |result| {
+                    let listener = listener.clone();
+                    async move {
+                        let response = result?;
+                        let ffi_response: SyncResponseV2 = response.into();
+                        listener.on_update(ffi_response);
+                        Ok(matrix_sdk::LoopCtrl::Continue)
+                    }
+                })
+                .await;
+
+            if let Err(e) = result {
+                tracing::error!("Sync loop ended with error: {e}");
+            }
+        })))
+    }
+
+    /// Perform a single sync v2 call.
+    ///
+    /// This is useful for performing an initial sync or a one-shot sync
+    /// without entering a continuous loop.
+    pub async fn sync_once_v2(
+        &self,
+        settings: SyncSettingsV2,
+    ) -> Result<SyncResponseV2, ClientError> {
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let response = self.inner.sync_once(sdk_settings).await?;
+        Ok(response.into())
     }
 
     pub async fn space_service(&self) -> Arc<SpaceService> {
