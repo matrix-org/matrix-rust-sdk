@@ -62,11 +62,10 @@ impl AutomaticPagination {
         // request we just created, and not much more; there's no guarantee that
         // retrying sending it would succeed, so let it drop, and report the
         // result as a boolean, for informative purposes.
-        !self
-            .inner
+        self.inner
             .sender
             .send(AutomaticPaginationRequest::PaginateRoomBackwards { room_id: room_id.to_owned() })
-            .is_err()
+            .is_ok()
     }
 }
 
