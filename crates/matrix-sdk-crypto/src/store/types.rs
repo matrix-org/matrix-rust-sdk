@@ -19,7 +19,6 @@
 
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    ops::Deref,
     time::Duration,
 };
 
@@ -27,7 +26,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId,
     events::secret::request::SecretName,
 };
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
@@ -104,31 +103,12 @@ pub struct Changes {
 
 /// A secret that was received via an `m.secret.send` or
 /// `io.element.msc4385.secret.push` event.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct SecretsInboxItem {
     /// The name of the secret.
     pub secret_name: SecretName,
     /// The contents of the secret.
-    #[serde(
-        serialize_with = "zeroizing_string_serializer",
-        deserialize_with = "zeroizing_string_deserializer"
-    )]
     pub secret: Zeroizing<String>,
-}
-
-fn zeroizing_string_serializer<S>(x: &Zeroizing<String>, s: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    s.serialize_some(x.deref())
-}
-
-fn zeroizing_string_deserializer<'de, D>(deserializer: D) -> Result<Zeroizing<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let value = String::deserialize(deserializer)?;
-    Ok(value.into())
 }
 
 #[cfg(not(tarpaulin_include))]
