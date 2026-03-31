@@ -361,18 +361,14 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
             non_empty_all_duplicates: all_duplicates,
-        } = {
-            let room_linked_chunk = state.room_linked_chunk();
-
-            filter_duplicate_events(
-                &state.state.own_user_id,
-                &state.store,
-                LinkedChunkId::Room(&state.state.room_id),
-                room_linked_chunk,
-                events,
-            )
-            .await?
-        };
+        } = filter_duplicate_events(
+            &state.state.own_user_id,
+            &state.store,
+            LinkedChunkId::Room(&state.state.room_id),
+            state.room_linked_chunk(),
+            events,
+        )
+        .await?;
 
         // If not all the events have been back-paginated, we need to remove the
         // previous ones, otherwise we can end up with misordered events.
@@ -404,7 +400,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // the inverted order; reorder them.
         let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
 
-        let new_gap = new_token.map(|prev_token| Gap { token: prev_token });
+        let new_gap = new_token.as_ref().map(|prev_token| Gap { token: prev_token.clone() });
         let reached_start = state.room_linked_chunk_mut().push_backwards_pagination_events(
             prev_gap_id,
             new_gap,
@@ -424,6 +420,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         state
             .post_process_new_events(
                 topo_ordered_events,
+                new_token,
                 PostProcessingOrigin::Backpagination,
                 receipt_event,
             )

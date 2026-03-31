@@ -16,16 +16,20 @@
 
 pub mod pagination;
 mod state;
+mod updates;
 
 use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
-use ruma::{EventId, OwnedEventId, OwnedRoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 pub(super) use state::LockedThreadEventCacheState;
-use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::error;
+use tokio::sync::{
+    Notify,
+    broadcast::{Receiver, Sender},
+};
+use tracing::{error, trace};
 
-use self::pagination::ThreadPagination;
+use self::{pagination::ThreadPagination, updates::ThreadEventCacheUpdateSender};
 use super::{
     super::Result, EventsOrigin, TimelineVectorDiffs, room::RoomEventCacheLinkedChunkUpdate,
 };
@@ -46,6 +50,12 @@ struct ThreadEventCacheInner {
 
     /// State for this thread's event cache.
     state: LockedThreadEventCacheState,
+
+    /// A notifier that we received a new pagination token.
+    pagination_batch_token_notifier: Notify,
+
+    /// Update sender for this room.
+    update_sender: ThreadEventCacheUpdateSender,
 }
 
 impl fmt::Debug for ThreadEventCache {
@@ -56,25 +66,33 @@ impl fmt::Debug for ThreadEventCache {
 
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
-    pub fn new(
+    pub async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
+        own_user_id: OwnedUserId,
         weak_room: WeakRoom,
         store: EventCacheStoreLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let update_sender = ThreadEventCacheUpdateSender::new();
+
+        Ok(Self {
             inner: Arc::new(ThreadEventCacheInner {
                 thread_id: thread_id.clone(),
                 weak_room,
                 state: LockedThreadEventCacheState::new(
                     room_id,
                     thread_id,
+                    own_user_id,
                     store,
+                    update_sender.clone(),
                     linked_chunk_update_sender,
-                ),
+                )
+                .await?,
+                pagination_batch_token_notifier: Notify::new(),
+                update_sender,
             }),
-        }
+        })
     }
 
     /// Subscribe to live events from this thread.
@@ -84,7 +102,7 @@ impl ThreadEventCache {
         let events =
             state.thread_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
-        let recv = state.state.sender.subscribe();
+        let recv = self.inner.update_sender.new_thread_receiver();
 
         Ok((events, recv))
     }
@@ -97,12 +115,10 @@ impl ThreadEventCache {
 
     /// Clear a thread, after a gappy sync for instance.
     pub async fn clear(&mut self) -> Result<()> {
-        let mut state = self.inner.state.write().await?;
-
-        let updates_as_vector_diffs = state.reset().await?;
+        let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
 
         if !updates_as_vector_diffs.is_empty() {
-            let _ = state.state.sender.send(TimelineVectorDiffs {
+            self.inner.update_sender.send(TimelineVectorDiffs {
                 diffs: updates_as_vector_diffs,
                 origin: EventsOrigin::Cache,
             });
@@ -113,16 +129,28 @@ impl ThreadEventCache {
 
     /// Push some live events to this thread, and propagate the updates to
     /// the listeners.
-    pub async fn add_live_events(&mut self, events: Vec<Event>) -> Result<()> {
+    pub async fn add_live_events(
+        &mut self,
+        events: Vec<Event>,
+        prev_batch_token: &Option<String>,
+    ) -> Result<()> {
         if events.is_empty() {
             return Ok(());
         }
 
-        let mut state = self.inner.state.write().await?;
-        let timeline_event_diffs = state.handle_sync(events).await?;
+        trace!("adding new events");
+
+        let (stored_prev_batch_token, timeline_event_diffs) =
+            self.inner.state.write().await?.handle_sync(events, prev_batch_token).await?;
+
+        // Now that all events have been added, we can trigger the
+        // `pagination_token_notifier`.
+        if stored_prev_batch_token {
+            self.inner.pagination_batch_token_notifier.notify_one();
+        }
 
         if !timeline_event_diffs.is_empty() {
-            let _ = state.state.sender.send(TimelineVectorDiffs {
+            self.inner.update_sender.send(TimelineVectorDiffs {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });
@@ -131,29 +159,28 @@ impl ThreadEventCache {
         Ok(())
     }
 
-    /// Remove an event from an thread event linked chunk, if it exists.
+    /// Replaces a single event, be it saved in memory or in the store.
     ///
-    /// If the event has been found and removed, then an update will be
-    /// propagated to observers.
-    pub(super) async fn remove_if_present(&mut self, event_id: &EventId) -> Result<()> {
+    /// If it was saved in memory, this will emit a notification to
+    /// observers that a single item has been replaced. Otherwise,
+    /// such a notification is not emitted, because observers are
+    /// unlikely to observe the store updates directly.
+    pub(super) async fn replace_event_if_present(
+        &mut self,
+        event_id: &EventId,
+        new_event: Event,
+    ) -> Result<()> {
         let mut state = self.inner.state.write().await?;
 
-        let Some(position) = state.thread_linked_chunk().events().find_map(|(position, event)| {
-            (event.event_id().as_deref() == Some(event_id)).then_some(position)
-        }) else {
-            // Event not found in the linked chunk, nothing to do.
-            return Ok(());
-        };
-
-        if let Err(err) = state.remove_events(vec![(event_id.to_owned(), position)]).await {
-            error!(%err, "a thread linked chunk position was valid a few lines above, but invalid when deleting");
+        if let Err(err) = state.replace_event_if_present(event_id, new_event).await {
+            error!(%err, "failed to replace an event");
             return Err(err);
         }
 
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
-            let _ = state.state.sender.send(TimelineVectorDiffs {
+            self.inner.update_sender.send(TimelineVectorDiffs {
                 diffs: timeline_event_diffs,
                 origin: EventsOrigin::Sync,
             });

@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
+    ops::DerefMut,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
@@ -30,8 +31,7 @@ use matrix_sdk_base::{
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
     },
     linked_chunk::{
-        ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Position,
-        Update, lazy_loader,
+        ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
     serde_helpers::{extract_edit_target, extract_thread_root},
     sync::Timeline,
@@ -57,7 +57,7 @@ use super::{
         super::{
             EventCacheError,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-            persistence::send_updates_to_store,
+            persistence::{load_linked_chunk_metadata, send_updates_to_store},
         },
         EventLocation, TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache},
@@ -603,6 +603,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
+
         let (last_chunk, chunk_identifier_generator) =
             match self.store.load_last_chunk(linked_chunk_id).await {
                 Ok(pair) => pair,
@@ -800,7 +801,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         mut timeline: Timeline,
         ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
-        let mut prev_batch = timeline.prev_batch.take();
+        let timeline_prev_batch_token = timeline.prev_batch.take();
+        let mut prev_batch_token = timeline_prev_batch_token.clone();
 
         let DeduplicationOutcome {
             all_events: events,
@@ -831,43 +833,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         if !timeline.limited && self.state.room_linked_chunk.events().next().is_some()
             || all_duplicates
         {
-            prev_batch = None;
-        }
-
-        let has_new_gap = prev_batch.is_some();
-
-        if has_new_gap {
-            // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
-            // non-duplicated event. We don't know which threads might have gappy, so we
-            // must invalidate them all :(
-            // TODO: figure out a better catchup mechanism for threads.
-            let mut summaries_to_update = Vec::new();
-
-            for (thread_root, thread) in self.state.threads.iter_mut() {
-                // Empty the thread's linked chunk.
-                thread.clear().await?;
-
-                summaries_to_update.push(thread_root.clone());
-            }
-
-            // Now, update the summaries to indicate that we're not sure what the latest
-            // thread event is. The thread count can remain as is, as it might still be
-            // valid, and there's no good value to reset it to, anyways.
-            for thread_root in summaries_to_update {
-                let Some((location, mut target_event)) = self.find_event(&thread_root).await?
-                else {
-                    trace!(%thread_root, "thread root event is unknown, when updating thread summary after a gappy sync");
-                    continue;
-                };
-
-                if let Some(mut prev_summary) = target_event.thread_summary.summary().cloned() {
-                    prev_summary.latest_reply = None;
-
-                    target_event.thread_summary = ThreadSummaryStatus::Some(prev_summary);
-
-                    self.replace_event_at(location, target_event).await?;
-                }
-            }
+            prev_batch_token = None;
         }
 
         if all_duplicates {
@@ -875,6 +841,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // room state. We're done!
             return Ok((false, Vec::new()));
         }
+
+        let has_new_gap = prev_batch_token.is_some();
 
         // If we've never waited for an initial previous-batch token, and we've now
         // inserted a gap, no need to wait for a previous-batch token later.
@@ -888,9 +856,10 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // events, because we are pushing all _new_ `events` at the back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
-        self.state
-            .room_linked_chunk
-            .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
+        self.state.room_linked_chunk.push_live_events(
+            prev_batch_token.map(|prev_token| Gap { token: prev_token }),
+            &events,
+        );
 
         // Extract a new read receipt, if available.
         let mut receipt_event = None;
@@ -909,7 +878,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             }
         }
 
-        self.post_process_new_events(events, PostProcessingOrigin::Sync, receipt_event).await?;
+        self.post_process_new_events(
+            events,
+            timeline_prev_batch_token,
+            PostProcessingOrigin::Sync,
+            receipt_event,
+        )
+        .await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -932,7 +907,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self,
         root: OwnedEventId,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        self.get_or_reload_thread(root).subscribe().await
+        self.get_or_reload_thread(root).await?.subscribe().await
     }
 
     // --------------------------------------------
@@ -946,6 +921,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn post_process_new_events(
         &mut self,
         events: Vec<Event>,
+        prev_batch_token: Option<String>,
         post_processing_origin: PostProcessingOrigin,
         receipt_event: Option<ReceiptEventContent>,
     ) -> Result<(), EventCacheError> {
@@ -1014,7 +990,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         }
 
         if self.state.enabled_thread_support {
-            self.update_threads(new_events_by_thread, post_processing_origin).await?;
+            self.update_threads(new_events_by_thread, prev_batch_token, post_processing_origin)
+                .await?;
         }
 
         self.update_read_receipts(receipt_event.as_ref()).await?;
@@ -1079,38 +1056,52 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
-    pub(in super::super) fn get_or_reload_thread(
+    pub(in super::super) async fn get_or_reload_thread(
         &mut self,
         root_event_id: OwnedEventId,
-    ) -> &mut ThreadEventCache {
+    ) -> Result<&mut ThreadEventCache, EventCacheError> {
         // TODO: when there's persistent storage, try to lazily reload from disk, if
         // missing from memory.
-        let room_id = self.state.room_id.clone();
-        let weak_room = self.state.weak_room.clone();
-        let linked_chunk_update_sender = self.state.linked_chunk_update_sender.clone();
-        let store = self.state.store.clone();
+        let RoomEventCacheState {
+            room_id,
+            weak_room,
+            own_user_id,
+            store,
+            linked_chunk_update_sender,
+            threads,
+            ..
+        } = self.state.deref_mut();
 
-        self.state.threads.entry(root_event_id.clone()).or_insert_with(|| {
-            ThreadEventCache::new(
-                room_id,
-                root_event_id,
-                weak_room,
-                store,
-                linked_chunk_update_sender,
-            )
-        })
+        match threads.entry(root_event_id.clone()) {
+            Entry::Vacant(entry) => {
+                let thread_event_cache = ThreadEventCache::new(
+                    room_id.clone(),
+                    root_event_id,
+                    own_user_id.clone(),
+                    weak_room.clone(),
+                    store.clone(),
+                    linked_chunk_update_sender.clone(),
+                )
+                .await?;
+
+                Ok(entry.insert(thread_event_cache))
+            }
+
+            Entry::Occupied(entry) => Ok(entry.into_mut()),
+        }
     }
 
     #[instrument(skip_all)]
     async fn update_threads(
         &mut self,
         new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
+        prev_batch_token: Option<String>,
         post_processing_origin: PostProcessingOrigin,
     ) -> Result<(), EventCacheError> {
         for (thread_root, new_events) in new_events_by_thread {
-            let thread_cache = self.get_or_reload_thread(thread_root.clone());
+            let thread_cache = self.get_or_reload_thread(thread_root.clone()).await?;
 
-            thread_cache.add_live_events(new_events).await?;
+            thread_cache.add_live_events(new_events, &prev_batch_token).await?;
 
             let mut latest_event_id = thread_cache.latest_event_id().await?;
 
@@ -1288,7 +1279,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
             target_event.replace_raw(redacted_event.cast_unchecked());
 
-            self.replace_event_at(location, target_event).await?;
+            self.replace_event_at(location, target_event.clone()).await?;
 
             // If the redacted event was part of a thread, remove it in the thread linked
             // chunk too, and make sure to update the thread root's summary
@@ -1300,7 +1291,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             if let Some(thread_root) = thread_root
                 && let Some(thread_cache) = self.state.threads.get_mut(&thread_root)
             {
-                thread_cache.remove_if_present(event_id).await?;
+                thread_cache.replace_event_if_present(event_id, target_event).await?;
 
                 // The number of replies may have changed, so update the thread summary if
                 // needs be.
@@ -1382,128 +1373,4 @@ fn get_event_focused_cache(
 ) -> Option<EventFocusedCache> {
     let key = EventFocusedCacheKey { focused: event_id, thread_mode };
     state.event_focused_caches.get(&key).cloned()
-}
-
-/// Load a linked chunk's full metadata, making sure the chunks are
-/// according to their their links.
-///
-/// Returns `None` if there's no such linked chunk in the store, or an
-/// error if the linked chunk is malformed.
-async fn load_linked_chunk_metadata(
-    store_guard: &EventCacheStoreLockGuard,
-    linked_chunk_id: LinkedChunkId<'_>,
-) -> Result<Option<Vec<ChunkMetadata>>, EventCacheError> {
-    let mut all_chunks = store_guard
-        .load_all_chunks_metadata(linked_chunk_id)
-        .await
-        .map_err(EventCacheError::from)?;
-
-    if all_chunks.is_empty() {
-        // There are no chunks, so there's nothing to do.
-        return Ok(None);
-    }
-
-    // Transform the vector into a hashmap, for quick lookup of the predecessors.
-    let chunk_map: HashMap<_, _> = all_chunks.iter().map(|meta| (meta.identifier, meta)).collect();
-
-    // Find a last chunk.
-    let mut iter = all_chunks.iter().filter(|meta| meta.next.is_none());
-    let Some(last) = iter.next() else {
-        return Err(EventCacheError::InvalidLinkedChunkMetadata {
-            details: "no last chunk found".to_owned(),
-        });
-    };
-
-    // There must at most one last chunk.
-    if let Some(other_last) = iter.next() {
-        return Err(EventCacheError::InvalidLinkedChunkMetadata {
-            details: format!(
-                "chunks {} and {} both claim to be last chunks",
-                last.identifier.index(),
-                other_last.identifier.index()
-            ),
-        });
-    }
-
-    // Rewind the chain back to the first chunk, and do some checks at the same
-    // time.
-    let mut seen = HashSet::new();
-    let mut current = last;
-    loop {
-        // If we've already seen this chunk, there's a cycle somewhere.
-        if !seen.insert(current.identifier) {
-            return Err(EventCacheError::InvalidLinkedChunkMetadata {
-                details: format!(
-                    "cycle detected in linked chunk at {}",
-                    current.identifier.index()
-                ),
-            });
-        }
-
-        let Some(prev_id) = current.previous else {
-            // If there's no previous chunk, we're done.
-            if seen.len() != all_chunks.len() {
-                return Err(EventCacheError::InvalidLinkedChunkMetadata {
-                    details: format!(
-                        "linked chunk likely has multiple components: {} chunks seen through the chain of predecessors, but {} expected",
-                        seen.len(),
-                        all_chunks.len()
-                    ),
-                });
-            }
-            break;
-        };
-
-        // If the previous chunk is not in the map, then it's unknown
-        // and missing.
-        let Some(pred_meta) = chunk_map.get(&prev_id) else {
-            return Err(EventCacheError::InvalidLinkedChunkMetadata {
-                details: format!(
-                    "missing predecessor {} chunk for {}",
-                    prev_id.index(),
-                    current.identifier.index()
-                ),
-            });
-        };
-
-        // If the previous chunk isn't connected to the next, then the link is invalid.
-        if pred_meta.next != Some(current.identifier) {
-            return Err(EventCacheError::InvalidLinkedChunkMetadata {
-                details: format!(
-                    "chunk {}'s next ({:?}) doesn't match the current chunk ({})",
-                    pred_meta.identifier.index(),
-                    pred_meta.next.map(|chunk_id| chunk_id.index()),
-                    current.identifier.index()
-                ),
-            });
-        }
-
-        current = *pred_meta;
-    }
-
-    // At this point, `current` is the identifier of the first chunk.
-    //
-    // Reorder the resulting vector, by going through the chain of `next` links, and
-    // swapping items into their final position.
-    //
-    // Invariant in this loop: all items in [0..i[ are in their final, correct
-    // position.
-    let mut current = current.identifier;
-    for i in 0..all_chunks.len() {
-        // Find the target metadata.
-        let j = all_chunks
-            .iter()
-            .rev()
-            .position(|meta| meta.identifier == current)
-            .map(|j| all_chunks.len() - 1 - j)
-            .expect("the target chunk must be present in the metadata");
-        if i != j {
-            all_chunks.swap(i, j);
-        }
-        if let Some(next) = all_chunks[i].next {
-            current = next;
-        }
-    }
-
-    Ok(Some(all_chunks))
 }
