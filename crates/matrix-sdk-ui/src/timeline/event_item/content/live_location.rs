@@ -21,6 +21,9 @@
 //! - `org.matrix.msc3672.beacon` (message-like event): periodic location
 //!   updates that are aggregated onto the parent [`LiveLocationState`] item.
 
+use std::sync::Arc;
+
+use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     events::{beacon_info::BeaconInfoEventContent, location::AssetType},
@@ -42,6 +45,13 @@ pub struct BeaconInfo {
 
     /// An optional human-readable description of the location.
     pub(in crate::timeline) description: Option<String>,
+
+    /// Encryption info of the beacon event that carried this location update.
+    ///
+    /// `Some` when the beacon event was encrypted and successfully decrypted,
+    /// `None` when it was sent in the clear (or when encryption info is
+    /// unavailable).
+    pub(in crate::timeline) encryption_info: Option<Arc<EncryptionInfo>>,
 }
 
 impl BeaconInfo {
@@ -58,6 +68,12 @@ impl BeaconInfo {
     /// An optional human-readable description of this location.
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// The encryption info of the beacon event that carried this location
+    /// update, if it was encrypted and successfully decrypted.
+    pub fn encryption_info(&self) -> Option<&EncryptionInfo> {
+        self.encryption_info.as_deref()
     }
 }
 
@@ -122,6 +138,17 @@ impl LiveLocationState {
         self.beacon_info.is_live()
     }
 
+    /// The timestamp when this live location sharing session started
+    /// (from the `org.matrix.msc3488.ts` field of the originating
+    /// `beacon_info` state event).
+    ///
+    /// This marks the *beginning* of the session. The session expires at
+    /// `ts + timeout` — see [`LiveLocationState::is_live`] and
+    /// [`LiveLocationState::timeout`].
+    pub fn ts(&self) -> MilliSecondsSinceUnixEpoch {
+        self.beacon_info.ts
+    }
+
     /// An optional human-readable description for this sharing session
     /// (from the originating `beacon_info` event).
     pub fn description(&self) -> Option<&str> {
@@ -148,4 +175,21 @@ impl LiveLocationState {
         assert!(!beacon_info.is_live(), "A stop `beacon_info` event must not be live.");
         self.beacon_info = beacon_info;
     }
+
+    /// Check if a stop `beacon_info` matches this session.
+    ///
+    /// Returns `true` if all fields except `live` match and this session is
+    /// still live. This is used to verify that a stop event belongs to the
+    /// same session as this start event.
+    pub(in crate::timeline) fn matches_stop(&self, stop: &BeaconInfoEventContent) -> bool {
+        self.beacon_info.live && beacon_info_matches(&self.beacon_info, stop)
+    }
+}
+
+/// Check if two `BeaconInfoEventContent` values belong to the same session.
+///
+/// Compares all fields except `live`, which differs between start and stop
+/// events. Returns `true` if all other fields match.
+pub fn beacon_info_matches(a: &BeaconInfoEventContent, b: &BeaconInfoEventContent) -> bool {
+    a.ts == b.ts && a.timeout == b.timeout && a.description == b.description && a.asset == b.asset
 }

@@ -1,8 +1,8 @@
-use std::error::Error;
+use std::{error::Error, mem::MaybeUninit};
 
 use jni::{
     errors::JniError,
-    sys::{jint, jsize, JavaVM},
+    sys::{JavaVM as RawJavaVM, JNI_OK},
 };
 use tracing::debug;
 
@@ -34,30 +34,20 @@ pub(crate) fn init() {
     });
 }
 
-type JniGetCreatedJavaVms =
-    unsafe extern "system" fn(_: *mut *mut JavaVM, _: jsize, _: *mut jsize) -> jint;
-const JNI_GET_JAVA_VMS_NAME: &[u8] = b"JNI_GetCreatedJavaVMs";
-
 fn get_java_vm() -> Result<jni::JavaVM, Box<dyn Error>> {
-    // Use libloading to avoid having to create and expose a JNI function and call
-    // it from the Android side.
-    let library = libloading::os::unix::Library::this();
-    let get_created_java_vms: JniGetCreatedJavaVms =
-        unsafe { *library.get(JNI_GET_JAVA_VMS_NAME)? };
+    debug!("Getting a JVM pointer");
+    #[allow(non_snake_case)]
+    let JNI_GetCreatedJavaVMs = unsafe {
+        jvm_getter::find_jni_get_created_java_vms().expect("Failed to find JNI_GetCreatedJavaVMs")
+    };
 
-    let mut java_vms: [*mut JavaVM; 1] = [std::ptr::null_mut() as *mut JavaVM];
-    let mut vm_count: i32 = 0;
-
-    let ok = unsafe { get_created_java_vms(java_vms.as_mut_ptr(), 1, &mut vm_count) };
-    if ok != jni::sys::JNI_OK {
-        return Err("Failed to get JavaVM".into());
-    }
-    if vm_count != 1 {
-        return Err(format!("Invalid JavaVM count: {vm_count}").into());
+    let mut vm: MaybeUninit<*mut RawJavaVM> = MaybeUninit::uninit();
+    let status = unsafe { JNI_GetCreatedJavaVMs(vm.as_mut_ptr(), 1, &mut 0) };
+    if status != JNI_OK {
+        panic!("no JavaVM was found by JNI_GetCreatedJavaVMs");
     }
 
-    let jvm = unsafe { jni::JavaVM::from_raw(java_vms[0]) }?;
-    Ok(jvm)
+    unsafe { jni::JavaVM::from_raw(vm.assume_init()).map_err(|e| e.into()) }
 }
 
 fn init_rustls_platform_verifier(env: &mut jni::JNIEnv<'_>) -> jni::errors::Result<()> {

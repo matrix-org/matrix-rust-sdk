@@ -784,6 +784,11 @@ impl TimelineEvent {
         self.kind.event_id()
     }
 
+    /// Get the sender of this [`TimelineEvent`] if the event has one.
+    pub fn sender(&self) -> Option<OwnedUserId> {
+        self.kind.sender()
+    }
+
     /// Returns a reference to the (potentially decrypted) Matrix event inside
     /// this [`TimelineEvent`].
     pub fn raw(&self) -> &Raw<AnySyncTimelineEvent> {
@@ -923,6 +928,11 @@ impl TimelineEventKind {
     /// id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
+    }
+
+    /// Get the sender of this [`TimelineEventKind`] if the event has one.
+    pub fn sender(&self) -> Option<OwnedUserId> {
+        self.raw().get_field::<OwnedUserId>("sender").ok().flatten()
     }
 
     /// Whether we could not decrypt the event (i.e. it is a UTD).

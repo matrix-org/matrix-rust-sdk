@@ -49,7 +49,8 @@ pub use self::{
 };
 pub(super) use self::{
     content::{
-        extract_bundled_edit_event_json, extract_poll_edit_content, extract_room_msg_edit_content,
+        beacon_info_matches, extract_bundled_edit_event_json, extract_poll_edit_content,
+        extract_room_msg_edit_content,
     },
     local::LocalEventTimelineItem,
     remote::{RemoteEventOrigin, RemoteEventTimelineItem},
@@ -357,6 +358,34 @@ impl EventTimelineItem {
         // An unable-to-decrypt message has no authenticity shield.
         if self.content().is_unable_to_decrypt() {
             return TimelineEventShieldState::None;
+        }
+
+        // A live-location item originates from a `beacon_info` *state* event,
+        // which cannot be encrypted (except with `experimental-encrypted-state-events`
+        // flag). The actual location updates (`beacon` message-like events)
+        // *are* encrypted.
+        //
+        // When there are no beacons yet we return `None` (the state event
+        // itself is inherently unencrypted, so no warning is warranted).
+        // Once at least one beacon has been aggregated, we derive the shield
+        // from the *last* beacon's encryption info so the UI accurately
+        // reflects the authenticity of the most recent location update.
+        if let Some(live_location) = self.content().as_live_location_state() {
+            return match live_location.latest_location() {
+                None => TimelineEventShieldState::None,
+                Some(beacon) => match beacon.encryption_info() {
+                    Some(info) => {
+                        if strict {
+                            info.verification_state.to_shield_state_strict().into()
+                        } else {
+                            info.verification_state.to_shield_state_lax().into()
+                        }
+                    }
+                    None => TimelineEventShieldState::Red {
+                        code: TimelineEventShieldStateCode::SentInClear,
+                    },
+                },
+            };
         }
 
         match self.encryption_info() {

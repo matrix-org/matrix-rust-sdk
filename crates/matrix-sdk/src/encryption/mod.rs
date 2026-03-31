@@ -25,6 +25,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 
 use eyeball::{SharedObservable, Subscriber};
@@ -48,6 +49,7 @@ use matrix_sdk_base::{
             },
         },
     },
+    sleep::sleep,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
@@ -298,27 +300,50 @@ impl CrossSigningResetHandle {
     /// authentication to be done on the side of the OAuth 2.0 server or by
     /// providing additional [`AuthData`] the homeserver requires.
     pub async fn auth(&self, auth: Option<AuthData>) -> Result<()> {
-        let mut upload_request = self.upload_request.clone();
-        upload_request.auth = auth;
+        // Poll to see whether the reset has been authorized twice per second.
+        const RETRY_EVERY: Duration = Duration::from_millis(500);
 
-        while let Err(e) = self.client.send(upload_request.clone()).await {
-            if *self.is_cancelled.lock().await {
-                return Ok(());
-            }
+        // Give up after two minutes of polling.
+        const TIMEOUT: Duration = Duration::from_mins(2);
 
-            match e.as_uiaa_response() {
-                Some(uiaa_info) => {
-                    if uiaa_info.auth_error.is_some() {
-                        return Err(e.into());
-                    }
+        tokio::time::timeout(TIMEOUT, async {
+            let mut upload_request = self.upload_request.clone();
+            upload_request.auth = auth;
+
+            debug!(
+                "Repeatedly PUTting to keys/device_signing/upload until it works \
+                or we hit a permanent failure."
+            );
+            while let Err(e) = self.client.send(upload_request.clone()).await {
+                if *self.is_cancelled.lock().await {
+                    return Ok(());
                 }
-                None => return Err(e.into()),
+
+                match e.as_uiaa_response() {
+                    Some(uiaa_info) => {
+                        if uiaa_info.auth_error.is_some() {
+                            return Err(e.into());
+                        }
+                    }
+                    None => return Err(e.into()),
+                }
+
+                debug!(
+                    "PUT to keys/device_signing/upload failed with 401. Retrying after \
+                    a short delay."
+                );
+                sleep(RETRY_EVERY).await;
             }
-        }
 
-        self.client.send(self.signatures_request.clone()).await?;
+            self.client.send(self.signatures_request.clone()).await?;
 
-        Ok(())
+            Ok(())
+        })
+        .await
+        .unwrap_or_else(|_| {
+            warn!("Timed out waiting for keys/device_signing/upload to succeed.");
+            Err(Error::Timeout)
+        })
     }
 
     /// Cancel the ongoing identity reset process

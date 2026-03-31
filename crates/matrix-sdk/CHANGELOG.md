@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
+  a cross-signing reset does not succeed after some period of time.
+  ([#6325](https://github.com/matrix-org/matrix-rust-sdk/pull/6325))
 - The `beacon_info` start event ([MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
   is now included when computing the latest event for a room, so live location sharing
   sessions can be surfaced as a room's most recent activity.
@@ -15,9 +18,6 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
   types as `Clone`able, and wrapping a few other error variants with `Arc`.
   ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
-- The scopes sent when logging in with the `OAuth` API now use the stable prefix defined in the
-  specification.
-  ([#6291](https://github.com/matrix-org/matrix-rust-sdk/pull/6291))
 - [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
   the event cache. As a result, it is necessary to enable the event cache if you want to keep a
   precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
@@ -89,6 +89,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using 
+  the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail. 
+  ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))
 - Room keys are now rotated whenever the client receives an `m.room.member` event not belonging
   to the current user with `leave` membership in order to prevent
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) from leaking room keys
@@ -117,9 +120,14 @@ All notable changes to this project will be documented in this file.
 - Allow granting of QR login to a new client whose device ID is not a base64
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
+- Remove an unwrap in `SlidingSync::send_sync_request` when an asynchronous task panics or is cancelled.
+  ([#6316](https://github.com/matrix-org/matrix-rust-sdk/pull/6316))
 
 ### Refactor
 
+- [**breaking**] The `EventCache` now owns pagination tasks, and will run them to completion, even
+  if a manual caller stopped polling the called future.
+  ([#6304](https://github.com/matrix-org/matrix-rust-sdk/pull/6304))
 - [**breaking**] `RoomEventCache::thread_pagination` is now async and fallible.
   ([#6280](https://github.com/matrix-org/matrix-rust-sdk/pull/6280))
 - [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`

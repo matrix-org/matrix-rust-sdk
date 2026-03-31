@@ -66,7 +66,7 @@ use crate::{
     runtime::get_runtime_handle,
     timeline::{
         configuration::{TimelineConfiguration, TimelineFilter},
-        threads::{ListThreadsOptions, ThreadList, ThreadSubscription},
+        threads::{ThreadListService, ThreadSubscription},
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
     },
     utils::{u64_to_uint, AsyncRuntimeDropped},
@@ -437,6 +437,37 @@ impl Room {
         self.inner.send_raw(&event_type, content_json).await?;
 
         Ok(())
+    }
+
+    /// Send a raw state event to the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the state event to send (e.g.
+    ///   `"m.room.name"` or a custom type).
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    ///   this piece of room state. This is often an empty string.
+    ///
+    /// * `content` - The content of the state event encoded as a JSON string.
+    ///
+    /// Returns the event ID of the newly created state event.
+    pub async fn send_state_event_raw(
+        &self,
+        event_type: String,
+        state_key: String,
+        content: String,
+    ) -> Result<String, ClientError> {
+        let content_json: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| ClientError::Generic {
+                msg: format!("Failed to parse JSON: {e}"),
+                details: Some(format!("{e:?}")),
+            })?;
+
+        let response =
+            self.inner.send_state_event_raw(&event_type, &state_key, content_json).await?;
+
+        Ok(response.event_id.to_string())
     }
 
     /// Redacts an event from the room.
@@ -1241,19 +1272,18 @@ impl Room {
             .map(|sub| ThreadSubscription { automatic: sub.automatic }))
     }
 
-    /// Retrieve a list of all the threads for the current room.
+    /// Creates a new [`ThreadListService`] for this room.
     ///
-    /// Since this client-server API is paginated, the return type may include a
-    /// token used to resuming back-pagination into the list of results, in
-    /// [`ThreadList::prev_batch_token`]. This token can be passed to the next
-    /// call to this function, through the `from` field of
-    /// [`ListThreadsOptions`].
-    pub async fn load_thread_list(
-        &self,
-        opts: ListThreadsOptions,
-    ) -> Result<ThreadList, ClientError> {
-        let thread_list = self.inner.load_thread_list(opts.into()).await?;
-        Ok(thread_list.into())
+    /// The returned service provides a reactive, paginated list of thread roots
+    /// for the room. Use [`ThreadListService::paginate`] to load pages and
+    /// [`ThreadListService::subscribe_to_items_updates`] /
+    /// [`ThreadListService::subscribe_to_pagination_state_updates`] to observe
+    /// changes.
+    pub fn thread_list_service(&self) -> Arc<ThreadListService> {
+        // `no reactor running` panics
+        let _guard = get_runtime_handle().enter();
+
+        Arc::new(ThreadListService::new(&self.inner))
     }
 
     /// Either loads the event associated with the `event_id` from the event

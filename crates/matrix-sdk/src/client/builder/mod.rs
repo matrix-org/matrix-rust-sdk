@@ -32,6 +32,8 @@ use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
+#[cfg(not(target_family = "wasm"))]
+use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
@@ -89,10 +91,6 @@ use crate::{
 /// use std::sync::Arc;
 ///
 /// use matrix_sdk::Client;
-///
-/// // setting up rustls crypto provider if using rustls
-/// #[cfg(feature = "rustls-tls")]
-/// matrix_sdk::rustls::install_default_crypto_provider_if_none_installed();
 ///
 /// // setting up a custom http client
 /// let reqwest_builder = reqwest::ClientBuilder::new()
@@ -377,8 +375,18 @@ impl ClientBuilder {
     /// Internally this will call the
     /// [`reqwest::ClientBuilder::add_root_certificate()`] method.
     #[cfg(not(target_family = "wasm"))]
-    pub fn add_root_certificates(mut self, certificates: Vec<reqwest::Certificate>) -> Self {
+    pub fn add_root_certificates(mut self, certificates: Vec<Certificate>) -> Self {
         self.http_settings().additional_root_certificates = certificates;
+        self
+    }
+
+    /// Add the given list of certificates in a raw byte format to the
+    /// certificate store of the HTTP client.
+    ///
+    /// Not this will only be used in Android for the webkpi workaround.
+    #[cfg(target_os = "android")]
+    pub fn add_raw_root_certificates(mut self, raw_certificates: Vec<Vec<u8>>) -> Self {
+        self.http_settings().additional_raw_root_certificates = raw_certificates;
         self
     }
 
@@ -538,9 +546,6 @@ impl ClientBuilder {
 
         let homeserver_cfg = self.homeserver_cfg.ok_or(ClientBuildError::MissingHomeserver)?;
         Span::current().record("homeserver", debug(&homeserver_cfg));
-
-        #[cfg(feature = "rustls-tls")]
-        crate::http_client::rustls::install_default_crypto_provider_if_none_installed();
 
         #[cfg_attr(target_family = "wasm", allow(clippy::infallible_destructuring_match))]
         let inner_http_client = match self.http_cfg.unwrap_or_default() {

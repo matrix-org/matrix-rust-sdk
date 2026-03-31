@@ -21,8 +21,8 @@
 pub use async_trait::async_trait;
 pub use bytes;
 pub use matrix_sdk_base::{
-    ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
-    EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
+    CallIntentConsensus, ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent,
+    DraftThumbnail, EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
     RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomRecencyStamp, RoomState, SessionMeta,
     StateChanges, StateStore, StoreError, SuccessorRoom, ThreadingSupport, deserialized_responses,
@@ -76,8 +76,6 @@ pub use error::{
     RumaApiError,
 };
 pub use http_client::TransmissionProgress;
-#[cfg(feature = "rustls-tls")]
-pub use http_client::rustls;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
@@ -103,5 +101,3 @@ pub mod test_utils;
 
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
-#[cfg(all(test, feature = "rustls-tls"))]
-crate::http_client::rustls::install_default_crypto_provider_for_tests!();

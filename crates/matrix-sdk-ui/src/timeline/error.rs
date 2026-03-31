@@ -110,8 +110,8 @@ pub enum RedactError {
 #[derive(Error, Debug)]
 pub enum PaginationError {
     /// An error occurred while paginating.
-    #[error("Error when paginating.")]
-    Paginator(#[source] PaginatorError),
+    #[error("Error when paginating: {0}")]
+    Pagination(#[from] PaginatorError),
 
     /// An error occurred in the event cache.
     #[error("Error in event cache.")]

@@ -62,8 +62,9 @@ impl Caches {
             .ok_or_else(|| EventCacheError::RoomNotFound { room_id: room_id.to_owned() })?;
         let room_version_rules = room.clone_info().room_version_rules_or_default();
 
-        let pagination_status =
-            SharedObservable::new(pagination::PaginationStatus::Idle { hit_timeline_start: false });
+        let pagination_status = SharedObservable::new(pagination::SharedPaginationStatus::Idle {
+            hit_timeline_start: false,
+        });
 
         let enabled_thread_support =
             matches!(client.base_client().threading_support, ThreadingSupport::Enabled { .. });

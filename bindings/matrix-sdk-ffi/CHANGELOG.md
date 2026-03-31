@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix devices on Android 11 crashing because the SDK could not be initialized using `libloading` 
+  to get a reference to the JVM. Replaced `libloading` with `jvm-getter`, which works like a 
+  compatibility layer. ([#6370](https://github.com/matrix-org/matrix-rust-sdk/pull/6370))
 - Added `android_platform.rs` for fixing the `rustls` integration on Android, which was broken. 
   ([#6306](https://github.com/matrix-org/matrix-rust-sdk/pull/6306)) 
 - [**breaking**] `OtherState` properly supports redacted events that still have fields in the
@@ -38,6 +41,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `Room.send_state_event_raw()` for sending arbitrary state events
+  through the FFI layer.
+  ([#6349](https://github.com/matrix-org/matrix-rust-sdk/issues/6349))
+- Introduce a `ThreadListService` which offers reactive interfaces for rendering
+  and managing the list of threads from a particular room.
+  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
 - [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
   so it has access to `MsgLikeContent` `reactions`.
   ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))
@@ -111,7 +120,10 @@ All notable changes to this project will be documented in this file.
   key bundle.
   ([#6000](https://github.com/matrix-org/matrix-rust-sdk/pull/6000))
 - Add `NonFavorite` filter to the Room List API. ([#5991](https://github.com/matrix-org/matrix-rust-sdk/pull/5991)
-- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207)) 
+- Add `call_intent` (either `RtcCallIntent::Audio` or `RtcCallIntent::Video`) field to `RtcNotification` event content. ([#6207](https://github.com/matrix-org/matrix-rust-sdk/pull/6207))
+- Add `RoomInfo::active_room_call_consensus_intent` method to get the call intent for the current call,
+  based on what members are advertising.
+  ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
 
 ### Refactor
 

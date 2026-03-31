@@ -1,6 +1,12 @@
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
+
 use assert_matches::assert_matches;
 use eyeball_im::VectorDiff;
-use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
+use matrix_sdk::deserialized_responses::{
+    AlgorithmInfo, DecryptedRoomEvent, EncryptionInfo, VerificationState,
+};
+use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, async_test, event_factory::EventFactory};
 use ruma::{
     event_id,
     events::{
@@ -126,6 +132,90 @@ async fn test_local_sent_in_clear_shield() {
     assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
 
     assert_pending!(stream);
+}
+
+#[async_test]
+/// A `beacon_info` state event cannot be encrypted (state events are always
+/// sent in the clear), so a live-location timeline item with no aggregated
+/// beacons must not show a "sent in clear" shield in an encrypted room.
+///
+/// Once a beacon location update arrives without encryption info (i.e. it was
+/// sent in clear), the shield must switch to `SentInClear`.
+async fn test_live_location_no_sent_in_clear_shield() {
+    let timeline = TestTimelineBuilder::new().room_encrypted(true).build();
+    let mut stream = timeline.subscribe_events().await;
+    let beacon_id = event_id!("$beacon_info:example.org");
+
+    let event = timeline
+        .factory
+        .beacon_info(None, Duration::from_secs(3600), true, None)
+        .sender(&ALICE)
+        .state_key(&**ALICE)
+        .event_id(beacon_id);
+    timeline.handle_live_event(event).await;
+
+    // No beacons yet → shield should be None.
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(item.content().is_live_location(), "timeline item should be a live location");
+
+    let shield = item.get_shield(false);
+    assert_eq!(shield, TimelineEventShieldState::None);
+
+    let shield_strict = item.get_shield(true);
+    assert_eq!(shield_strict, TimelineEventShieldState::None);
+
+    // Send an *encrypted* beacon location update.
+    let ts_enc = ruma::MilliSecondsSinceUnixEpoch(ruma::uint!(500_000));
+    let encrypted_beacon_raw = timeline
+        .factory
+        .beacon(beacon_id.to_owned(), 48.8566, 2.3522, 20, Some(ts_enc))
+        .sender(&ALICE)
+        .room(&DEFAULT_TEST_ROOM_ID)
+        .into_raw_timeline();
+
+    let encryption_info = Arc::new(EncryptionInfo {
+        sender: (*ALICE).into(),
+        sender_device: None,
+        forwarder: None,
+        algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+            curve25519_key: "fake_key".to_owned(),
+            sender_claimed_keys: BTreeMap::new(),
+            session_id: Some("fake_session".to_owned()),
+        },
+        verification_state: VerificationState::Verified,
+    });
+
+    let encrypted_beacon_event = TimelineEvent::from_decrypted(
+        DecryptedRoomEvent {
+            event: encrypted_beacon_raw,
+            encryption_info,
+            unsigned_encryption_info: None,
+        },
+        None,
+    );
+    timeline.handle_live_event(encrypted_beacon_event).await;
+
+    // An encrypted, verified beacon → shield should be None.
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let shield = item.get_shield(false);
+    assert_eq!(shield, TimelineEventShieldState::None);
+
+    let shield_strict = item.get_shield(true);
+    assert_eq!(shield_strict, TimelineEventShieldState::None);
+
+    // Send a beacon location update (plain-text, no encryption info).
+    let ts = ruma::MilliSecondsSinceUnixEpoch(ruma::uint!(1_000_000));
+    let beacon_event =
+        timeline.factory.beacon(beacon_id.to_owned(), 51.5008, 0.1247, 35, Some(ts)).sender(&ALICE);
+    timeline.handle_live_event(beacon_event).await;
+
+    // A beacon arrived without encryption → shield should be SentInClear.
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    let shield = item.get_shield(false);
+    assert_eq!(
+        shield,
+        TimelineEventShieldState::Red { code: TimelineEventShieldStateCode::SentInClear }
+    );
 }
 
 #[async_test]

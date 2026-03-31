@@ -50,6 +50,7 @@ use ruma::{
             tombstone::PossiblyRedactedRoomTombstoneEventContent,
             topic::PossiblyRedactedRoomTopicEventContent,
         },
+        rtc::notification::CallIntent,
         tag::{TagEventContent, TagName, Tags},
     },
     room::RoomType,
@@ -69,6 +70,7 @@ use crate::{
     latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
+    room::call::CallIntentConsensus,
     store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
     utils::{AnyStateEventEnum, RawStateEventWithKeys},
@@ -1056,6 +1058,66 @@ impl RoomInfo {
     /// "m.room" in this room.
     pub fn has_active_room_call(&self) -> bool {
         !self.active_room_call_memberships().is_empty()
+    }
+
+    /// Get the call intent consensus for the current call, based on what
+    /// members are advertising.
+    ///
+    /// This provides detailed information about the consensus state (is it an
+    /// audio or video call), including whether it's full (all members
+    /// agree) or partial (only some members advertise), allowing callers to
+    /// distinguish between different levels of consensus.
+    ///
+    /// # Returns
+    ///
+    /// - [`CallIntentConsensus::Full`] if all members advertise and agree on
+    ///   the same intent
+    /// - [`CallIntentConsensus::Partial`] if only some members advertise but
+    ///   those who do agree
+    /// - [`CallIntentConsensus::None`] if no one advertises or advertisers
+    ///   disagree
+    pub fn active_room_call_consensus_intent(&self) -> CallIntentConsensus {
+        let memberships = self.active_room_call_memberships();
+        let total_count: u64 = memberships.len() as u64;
+
+        if total_count == 0 {
+            return CallIntentConsensus::None;
+        }
+
+        // Track the first intent found and count how many members advertise it
+        let mut consensus_intent: Option<CallIntent> = None;
+        let mut agreeing_count: u64 = 0;
+
+        for (_, data) in memberships.iter() {
+            if let Some(intent) = data.call_intent() {
+                match &consensus_intent {
+                    // First intent found, set it as consensus
+                    None => {
+                        consensus_intent = Some(intent.clone());
+                        agreeing_count = 1;
+                    }
+                    // Check if this intent matches the consensus
+                    Some(current) if current == intent => {
+                        agreeing_count += 1;
+                    }
+                    // Intents differ, no consensus
+                    Some(_) => return CallIntentConsensus::None,
+                }
+            }
+        }
+
+        // Return the appropriate consensus type based on participation
+        match consensus_intent {
+            None => CallIntentConsensus::None,
+            Some(intent) if agreeing_count == total_count => {
+                // All members advertise and agree
+                CallIntentConsensus::Full(intent)
+            }
+            Some(intent) => {
+                // Some members advertise and agree, others don't advertise
+                CallIntentConsensus::Partial { intent, agreeing_count, total_count }
+            }
+        }
     }
 
     /// Returns a Vec of userId's that participate in the room call.

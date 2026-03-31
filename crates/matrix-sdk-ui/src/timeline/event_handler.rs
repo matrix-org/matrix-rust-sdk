@@ -321,7 +321,11 @@ impl TimelineAction {
                 },
                 AnySyncStateEvent::BeaconInfo(ev) => match ev {
                     SyncStateEvent::Original(ev) => {
-                        if ev.content.is_live() {
+                        // Check the `live` field directly, not `is_live()` which
+                        // considers timeout. We want to create a timeline item for any
+                        // beacon_info that was started as live, regardless of whether
+                        // the timeout has since expired.
+                        if ev.content.live {
                             Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
                                 kind: MsgLikeKind::LiveLocation(LiveLocationState::new(ev.content)),
                                 reactions: Default::default(),
@@ -455,6 +459,7 @@ impl TimelineAction {
                         geo_uri: content.location.uri,
                         ts: content.ts,
                         description: content.location.description,
+                        encryption_info: None, // Filled in later from the event context.
                     },
                 },
             },
@@ -633,7 +638,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 HandleAggregationKind::PollEnd => {
                     self.handle_poll_end(related_event);
                 }
-                HandleAggregationKind::BeaconUpdate { location } => {
+                HandleAggregationKind::BeaconUpdate { mut location } => {
+                    // Propagate the encryption info from the event context into
+                    // the beacon location update so it can be inspected later
+                    // (e.g. for shield state computation).
+                    let encryption_info = as_variant!(
+                        &self.ctx.flow,
+                        Flow::Remote { encryption_info, .. } => encryption_info.clone()
+                    )
+                    .flatten();
+                    location.encryption_info = encryption_info;
+
                     self.handle_beacon_update(related_event, location);
                 }
                 HandleAggregationKind::BeaconStop { content } => {
@@ -759,27 +774,30 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// Handle a stop `beacon_info` state event by finding the existing live
     /// `LiveLocation` timeline item from the same sender and updating it via
     /// the aggregation system.
+    ///
+    /// The stop event's content must match the start item's content (except for
+    /// the `live` field) to ensure we apply the stop to the correct session.
     #[instrument(skip(self, content))]
     fn handle_beacon_stop(&mut self, content: BeaconInfoEventContent) {
         let sender = &self.ctx.sender;
+
+        // Find the live start item by sender and matching content.
+        let target_event_id = super::algorithms::rfind_event_item(self.items, |item| {
+            item.sender() == sender
+                && item.content().as_live_location_state().is_some_and(|s| s.matches_stop(&content))
+        })
+        .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned));
 
         let aggregation = Aggregation::new(
             self.ctx.flow.timeline_item_id(),
             AggregationKind::BeaconStop { content },
         );
 
-        // The stop beacon_info has no explicit `relates_to`; find the target
-        // live item by matching sender and liveness, then extract its event ID
-        // so we can address the aggregation correctly.
-        let Some(target_event_id) = super::algorithms::rfind_event_item(self.items, |item| {
-            item.sender() == sender
-                && item.content().as_live_location_state().is_some_and(|s| s.is_live())
-        })
-        .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned)) else {
-            // The live start item hasn't arrived yet. Stash the stop so it can
-            // be applied when the start item is eventually inserted.
+        let Some(target_event_id) = target_event_id else {
+            // The live start item hasn't arrived yet (or the content doesn't match).
+            // Stash the stop so it can be applied when the matching start item arrives.
             trace!(
-                "no live beacon_info item found for {sender}; \
+                "no matching live beacon_info item found for {sender}; \
                  stashing stop event to apply when the start item arrives"
             );
             self.meta.aggregations.add_pending_beacon_stop(sender.clone(), aggregation);
