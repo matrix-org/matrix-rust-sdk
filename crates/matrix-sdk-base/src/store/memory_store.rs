@@ -24,6 +24,7 @@ use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
 use ruma::{
     CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
     OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    api::client::discovery::get_capabilities::v3::Capabilities,
     canonical_json::{RedactedBecause, redact},
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnyStrippedStateEvent,
@@ -92,6 +93,7 @@ struct MemoryStoreInner {
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
+    homeserver_capabilities: Option<Capabilities>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
@@ -195,6 +197,10 @@ impl StateStore for MemoryStore {
                 .thread_subscriptions_catchup_tokens
                 .clone()
                 .map(StateStoreDataValue::ThreadSubscriptionsCatchupTokens),
+            StateStoreDataKey::HomeserverCapabilities => inner
+                .homeserver_capabilities
+                .clone()
+                .map(StateStoreDataValue::HomeserverCapabilities),
         })
     }
 
@@ -270,6 +276,13 @@ impl StateStore for MemoryStore {
                         "Session data is not a list of thread subscription catchup tokens",
                     ));
             }
+            StateStoreDataKey::HomeserverCapabilities => {
+                inner.homeserver_capabilities = Some(
+                    value
+                        .into_homeserver_capabilities()
+                        .expect("Session data is not a homeserver capabilities"),
+                );
+            }
         }
 
         Ok(())
@@ -304,6 +317,7 @@ impl StateStore for MemoryStore {
             StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
                 inner.thread_subscriptions_catchup_tokens = None;
             }
+            StateStoreDataKey::HomeserverCapabilities => inner.homeserver_capabilities = None,
         }
         Ok(())
     }

@@ -884,6 +884,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         if all_duplicates {
             // No new events and no gap (per the previous check), thus no need to change the
             // room state. We're done!
+
+            // We might have a new read receipt, though! If that's the case, handle it for
+            // unread counts tracking.
+            if let Some(new_receipt) = extract_read_receipt(ephemeral_events) {
+                self.update_read_receipts(Some(&new_receipt)).await?;
+            }
+
             return Ok((false, Vec::new()));
         }
 
@@ -904,23 +911,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
 
         // Extract a new read receipt, if available.
-        let mut receipt_event = None;
-        for raw_ephemeral in ephemeral_events {
-            match raw_ephemeral.deserialize() {
-                Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
-                    receipt_event = Some(content);
-                    break;
-                }
-
-                Ok(_) => {}
-
-                Err(err) => {
-                    error!("error when deserializing an ephemeral event from sync: {err}");
-                }
-            }
-        }
-
-        self.post_process_new_events(events, PostProcessingOrigin::Sync, receipt_event).await?;
+        let new_receipt = extract_read_receipt(ephemeral_events);
+        self.post_process_new_events(events, PostProcessingOrigin::Sync, new_receipt).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1378,6 +1370,31 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     ) -> Option<EventFocusedCache> {
         get_event_focused_cache(&self.state, event_id, thread_mode)
     }
+}
+
+/// Extract a valid read receipt event from the ephemeral events, if
+/// available.
+fn extract_read_receipt(
+    ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
+) -> Option<ReceiptEventContent> {
+    let mut receipt_event = None;
+
+    for raw_ephemeral in ephemeral_events {
+        match raw_ephemeral.deserialize() {
+            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
+                receipt_event = Some(content);
+                break;
+            }
+
+            Ok(_) => {}
+
+            Err(err) => {
+                error!("error when deserializing an ephemeral event from sync: {err}");
+            }
+        }
+    }
+
+    receipt_event
 }
 
 /// Get an event-focused cache for this event and thread mode, if it exists.

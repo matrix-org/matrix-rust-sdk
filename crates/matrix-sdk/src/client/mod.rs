@@ -59,7 +59,6 @@ use ruma::{
             directory::{get_public_rooms, get_public_rooms_filtered},
             discovery::{
                 discover_homeserver::{self, RtcFocusInfo},
-                get_capabilities::{self, v3::Capabilities},
                 get_supported_versions,
             },
             error::{ErrorKind, UnknownTokenErrorData},
@@ -98,7 +97,10 @@ use crate::{
         AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
         oauth::OAuth,
     },
-    client::thread_subscriptions::ThreadSubscriptionCatchup,
+    client::{
+        homeserver_capabilities::HomeserverCapabilities,
+        thread_subscriptions::ThreadSubscriptionCatchup,
+    },
     config::{RequestConfig, SyncToken},
     deduplicating_handler::DeduplicatingHandler,
     error::HttpResult,
@@ -129,6 +131,7 @@ use crate::{
 mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
+pub(crate) mod homeserver_capabilities;
 pub(crate) mod thread_subscriptions;
 
 pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
@@ -567,30 +570,10 @@ impl Client {
         Ok(())
     }
 
-    /// Get the capabilities of the homeserver.
-    ///
-    /// This method should be used to check what features are supported by the
-    /// homeserver.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use matrix_sdk::Client;
-    /// # use url::Url;
-    /// # async {
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// let client = Client::new(homeserver).await?;
-    ///
-    /// let capabilities = client.get_capabilities().await?;
-    ///
-    /// if capabilities.change_password.enabled {
-    ///     // Change password
-    /// }
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub async fn get_capabilities(&self) -> HttpResult<Capabilities> {
-        let res = self.send(get_capabilities::v3::Request::new()).await?;
-        Ok(res.capabilities)
+    /// Retrieves a helper component to access the [`HomeserverCapabilities`]
+    /// supported or disabled by the homeserver.
+    pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
+        HomeserverCapabilities::new(self.clone())
     }
 
     /// Get the server vendor information from the federation API.

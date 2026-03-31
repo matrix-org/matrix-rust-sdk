@@ -656,6 +656,69 @@ async fn test_select_best_receipt_considers_thread_config() {
     assert_eq!(room.num_unread_messages(), 2);
 }
 
+/// Test that the unread count gets updated when the sync update only contains
+/// duplicate events and a new read receipt.
+#[async_test]
+async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let own_user_id = client.user_id().unwrap();
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    // Starting with a message from Bob, and no read receipt,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello 1").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("hello 2").event_id(event_id!("$2"))),
+        )
+        .await;
+
+    // We receive the room update for the two new messages.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = room_cache_updates.recv()
+    );
+
+    // Then, provided a sync with a single duplicated message sent by somebody else,
+    // but a read receipt for the existing message $2,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello 2").event_id(event_id!("$2")))
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$2"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    // We get an update only for the read receipt.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::AddEphemeralEvents { .. }) = room_cache_updates.recv()
+    );
+
+    // The message counts are properly updated (zero new message unread after $2).
+    assert_eq!(room.num_unread_messages(), 0);
+}
+
 /// Test that the unread count computation causes a back-pagination, when it
 /// can't find an event pointed to by a read receipt.
 #[async_test]
