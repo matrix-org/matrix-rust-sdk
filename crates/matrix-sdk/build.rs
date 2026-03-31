@@ -33,6 +33,13 @@ fn main() {
         "only one of the features 'native-tls' or 'rustls-tls' can be enabled",
     );
 
+    let vfs_opfs_sahpool_set = env_is_set("CARGO_FEATURE_VFS_OPFS_SAHPOOL");
+    let vfs_relaxed_idb_set = env_is_set("CARGO_FEATURE_VFS_RELAXED_IDB");
+    ensure(
+        !vfs_opfs_sahpool_set || !vfs_relaxed_idb_set,
+        "only one of the features 'vfs-opfs-sahpool' or 'vfs-relaxed-idb' can be enabled",
+    );
+
     let is_wasm = env::var_os("CARGO_CFG_TARGET_ARCH").is_some_and(|arch| arch == "wasm32");
     if is_wasm {
         ensure(

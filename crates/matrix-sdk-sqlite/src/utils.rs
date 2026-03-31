@@ -13,20 +13,39 @@
 // limitations under the License.
 
 use core::fmt;
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::ops::DerefMut;
 use std::{
     borrow::{Borrow, Cow},
     cmp::min,
     iter,
     ops::Deref,
+    path::Path,
 };
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+use std::{cell::RefCell, convert::Infallible};
 
 use async_trait::async_trait;
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 use deadpool_sync::InteractError;
 use itertools::Itertools;
+use matrix_sdk_base::SendOutsideWasm;
 use matrix_sdk_store_encryption::StoreCipher;
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+))]
+use rsqlite_vfs::memvfs::MemVfsUtil;
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+use sqlite_wasm_vfs::relaxed_idb::{Preload, RelaxedIdbCfgBuilder, RelaxedIdbUtil, install};
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, OpfsSAHPoolUtil, install};
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use tokio::fs;
 use tracing::{error, trace, warn};
 use zeroize::Zeroize;
 
@@ -65,55 +84,62 @@ impl rusqlite::ToSql for Key {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub(crate) trait SqliteAsyncConnExt {
     async fn execute<P>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         params: P,
     ) -> rusqlite::Result<usize>
     where
-        P: Params + Send + 'static;
+        P: Params + SendOutsideWasm + 'static;
 
-    async fn execute_batch(&self, sql: impl AsRef<str> + Send + 'static) -> rusqlite::Result<()>;
+    async fn execute_batch(
+        &self,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
+    ) -> rusqlite::Result<()>;
 
+    #[allow(dead_code)]
     async fn prepare<T, F>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         f: F,
     ) -> rusqlite::Result<T>
     where
-        T: Send + 'static,
-        F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + Send + 'static;
+        T: SendOutsideWasm + 'static,
+        F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static;
 
     async fn query_row<T, P, F>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         params: P,
         f: F,
     ) -> rusqlite::Result<T>
     where
-        T: Send + 'static,
-        P: Params + Send + 'static,
-        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
+        T: SendOutsideWasm + 'static,
+        P: Params + SendOutsideWasm + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static;
 
+    #[allow(dead_code)]
     async fn query_many<T, P, F>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         params: P,
         f: F,
     ) -> rusqlite::Result<Vec<T>>
     where
-        T: Send + 'static,
-        P: Params + Send + 'static,
-        F: FnMut(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
+        T: SendOutsideWasm + 'static,
+        P: Params + SendOutsideWasm + 'static,
+        F: FnMut(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static;
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        T: Send + 'static,
-        E: From<rusqlite::Error> + Send + 'static,
-        F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static;
+        T: SendOutsideWasm + 'static,
+        E: From<rusqlite::Error> + SendOutsideWasm + 'static,
+        F: FnOnce(&Transaction<'_>) -> Result<T, E> + SendOutsideWasm + 'static;
 
+    #[allow(dead_code)]
     async fn chunk_large_query_over<Query, Res>(
         &self,
         mut keys_to_chunk: Vec<Key>,
@@ -121,8 +147,8 @@ pub(crate) trait SqliteAsyncConnExt {
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
-        Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Res: SendOutsideWasm + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + SendOutsideWasm + 'static;
 
     /// Apply the [`RuntimeConfig`].
     ///
@@ -240,22 +266,26 @@ pub(crate) trait SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteAsyncConnExt for SqliteAsyncConn {
     async fn execute<P>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         params: P,
     ) -> rusqlite::Result<usize>
     where
-        P: Params + Send + 'static,
+        P: Params + SendOutsideWasm + 'static,
     {
         self.interact(move |conn| conn.execute(sql.as_ref(), params))
             .await
             .map_err(map_interact_err)?
     }
 
-    async fn execute_batch(&self, sql: impl AsRef<str> + Send + 'static) -> rusqlite::Result<()> {
+    async fn execute_batch(
+        &self,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
+    ) -> rusqlite::Result<()> {
         self.interact(move |conn| conn.execute_batch(sql.as_ref()))
             .await
             .map_err(map_interact_err)?
@@ -263,26 +293,26 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 
     async fn prepare<T, F>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         f: F,
     ) -> rusqlite::Result<T>
     where
-        T: Send + 'static,
-        F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + Send + 'static,
+        T: SendOutsideWasm + 'static,
+        F: FnOnce(Statement<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
         self.interact(move |conn| f(conn.prepare(sql.as_ref())?)).await.map_err(map_interact_err)?
     }
 
     async fn query_row<T, P, F>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         params: P,
         f: F,
     ) -> rusqlite::Result<T>
     where
-        T: Send + 'static,
-        P: Params + Send + 'static,
-        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
+        T: SendOutsideWasm + 'static,
+        P: Params + SendOutsideWasm + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
         self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
             .await
@@ -291,14 +321,14 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 
     async fn query_many<T, P, F>(
         &self,
-        sql: impl AsRef<str> + Send + 'static,
+        sql: impl AsRef<str> + SendOutsideWasm + 'static,
         params: P,
         f: F,
     ) -> rusqlite::Result<Vec<T>>
     where
-        T: Send + 'static,
-        P: Params + Send + 'static,
-        F: FnMut(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
+        T: SendOutsideWasm + 'static,
+        P: Params + SendOutsideWasm + 'static,
+        F: FnMut(&Row<'_>) -> rusqlite::Result<T> + SendOutsideWasm + 'static,
     {
         self.interact(move |conn| {
             let mut stmt = conn.prepare(sql.as_ref())?;
@@ -310,9 +340,9 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
 
     async fn with_transaction<T, E, F>(&self, f: F) -> Result<T, E>
     where
-        T: Send + 'static,
-        E: From<rusqlite::Error> + Send + 'static,
-        F: FnOnce(&Transaction<'_>) -> Result<T, E> + Send + 'static,
+        T: SendOutsideWasm + 'static,
+        E: From<rusqlite::Error> + SendOutsideWasm + 'static,
+        F: FnOnce(&Transaction<'_>) -> Result<T, E> + SendOutsideWasm + 'static,
     {
         self.interact(move |conn| {
             let txn = conn.transaction()?;
@@ -338,8 +368,8 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
-        Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Res: SendOutsideWasm + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + SendOutsideWasm + 'static,
     {
         self.with_transaction(move |txn| {
             txn.chunk_large_query_over(keys_to_chunk, result_capacity, do_query)
@@ -348,6 +378,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     }
 }
 
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 /// Map an [`InteractError`] into a [`rusqlite::Error`].
 ///
 /// An [`InteractError::Panic`] will panic. An [`InteractError::Cancelled`] will
@@ -363,6 +394,16 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
     }
 }
 
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+/// An unreachable function to avoid having to put conditional compilation
+/// everywhere we want to use [`SyncOutsideWasmWrapper::interact()`].
+///
+/// This function should not be reachable under normal circumstance since
+/// [`SyncOutsideWasmWrapper::interact()`] return [`Infallible`] as an error
+fn map_interact_err(_error: Infallible) -> rusqlite::Error {
+    unreachable!()
+}
+
 pub(crate) trait SqliteTransactionExt {
     fn chunk_large_query_over<Key, Query, Res>(
         &self,
@@ -371,8 +412,8 @@ pub(crate) trait SqliteTransactionExt {
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
-        Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static;
+        Res: SendOutsideWasm + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + SendOutsideWasm + 'static;
 }
 
 impl SqliteTransactionExt for Transaction<'_> {
@@ -383,8 +424,8 @@ impl SqliteTransactionExt for Transaction<'_> {
         do_query: Query,
     ) -> Result<Vec<Res>>
     where
-        Res: Send + 'static,
-        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + Send + 'static,
+        Res: SendOutsideWasm + 'static,
+        Query: Fn(&Transaction<'_>, Vec<Key>) -> Result<Vec<Res>> + SendOutsideWasm + 'static,
     {
         // Divide by 2 to allow space for more static parameters (not part of
         // `keys_to_chunk`).
@@ -434,14 +475,16 @@ pub(crate) trait SqliteKeyValueStoreConnExt {
     /// Store the given value for the given key.
     fn set_kv(&self, key: &str, value: &[u8]) -> rusqlite::Result<()>;
 
+    #[allow(dead_code)]
     /// Store the given value for the given key by serializing it.
-    fn set_serialized_kv<T: Serialize + Send>(&self, key: &str, value: T) -> Result<()> {
+    fn set_serialized_kv<T: Serialize + SendOutsideWasm>(&self, key: &str, value: T) -> Result<()> {
         let serialized_value = rmp_serde::to_vec_named(&value)?;
         self.set_kv(key, &serialized_value)?;
 
         Ok(())
     }
 
+    #[allow(dead_code)]
     /// Removes the current key and value if exists.
     fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
@@ -477,7 +520,8 @@ impl SqliteKeyValueStoreConnExt for rusqlite::Connection {
 ///     "value" BLOB NOT NULL
 /// );
 /// ```
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Whether the `kv` table exists in this database.
     async fn kv_table_exists(&self) -> rusqlite::Result<bool> {
@@ -497,6 +541,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
             .optional()
     }
 
+    #[allow(dead_code)]
     /// Get the stored serialized value for the given key.
     async fn get_serialized_kv<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let Some(bytes) = self.get_kv(key).await? else {
@@ -509,13 +554,15 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Store the given value for the given key.
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()>;
 
+    #[allow(dead_code)]
     /// Store the given value for the given key by serializing it.
-    async fn set_serialized_kv<T: Serialize + Send + 'static>(
+    async fn set_serialized_kv<T: Serialize + SendOutsideWasm + 'static>(
         &self,
         key: &str,
         value: T,
     ) -> Result<()>;
 
+    #[allow(dead_code)]
     /// Clears the given value for the given key.
     async fn clear_kv(&self, key: &str) -> rusqlite::Result<()>;
 
@@ -569,7 +616,8 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
     async fn set_kv(&self, key: &str, value: Vec<u8>) -> rusqlite::Result<()> {
         let key = key.to_owned();
@@ -578,7 +626,7 @@ impl SqliteKeyValueStoreAsyncConnExt for SqliteAsyncConn {
         Ok(())
     }
 
-    async fn set_serialized_kv<T: Serialize + Send + 'static>(
+    async fn set_serialized_kv<T: Serialize + SendOutsideWasm + 'static>(
         &self,
         key: &str,
         value: T,
@@ -604,6 +652,7 @@ pub(crate) fn repeat_vars(count: usize) -> impl fmt::Display {
     iter::repeat_n("?", count).format(",")
 }
 
+#[allow(dead_code)]
 /// Convert the given `SystemTime` to a timestamp, as the number of seconds
 /// since Unix Epoch.
 ///
@@ -660,21 +709,25 @@ pub(crate) trait EncryptableStore {
         }
     }
 
+    #[allow(dead_code)]
     fn serialize_value(&self, value: &impl Serialize) -> Result<Vec<u8>> {
         let serialized = rmp_serde::to_vec_named(value)?;
         self.encode_value(serialized)
     }
 
+    #[allow(dead_code)]
     fn deserialize_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T> {
         let decoded = self.decode_value(value)?;
         Ok(rmp_serde::from_slice(&decoded)?)
     }
 
+    #[allow(dead_code)]
     fn serialize_json(&self, value: &impl Serialize) -> Result<Vec<u8>> {
         let serialized = serde_json::to_vec(value)?;
         self.encode_value(serialized)
     }
 
+    #[allow(dead_code)]
     fn deserialize_json<T: DeserializeOwned>(&self, data: &[u8]) -> Result<T> {
         let decoded = self.decode_value(data)?;
 
@@ -704,6 +757,111 @@ pub(crate) trait EncryptableStore {
             err.into_inner().into()
         })
     }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[derive(Debug)]
+/// Wrapper object for providing interior mutability similar to [`SyncWrapper`]
+/// without `Send` requirement.
+///
+/// Like [`SyncWrapper`], access to the wrapped object is provided via the
+/// [`SyncOutsideWasmWrapper::interact()`] method.
+///
+/// [`SyncWrapper`]: deadpool_sync::SyncWrapper
+pub struct SyncOutsideWasmWrapper<T>(RefCell<T>);
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+impl<T> SyncOutsideWasmWrapper<T> {
+    /// Creates a new wrapped object.
+    pub fn new(value: T) -> Self {
+        Self(RefCell::new(value))
+    }
+
+    /// Interacts with the underlying object.
+    ///
+    /// Expects a closure that takes the object as its parameter.
+    pub async fn interact<F, R>(&self, f: F) -> Result<R, Infallible>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        // This async block here is to maintain API compatibility with `SyncWrapper`
+        // without triggering clippy warning for `async fn` without a call to
+        // `await` inside
+        async {
+            let mut value = self.0.borrow_mut();
+
+            Ok(f(value.deref_mut()))
+        }
+        .await
+    }
+}
+
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb")
+))]
+/// Configure VFS name using provided path.
+pub fn get_vfs_name(path: &Path) -> String {
+    #[cfg(feature = "vfs-opfs-sahpool")]
+    let vfs_prefix = "matrix-opfs-sahpool";
+    #[cfg(feature = "vfs-relaxed-idb")]
+    let vfs_prefix = "matrix-relaxed-idb";
+
+    format!("{vfs_prefix}+{}", uri_encode::encode_uri_component(path.to_string_lossy().as_ref()))
+}
+
+#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+/// Setup native file system for SQLite database for non-WASM target.
+pub async fn setup_db_fs(path: &Path) -> Result<(), OpenStoreError> {
+    // Use system native file system for non-WASM targets.
+    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
+
+    Ok(())
+}
+
+#[cfg(all(
+    target_family = "wasm",
+    target_os = "unknown",
+    not(any(feature = "vfs-opfs-sahpool", feature = "vfs-relaxed-idb"))
+))]
+/// Get in-memory file system management tool without registration.
+///
+/// Interface of this function is kept this way for compatibility
+/// with other VFS.
+pub async fn setup_db_fs(
+    _path: &Path,
+) -> Result<MemVfsUtil<sqlite_wasm_rs::WasmOsCallback>, OpenStoreError> {
+    // Get VFS management tool directly, no registration required.
+    let tool = MemVfsUtil::new();
+
+    Ok(tool)
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-opfs-sahpool"))]
+/// Setup OPFS for SQLite database for WASM target.
+pub async fn setup_db_fs(path: &Path) -> Result<OpfsSAHPoolUtil, OpenStoreError> {
+    // Use emulated virtual file system for WASM target.
+    let cfg = OpfsSAHPoolCfgBuilder::new()
+        .vfs_name(&get_vfs_name(path))
+        .directory(path.to_string_lossy().as_ref())
+        .build();
+    // Avoid global installation, due to being harder to test.
+    let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
+
+    Ok(util)
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown", feature = "vfs-relaxed-idb"))]
+/// Setup IndexedDB for SQLite database for WASM target.
+pub async fn setup_db_fs(path: &Path) -> Result<RelaxedIdbUtil, OpenStoreError> {
+    // Use emulated virtual file system for WASM target.
+    let cfg =
+        RelaxedIdbCfgBuilder::new().vfs_name(&get_vfs_name(path)).preload(Preload::All).build();
+    // Avoid global installation, due to being harder to test.
+    let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
+
+    Ok(util)
 }
 
 #[cfg(test)]

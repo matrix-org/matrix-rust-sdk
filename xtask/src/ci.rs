@@ -164,6 +164,68 @@ enum WasmFeatureSet {
     /// Equivalent to `indexeddb-all-features`, `indexeddb-crypto` and
     /// `indexeddb-state`
     Indexeddb,
+    /// Check `matrix-sdk` crate with `sqlite` feature (but not
+    /// `e2e-encryption`) using in-memory vfs
+    MatrixSdkSqliteStoresNoCryptoInMemory,
+    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
+    /// using in-memory vfs
+    MatrixSdkSqliteStoresInMemory,
+    /// Check `matrix-sdk` crate with `sqlite` feature (but not
+    /// `e2e-encryption`) using OPFS vfs
+    MatrixSdkSqliteStoresNoCryptoOpfs,
+    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
+    /// using OPFS vfs
+    MatrixSdkSqliteStoresOpfs,
+    /// Check `matrix-sdk` crate with `sqlite` feature (but not
+    /// `e2e-encryption`) using IndexedDB vfs
+    MatrixSdkSqliteStoresNoCryptoIndexeddb,
+    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
+    /// using IndexedDB vfs
+    MatrixSdkSqliteStoresIndexeddb,
+    /// Check `matrix-sdk-sqlite` crate with all features using in-memory vfs
+    SqliteAllFeaturesInMemory,
+    /// Check `matrix-sdk-sqlite` crate with all features using OPFS vfs
+    SqliteAllFeaturesOpfs,
+    /// Check `matrix-sdk-sqlite` crate with all features using IndexedDB vfs
+    SqliteAllFeaturesIndexeddb,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` and
+    /// `crypto-store` feature using in-memory vfs
+    SqliteCryptoInMemory,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` and
+    /// `crypto-store` feature using OPFS vfs
+    SqliteCryptoOpfs,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` and
+    /// `crypto-store` feature using IndexedDB vfs
+    SqliteCryptoIndexeddb,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using
+    /// in-memory vfs
+    SqliteStateInMemory,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using
+    /// OPFS vfs
+    SqliteStateOpfs,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature using
+    /// IndexedDB vfs
+    SqliteStateIndexeddb,
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using
+    /// in-memory vfs
+    SqliteCacheInMemory,
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using
+    /// OPFS vfs
+    SqliteCacheOpfs,
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature using
+    /// IndexedDB vfs
+    SqliteCacheIndexeddb,
+    /// Equivalent to `sqlite-all-features-in-memory`,
+    /// `sqlite-crypto-in-memory`, `sqlite-state-in-memory`, and
+    /// `sqlite-cache-in-memory`
+    SqliteInMemory,
+    /// Equivalent to `sqlite-all-features-opfs`, `sqlite-crypto-opfs`,
+    /// `sqlite-state-opfs`, and `sqlite-cache-opfs`
+    SqliteOpfs,
+    /// Equivalent to `sqlite-all-features-indexeddb`,
+    /// `sqlite-crypto-indexeddb`, `sqlite-state-indexeddb`, and
+    /// `sqlite-cache-indexeddb`
+    SqliteIndexeddb,
 }
 
 impl CiArgs {
@@ -371,6 +433,30 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(WasmFeatureSet::SqliteInMemory) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::SqliteAllFeaturesInMemory))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCryptoInMemory))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteStateInMemory))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCacheInMemory))?;
+        return Ok(());
+    }
+
+    if let Some(WasmFeatureSet::SqliteOpfs) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::SqliteAllFeaturesOpfs))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCryptoOpfs))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteStateOpfs))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCacheOpfs))?;
+        return Ok(());
+    }
+
+    if let Some(WasmFeatureSet::SqliteIndexeddb) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::SqliteAllFeaturesIndexeddb))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCryptoIndexeddb))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteStateIndexeddb))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCacheIndexeddb))?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode --features js"),
         (
@@ -396,6 +482,84 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (
             WasmFeatureSet::IndexeddbState,
             "-p matrix-sdk-indexeddb --no-default-features --features state-store",
+        ),
+        // In-memory vfs
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoInMemory,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,rustls-tls",
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresInMemory,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls",
+        ),
+        // OPFS vfs
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoOpfs,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,rustls-tls,vfs-opfs-sahpool",
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresOpfs,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls,vfs-opfs-sahpool",
+        ),
+        // IndexedDB vfs
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoIndexeddb,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,rustls-tls,vfs-relaxed-idb",
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresIndexeddb,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls,vfs-relaxed-idb",
+        ),
+        // In-memory vfs
+        (
+            WasmFeatureSet::SqliteAllFeaturesInMemory,
+            "-p matrix-sdk-sqlite --no-default-features --features js,crypto-store,experimental-encrypted-state-events,state-store,event-cache",
+        ),
+        (
+            WasmFeatureSet::SqliteCryptoInMemory,
+            "-p matrix-sdk-sqlite --no-default-features --features js,state-store,crypto-store",
+        ),
+        (
+            WasmFeatureSet::SqliteStateInMemory,
+            "-p matrix-sdk-sqlite --no-default-features --features js,state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteCacheInMemory,
+            "-p matrix-sdk-sqlite --no-default-features --features js,event-cache",
+        ),
+        // OPFS vfs
+        (
+            WasmFeatureSet::SqliteAllFeaturesOpfs,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-opfs-sahpool,crypto-store,experimental-encrypted-state-events,state-store,event-cache",
+        ),
+        (
+            WasmFeatureSet::SqliteCryptoOpfs,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-opfs-sahpool,state-store,crypto-store",
+        ),
+        (
+            WasmFeatureSet::SqliteStateOpfs,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-opfs-sahpool,state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteCacheOpfs,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-opfs-sahpool,event-cache",
+        ),
+        // IndexedDB vfs
+        (
+            WasmFeatureSet::SqliteAllFeaturesIndexeddb,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-relaxed-idb,crypto-store,experimental-encrypted-state-events,state-store,event-cache",
+        ),
+        (
+            WasmFeatureSet::SqliteCryptoIndexeddb,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-relaxed-idb,state-store,crypto-store",
+        ),
+        (
+            WasmFeatureSet::SqliteStateIndexeddb,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-relaxed-idb,state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteCacheIndexeddb,
+            "-p matrix-sdk-sqlite --no-default-features --features js,vfs-relaxed-idb,event-cache",
         ),
     ]);
 
@@ -430,6 +594,30 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         return Ok(());
     }
 
+    if let Some(WasmFeatureSet::SqliteInMemory) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesInMemory), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheInMemory), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteStateInMemory), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCryptoInMemory), runner)?;
+        return Ok(());
+    }
+
+    if let Some(WasmFeatureSet::SqliteOpfs) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesOpfs), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheOpfs), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteStateOpfs), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCryptoOpfs), runner)?;
+        return Ok(());
+    }
+
+    if let Some(WasmFeatureSet::SqliteIndexeddb) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeaturesIndexeddb), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCacheIndexeddb), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteStateIndexeddb), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCryptoIndexeddb), runner)?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
@@ -440,7 +628,10 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         (WasmFeatureSet::MatrixSdkCommon, ("crates/matrix-sdk-common", "--features js")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            ("crates/matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,indexeddb,rustls-tls,testing --lib",
+            ),
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
@@ -457,6 +648,142 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         (
             WasmFeatureSet::IndexeddbState,
             ("crates/matrix-sdk-indexeddb", "--no-default-features --features state-store"),
+        ),
+        // In-memory vfs
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoInMemory,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,bundled-sqlite,rustls-tls,testing --lib",
+            ),
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresInMemory,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,bundled-sqlite,e2e-encryption,rustls-tls,testing --lib",
+            ),
+        ),
+        // OPFS vfs
+        //
+        // OPFS vfs test suites has to be ran in release mode due to
+        // a harmless debug assertion when closing database.
+        //
+        // Ref: https://github.com/Spxg/sqlite-wasm-rs/blob/master/crates/sqlite-wasm-vfs/src/sahpool.rs#L672
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoOpfs,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,bundled-sqlite,rustls-tls,testing,vfs-opfs-sahpool --lib --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresOpfs,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,bundled-sqlite,e2e-encryption,rustls-tls,testing,vfs-opfs-sahpool --lib --release",
+            ),
+        ),
+        // IndexedDB vfs
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCryptoIndexeddb,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,bundled-sqlite,rustls-tls,testing,vfs-opfs-sahpool --lib",
+            ),
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresIndexeddb,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,bundled-sqlite,e2e-encryption,rustls-tls,testing,vfs-opfs-sahpool --lib",
+            ),
+        ),
+        // In-memory vfs
+        (
+            WasmFeatureSet::SqliteAllFeaturesInMemory,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--features js,state-store,experimental-encrypted-state-events,crypto-store,event-cache",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCryptoInMemory,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,state-store,crypto-store",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteStateInMemory,
+            ("crates/matrix-sdk-sqlite", "--no-default-features --features js,state-store"),
+        ),
+        (
+            WasmFeatureSet::SqliteCacheInMemory,
+            ("crates/matrix-sdk-sqlite", "--no-default-features --features js,event-cache"),
+        ),
+        // OPFS vfs
+        //
+        // OPFS vfs test suites has to be ran in release mode due to
+        // a harmless debug assertion when closing database.
+        //
+        // Ref: https://github.com/Spxg/sqlite-wasm-rs/blob/master/crates/sqlite-wasm-vfs/src/sahpool.rs#L672
+        (
+            WasmFeatureSet::SqliteAllFeaturesOpfs,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--features js,vfs-opfs-sahpool,state-store,experimental-encrypted-state-events,crypto-store,event-cache --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCryptoOpfs,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,vfs-opfs-sahpool,state-store,crypto-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteStateOpfs,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,vfs-opfs-sahpool,state-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCacheOpfs,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,vfs-opfs-sahpool,event-cache --release",
+            ),
+        ),
+        // IndexedDB vfs
+        (
+            WasmFeatureSet::SqliteAllFeaturesIndexeddb,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--features js,vfs-relaxed-idb,state-store,experimental-encrypted-state-events,crypto-store,event-cache",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCryptoIndexeddb,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,vfs-relaxed-idb,state-store,crypto-store",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteStateIndexeddb,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,vfs-relaxed-idb,state-store",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCacheIndexeddb,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,vfs-relaxed-idb,event-cache",
+            ),
         ),
     ]);
 
