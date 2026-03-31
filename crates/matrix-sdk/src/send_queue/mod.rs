@@ -595,7 +595,7 @@ impl RoomSendQueue {
     /// client's sending queue will be disabled, and it will need to be
     /// manually re-enabled by the caller (e.g. after network is back, or when
     /// something has been done about the faulty requests).
-    pub async fn send_redaction(
+    pub async fn redact(
         &self,
         redacts: OwnedEventId,
         reason: Option<&str>,

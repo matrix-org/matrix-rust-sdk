@@ -1969,7 +1969,7 @@ async fn test_redaction() {
     let reason = Some("whatever");
     let redaction_event_id = owned_event_id!("$2");
     server.mock_room_redact().ok(redaction_event_id.clone()).mount().await;
-    queue.send_redaction(redacts.clone(), reason).await.expect("queuing the redaction works");
+    queue.redact(redacts.clone(), reason).await.expect("queuing the redaction works");
 
     // ----------------------
     // Observe the local echo.

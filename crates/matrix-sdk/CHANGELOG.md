@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Enable sending redaction events through the send queue via `RoomSendQueue::send_redaction`.
+- Enable sending redaction events through the send queue via `RoomSendQueue::redact`.
   This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
   variant.
   ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
