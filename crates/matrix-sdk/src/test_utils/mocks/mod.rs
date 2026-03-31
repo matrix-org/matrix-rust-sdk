@@ -36,7 +36,6 @@ use ruma::{
     OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
     api::client::{
         discovery::get_capabilities::v3::Capabilities,
-        profile::{ProfileFieldName, ProfileFieldValue},
         receipt::create_receipt::v3::ReceiptType,
         room::Visibility,
         sync::sync_events::v5,
@@ -53,6 +52,7 @@ use ruma::{
         room::member::RoomMemberEvent,
     },
     media::Method,
+    profile::{ProfileFieldName, ProfileFieldValue},
     push::RuleKind,
     serde::Raw,
     time::Duration,

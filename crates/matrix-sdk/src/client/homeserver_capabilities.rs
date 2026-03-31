@@ -1,6 +1,6 @@
 use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
-use ruma::api::client::{
-    discovery::{
+use ruma::{
+    api::client::discovery::{
         get_capabilities,
         get_capabilities::v3::{Capabilities, ProfileFieldsCapability},
     },
