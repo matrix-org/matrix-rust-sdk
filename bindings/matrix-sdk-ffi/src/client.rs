@@ -79,7 +79,7 @@ use ruma::{
         error::ErrorKind,
         profile::{AvatarUrl, DisplayName},
         room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
-        uiaa::UserIdentifier,
+        uiaa::{EmailUserIdentifier, UserIdentifier},
     },
     events::{
         direct::DirectEventContent,
@@ -534,7 +534,7 @@ impl Client {
         let mut builder = self
             .inner
             .matrix_auth()
-            .login_identifier(UserIdentifier::Email { address: email }, &password);
+            .login_identifier(UserIdentifier::Email(EmailUserIdentifier::new(email)), &password);
 
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);

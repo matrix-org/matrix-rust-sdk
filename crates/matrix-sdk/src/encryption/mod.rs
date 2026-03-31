@@ -1259,7 +1259,7 @@ impl Encryption {
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = response.session.clone();
@@ -1422,7 +1422,7 @@ impl Encryption {
     /// if let Err(e) = client.encryption().bootstrap_cross_signing_if_needed(None).await {
     ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = response.session.clone();
