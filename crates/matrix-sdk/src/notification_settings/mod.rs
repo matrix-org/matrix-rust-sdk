@@ -23,7 +23,9 @@ use ruma::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
-    push::{Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
+    push::{
+        Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, SoundTweakValue, Tweak,
+    },
 };
 use tokio::sync::{
     RwLock,
@@ -201,7 +203,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let actions = match mode {
             RoomNotificationMode::AllMessages => {
-                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))]
             }
             _ => {
                 vec![]

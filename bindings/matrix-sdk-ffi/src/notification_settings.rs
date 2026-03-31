@@ -27,9 +27,10 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{
     events::push_rules::PushRulesEventContent,
     push::{
-        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, PredefinedOverrideRuleId,
-        PredefinedUnderrideRuleId, PushCondition as SdkPushCondition, RoomMemberCountIs,
-        RuleKind as SdkRuleKind, ScalarJsonValue as SdkJsonValue, Tweak as SdkTweak,
+        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, HighlightTweakValue,
+        PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition as SdkPushCondition,
+        RoomMemberCountIs, RuleKind as SdkRuleKind, ScalarJsonValue as SdkJsonValue,
+        Tweak as SdkTweak,
     },
     Int, RoomId, UInt,
 };
@@ -303,16 +304,19 @@ impl TryFrom<SdkTweak> for Tweak {
     type Error = String;
 
     fn try_from(value: SdkTweak) -> Result<Self, Self::Error> {
-        Ok(match value {
-            SdkTweak::Sound(sound) => Self::Sound { value: sound },
-            SdkTweak::Highlight(highlight) => Self::Highlight { value: highlight },
-            SdkTweak::Custom { name, value } => {
-                let json_string = serde_json::to_string(&value)
-                    .map_err(|e| format!("Failed to serialize custom tweak value: {e}"))?;
-
-                Self::Custom { name, value: json_string }
+        Ok(match &value {
+            SdkTweak::Sound(sound) => Self::Sound { value: sound.to_string() },
+            SdkTweak::Highlight(highlight) => {
+                Self::Highlight { value: matches!(highlight, HighlightTweakValue::Yes) }
             }
-            _ => return Err("Unsupported tweak type".to_owned()),
+            _ => {
+                let json_string = value
+                    .custom_value()
+                    .ok_or_else(|| "Unsupported tweak type".to_owned())?
+                    .to_string();
+
+                Self::Custom { name: value.set_tweak().to_owned(), value: json_string }
+            }
         })
     }
 }
@@ -322,16 +326,16 @@ impl TryFrom<Tweak> for SdkTweak {
 
     fn try_from(value: Tweak) -> Result<Self, Self::Error> {
         Ok(match value {
-            Tweak::Sound { value } => Self::Sound(value),
-            Tweak::Highlight { value } => Self::Highlight(value),
-            Tweak::Custom { name, value } => {
-                let json_value: serde_json::Value = serde_json::from_str(&value)
-                    .map_err(|e| format!("Failed to deserialize custom tweak value: {e}"))?;
-                let value = serde_json::from_value(json_value)
-                    .map_err(|e| format!("Failed to convert JSON value: {e}"))?;
-
-                Self::Custom { name, value }
-            }
+            Tweak::Sound { value } => Self::Sound(value.into()),
+            Tweak::Highlight { value } => Self::Highlight(value.into()),
+            Tweak::Custom { name, value } => Self::new(
+                name,
+                Some(
+                    serde_json::value::RawValue::from_string(value)
+                        .map_err(|e| format!("Failed to convert JSON value: {e}"))?,
+                ),
+            )
+            .map_err(|e| format!("Failed to convert custom tweak: {e}"))?,
         })
     }
 }

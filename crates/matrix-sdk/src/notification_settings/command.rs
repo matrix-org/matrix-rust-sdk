@@ -4,7 +4,7 @@ use ruma::{
     OwnedRoomId,
     push::{
         Action, NewConditionalPushRule, NewPatternedPushRule, NewPushRule, NewSimplePushRule,
-        PushCondition, RuleKind, Tweak,
+        PushCondition, RuleKind, SoundTweakValue, Tweak,
     },
 };
 
@@ -31,7 +31,7 @@ pub(crate) enum Command {
 
 fn get_notify_actions(notify: bool) -> Vec<Action> {
     if notify {
-        vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+        vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))]
     } else {
         vec![]
     }

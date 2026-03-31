@@ -462,7 +462,7 @@ mod tests {
             room::{member::MembershipState, message::MessageType},
         },
         owned_event_id,
-        push::Action,
+        push::{Action, HighlightTweakValue, Tweak},
         room_id, user_id,
     };
 
@@ -595,7 +595,7 @@ mod tests {
 
         let event = make_event(
             user_id!("@bob:example.org"),
-            vec![Action::SetTweak(ruma::push::Tweak::Highlight(true))],
+            vec![Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
         );
         let mut receipts = RoomReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
@@ -605,7 +605,7 @@ mod tests {
 
         let event = make_event(
             user_id!("@bob:example.org"),
-            vec![Action::SetTweak(ruma::push::Tweak::Highlight(true)), Action::Notify],
+            vec![Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)), Action::Notify],
         );
         let mut receipts = RoomReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
