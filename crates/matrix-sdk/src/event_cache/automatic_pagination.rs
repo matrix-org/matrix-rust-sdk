@@ -12,24 +12,86 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
-use ruma::OwnedRoomId;
+use matrix_sdk_base::task_monitor::{BackgroundTaskHandle, TaskMonitor};
+use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::mpsc;
 use tracing::{info, instrument, trace, warn};
 
 use crate::event_cache::EventCacheInner;
 
+/// State for running paginations in background tasks.
+///
+/// Shallow type, can be cloned cheaply.
+#[derive(Clone)]
+pub struct AutomaticPagination {
+    inner: Arc<AutomaticPaginationInner>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for AutomaticPagination {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AutomaticPagination").finish_non_exhaustive()
+    }
+}
+
+impl AutomaticPagination {
+    /// Create a new [`AutomaticPagination`], spawning the background task to
+    /// handle incoming requests to run background paginations.
+    pub(super) fn new(event_cache: Weak<EventCacheInner>, task_monitor: &TaskMonitor) -> Self {
+        let (sender, receiver) = mpsc::unbounded_channel();
+
+        let task = task_monitor.spawn_background_task(
+            "event_cache::automatic_paginations_task",
+            automatic_paginations_task(event_cache, receiver),
+        );
+
+        Self { inner: Arc::new(AutomaticPaginationInner { _task: task, sender }) }
+    }
+
+    /// Request a single back-pagination to happen in the background for the
+    /// given room.
+    ///
+    /// Returns false, if the request couldn't be sent.
+    pub fn run_once(&self, room_id: &RoomId) -> bool {
+        // We don't want to do anything with the error type, as it only includes the
+        // request we just created, and not much more; there's no guarantee that
+        // retrying sending it would succeed, so let it drop, and report the
+        // result as a boolean, for informative purposes.
+        !self
+            .inner
+            .sender
+            .send(AutomaticPaginationRequest::PaginateRoomBackwards { room_id: room_id.to_owned() })
+            .is_err()
+    }
+}
+
+struct AutomaticPaginationInner {
+    /// The task used to handle automatic pagination requests.
+    _task: BackgroundTaskHandle,
+
+    /// A sender for automatic pagination requests, that is shared with every
+    /// room.
+    ///
+    /// It's a `OnceLock` because its initialization is deferred to
+    /// [`EventCache::subscribe`].
+    sender: mpsc::UnboundedSender<AutomaticPaginationRequest>,
+}
+
 #[derive(Clone, Debug)]
-pub(crate) enum AutomaticPaginationRequest {
+enum AutomaticPaginationRequest {
     PaginateRoomBackwards { room_id: OwnedRoomId },
 }
 
 /// Listen to background automatic pagination requests, and execute them in
 /// real-time.
 #[instrument(skip_all)]
-pub(super) async fn automatic_paginations_task(
-    inner: Arc<EventCacheInner>,
+async fn automatic_paginations_task(
+    inner: Weak<EventCacheInner>,
     mut receiver: mpsc::UnboundedReceiver<AutomaticPaginationRequest>,
 ) {
     trace!("Spawning the automatic pagination task");
@@ -39,6 +101,11 @@ pub(super) async fn automatic_paginations_task(
     while let Some(request) = receiver.recv().await {
         match request {
             AutomaticPaginationRequest::PaginateRoomBackwards { room_id } => {
+                let Some(inner) = inner.upgrade() else {
+                    // The event cache has been dropped, exit the task.
+                    break;
+                };
+
                 let config = *inner.config.read().unwrap();
 
                 let credits = room_pagination_credits
@@ -93,24 +160,12 @@ mod tests {
     use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id};
-    use tokio::sync::mpsc;
 
     use crate::{
         assert_let_timeout,
-        event_cache::{
-            EventsOrigin, RoomEventCacheUpdate,
-            automatic_pagination::AutomaticPaginationRequest::PaginateRoomBackwards,
-        },
+        event_cache::{EventsOrigin, RoomEventCacheUpdate},
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     };
-
-    impl super::super::EventCache {
-        fn pagination_requests_sender(
-            &self,
-        ) -> Option<mpsc::UnboundedSender<super::AutomaticPaginationRequest>> {
-            self.inner.automatic_pagination_requests_sender.get().cloned()
-        }
-    }
 
     /// Test that we can send automatic pagination requests.
     #[async_test]
@@ -165,8 +220,8 @@ mod tests {
             .await;
 
         // Send a request for a background pagination,
-        let sender = event_cache.pagination_requests_sender().unwrap();
-        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
+        let automatic_pagination_api = event_cache.automatic_pagination().unwrap();
+        assert!(automatic_pagination_api.run_once(room_id));
 
         // The room pagination happens in the background.
         assert_let_timeout!(
@@ -247,8 +302,8 @@ mod tests {
             .await;
 
         // Send a request for a background pagination,
-        let sender = event_cache.pagination_requests_sender().unwrap();
-        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
+        let automatic_pagination_api = event_cache.automatic_pagination().unwrap();
+        assert!(automatic_pagination_api.run_once(room_id));
 
         // The room pagination happens in the background.
         assert_let_timeout!(
@@ -271,7 +326,7 @@ mod tests {
         assert!(room_cache_updates.is_empty());
 
         // One can send another request to back-paginate…
-        sender.send(PaginateRoomBackwards { room_id: room_id.to_owned() }).unwrap();
+        assert!(automatic_pagination_api.run_once(room_id));
 
         sleep(Duration::from_millis(300)).await;
         // But it doesn't happen, because we don't have enough credits for automatic
