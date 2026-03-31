@@ -168,13 +168,13 @@ impl SqliteCryptoStore {
         let version = conn.db_version().await?;
         debug!("Opened sqlite store with version {}", version);
 
-        conn.wal_checkpoint().await;
-
         let version = initialize_store(&conn, version).await?;
 
         let store = Self::create_raw(secret, pool, conn).await?;
 
         run_migrations(&store, version, None).await?;
+
+        store.write().await.wal_checkpoint().await;
 
         Ok(store)
     }
@@ -2223,11 +2223,11 @@ mod tests {
         let config = SqliteStoreConfig::new(tmpdir.path());
         let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
         let conn = pool.get().await.unwrap();
-        conn.wal_checkpoint().await;
         let version = super::initialize_store(&conn, 0).await.unwrap();
         let old_data_store =
             SqliteCryptoStore::create_raw(config.secret.clone(), pool, conn).await.unwrap();
         super::run_migrations(&old_data_store, version, Some(15)).await.unwrap();
+        old_data_store.write().await.wal_checkpoint().await;
 
         // Store a secret using the old format
         let secret = GossippedSecret {
