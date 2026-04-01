@@ -2155,6 +2155,15 @@ impl Client {
         }))))
     }
 
+    /// Whether to enable automatic backpagination under certain conditions
+    /// (e.g. when processing read receipts).
+    ///
+    /// This is an experimental feature, and might cause performance issues on
+    /// large accounts. Use with caution.
+    pub fn enable_automatic_backpagination(&self) {
+        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
+    }
+
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
         HomeserverCapabilities::new(self.inner.homeserver_capabilities())
     }
