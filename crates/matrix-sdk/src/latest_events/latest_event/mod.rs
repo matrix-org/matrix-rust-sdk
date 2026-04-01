@@ -332,13 +332,14 @@ mod tests_latest_event {
         store::{SerializableEventContent, StoreConfig},
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         owned_event_id, owned_room_id, room_id, user_id,
     };
     use stream_assert::{assert_next_matches, assert_pending};
+    use tokio::task::yield_now;
 
     use super::{super::local_room_message, LatestEvent, LatestEventValue, With};
     use crate::{
@@ -641,6 +642,94 @@ mod tests_latest_event {
             latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
 
             assert_matches!(latest_event.current_value.get().await, LatestEventValue::Remote(_));
+        }
+    }
+
+    #[async_test]
+    async fn test_redacted_latest_event_is_removed() {
+        let room_id = owned_room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+        let _room = client.get_room(&room_id).unwrap();
+        let weak_room = WeakRoom::new(WeakClient::from_client(&client), room_id.clone());
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+
+        // Fill the event cache with two events.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![
+                            event_factory.text_msg("A").event_id(event_id_0).into(),
+                            event_factory.text_msg("B").event_id(event_id_1).into(),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        // Let's create a `LatestEventValue` from the event cache. It must work.
+        {
+            latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
+
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::Remote(remote) => {
+                    assert_eq!(remote.event_id().as_deref(), Some(event_id_1));
+                }
+            );
+        }
+
+        // Now, let's redact `$ev1`.
+        {
+            server
+                .mock_sync()
+                .ok_and_run(&client, |builder| {
+                    builder.add_joined_room(
+                        JoinedRoomBuilder::new(&room_id)
+                            .add_timeline_event(event_factory.redaction(event_id_1)),
+                    );
+                })
+                .await;
+
+            yield_now().await;
+
+            latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
+
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::Remote(remote) => {
+                    // `$ev1` has been redacted, so `$ev0` is the new candidate!
+                    assert_eq!(remote.event_id().as_deref(), Some(event_id_0));
+                }
+            );
         }
     }
 
