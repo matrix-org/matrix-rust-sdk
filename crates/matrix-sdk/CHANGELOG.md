@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Latest Event does not emit an update when it computes the same value as the
+  previous Latest Event.
+  ([#6396](https://github.com/matrix-org/matrix-rust-sdk/pull/6396))
 - Add support for pushing the backup key to other clients, and receiving a
   pushed backup key from other clients
   ([MSC4385](https://github.com/matrix-org/matrix-spec-proposals/pull/4385)),
