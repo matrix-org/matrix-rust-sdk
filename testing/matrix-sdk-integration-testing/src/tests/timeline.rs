@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Arc, time::Duration};
+use std::{ops::Not as _, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use assert_matches::assert_matches;
@@ -1579,6 +1579,96 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
             TimelineEventItemId::EventId(thread_reply_event_id.clone())
         );
         assert_eq!(latest_event.content.as_message().unwrap().body(), "In-thread reply");
+    }
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_send_message_updates() -> Result<()> {
+    // Set up sync for user Alice, and create a room.
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let alice_clone = alice.clone();
+    let sync_service = SyncService::builder(alice_clone.clone()).build().await?;
+
+    debug!("Creating room…");
+    let room = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            is_direct: true,
+        }))
+        .await?;
+
+    let timeline = room.timeline().await.unwrap();
+    let (items, mut stream) = timeline.subscribe().await;
+
+    // The room starts empty.
+    assert!(items.is_empty());
+    assert!(stream.next().now_or_never().is_none());
+
+    // Pause the sync service, so as to not receive the remote echo of the sent
+    // message too early.
+    sync_service.stop().await;
+
+    // Send a message with the send queue.
+    let _send_handle =
+        timeline.send(RoomMessageEventContent::text_plain("Hello world").into()).await?;
+
+    // First, we receive the local echo.
+    assert_let!(diffs = stream.next().await.unwrap());
+    assert_eq!(diffs.len(), 2);
+
+    let timeline_unique_id = {
+        assert_let!(VectorDiff::PushBack { value: local_echo } = &diffs[0]);
+        let event_item = local_echo.as_event().unwrap();
+        assert_eq!(event_item.content().as_message().unwrap().body(), "Hello world");
+        assert!(event_item.is_local_echo());
+        local_echo.unique_id().to_owned()
+    };
+
+    {
+        assert_let!(VectorDiff::PushFront { value } = &diffs[1]);
+        assert!(value.is_date_divider())
+    }
+
+    // Then we receive the sent event notification, still on a local echo.
+    assert_let!(diffs = stream.next().await.unwrap());
+    assert_eq!(diffs.len(), 1);
+
+    {
+        assert_let!(VectorDiff::Set { index: 1, value } = &diffs[0]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.content().as_message().unwrap().body(), "Hello world");
+        assert!(event_item.is_local_echo());
+        assert_eq!(&timeline_unique_id, value.unique_id());
+    }
+
+    // Then we receive a remote echo via a sync response.
+    sync_service.start().await;
+
+    assert_let!(diffs = stream.next().await.unwrap());
+    assert_eq!(diffs.len(), 4);
+
+    // FIXME: this is some "bouncing" behavior! The timeline should only trigger a
+    // single `Set` update for the sent event, here, ideally.
+    {
+        // Removal of the duplicate event.
+        assert_let!(VectorDiff::Remove { index: 1 } = &diffs[0]);
+
+        // The duplicate event is reinserted.
+        assert_let!(VectorDiff::PushFront { value } = &diffs[1]);
+        let event_item = value.as_event().unwrap();
+        assert_eq!(event_item.content().as_message().unwrap().body(), "Hello world");
+        // No more a local echo.
+        assert!(event_item.is_local_echo().not());
+        assert_eq!(&timeline_unique_id, value.unique_id());
+
+        // A date divider is re-inserted at start.
+        assert_let!(VectorDiff::PushFront { value } = &diffs[2]);
+        assert!(value.is_date_divider());
+
+        // And the other date divider is removed.
+        assert_let!(VectorDiff::Remove { index: 2 } = &diffs[3]);
     }
 
     Ok(())
