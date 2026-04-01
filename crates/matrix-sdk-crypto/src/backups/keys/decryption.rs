@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn base64_decoding() -> Result<(), DecodeError> {
-        let key = BackupDecryptionKey::new().expect("Can't create a new recovery key");
+        let key = BackupDecryptionKey::new();
 
         let base64 = key.to_base64();
         let decoded_key = BackupDecryptionKey::from_base64(&base64)?;
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn base58_decoding() -> Result<(), DecodeError> {
-        let key = BackupDecryptionKey::new().expect("Can't create a new recovery key");
+        let key = BackupDecryptionKey::new();
 
         let base64 = key.to_base58();
         let decoded_key = BackupDecryptionKey::from_base58(&base64)?;
@@ -394,7 +394,7 @@ mod tests {
     async fn test_encryption_cycle() {
         let session = InboundGroupSession::from_export(&room_key()).unwrap();
 
-        let decryption_key = BackupDecryptionKey::new().unwrap();
+        let decryption_key = BackupDecryptionKey::new();
         let encryption_key = decryption_key.megolm_v1_public_key();
 
         let encrypted = encryption_key.encrypt(session).await;
@@ -406,7 +406,7 @@ mod tests {
 
     #[test]
     fn key_matches() {
-        let decryption_key = BackupDecryptionKey::new().unwrap();
+        let decryption_key = BackupDecryptionKey::new();
 
         let key_info = decryption_key.to_backup_info();
 

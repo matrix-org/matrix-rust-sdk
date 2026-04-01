@@ -422,15 +422,26 @@ pub(crate) async fn run_migrations(
         .await?;
     }
 
-    if max_version.is_some_and(|max_version| max_version < 16) {
+    if version < 16 {
+        debug!("Upgrading database to version 16");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/016_remove_old_generation_counter.sql"
+            ))?;
+            txn.set_db_version(16)
+        })
+        .await?;
+    }
+
+    if max_version.is_some_and(|max_version| max_version < 17) {
         return Ok(());
     }
 
-    if version < 16 {
+    if version < 17 {
         let store = store.clone();
         conn.with_transaction(move |txn| {
             txn.execute_batch(include_str!(
-                "../migrations/crypto_store/016_add_new_secrets_inbox.sql"
+                "../migrations/crypto_store/017_add_new_secrets_inbox.sql"
             ))?;
             let mut select_query = txn.prepare("SELECT data FROM secrets")?;
             let mut secrets = select_query.query([])?;
@@ -453,9 +464,9 @@ pub(crate) async fn run_migrations(
                 ))?;
             }
             txn.execute_batch(include_str!(
-                "../migrations/crypto_store/016_drop_old_secrets_inbox.sql"
+                "../migrations/crypto_store/017_drop_old_secrets_inbox.sql"
             ))?;
-            txn.set_db_version(16)
+            txn.set_db_version(17)
         })
         .await?;
     }
@@ -2224,7 +2235,7 @@ mod tests {
 
         use crate::utils::{EncryptableStore, SqliteAsyncConnExt};
 
-        // Create a database with version 14
+        // Create a database with version 16
         let tmpdir = tempdir().unwrap();
         let config = SqliteStoreConfig::new(tmpdir.path());
         let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
@@ -2232,7 +2243,7 @@ mod tests {
         let version = super::initialize_store(&conn, 0).await.unwrap();
         let old_data_store =
             SqliteCryptoStore::create_raw(config.secret.clone(), pool, conn).await.unwrap();
-        super::run_migrations(&old_data_store, version, Some(15)).await.unwrap();
+        super::run_migrations(&old_data_store, version, Some(16)).await.unwrap();
         old_data_store.write().await.wal_checkpoint().await;
 
         // Store a secret using the old format

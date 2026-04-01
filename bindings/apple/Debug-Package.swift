@@ -1,4 +1,4 @@
-// swift-tools-version:5.6
+// swift-tools-version:5.7
 
 // A package manifest for local development. This file will be copied
 // into the root of the repo when generating an XCFramework.
@@ -8,7 +8,7 @@ import PackageDescription
 let package = Package(
     name: "MatrixRustSDK",
     platforms: [
-        .iOS(.v15),
+        .iOS(.v16),
         .macOS(.v12)
     ],
     products: [

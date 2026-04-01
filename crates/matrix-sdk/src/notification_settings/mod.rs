@@ -23,7 +23,9 @@ use ruma::{
         delete_pushrule, set_pushrule, set_pushrule_actions, set_pushrule_enabled,
     },
     events::push_rules::PushRulesEvent,
-    push::{Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, Tweak},
+    push::{
+        Action, NewPushRule, PredefinedUnderrideRuleId, RuleKind, Ruleset, SoundTweakValue, Tweak,
+    },
 };
 use tokio::sync::{
     RwLock,
@@ -201,7 +203,7 @@ impl NotificationSettings {
     ) -> Result<(), NotificationSettingsError> {
         let actions = match mode {
             RoomNotificationMode::AllMessages => {
-                vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+                vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))]
             }
             _ => {
                 vec![]
@@ -593,8 +595,9 @@ mod tests {
     use ruma::{
         OwnedRoomId, RoomId, owned_room_id,
         push::{
-            Action, AnyPushRuleRef, NewPatternedPushRule, NewPushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, RuleKind, Ruleset,
+            Action, AnyPushRuleRef, EventMatchConditionData, NewPatternedPushRule, NewPushRule,
+            PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
+            PushCondition, RuleKind, Ruleset,
         },
     };
     use stream_assert::{assert_next_eq, assert_pending};
@@ -1632,10 +1635,10 @@ mod tests {
             .await;
 
         let actions = vec![Action::Notify];
-        let conditions = vec![ruma::push::PushCondition::EventMatch {
-            key: "content.body".to_owned(),
-            pattern: "hello".to_owned(),
-        }];
+        let conditions = vec![PushCondition::EventMatch(EventMatchConditionData::new(
+            "content.body".to_owned(),
+            "hello".to_owned(),
+        ))];
 
         settings
             .create_custom_conditional_push_rule(
@@ -1662,10 +1665,10 @@ mod tests {
         let settings = client.notification_settings().await;
 
         let actions = vec![Action::Notify];
-        let conditions = vec![ruma::push::PushCondition::EventMatch {
-            key: "content.body".to_owned(),
-            pattern: "hello".to_owned(),
-        }];
+        let conditions = vec![PushCondition::EventMatch(EventMatchConditionData::new(
+            "content.body".to_owned(),
+            "hello".to_owned(),
+        ))];
 
         let result = settings
             .create_custom_conditional_push_rule(

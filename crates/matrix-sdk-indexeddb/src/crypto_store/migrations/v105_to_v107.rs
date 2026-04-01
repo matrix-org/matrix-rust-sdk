@@ -24,9 +24,9 @@ use crate::{
     serializer::SafeEncodeSerializer,
 };
 
-/// Migrate to schema v105: add the new `secrets_inbox2` table.
+/// Migrate to schema v106: add the new `secrets_inbox2` table.
 pub(crate) async fn schema_add(name: &str) -> Result<(), OpenDbError> {
-    do_schema_upgrade(name, 105, |tx, _| {
+    do_schema_upgrade(name, 106, |tx, _| {
         tx.db().create_object_store(keys::SECRETS_INBOX_V2).build()?;
         Ok(())
     })
@@ -69,9 +69,9 @@ pub(crate) async fn data_migrate(name: &str, serializer: &SafeEncodeSerializer) 
     Ok(())
 }
 
-/// Migrate to schema v106: drop the old `secrets_inbox` table.
+/// Migrate to schema v107: drop the old `secrets_inbox` table.
 pub(crate) async fn schema_delete(name: &str) -> Result<(), OpenDbError> {
-    do_schema_upgrade(name, 106, |tx, _| {
+    do_schema_upgrade(name, 107, |tx, _| {
         tx.db().delete_object_store(old_keys::SECRETS_INBOX_V1)?;
         Ok(())
     })

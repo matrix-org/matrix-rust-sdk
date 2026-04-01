@@ -84,17 +84,19 @@ impl Widget for &mut SearchingView {
         let [search_area, results_area] =
             Layout::vertical([Constraint::Length(3), Constraint::Fill(1)]).areas(inner_area);
 
-        let messages = if let Some(results) = &self.results
-            && !results.is_empty()
-        {
-            results
-                .iter()
-                .map(|(sender, time, message)| {
-                    MessageWidget::new(sender.to_string(), time.clone(), message.clone())
-                })
-                .collect()
+        let messages = if let Some(results) = &self.results {
+            if !results.is_empty() {
+                results
+                    .iter()
+                    .map(|(sender, time, message)| {
+                        MessageWidget::new(sender.to_string(), time.clone(), message.clone())
+                    })
+                    .collect()
+            } else {
+                vec![MessageWidget::new("", "", "No results found!")]
+            }
         } else {
-            vec![MessageWidget::new("", "", "No results found!")]
+            Vec::new()
         };
 
         let count = messages.len();
@@ -109,15 +111,13 @@ impl Widget for &mut SearchingView {
                     .len()
                     + 3;
 
-            if context.index % 2 == 0 {
-                message_widget.style = Style::default().fg(TEXT_COLOR).bg(ALT_ROW_COLOR);
+            message_widget.style = if context.is_selected {
+                Style::default().bg(NORMAL_ROW_COLOR).fg(SELECTED_STYLE_FG)
+            } else if context.index % 2 == 0 {
+                Style::default().fg(TEXT_COLOR).bg(ALT_ROW_COLOR)
             } else {
-                message_widget.style = Style::default().fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR);
-            }
-
-            if context.is_selected {
-                message_widget.style = Style::default().bg(NORMAL_ROW_COLOR).fg(SELECTED_STYLE_FG);
-            }
+                Style::default().fg(TEXT_COLOR).bg(NORMAL_ROW_COLOR)
+            };
 
             (message_widget, main_axis_size as u16)
         });

@@ -602,7 +602,7 @@ async fn test_reset_while_backpaginating() {
     wait_for_initial_events(events, &mut room_stream).await;
 
     // We're going to cause a small race:
-    // - a background request to sync will be sent,
+    // - a pagination request to sync will be sent,
     // - a backpagination will be sent concurrently.
     //
     // So events have to happen in this order:

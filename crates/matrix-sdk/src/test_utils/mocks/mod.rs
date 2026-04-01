@@ -35,7 +35,7 @@ use ruma::{
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
     OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
     api::client::{
-        profile::{ProfileFieldName, ProfileFieldValue},
+        discovery::get_capabilities::v3::Capabilities,
         receipt::create_receipt::v3::ReceiptType,
         room::Visibility,
         sync::sync_events::v5,
@@ -52,6 +52,7 @@ use ruma::{
         room::member::RoomMemberEvent,
     },
     media::Method,
+    profile::{ProfileFieldName, ProfileFieldValue},
     push::RuleKind,
     serde::Raw,
     time::Duration,
@@ -1684,6 +1685,15 @@ impl MatrixMockServer {
         let mock =
             Mock::given(method("GET")).and(path(format!("/_matrix/client/v3/profile/{user_id}")));
         self.mock_endpoint(mock, GetProfileEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get the capabilities of
+    /// the homeserver.
+    pub fn mock_get_homeserver_capabilities(
+        &self,
+    ) -> MockEndpoint<'_, GetHomeserverCapabilitiesEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v3/capabilities"));
+        self.mock_endpoint(mock, GetHomeserverCapabilitiesEndpoint)
     }
 }
 
@@ -4914,5 +4924,17 @@ impl<'a> MockEndpoint<'a, GetProfileEndpoint> {
             .map(|field| (field.field_name(), field.value()))
             .collect::<BTreeMap<_, _>>();
         self.respond_with(ResponseTemplate::new(200).set_body_json(profile))
+    }
+}
+
+/// A prebuilt mock for `GET /_matrix/client/*/capabilities`.
+pub struct GetHomeserverCapabilitiesEndpoint;
+
+impl<'a> MockEndpoint<'a, GetHomeserverCapabilitiesEndpoint> {
+    /// Returns a successful empty response.
+    pub fn ok_with_capabilities(self, capabilities: Capabilities) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "capabilities": capabilities,
+        })))
     }
 }

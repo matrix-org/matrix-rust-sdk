@@ -42,9 +42,8 @@ use ruma::{
             config::{get_global_account_data, set_global_account_data},
             error::ErrorKind,
             profile::{
-                DisplayName, ProfileFieldName, ProfileFieldValue, StaticProfileField,
-                delete_profile_field, get_avatar_url, get_profile, get_profile_field,
-                set_avatar_url, set_display_name, set_profile_field,
+                DisplayName, StaticProfileField, delete_profile_field, get_avatar_url, get_profile,
+                get_profile_field, set_avatar_url, set_display_name, set_profile_field,
             },
             uiaa::AuthData,
         },
@@ -61,6 +60,7 @@ use ruma::{
         push_rules::PushRulesEventContent,
         room::MediaSource,
     },
+    profile::{ProfileFieldName, ProfileFieldValue},
     push::Ruleset,
     serde::Raw,
     thirdparty::Medium,
@@ -437,8 +437,8 @@ impl Account {
 
     /// Set the given field of our own user's profile.
     ///
-    /// [`Client::get_capabilities()`] should be called first to check it the
-    /// field can be set on the homeserver.
+    /// [`Client::homeserver_capabilities()`] should be called first to check it
+    /// the field can be set on the homeserver.
     ///
     /// # Arguments
     ///
@@ -457,8 +457,8 @@ impl Account {
 
     /// Delete the given field of our own user's profile.
     ///
-    /// [`Client::get_capabilities()`] should be called first to check it the
-    /// field can be modified on the homeserver.
+    /// [`Client::homeserver_capabilities()`] should be called first to check it
+    /// the field can be modified on the homeserver.
     ///
     /// # Arguments
     ///

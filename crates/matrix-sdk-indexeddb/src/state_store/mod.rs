@@ -42,6 +42,7 @@ use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
     CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
     OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
+    api::client::discovery::get_capabilities::v3::Capabilities,
     canonical_json::{RedactedBecause, redact},
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncStateEvent,
@@ -506,6 +507,9 @@ impl IndexeddbStateStore {
             StateStoreDataKey::ThreadSubscriptionsCatchupTokens => {
                 self.encode_key(keys::KV, StateStoreDataKey::THREAD_SUBSCRIPTIONS_CATCHUP_TOKENS)
             }
+            StateStoreDataKey::HomeserverCapabilities => {
+                self.encode_key(keys::KV, StateStoreDataKey::HOMESERVER_CAPABILITIES)
+            }
         }
     }
 }
@@ -668,6 +672,10 @@ impl_state_store!({
                 .map(|f| self.deserialize_value::<Vec<ThreadSubscriptionCatchupToken>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::ThreadSubscriptionsCatchupTokens),
+            StateStoreDataKey::HomeserverCapabilities => value
+                .map(|f| self.deserialize_value::<Capabilities>(&f))
+                .transpose()?
+                .map(StateStoreDataValue::HomeserverCapabilities),
         };
 
         Ok(value)
@@ -718,6 +726,11 @@ impl_state_store!({
                 &value
                     .into_thread_subscriptions_catchup_tokens()
                     .expect("Session data is not a list of thread subscription catchup tokens"),
+            ),
+            StateStoreDataKey::HomeserverCapabilities => self.serialize_value(
+                &value
+                    .into_homeserver_capabilities()
+                    .expect("Session data is not a homeserver capabilities"),
             ),
         };
 

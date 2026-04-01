@@ -27,10 +27,14 @@ use imbl::Vector;
 use matrix_sdk::Result;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
-    event_cache::{DecryptionRetryRequest, EventFocusThreadMode, PaginationStatus, RoomEventCache},
+    event_cache::{
+        DecryptionRetryRequest, EventFocusThreadMode, PaginationStatus, RoomEventCache,
+        TimelineVectorDiffs,
+    },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
     },
+    task_monitor::BackgroundTaskHandle,
 };
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
@@ -49,8 +53,10 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::{RwLock, RwLockWriteGuard};
-use tracing::{debug, error, field::debug, info, instrument, trace, warn};
+use tokio::sync::{RwLock, RwLockWriteGuard, broadcast};
+use tracing::{
+    Instrument as _, Span, debug, error, field::debug, info, info_span, instrument, trace, warn,
+};
 
 pub(super) use self::{
     metadata::{RelativePosition, TimelineMetadata},
@@ -77,7 +83,9 @@ use crate::{
         MsgLikeContent, MsgLikeKind, Room, TimelineEventFilterFn, TimelineEventFocusThreadMode,
         algorithms::rfind_event_by_item_id,
         controller::decryption_retry_task::compute_redecryption_candidates,
-        date_dividers::DateDividerAdjuster, event_item::TimelineItemHandle,
+        date_dividers::DateDividerAdjuster,
+        event_item::TimelineItemHandle,
+        tasks::{event_focused_task, pinned_events_task, thread_updates_task},
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -322,6 +330,15 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
     }
 }
 
+/// Result of calling [`TimelineController::init_focus`].
+pub(super) struct InitFocusResult {
+    /// Did the initialization result in having some events in the timeline?
+    pub has_events: bool,
+    /// If the timeline is a non-live timeline, an extra task that subscribes to
+    /// changes to the focus source.
+    pub focus_task: Option<BackgroundTaskHandle>,
+}
+
 impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) fn new(
         room_data_provider: P,
@@ -363,142 +380,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         )));
 
         Self { state, focus, room_data_provider, settings }
-    }
-
-    /// Initializes the configured focus with appropriate data.
-    ///
-    /// Should be called only once after creation of the [`TimelineInner`], with
-    /// all its fields set.
-    ///
-    /// Returns whether there were any events added to the timeline.
-    pub(super) async fn init_focus(
-        &self,
-        focus: &TimelineFocus,
-        room_event_cache: &RoomEventCache,
-    ) -> Result<bool, Error> {
-        match focus {
-            TimelineFocus::Live { .. } => {
-                // Retrieve the cached events, and add them to the timeline.
-                let events = room_event_cache.events().await?;
-
-                let has_events = !events.is_empty();
-
-                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
-
-                match room_event_cache.pagination().status().get() {
-                    PaginationStatus::Idle { hit_timeline_start } => {
-                        if hit_timeline_start {
-                            // Eagerly insert the timeline start item, since pagination claims
-                            // we've already hit the timeline start.
-                            self.insert_timeline_start_if_missing().await;
-                        }
-                    }
-                    PaginationStatus::Paginating => {}
-                }
-
-                Ok(has_events)
-            }
-
-            TimelineFocus::Event { target: event_id, num_context_events, thread_mode } => {
-                // Use the event-focused cache from the event cache layer.
-                let event_cache_thread_mode = match thread_mode {
-                    TimelineEventFocusThreadMode::ForceThread => EventFocusThreadMode::ForceThread,
-                    TimelineEventFocusThreadMode::Automatic { .. } => {
-                        EventFocusThreadMode::Automatic
-                    }
-                };
-
-                let cache = room_event_cache
-                    .get_or_create_event_focused_cache(
-                        event_id.clone(),
-                        *num_context_events,
-                        event_cache_thread_mode,
-                    )
-                    .await
-                    .map_err(PaginationError::EventCache)?;
-
-                let (events, _receiver) = cache.subscribe().await;
-
-                let has_events = !events.is_empty();
-
-                // Ask the cache for the thread root, if it managed to extract one or decided
-                // that the target event was the thread root.
-                match &*self.focus {
-                    TimelineFocusKind::Event { thread_root: focus_thread_root, .. } => {
-                        if let Some(thread_root) = cache.thread_root().await {
-                            focus_thread_root.get_or_init(|| thread_root);
-                        }
-                    }
-                    TimelineFocusKind::Live { .. }
-                    | TimelineFocusKind::Thread { .. }
-                    | TimelineFocusKind::PinnedEvents => {
-                        panic!("unexpected focus for an event-focused timeline")
-                    }
-                }
-
-                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
-                    .await;
-
-                Ok(has_events)
-            }
-
-            TimelineFocus::Thread { root_event_id, .. } => {
-                self.init_with_thread_root(root_event_id, room_event_cache).await
-            }
-
-            TimelineFocus::PinnedEvents => {
-                let (initial_events, _update_receiver) =
-                    room_event_cache.subscribe_to_pinned_events().await?;
-
-                let has_events = !initial_events.is_empty();
-
-                self.replace_with_initial_remote_events(
-                    initial_events,
-                    RemoteEventOrigin::Pagination,
-                )
-                .await;
-
-                Ok(has_events)
-            }
-        }
-    }
-
-    /// (Re-)initialise a timeline using [`TimelineFocus::Thread`] with cached
-    /// threaded events and secondary relations.
-    ///
-    /// Returns whether there were any events added to the timeline.
-    pub(super) async fn init_with_thread_root(
-        &self,
-        root_event_id: &OwnedEventId,
-        room_event_cache: &RoomEventCache,
-    ) -> Result<bool, Error> {
-        let (events, _) = room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
-        let has_events = !events.is_empty();
-
-        // For each event, we also need to find the related events, as they don't
-        // include the thread relationship, they won't be included in
-        // the initial list of events.
-        let mut related_events = Vector::new();
-        for event_id in events.iter().filter_map(|event| event.event_id()) {
-            if let Some((_original, related)) =
-                room_event_cache.find_event_with_relations(&event_id, None).await?
-            {
-                related_events.extend(related);
-            }
-        }
-
-        self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
-
-        // Now that we've inserted the thread events, add the aggregations too.
-        if !related_events.is_empty() {
-            self.handle_remote_aggregations(
-                vec![VectorDiff::Append { values: related_events }],
-                RemoteEventOrigin::Cache,
-            )
-            .await;
-        }
-
-        Ok(has_events)
     }
 
     /// Listens to encryption state changes for the room in
@@ -1396,6 +1277,194 @@ impl<P: RoomDataProvider> TimelineController<P> {
 impl TimelineController {
     pub(super) fn room(&self) -> &Room {
         &self.room_data_provider
+    }
+
+    /// Initializes the configured timeline focus with appropriate data.
+    ///
+    /// Should be called only once after creation of the [`TimelineController`],
+    /// with all its fields set.
+    pub(super) async fn init_focus(
+        &self,
+        focus: &TimelineFocus,
+        room_event_cache: &RoomEventCache,
+    ) -> Result<InitFocusResult, Error> {
+        match focus {
+            TimelineFocus::Live { .. } => {
+                // Retrieve the cached events, and add them to the timeline.
+                let events = room_event_cache.events().await?;
+
+                let has_events = !events.is_empty();
+
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+
+                match room_event_cache.pagination().status().get() {
+                    PaginationStatus::Idle { hit_timeline_start } => {
+                        if hit_timeline_start {
+                            // Eagerly insert the timeline start item, since pagination claims
+                            // we've already hit the timeline start.
+                            self.insert_timeline_start_if_missing().await;
+                        }
+                    }
+                    PaginationStatus::Paginating => {}
+                }
+
+                Ok(InitFocusResult { has_events, focus_task: None })
+            }
+
+            TimelineFocus::Event { target: event_id, num_context_events, thread_mode } => {
+                // Use the event-focused cache from the event cache layer.
+                let event_cache_thread_mode = match thread_mode {
+                    TimelineEventFocusThreadMode::ForceThread => EventFocusThreadMode::ForceThread,
+                    TimelineEventFocusThreadMode::Automatic { .. } => {
+                        EventFocusThreadMode::Automatic
+                    }
+                };
+
+                let cache = room_event_cache
+                    .get_or_create_event_focused_cache(
+                        event_id.clone(),
+                        *num_context_events,
+                        event_cache_thread_mode,
+                    )
+                    .await
+                    .map_err(PaginationError::EventCache)?;
+
+                let (events, receiver) = cache.subscribe().await;
+
+                let has_events = !events.is_empty();
+
+                // Ask the cache for the thread root, if it managed to extract one or decided
+                // that the target event was the thread root.
+                match &*self.focus {
+                    TimelineFocusKind::Event { thread_root: focus_thread_root, .. } => {
+                        if let Some(thread_root) = cache.thread_root().await {
+                            focus_thread_root.get_or_init(|| thread_root);
+                        }
+                    }
+                    TimelineFocusKind::Live { .. }
+                    | TimelineFocusKind::Thread { .. }
+                    | TimelineFocusKind::PinnedEvents => {
+                        panic!("unexpected focus for an event-focused timeline")
+                    }
+                }
+
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
+                    .await;
+
+                let task = self.room_data_provider.client().task_monitor().spawn_background_task(
+                    "timeline::event_focused_cache_updates",
+                    event_focused_task(
+                        event_id.clone(),
+                        (*thread_mode).into(),
+                        room_event_cache.clone(),
+                        self.clone(),
+                        receiver,
+                    ),
+                );
+
+                Ok(InitFocusResult { has_events, focus_task: Some(task) })
+            }
+
+            TimelineFocus::Thread { root_event_id, .. } => {
+                let (has_events, receiver) =
+                    self.init_with_thread_root(root_event_id, room_event_cache).await?;
+
+                let room = &self.room_data_provider;
+                let span = info_span!(
+                    parent: Span::none(),
+                    "thread_live_update_handler",
+                    room_id = ?room.room_id(),
+                );
+                span.follows_from(Span::current());
+
+                let task = room
+                    .client()
+                    .task_monitor()
+                    .spawn_background_task(
+                        "timeline::thread_event_cache_updates",
+                        thread_updates_task(
+                            receiver,
+                            room_event_cache.clone(),
+                            self.clone(),
+                            root_event_id.clone(),
+                        )
+                        .instrument(span),
+                    )
+                    .abort_on_drop();
+
+                Ok(InitFocusResult { has_events, focus_task: Some(task) })
+            }
+
+            TimelineFocus::PinnedEvents => {
+                let (initial_events, pinned_events_recv) =
+                    room_event_cache.subscribe_to_pinned_events().await?;
+
+                let has_events = !initial_events.is_empty();
+
+                self.replace_with_initial_remote_events(
+                    initial_events,
+                    RemoteEventOrigin::Pagination,
+                )
+                .await;
+
+                let task = self
+                    .room_data_provider
+                    .client()
+                    .task_monitor()
+                    .spawn_background_task(
+                        "timeline::pinned_event_cache_updates",
+                        pinned_events_task(
+                            room_event_cache.clone(),
+                            self.clone(),
+                            pinned_events_recv,
+                        ),
+                    )
+                    .abort_on_drop();
+
+                Ok(InitFocusResult { has_events, focus_task: Some(task) })
+            }
+        }
+    }
+
+    /// (Re-)initialise a timeline using [`TimelineFocus::Thread`] with cached
+    /// threaded events and secondary relations.
+    ///
+    /// Returns whether there were any events added to the timeline, and a
+    /// receiver to return updates after the initial events have been
+    /// inserted in the timeline.
+    pub(super) async fn init_with_thread_root(
+        &self,
+        root_event_id: &OwnedEventId,
+        room_event_cache: &RoomEventCache,
+    ) -> Result<(bool, broadcast::Receiver<TimelineVectorDiffs>), Error> {
+        let (events, receiver) =
+            room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
+        let has_events = !events.is_empty();
+
+        // For each event, we also need to find the related events, as they don't
+        // include the thread relationship, they won't be included in
+        // the initial list of events.
+        let mut related_events = Vector::new();
+        for event_id in events.iter().filter_map(|event| event.event_id()) {
+            if let Some((_original, related)) =
+                room_event_cache.find_event_with_relations(&event_id, None).await?
+            {
+                related_events.extend(related);
+            }
+        }
+
+        self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+
+        // Now that we've inserted the thread events, add the aggregations too.
+        if !related_events.is_empty() {
+            self.handle_remote_aggregations(
+                vec![VectorDiff::Append { values: related_events }],
+                RemoteEventOrigin::Cache,
+            )
+            .await;
+        }
+
+        Ok((has_events, receiver))
     }
 
     /// Given an event identifier, will fetch the details for the event it's

@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Refactor
+
+- **breaking** The `Random` error variant has been removed. An infallible random
+  number generator is used in the crate.
+  ([#5502](https://github.com/matrix-org/matrix-rust-sdk/pull/5502))
+
 ## [0.16.0] - 2025-12-04
 
 No notable changes in this release.

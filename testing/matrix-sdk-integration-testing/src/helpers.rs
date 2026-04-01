@@ -24,7 +24,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use rand::Rng as _;
+use rand::RngExt;
 use tempfile::{TempDir, tempdir};
 use tokio::{sync::Mutex, time::sleep};
 
@@ -51,7 +51,7 @@ pub struct TestClientBuilder {
 
 impl TestClientBuilder {
     pub fn new(username: impl AsRef<str>) -> Self {
-        let suffix: u128 = rand::thread_rng().r#gen();
+        let suffix: u128 = rand::rng().random();
         let randomized_username = format!("{}{}", username.as_ref(), suffix);
         Self::with_exact_username(randomized_username)
     }
