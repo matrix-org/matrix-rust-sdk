@@ -149,10 +149,10 @@ where
 
                 write!(writer, "{}", span.name())?;
 
-                if let Some(fields) = &span.extensions().get::<FormattedFields<N>>() {
-                    if !fields.is_empty() {
-                        write!(writer, "{{{fields}}}")?;
-                    }
+                if let Some(fields) = &span.extensions().get::<FormattedFields<N>>()
+                    && !fields.is_empty()
+                {
+                    write!(writer, "{{{fields}}}")?;
                 }
             }
         }

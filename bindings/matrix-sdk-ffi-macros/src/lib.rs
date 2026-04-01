@@ -27,18 +27,18 @@ pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
             }
         } else if let Item::Impl(blk) = &item {
             for item in &blk.items {
-                if let ImplItem::Fn(fun) = item {
-                    if fun.sig.asyncness.is_some() {
-                        return true;
-                    }
+                if let ImplItem::Fn(fun) = item
+                    && fun.sig.asyncness.is_some()
+                {
+                    return true;
                 }
             }
         } else if let Item::Trait(blk) = &item {
             for item in &blk.items {
-                if let TraitItem::Fn(fun) = item {
-                    if fun.sig.asyncness.is_some() {
-                        return true;
-                    }
+                if let TraitItem::Fn(fun) = item
+                    && fun.sig.asyncness.is_some()
+                {
+                    return true;
                 }
             }
         }

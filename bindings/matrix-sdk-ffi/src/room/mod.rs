@@ -1212,12 +1212,11 @@ impl Room {
 
         // If no server names are provided and the room's membership is invited,
         // add the server name from the sender's user id as a fallback value
-        if server_names.is_empty() {
-            if let Ok(invite_details) = self.inner.invite_details().await {
-                if let Some(inviter) = invite_details.inviter {
-                    server_names.push(inviter.user_id().server_name().to_owned());
-                }
-            }
+        if server_names.is_empty()
+            && let Ok(invite_details) = self.inner.invite_details().await
+            && let Some(inviter) = invite_details.inviter
+        {
+            server_names.push(inviter.user_id().server_name().to_owned());
         }
 
         let room_preview = client.get_room_preview(&room_or_alias_id, server_names).await?;

@@ -913,22 +913,19 @@ impl OlmMachine {
             &decryption_settings,
         ))?;
 
-        if handle_verification_events {
-            if let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize() {
-                match &e {
-                    AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(
-                        original_event,
-                    )) => {
-                        if let MessageType::VerificationRequest(_) = &original_event.content.msgtype
-                        {
-                            self.runtime.block_on(self.inner.receive_verification_event(&e))?;
-                        }
-                    }
-                    _ if e.event_type().to_string().starts_with("m.key.verification") => {
+        if handle_verification_events
+            && let Ok(AnyTimelineEvent::MessageLike(e)) = decrypted.event.deserialize()
+        {
+            match &e {
+                AnyMessageLikeEvent::RoomMessage(MessageLikeEvent::Original(original_event)) => {
+                    if let MessageType::VerificationRequest(_) = &original_event.content.msgtype {
                         self.runtime.block_on(self.inner.receive_verification_event(&e))?;
                     }
-                    _ => (),
                 }
+                _ if e.event_type().to_string().starts_with("m.key.verification") => {
+                    self.runtime.block_on(self.inner.receive_verification_event(&e))?;
+                }
+                _ => (),
             }
         }
 

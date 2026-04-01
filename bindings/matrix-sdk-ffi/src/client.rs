@@ -367,12 +367,12 @@ impl Client {
 
         let controller = session_verification_controller.clone();
         sdk_client.add_event_handler(move |event: OriginalSyncRoomMessageEvent| async move {
-            if let MessageType::VerificationRequest(_) = &event.content.msgtype {
-                if let Some(session_verification_controller) = &*controller.clone().read().await {
-                    session_verification_controller
-                        .process_incoming_verification_request(&event.sender, event.event_id)
-                        .await;
-                }
+            if let MessageType::VerificationRequest(_) = &event.content.msgtype
+                && let Some(session_verification_controller) = &*controller.clone().read().await
+            {
+                session_verification_controller
+                    .process_incoming_verification_request(&event.sender, event.event_id)
+                    .await;
             }
         });
 
@@ -2132,10 +2132,10 @@ impl Client {
         let room_id = RoomId::parse(room_id)?;
 
         // Emit the initial event, if present
-        if let Some(room) = self.inner.get_room(&room_id) {
-            if let Ok(room_info) = RoomInfo::new(&room).await {
-                listener.call(room_info);
-            }
+        if let Some(room) = self.inner.get_room(&room_id)
+            && let Ok(room_info) = RoomInfo::new(&room).await
+        {
+            listener.call(room_info);
         }
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn({
@@ -2147,10 +2147,10 @@ impl Client {
                         continue;
                     }
 
-                    if let Some(room) = client.get_room(&room_id) {
-                        if let Ok(room_info) = RoomInfo::new(&room).await {
-                            listener.call(room_info);
-                        }
+                    if let Some(room) = client.get_room(&room_id)
+                        && let Ok(room_info) = RoomInfo::new(&room).await
+                    {
+                        listener.call(room_info);
                     }
                 }
             }
