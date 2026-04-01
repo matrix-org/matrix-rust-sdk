@@ -20,16 +20,13 @@ use futures_util::{StreamExt as _, pin_mut};
 use imbl::Vector;
 use layout::Flex;
 use matrix_sdk::{
-    AuthSession, Client, Room, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
+    AuthSession, Client, SqliteCryptoStore, SqliteEventCacheStore, SqliteStateStore,
     ThreadingSupport,
     authentication::matrix::MatrixSession,
     config::StoreConfig,
-    deserialized_responses::TimelineEvent,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     reqwest::Url,
-    ruma::{
-        OwnedEventId, OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest,
-    },
+    ruma::{OwnedRoomId, api::client::room::create_room::v3::Request as CreateRoomRequest},
     search_index::{SearchIndexGuard, SearchIndexStoreKind},
 };
 use matrix_sdk_base::{RoomStateFilter, event_cache::store::EventCacheStoreLockGuard};
@@ -37,6 +34,7 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, locks::Mutex
 use matrix_sdk_ui::{
     Timeline as SdkTimeline,
     room_list_service::{self, State, filters::new_filter_non_left},
+    search::{GlobalSearchIterator, RoomSearchIterator},
     sync_service::SyncService,
     timeline::{RoomExt as _, TimelineFocus, TimelineItem},
 };
@@ -110,7 +108,7 @@ pub enum GlobalMode {
     /// Mode where we have opened the create room screen
     CreateRoom { view: CreateRoomView },
     /// Mode where we have opened the search screen
-    Searching { view: SearchingView },
+    Searching { view: SearchingView, is_global: bool },
     /// Mode where we have opened the indexing screen
     Indexing { view: IndexingView },
 }
@@ -616,9 +614,17 @@ impl App {
                 self.set_global_mode(GlobalMode::CreateRoom { view: CreateRoomView::new() })
             }
 
-            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => {
-                self.set_global_mode(GlobalMode::Searching { view: SearchingView::new() })
-            }
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('s'), .. }) => self
+                .set_global_mode(GlobalMode::Searching {
+                    view: SearchingView::new(false),
+                    is_global: false,
+                }),
+
+            Event::Key(KeyEvent { modifiers: KeyModifiers::CONTROL, code: Char('g'), .. }) => self
+                .set_global_mode(GlobalMode::Searching {
+                    view: SearchingView::new(true),
+                    is_global: true,
+                }),
 
             _ => self.room_view.handle_event(event).await,
         }
@@ -732,33 +738,68 @@ impl App {
                             }
                         }
                     }
-                    GlobalMode::Searching { view } => {
+                    GlobalMode::Searching { view, is_global } => {
                         if let Event::Key(key) = event {
                             match key.code {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
-                                        if let Some(room) = self.room_view.room() {
-                                            if let Ok(results) =
-                                                room.search(&query, 100, None).await.inspect_err(|err| {
-                                                    error!("error occurred while searching index: {err:?}");
-                                                })
-                                            {
-                                                let results = get_events_from_event_ids(
-                                                    &room,
-                                                    results,
-                                                )
-                                                .await;
+                                        if *is_global {
+                                            let mut search = GlobalSearchIterator::builder(
+                                                self.client.clone(),
+                                                query,
+                                            )
+                                            .build();
 
-                                                view.results(results);
+                                            let mut all_results = HashMap::new();
+                                            loop {
+                                                let Ok(results) = search.next_events(5).await
+                                                else {
+                                                    continue;
+                                                };
+                                                let Some(results) = results else {
+                                                    break;
+                                                };
+                                                for (room_id, event_id) in results {
+                                                    all_results
+                                                        .entry(room_id)
+                                                        .or_insert_with(Vec::new)
+                                                        .push(event_id);
+                                                }
                                             }
+
+                                            view.set_results(
+                                                all_results
+                                                    .into_iter()
+                                                    .map(|(room_id, events)| {
+                                                        (Some(room_id), events)
+                                                    })
+                                                    .collect(),
+                                            );
                                         } else {
-                                            warn!("No room in view.")
+                                            if let Some((query, room)) =
+                                                view.get_text().zip(self.room_view.room())
+                                            {
+                                                let mut room_search =
+                                                    RoomSearchIterator::new(room, query);
+
+                                                let mut all_results = Vec::new();
+                                                while let Some(results) =
+                                                    room_search.next_events(5).await?
+                                                {
+                                                    all_results.extend(results);
+                                                }
+                                                view.set_results(vec![(None, all_results)]);
+                                            }
                                         }
                                     }
                                 }
+
                                 Esc => self.set_global_mode(GlobalMode::Default),
+
                                 Up => view.list_state.previous(),
+
                                 Down => view.list_state.next(),
+
                                 _ => view.handle_key_press(key),
                             }
                         }
@@ -849,7 +890,7 @@ impl Widget for &mut App {
             GlobalMode::CreateRoom { view } => {
                 view.render(area, buf);
             }
-            GlobalMode::Searching { view } => {
+            GlobalMode::Searching { view, .. } => {
                 view.render(room_view_area, buf);
             }
             GlobalMode::Indexing { view } => {
@@ -956,22 +997,4 @@ async fn login_with_password(client: &Client) -> Result<()> {
     }
 
     Ok(())
-}
-
-async fn get_events_from_event_ids(
-    room: &Room,
-    event_ids: Vec<OwnedEventId>,
-) -> Vec<TimelineEvent> {
-    futures_util::future::join_all(event_ids.iter().map(|event_id| async move {
-        room.load_or_fetch_event(event_id, None)
-            .await
-            .inspect_err(|err| {
-                debug!("Failed to find event {event_id} in event cache and server: {err}");
-            })
-            .ok()
-    }))
-    .await
-    .into_iter()
-    .flatten()
-    .collect::<Vec<TimelineEvent>>()
 }
