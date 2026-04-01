@@ -446,7 +446,7 @@ pub(crate) async fn run_migrations(
             let mut select_query = txn.prepare("SELECT data FROM secrets")?;
             let mut secrets = select_query.query([])?;
             let mut insert_query = txn.prepare(
-                "INSERT INTO secrets_inbox (secret_name, secret)
+                "INSERT OR IGNORE INTO secrets_inbox (secret_name, secret)
             VALUES (?1, ?2)",
             )?;
             while let Some(row) = secrets.next()? {
@@ -653,8 +653,10 @@ impl SqliteConnectionExt for rusqlite::Connection {
     }
 
     fn set_secret(&self, secret_name: &[u8], secret: &[u8]) -> rusqlite::Result<()> {
+        // Ignore duplicate values, since we may get set the same secret
+        // multiple times.
         self.execute(
-            "INSERT INTO secrets_inbox (secret_name, secret)
+            "INSERT OR IGNORE INTO secrets_inbox (secret_name, secret)
             VALUES (?1, ?2)",
             (secret_name, secret),
         )?;
