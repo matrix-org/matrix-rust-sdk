@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use as_variant::as_variant;
 use matrix_sdk_base::{
     crypto::CollectStrategy,
-    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState},
+    deserialized_responses::{EncryptionInfo, RawAnySyncOrStrippedState, TimelineEvent},
     sync::State,
 };
 use ruma::{
@@ -28,10 +28,8 @@ use ruma::{
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::unstable::UpdateAction},
-        filter::RoomEventFilter,
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
-    assign,
     events::{
         AnyMessageLikeEventContent, AnyStateEvent, AnyStateEventContent, AnySyncStateEvent,
         AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent, AnyToDeviceEventContent,
@@ -48,10 +46,13 @@ use tokio::sync::{
 };
 use tracing::{error, trace, warn};
 
-use super::{StateKeySelector, machine::SendEventResponse};
+use super::{
+    StateKeySelector,
+    machine::{ReadEventsResponse, SendEventResponse},
+};
 use crate::{
-    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, room::MessagesOptions,
-    sync::RoomUpdate, widget::machine::SendToDeviceEventResponse,
+    Client, Error, Result, Room, event_handler::EventHandlerDropGuard, sync::RoomUpdate,
+    widget::machine::SendToDeviceEventResponse,
 };
 
 /// Thin wrapper around a [`Room`] that provides functionality relevant for
@@ -59,7 +60,16 @@ use crate::{
 pub(crate) struct MatrixDriver {
     room: Room,
 }
-
+/// Internal representation of errors.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+enum ReadEventsError {
+    #[error(
+        "There provided `from` (EventId) value was not found in the current event_cache.
+        Make sure you only use from values you have received from a previous call to read_events."
+    )]
+    InvalidFromEventId,
+}
 impl MatrixDriver {
     /// Creates a new `MatrixDriver` for a given `room`.
     pub(crate) fn new(room: Room) -> Self {
@@ -78,37 +88,91 @@ impl MatrixDriver {
 
     /// Reads the latest `limit` events of a given `event_type` from the room's
     /// timeline.
+    ///
+    /// # Arguments
+    ///
+    ///  * `from` - The token to start reading from. This is just the ev id of
+    ///    the last event in the cache that was sent to the widget.
     pub(crate) async fn read_events(
         &self,
         event_type: TimelineEventType,
         state_key: Option<StateKeySelector>,
-        limit: u32,
-    ) -> Result<Vec<Raw<AnyTimelineEvent>>> {
-        let options = assign!(MessagesOptions::backward(), {
-            limit: limit.into(),
-            filter: assign!(RoomEventFilter::default(), {
-                types: Some(vec![event_type.to_string()])
-            }),
-        });
+        limit: usize,
+        from: Option<String>,
+    ) -> Result<ReadEventsResponse> {
+        let ev_cache = self.room.event_cache().await?.0;
+        let mut events = ev_cache.events().await?;
 
-        let messages = self.room.messages(options).await?;
+        let mut reached_start = false;
+        let mut allow_to_look_for_more_events = true;
+        const LIMIT_ITERATIONS: usize = 5;
+        let mut iterations = 0;
 
-        Ok(messages
-            .chunk
-            .into_iter()
-            .map(|ev| ev.into_raw().cast_unchecked())
-            .filter(|ev| match &state_key {
-                Some(state_key) => {
-                    ev.get_field::<String>("state_key").is_ok_and(|key| match state_key {
-                        StateKeySelector::Key(state_key) => {
-                            key.is_some_and(|key| &key == state_key)
-                        }
-                        StateKeySelector::Any => key.is_some(),
-                    })
+        let compute_index_of_token = |from: &Option<String>, events: &Vec<TimelineEvent>| match from
+        {
+            Some(f) => match events
+                .iter()
+                .position(|e| e.event_id().is_some_and(|id| &id.to_string() == f))
+            {
+                Some(index) => Ok(index),
+                None => {
+                    return Err(Error::UnknownError(Box::new(ReadEventsError::InvalidFromEventId)));
                 }
-                None => true,
-            })
-            .collect())
+            },
+            None => Ok(if events.len() > 0 { events.len() - 1 } else { 0 }),
+        };
+        let allow_to_look_for_more_events = |reached_start: bool, iterations: usize| {
+            reached_start == false && iterations <= LIMIT_ITERATIONS
+        };
+
+        let mut index_of_token = compute_index_of_token(&from, &events)?;
+        while index_of_token <= limit && allow_to_look_for_more_events(reached_start, iterations) {
+            // Fetch more events from the server
+            // And update local event array
+            reached_start =
+                ev_cache.pagination().run_backwards_until((limit) as u16).await?.reached_start;
+            events = ev_cache.events().await?;
+
+            // update the index where we can find our pagination token
+            index_of_token = compute_index_of_token(&from, &events)?;
+            iterations += 1;
+        }
+
+        // TODO use checked_sign_diff
+        let lower_bound_index = std::cmp::max((index_of_token as i32) - (limit as i32), 0) as usize;
+        let token = events[lower_bound_index].event_id().map(|id| id.to_string());
+
+        let filter_event_type = |e: &Raw<AnyTimelineEvent>| {
+            e.get_field::<String>("type")
+                .is_ok_and(|ev_ty| ev_ty.is_some_and(|ty| ty == event_type.to_string()))
+        };
+
+        let filter_state_key = |e: &Raw<AnyTimelineEvent>| match &state_key {
+            None => true,
+            Some(state_key) => e.get_field::<String>("state_key").is_ok_and(|key| {
+                key.is_some_and(|k| match state_key {
+                    StateKeySelector::Any => true,
+                    StateKeySelector::Key(request_key) => request_key == &k,
+                })
+            }),
+        };
+
+        let filtered_events = if index_of_token as i32 - lower_bound_index as i32 > 0 {
+            events[lower_bound_index..index_of_token]
+                .into_iter()
+                .map(|e| attach_room_id(e.raw(), self.room.room_id()))
+                .filter(filter_event_type)
+                .filter(filter_state_key)
+                .collect()
+        } else {
+            vec![]
+        };
+
+        return Ok(ReadEventsResponse {
+            events: filtered_events,
+            pagination_token: token,
+            reached_start,
+        });
     }
 
     /// Reads the current values of the room state entries matching the given

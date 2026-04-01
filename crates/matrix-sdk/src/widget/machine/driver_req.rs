@@ -19,7 +19,7 @@ use std::{collections::BTreeMap, marker::PhantomData};
 use ruma::{
     OwnedUserId,
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
-    events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
+    events::{AnyStateEvent, AnyToDeviceEventContent},
     serde::Raw,
     to_device::DeviceIdOrAllDevices,
 };
@@ -31,7 +31,7 @@ use super::{
     Action, MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
     from_widget::SendEventResponse, incoming::MatrixDriverResponse,
 };
-use crate::widget::{Capabilities, StateKeySelector};
+use crate::widget::{Capabilities, StateKeySelector, machine::from_widget::ReadEventsResponse};
 
 #[derive(Clone, Debug)]
 pub(crate) enum MatrixDriverRequestData {
@@ -184,6 +184,8 @@ pub(crate) struct ReadEventsRequest {
 
     /// The maximum number of events to return.
     pub(crate) limit: u32,
+
+    pub(crate) from: Option<String>,
 }
 
 impl From<ReadEventsRequest> for MatrixDriverRequestData {
@@ -193,10 +195,10 @@ impl From<ReadEventsRequest> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for ReadEventsRequest {
-    type Response = Vec<Raw<AnyTimelineEvent>>;
+    type Response = ReadEventsResponse;
 }
 
-impl FromMatrixDriverResponse for Vec<Raw<AnyTimelineEvent>> {
+impl FromMatrixDriverResponse for ReadEventsResponse {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::EventsRead(response) => Some(response),
