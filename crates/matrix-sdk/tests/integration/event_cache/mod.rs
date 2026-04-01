@@ -29,7 +29,7 @@ use ruma::{
     EventId, event_id,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, TimelineEventType,
-        room::message::RoomMessageEventContentWithoutRelation,
+        room::message::{RoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     },
     room_id,
     room_version_rules::RedactionRules,
@@ -2907,4 +2907,142 @@ async fn test_sequential_backpagination_after_concurrent() {
     assert_event_matches_msg(&final_events[0], "batch2");
     assert_event_matches_msg(&final_events[1], "batch1");
     assert_event_matches_msg(&final_events[2], "latest");
+}
+
+#[async_test]
+async fn test_send_queue_does_insert_event_in_the_event_cache() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // Inject a first event via the sync so that the Event Cache is _not_ empty, and
+    // the Send Queue can insert its event inside the Event Cache.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$1"))),
+        )
+        .await;
+
+    // Give time to the Event Cache to handle the sync.
+    sleep(Duration::from_secs(1)).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert!(room_stream.is_empty());
+
+    // Send an event in this room with the send queue.
+    let event_id_2 = event_id!("$2");
+    server.mock_room_state_encryption().plain().mount().await;
+    server.mock_room_send().ok(event_id_2).mock_once().mount().await;
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .await
+        .unwrap();
+
+    // Tadaaa, the event is inserted in the Event Cache, by-passing the sync.
+    assert_matches!(
+        room_stream.recv().await,
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) => {
+            assert_eq!(diffs.len(), 1);
+            // The event is received via the Send Queue!
+            assert_let!(VectorDiff::Append { values } = &diffs[0]);
+            assert_eq!(values.len(), 1);
+            assert_eq!(values[0].event_id().as_deref(), Some(event_id_2));
+        }
+    );
+
+    assert!(room_stream.is_empty());
+}
+
+#[async_test]
+async fn test_send_queue_does_not_insert_event_in_the_event_cache_if_room_is_empty() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    assert!(events.is_empty());
+    assert!(room_stream.is_empty());
+
+    // Send an event in this room with the send queue.
+    server.mock_room_state_encryption().plain().mount().await;
+    server.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .await
+        .unwrap();
+
+    // Give time to the Send Queue to send the message.
+    sleep(Duration::from_secs(1)).await;
+
+    assert!(room_stream.is_empty());
+}
+
+#[async_test]
+async fn test_backpaginate_on_a_single_event_inserted_via_send_queue_from_an_empty_room() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    assert!(events.is_empty());
+    assert!(room_stream.is_empty());
+
+    // Send an event in this room with the send queue (so that it's saved in the
+    // event cache store).
+    server.mock_room_state_encryption().plain().mount().await;
+    server.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .await
+        .unwrap();
+
+    // Give time to the Send Queue to send the message.
+    sleep(Duration::from_secs(1)).await;
+
+    assert!(room_stream.is_empty());
+
+    // The pagination will return one event.
+    server
+        .mock_room_messages()
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("recette de l'omelette").event_id(event_id!("$2"))])
+            .end_token("toktok"))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Then if I backpaginate,
+    let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+    let BackPaginationOutcome { reached_start, .. } = outcome;
+
+    // The event cache can't know whether this is the start or not, and it shouldn't
+    // assume so.
+    assert!(reached_start.not());
 }
