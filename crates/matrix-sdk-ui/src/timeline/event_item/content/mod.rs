@@ -15,16 +15,18 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
+use matrix_sdk::{Room, deserialized_responses::TimelineEvent};
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
-        AnyStateEventContentChange, Mentions, MessageLikeEventType, StateEventContentChange,
-        StateEventType,
+        AnyMessageLikeEventContent, AnyStateEventContentChange, Mentions, MessageLikeEventType,
+        StateEventContentChange, StateEventType,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        relation::Replacement,
         room::{
             aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
@@ -36,7 +38,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::MessageType,
+            message::{MessageType, RoomMessageEventContent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -77,6 +79,7 @@ pub use self::{
     reply::{EmbeddedEvent, InReplyToDetails},
 };
 use super::ReactionsByKeyBySender;
+use crate::timeline::event_handler::{HandleAggregationKind, TimelineAction};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[allow(clippy::large_enum_variant)]
@@ -144,6 +147,49 @@ impl TimelineItemContent {
             Self::FailedToParseState { event_type, .. } => Some(event_type.to_string()),
             Self::CallInvite => Some(MessageLikeEventType::CallInvite.to_string()),
             Self::RtcNotification => Some(MessageLikeEventType::RtcNotification.to_string()),
+        }
+    }
+
+    /// Create a raw [`TimelineItemContent`] for a given [`TimelineEvent`],
+    /// without providing extra information (about thread root, replied-to
+    /// information, UTD info, and so on).
+    pub async fn from_event(room: &Room, timeline_event: TimelineEvent) -> Option<Self> {
+        let raw_event = timeline_event.into_raw();
+        let deserialized_event = raw_event.deserialize().ok()?;
+
+        match TimelineAction::from_event(
+            deserialized_event,
+            &raw_event,
+            room,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            Some(TimelineAction::AddItem { content }) => Some(content),
+
+            // Aggregated event: only edits are supported at the moment.
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
+                ..
+            }) => {
+                // Map the edit to a regular message.
+                match TimelineAction::from_content(
+                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
+                        new_content.msgtype,
+                    )),
+                    None,
+                    None,
+                    None,
+                ) {
+                    TimelineAction::AddItem { content } => Some(content),
+                    _ => None,
+                }
+            }
+
+            _ => None,
         }
     }
 
