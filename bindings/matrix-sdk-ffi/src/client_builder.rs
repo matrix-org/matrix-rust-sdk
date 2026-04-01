@@ -490,12 +490,11 @@ impl ClientBuilder {
                 updated_config = updated_config.timeout(Duration::from_millis(timeout));
             }
             updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
-            if let Some(max_concurrent_requests) = config.max_concurrent_requests {
-                if max_concurrent_requests > 0 {
-                    updated_config = updated_config.max_concurrent_requests(NonZeroUsize::new(
-                        max_concurrent_requests as usize,
-                    ));
-                }
+            if let Some(max_concurrent_requests) = config.max_concurrent_requests
+                && max_concurrent_requests > 0
+            {
+                updated_config = updated_config
+                    .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
             }
             if let Some(max_retry_time) = config.max_retry_time {
                 updated_config =

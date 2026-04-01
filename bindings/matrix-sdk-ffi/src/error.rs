@@ -77,22 +77,21 @@ impl From<matrix_sdk::Error> for ClientError {
     fn from(e: matrix_sdk::Error) -> Self {
         match e {
             matrix_sdk::Error::Http(http_error) => {
-                if let Some(api_error) = http_error.as_client_api_error() {
-                    if let ErrorBody::Standard(StandardErrorBody { kind, message, .. }) =
+                if let Some(api_error) = http_error.as_client_api_error()
+                    && let ErrorBody::Standard(StandardErrorBody { kind, message, .. }) =
                         &api_error.body
-                    {
-                        let code = kind.errcode().to_string();
-                        let Ok(kind) = kind.to_owned().try_into() else {
-                            // We couldn't parse the API error, so we return a generic one instead
-                            return (*http_error).into();
-                        };
-                        return Self::MatrixApi {
-                            kind,
-                            code,
-                            msg: message.to_owned(),
-                            details: Some(format!("{api_error:?}")),
-                        };
-                    }
+                {
+                    let code = kind.errcode().to_string();
+                    let Ok(kind) = kind.to_owned().try_into() else {
+                        // We couldn't parse the API error, so we return a generic one instead
+                        return (*http_error).into();
+                    };
+                    return Self::MatrixApi {
+                        kind,
+                        code,
+                        msg: message.to_owned(),
+                        details: Some(format!("{api_error:?}")),
+                    };
                 }
                 (*http_error).into()
             }
