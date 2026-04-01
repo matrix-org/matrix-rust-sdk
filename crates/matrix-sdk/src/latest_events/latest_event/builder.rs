@@ -788,12 +788,10 @@ fn filter_any_sync_state_event(
 
         // `org.matrix.msc3672.beacon_info`
         //
-        // Only the *start* event (`is_live() == true`) is suitable. The stop
-        // event (`is_live() == false`) merely terminates the sharing session
-        // and should not appear as the room's latest event.
-        AnySyncStateEvent::BeaconInfo(SyncStateEvent::Original(beacon)) => {
-            if beacon.content.is_live() { filter_break() } else { filter_continue() }
-        }
+        // Both the start (`is_live() == true`) and stop (`is_live() == false`)
+        // events are suitable, so that the item stays visible in the room
+        // summary even after the sharing session ends.
+        AnySyncStateEvent::BeaconInfo(SyncStateEvent::Original(_)) => filter_break(),
 
         _ => filter_continue(),
     }
@@ -1310,7 +1308,8 @@ mod filter_tests {
     fn test_beacon_info_stopped() {
         use std::time::Duration;
 
-        // A non-live beacon_info (stop event) is NOT a candidate.
+        // A non-live beacon_info (stop event) is still a candidate — the item
+        // should remain visible in the room summary after the session ends.
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
@@ -1318,7 +1317,7 @@ mod filter_tests {
                     .state_key(user_id!("@mnt_io:matrix.org"))
                     .into_event()
             }
-            is not a candidate
+            is a candidate
         );
     }
 

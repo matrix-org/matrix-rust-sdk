@@ -92,6 +92,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
+  are now also eligible as the latest event for a room, preventing the live location sharing item
+  from disappearing from the room list summary once the session ends.
+  ([#6373](https://github.com/matrix-org/matrix-rust-sdk/pull/6373))
 - Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using 
   the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail. 
   ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))
