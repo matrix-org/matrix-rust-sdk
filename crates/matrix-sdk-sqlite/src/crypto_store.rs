@@ -229,6 +229,12 @@ const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
 ///
 /// This must be done before creating the store cipher, because the store cipher
 /// requires the `kv` table.
+///
+/// # Arguments
+///
+/// * `conn` - The connection to use.
+///
+/// * `version` - the current version of the database.
 pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Result<u8> {
     if version == 0 {
         debug!("Creating database");
