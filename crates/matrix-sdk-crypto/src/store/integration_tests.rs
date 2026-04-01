@@ -1141,7 +1141,6 @@ macro_rules! cryptostore_integration_tests {
                 store.save_changes(changes).await.unwrap();
 
                 let restored = store.get_secrets_from_inbox(&SecretName::RecoveryKey).await.unwrap();
-                tracing::debug!(length = ?restored.len(), "length");
                 // the store may store the secrets separately, or combine them
                 // if they have the same name and secret
                 assert!(restored.len() == 2 || restored.len() == 3, "We should only have two or three secrets stored");

@@ -721,8 +721,8 @@ impl IndexeddbCryptoStore {
 
             for secret in &changes.secrets {
                 use std::ops::Deref;
-                // The secret is included in the key to allow us to receive
-                // multiple secrets of the same name, and allow the client to
+                // The (hashed) secret value is included in the key to allow us to receive
+                // multiple secrets of the same name (indexeddb store entries must have a unique key), and allow the client to
                 // determine which one is the current secret.
                 let key = self.serializer.encode_key(
                     keys::SECRETS_INBOX_V2,

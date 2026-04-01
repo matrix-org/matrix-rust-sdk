@@ -97,7 +97,7 @@ impl EncryptableStore for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
-    /// Create an `SqliteCryptoStore` struct without trying to do create the
+    /// Create an `SqliteCryptoStore` struct without trying to create the
     /// database or migrate to a newer version.  This is only for use
     /// internally, and for testing.
     ///
@@ -260,10 +260,10 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
 ///
 /// * `store` - The store to run the migrations on
 ///
-/// * `version` - the current version of the database.
+/// * `version` - The current version of the database.
 ///
-/// * `max_version` - the maximum version that the database will be migrated to,
-///   and is only used for testing, so will only be checked for the versions
+/// * `max_version` - The maximum version that the database will be migrated to.
+///   Only used for testing, so will only be checked for the versions
 ///   that are needed for tests.
 pub(crate) async fn run_migrations(
     store: &SqliteCryptoStore,

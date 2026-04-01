@@ -339,7 +339,7 @@ impl GossipMachine {
                             request_id = ?request.request_id,
                             ?secret_name,
                             ?message_id,
-                            "Creating outgoing `io.element.msc4385.secret.push` to-device request"
+                            "Creating outgoing secret push to-device request",
                         );
                         self.inner
                             .outgoing_requests
