@@ -514,7 +514,12 @@ impl TracingConfiguration {
     #[cfg_attr(not(feature = "sentry"), allow(unused_mut))]
     fn build(mut self) -> LoggingCtx {
         // Show full backtraces, if we run into panics.
-        std::env::set_var("RUST_BACKTRACE", "1");
+        //
+        // FIXME: Use safe API for this once stable. Tracking issue:
+        //        https://github.com/rust-lang/rust/issues/93346
+        unsafe {
+            std::env::set_var("RUST_BACKTRACE", "1");
+        }
 
         // Log panics.
         log_panics::init();
