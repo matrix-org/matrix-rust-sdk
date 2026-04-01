@@ -92,6 +92,9 @@ All notable changes to this project will be documented in this file.
 - Add widget partial support for MSC4039. Allows widgets to download non-encrypted files from the
   content repository (like avatars).
   ([#6354](https://github.com/matrix-org/matrix-rust-sdk/pull/6354))
+- Latest Event does not emit an update when it computes the same value as the
+  previous Latest Event.
+  ([#6396](https://github.com/matrix-org/matrix-rust-sdk/pull/6396))
 
 ### Bugfix
 
