@@ -864,7 +864,7 @@ mod timed_tests {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, OwnedUserId, event_id,
+        EventId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id,
         serde::Raw,
@@ -2034,7 +2034,7 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| event.event_id())
+                    (event.sender().as_deref() == Some(*BOB)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -2047,7 +2047,7 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| event.event_id())
+                    (event.sender().as_deref() == Some(*ALICE)).then(|| event.event_id())
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -2059,9 +2059,7 @@ mod timed_tests {
         assert!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref()
-                        == Some(user_id))
-                    .then(|| event.event_id())
+                    (event.sender().as_deref() == Some(user_id)).then(|| event.event_id())
                 })
                 .await
                 .unwrap()
