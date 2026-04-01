@@ -21,7 +21,7 @@ use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLockGuard,
     linked_chunk::{LinkedChunkId, Position},
 };
-use ruma::{OwnedEventId, OwnedUserId, UserId};
+use ruma::{OwnedEventId, UserId};
 
 use super::{
     EventCacheError,
@@ -82,13 +82,8 @@ pub async fn filter_duplicate_events(
 
     // See comment of `DeduplicationOutcome::non_empty_all_duplicates` for the
     // rationale behind the following booleans.
-    let at_least_one_event_not_sent_by_me = new_events.iter().any(|ev| {
-        ev.raw()
-            .get_field::<OwnedUserId>("sender")
-            .ok()
-            .flatten()
-            .is_some_and(|sender| sender != own_user_id)
-    });
+    let at_least_one_event_not_sent_by_me =
+        new_events.iter().any(|ev| ev.sender().is_some_and(|sender| sender != own_user_id));
 
     let all_duplicates = (in_memory_duplicated_event_ids.len()
         + in_store_duplicated_event_ids.len())

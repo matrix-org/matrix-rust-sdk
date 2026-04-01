@@ -295,8 +295,7 @@ fn select_best_receipt(
             // user).
             //
             // If the client is enabled with threading support, skip events that are in threads.
-            else if event.raw().get_field::<OwnedUserId>("sender").ok().flatten().as_deref()
-                == Some(user_id)
+            else if event.sender().as_deref() == Some(user_id)
                 && (!with_threading_support || extract_thread_root(event.raw()).is_none())
             {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
