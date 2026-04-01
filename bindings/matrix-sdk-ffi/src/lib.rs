@@ -24,6 +24,7 @@ mod room_member;
 mod room_preview;
 mod ruma;
 mod runtime;
+mod search;
 mod session_verification;
 mod spaces;
 mod store;

@@ -682,7 +682,7 @@ pub enum TimelineDetails<T> {
 }
 
 impl<T> TimelineDetails<T> {
-    pub(crate) fn from_initial_value(value: Option<T>) -> Self {
+    pub fn from_initial_value(value: Option<T>) -> Self {
         match value {
             Some(v) => Self::Ready(v),
             None => Self::Unavailable,
