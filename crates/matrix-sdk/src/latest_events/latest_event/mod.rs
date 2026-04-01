@@ -204,14 +204,33 @@ impl LatestEvent {
     async fn update(&mut self, new_value: LatestEventValue) {
         // Ideally, we would set `new_value` if and only if it is different from the
         // previous value. However, `LatestEventValue` cannot implement `PartialEq` at
-        // the time of writing (2025-12-12). So we are only updating if
-        // `LatestEventValue` is not `None` and if the previous value isn't `None`;
-        // basically, replacing `None` with `None` will not update the value.
+        // the time of writing (2025-12-12). So we are only updating if:
+        //
+        // - if `LatestEventValue` and the previous value aren't `None`,
+        // - if the event IDs are different.
+        //
+        // We must be careful when comparing the event IDs: `None` and `Local*` have no
+        // event ID, we can't compare them at this point. Hence the `match` statement to
+        // have a fine-grained decision.
         {
             let mut guard = self.current_value.write().await;
             let previous_value = guard.deref();
 
-            if (previous_value.is_none() && new_value.is_none()).not() {
+            let do_update = match (previous_value, &new_value) {
+                // If both are `None`, no.
+                (LatestEventValue::None, LatestEventValue::None) => false,
+
+                // If at least one is `None`, yes.
+                (_, LatestEventValue::None) | (LatestEventValue::None, _) => true,
+
+                // If the event IDs are identical, no.
+                (previous, new) if previous.event_id() == new.event_id() => false,
+
+                // Otherwise, yes.
+                (_, _) => true,
+            };
+
+            if do_update {
                 ObservableWriteGuard::set(&mut guard, new_value.clone());
 
                 // Release the write guard over the current value before hitting the store.
@@ -308,6 +327,7 @@ mod tests_latest_event {
     use assert_matches::assert_matches;
     use matrix_sdk_base::{
         RoomInfoNotableUpdateReasons, RoomState,
+        latest_event::RemoteLatestEventValue,
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
         store::{SerializableEventContent, StoreConfig},
     };
@@ -320,10 +340,9 @@ mod tests_latest_event {
     };
     use stream_assert::{assert_next_matches, assert_pending};
 
-    use super::{LatestEvent, LatestEventValue, With};
+    use super::{super::local_room_message, LatestEvent, LatestEventValue, With};
     use crate::{
         client::WeakClient,
-        latest_events::local_room_message,
         room::WeakRoom,
         send_queue::{LocalEcho, LocalEchoContent, RoomSendQueue, RoomSendQueueUpdate, SendHandle},
         test_utils::mocks::MatrixMockServer,
@@ -439,7 +458,6 @@ mod tests_latest_event {
         let mut latest_event = LatestEvent::new(&weak_room, None);
 
         let mut stream = latest_event.subscribe().await;
-
         assert_pending!(stream);
 
         // Set a non-`None` value.
@@ -466,6 +484,51 @@ mod tests_latest_event {
         latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
         // We get it. Oof.
         assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_update_ignore_when_previous_value_has_the_same_event_id() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        // Create the room.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let mut stream = latest_event.subscribe().await;
+        assert_pending!(stream);
+
+        // Set a non-`None` value.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
+        // We get it.
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // Set a non-`None` value, with a specific event ID.
+        let first_event: RemoteLatestEventValue =
+            event_factory.text_msg("A").event_id(event_id!("$ev0")).into();
+        latest_event.update(LatestEventValue::Remote(first_event.clone())).await;
+        // We get it.
+        assert_next_matches!(stream, LatestEventValue::Remote(_));
+
+        // Set a non-`None` value again, with the same event ID!
+        latest_event.update(LatestEventValue::Remote(first_event)).await;
+        // It's ignored!
+        assert_pending!(stream);
+
+        // Set a non-`None` value again, with a different event ID!
+        let second_event = event_factory.text_msg("A").event_id(event_id!("$ev1")).into();
+        latest_event.update(LatestEventValue::Remote(second_event)).await;
+        // We get it!
+        assert_next_matches!(stream, LatestEventValue::Remote(_));
 
         assert_pending!(stream);
     }
