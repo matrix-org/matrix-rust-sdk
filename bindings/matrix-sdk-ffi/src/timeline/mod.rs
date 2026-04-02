@@ -1021,6 +1021,9 @@ pub struct EventTimelineItem {
     is_own: bool,
     is_editable: bool,
     content: TimelineItemContent,
+    /// The raw Matrix event type string (e.g. `"m.room.message"`), or `None`
+    /// when the original type is not available (e.g. redacted events).
+    event_type_raw: Option<String>,
     timestamp: Timestamp,
     local_send_state: Option<EventSendState>,
     local_created_at: Option<u64>,
@@ -1046,6 +1049,7 @@ impl From<matrix_sdk_ui::timeline::EventTimelineItem> for EventTimelineItem {
             is_own: item.is_own(),
             is_editable: item.is_editable(),
             content: item.content().clone().into(),
+            event_type_raw: item.content().event_type_str(),
             timestamp: item.timestamp().into(),
             local_send_state: item.send_state().map(|s| s.into()),
             local_created_at: item.local_created_at().map(|t| t.0.into()),
@@ -1322,6 +1326,16 @@ impl LazyTimelineItemProvider {
 
     fn contains_only_emojis(&self) -> bool {
         self.0.contains_only_emojis()
+    }
+
+    /// Returns the JSON string of the event's `content` field from the latest
+    /// version (including edits). Returns `None` for local echoes that haven't
+    /// been echoed back by the server yet.
+    fn latest_content_raw(&self) -> Option<String> {
+        let raw = self.0.latest_json()?;
+        let value: serde_json::Value = serde_json::from_str(raw.json().get()).ok()?;
+        let content = value.get("content")?;
+        serde_json::to_string(content).ok()
     }
 }
 
