@@ -101,7 +101,7 @@ impl GlobalSearchRoomState {
     }
 }
 
-/// A builder for a [`GlobalSearch`] that allows to configure the initial
+/// A builder for a [`GlobalSearchIterator`] that allows to configure the initial
 /// working set of rooms to search in.
 pub struct GlobalSearchBuilder {
     /// The search query, directly forwarded to the search API.
@@ -146,7 +146,7 @@ impl GlobalSearchBuilder {
         Ok(self)
     }
 
-    /// Build the [`GlobalSearch`] from this builder.
+    /// Build the [`GlobalSearchIterator`] from this builder.
     pub fn build(self) -> GlobalSearchIterator {
         GlobalSearchIterator {
             query: self.query,
