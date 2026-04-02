@@ -36,6 +36,7 @@ e2e-encryption = [
 js = [
     "matrix-sdk-common/js",
     "matrix-sdk-base/js",
+    "matrix-sdk-sqlite?/js",
 ]
 
 sqlite = [

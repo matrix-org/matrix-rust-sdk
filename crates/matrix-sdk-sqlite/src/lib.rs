@@ -213,8 +213,23 @@ impl SqliteStoreConfig {
         &self,
         database_name: &str,
     ) -> Result<connection::Pool, connection::CreatePoolError> {
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        use std::path::PathBuf;
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         let path = self.path.join(database_name);
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // We don't need to prefix our database name with parent
+        // directories, since VFS already handle the directory
+        // management for us.
+        let path = PathBuf::from(database_name);
+
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         let manager = connection::Manager::new(path);
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        // In WASM environment, we will need to specify which VFS
+        // configuration we want to use.
+        let manager = connection::Manager::new(path, utils::get_vfs_name(&self.path));
 
         connection::Pool::builder(manager)
             .config(self.pool_config)
