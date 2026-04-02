@@ -1011,6 +1011,7 @@ async fn test_thread_focused_timeline() -> TestResult {
 async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
     // Set up sync for user Alice, and create a room.
     let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    alice.event_cache().subscribe()?;
 
     debug!("Creating room…");
     let initial_state = vec![
@@ -1073,7 +1074,7 @@ async fn test_local_echo_to_send_event_has_encryption_info() -> TestResult {
 
     // Now the new event with the encryption info arrives.
     let vector_diff = timeout(Duration::from_secs(5), stream.next()).await?;
-    let sent_event = assert_matches!(vector_diff, Some(VectorDiff::PushFront {  value }) => value);
+    let sent_event = assert_matches!(vector_diff, Some(VectorDiff::PushBack {  value }) => value);
 
     // The encryption info should be correctly populated.
     let encryption_info =
