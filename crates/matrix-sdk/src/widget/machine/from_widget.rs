@@ -292,13 +292,16 @@ impl FromMatrixDriverResponse for SendToDeviceEventResponse {
 pub(crate) struct DownloadFileResponse {
     // The binary file content in a format that can cross the
     // widget-driver-api boundary.
-    pub(crate) file: Base64,
+    #[serde(rename = "file")]
+    pub(crate) file_data_base64: Base64,
 }
 
 impl FromMatrixDriverResponse for DownloadFileResponse {
     fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
         match matrix_driver_response {
-            MatrixDriverResponse::FileDownloaded(resp) => Some(Self { file: resp.file }),
+            MatrixDriverResponse::FileDownloaded(resp) => {
+                Some(Self { file_data_base64: resp.file_data_base64 })
+            }
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None

@@ -252,11 +252,14 @@ impl WidgetDriver {
                             .await
                             .map(MatrixDriverResponse::ToDeviceSent)
                     }
-                    MatrixDriverRequestData::DownloadFile(req) => {
-                        matrix_driver.download_attachment(req.content_uri).await.map(|file| {
-                            MatrixDriverResponse::FileDownloaded(DownloadFileResponse { file })
-                        })
-                    }
+                    MatrixDriverRequestData::DownloadFile(req) => matrix_driver
+                        .download_attachment(req.content_uri)
+                        .await
+                        .map(|file_data_base64| {
+                            MatrixDriverResponse::FileDownloaded(DownloadFileResponse {
+                                file_data_base64,
+                            })
+                        }),
                 };
 
                 // Forward the Matrix driver response to the incoming message stream.
