@@ -41,6 +41,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Remove support for `native-tls` and remove all feature
+  flags for selecting TLS backend, as `rustls` is the now the only supported
+  TLS backend.
+  ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
 - Expose `event_type_raw` and `latest_content_raw()` on `EventTimelineItem`,
   allowing clients to access the raw event type string and content JSON for
   custom event handling without pattern-matching through nested enums.
