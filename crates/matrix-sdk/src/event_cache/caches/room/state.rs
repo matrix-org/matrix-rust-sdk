@@ -1050,7 +1050,9 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             &mut read_receipts,
             self.state.enabled_thread_support,
             self.state.automatic_pagination.as_ref(),
-        );
+            room.client().state_store(),
+        )
+        .await;
 
         if prev_read_receipts != read_receipts {
             // The read receipt has changed! Do a little dance to update the `RoomInfo` in
