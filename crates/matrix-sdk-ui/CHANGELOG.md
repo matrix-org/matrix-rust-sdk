@@ -30,6 +30,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add new high-level search helpers in `matrix_sdk_ui::search` to perform searches for messages in
+  a room or across all rooms.
+  ([6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
   and managing the list of threads from a particular room.
   ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))

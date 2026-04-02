@@ -41,6 +41,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add new high-level search helpers `RoomSearchIterator` and `GlobalSearchIterator` to perform
+  searches for messages in a room or across all rooms.
+  ([6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Expose `event_type_raw` and `latest_content_raw()` on `EventTimelineItem`,
   allowing clients to access the raw event type string and content JSON for
   custom event handling without pattern-matching through nested enums.
