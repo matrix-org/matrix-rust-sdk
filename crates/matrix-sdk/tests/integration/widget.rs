@@ -1869,7 +1869,7 @@ async fn test_try_download_file_without_permission() {
 }
 
 #[async_test]
-async fn test_try_download_external() {
+async fn test_download_non_mxc_uri_should_fail() {
     let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
 
     negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4039.download_file"])).await;

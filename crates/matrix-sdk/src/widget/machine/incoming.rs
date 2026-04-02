@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(req.content_uri, "mxc://server/id");
     }
     #[test]
-    fn parse_download_file_widget_action_error() {
+    fn parse_download_file_request_with_non_mxc_url() {
         let raw = r#"
         {
             "api": "fromWidget",
