@@ -45,7 +45,7 @@ use ruma::{
         room::{member::MembershipState, message::RoomMessageEventContent},
     },
     owned_room_id, room_id,
-    serde::{JsonObject, Raw},
+    serde::{Base64, JsonObject, Raw},
     to_device::DeviceIdOrAllDevices,
     user_id,
 };
@@ -1840,6 +1840,95 @@ async fn test_send_encrypted_to_device_different_content() {
         let event = event.deserialize_as::<Value>().unwrap();
         assert_eq!(event["content"]["param1"], "This for carl");
     }
+}
+
+#[async_test]
+async fn test_try_download_file_without_permission() {
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!([])).await;
+
+    send_request(
+        &driver_handle,
+        "000",
+        "org.matrix.msc4039.download_file",
+        json!({
+            "content_uri":"mxc://example.org/profile.jpg",
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    if response["api"] == "fromWidget" && response["action"] == "org.matrix.msc4039.download_file" {
+        let error_response = response["response"]["error"]["message"].clone();
+        assert_eq!(
+            error_response.as_str().unwrap(),
+            "Not allowed: missing the org.matrix.msc4039.download_file capability."
+        );
+    }
+}
+
+#[async_test]
+async fn test_download_non_mxc_uri_should_fail() {
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4039.download_file"])).await;
+
+    send_request(
+        &driver_handle,
+        "000",
+        "org.matrix.msc4039.download_file",
+        json!({
+            "content_uri":"https://example.org/profile.jpg",
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    if response["api"] == "fromWidget" && response["action"] == "org.matrix.msc4039.download_file" {
+        let error_response = response["response"]["error"]["message"].clone();
+        assert_eq!(error_response.as_str().unwrap(), "Invalid content URI");
+    }
+}
+
+#[async_test]
+async fn test_try_download_file() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4039.download_file"])).await;
+
+    send_request(
+        &driver_handle,
+        "000",
+        "org.matrix.msc4039.download_file",
+        json!({
+            "content_uri":"mxc://example.org/xJbofAzMprfEWsmWWqGsMuEY",
+        }),
+    )
+    .await;
+
+    let bundle = vec![1, 2, 3, 4, 5];
+
+    mock_server
+        .mock_authed_media_download()
+        .expect_any_access_token()
+        .ok_bytes(bundle.clone())
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
+
+    let response = recv_message(&driver_handle).await;
+
+    print!("{response:?}");
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4039.download_file");
+    assert_eq!(response["requestId"], "000");
+
+    let response = response["response"].as_object().expect("response is an object");
+    let base64 = response.get("file").unwrap().as_str().unwrap();
+    let decoded: Base64 = Base64::parse(base64).expect("valid base64 in widget response");
+    assert_eq!(decoded.as_bytes(), bundle.as_slice());
 }
 
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
