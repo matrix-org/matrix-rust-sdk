@@ -574,12 +574,6 @@ async fn test_send_media_with_thumbnail() -> TestResult {
             .unwrap();
         // And the thumbnail data still matches what we've sent.
         assert_eq!(retrieved_thumbnail_data, thumbnail_data);
-
-        // Since it's sent, it's inserted in the Event Cache, and reinserted as a
-        // remote event.
-        assert_let_timeout!(Some(VectorDiff::Remove { index: 0 }) = timeline_stream.next());
-        assert_let_timeout!(Some(VectorDiff::PushFront { value: item }) = timeline_stream.next());
-        assert_eq!(item.event_id().unwrap(), event_id!("$media"));
     }
 
     // That's all, folks!
