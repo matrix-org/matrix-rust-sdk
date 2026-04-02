@@ -64,7 +64,6 @@ experimental-encrypted-state-events = [
 ]
 
 markdown = ["ruma/markdown"]
-rustls-tls = []
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
 sso-login = ["local-server"]
