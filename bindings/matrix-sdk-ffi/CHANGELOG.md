@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add new high-level search helpers `RoomSearchIterator` and `GlobalSearchIterator` to perform
+  searches for messages in a room or across all rooms.
+  ([6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Added the `Client.request_openid_token()` method.
   ([#6458](https://github.com/matrix-org/matrix-rust-sdk/pull/6458))
 - Added the `Client::import_secrets_bundle` method.
