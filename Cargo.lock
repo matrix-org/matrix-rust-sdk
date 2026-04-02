@@ -1366,7 +1366,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f55bf8e7b65898637379c1b74eb1551107c8294ed26d855ceb9fd1a09cfc9bc0"
 dependencies = [
  "const-oid",
- "pem-rfc7468",
  "zeroize",
 ]
 
@@ -4215,15 +4214,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pem-rfc7468"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
-dependencies = [
- "base64ct",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5367,7 +5357,6 @@ checksum = "eb25f439f97d26fea01d717fa626167ceffcd981addaa670001e70505b72acbb"
 dependencies = [
  "cfg_aliases",
  "httpdate",
- "native-tls",
  "reqwest",
  "rustls",
  "sentry-backtrace",
@@ -6808,16 +6797,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00432f493971db5d8e47a65aeb3b02f8226b9b11f1450ff86bb772776ebadd70"
 dependencies = [
  "base64",
- "der",
  "log",
- "native-tls",
  "percent-encoding",
  "rustls",
  "rustls-pemfile",
  "rustls-pki-types",
  "ureq-proto",
  "utf-8",
- "webpki-root-certs",
  "webpki-roots",
 ]
 

@@ -34,8 +34,6 @@ indexeddb = ["matrix-sdk/indexeddb"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
-# Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
-native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
 # Use Rustls as the TLS implementation, necessary on Android platforms.
 rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
