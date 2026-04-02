@@ -347,9 +347,6 @@ impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
 pub(crate) struct DownloadFileRequest {
     // The MXC url of the file to download.
     pub(crate) content_uri: OwnedMxcUri,
-    // Not used yet. Only support non-encrypted downloads (avatars)
-    // pub(crate) timeout_ms: Option<u64>,
-    // pub(crate) encryption: Option<EncryptedFile>,
 }
 
 impl MatrixDriverRequest for DownloadFileRequest {
