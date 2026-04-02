@@ -917,28 +917,28 @@ mod tests {
         assert_eq!(withheld_entry.content.withheld_code(), WithheldCode::Blacklisted)
     }
 
-    /// Test migrating `withheld_sessions` data from store v14 to latest,
+    /// Test migrating `secrets_inbox` data from store v105 to latest,
     /// on a store with encryption disabled.
     #[async_test]
-    async fn test_v103_v104_migration_unencrypted() {
-        test_v103_v104_migration_with_cipher("test_v101_migration_unencrypted", None).await
+    async fn test_v105_v107_migration_unencrypted() {
+        test_v105_v107_migration_with_cipher("test_v107_migration_unencrypted", None).await
     }
 
-    /// Test migrating `withheld_sessions` data from store v14 to latest,
+    /// Test migrating `secrets_inbox` data from store v105 to latest,
     /// on a store with encryption enabled.
     #[async_test]
-    async fn test_v103_v104_migration_encrypted() {
+    async fn test_v105_v107_migration_encrypted() {
         let cipher = StoreCipher::new().unwrap();
-        test_v103_v104_migration_with_cipher(
-            "test_v101_migration_encrypted",
+        test_v105_v107_migration_with_cipher(
+            "test_v107_migration_encrypted",
             Some(Arc::new(cipher)),
         )
         .await;
     }
 
-    /// Helper function for `test_v14_v101_migration_{un,}encrypted`: test
-    /// migrating `withheld_sessions` data from store v14 to store v101.
-    async fn test_v103_v104_migration_with_cipher(
+    /// Helper function for `test_v105_v107_migration_{un,}encrypted`: test
+    /// migrating `secrets_inbox` data from store v105 to store v107.
+    async fn test_v105_v107_migration_with_cipher(
         db_prefix: &str,
         store_cipher: Option<Arc<StoreCipher>>,
     ) {
