@@ -222,6 +222,10 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
     }
 }
 
+/// The receipt types we look for, in order of priority (the first ones are more
+/// likely to be ahead in the timeline, so we look for them first).
+const ALL_RECEIPT_TYPES: [ReceiptType; 2] = [ReceiptType::ReadPrivate, ReceiptType::Read];
+
 /// Return a new better (i.e. more recent) receipt based on a search of the
 /// linked chunk.
 ///
@@ -245,7 +249,7 @@ fn select_best_receipt(
     // to the pending receipts list. We'll try to chase them later.
     if let Some(receipt_event) = new_receipt_event {
         for (event_id, receipts) in &receipt_event.0 {
-            for ty in [ReceiptType::Read, ReceiptType::ReadPrivate] {
+            for ty in ALL_RECEIPT_TYPES {
                 if let Some(receipts) = receipts.get(&ty)
                     && let Some(receipt) = receipts.get(user_id)
                     && matches!(receipt.thread, ReceiptThread::Main | ReceiptThread::Unthreaded)
@@ -337,9 +341,7 @@ async fn try_find_store_receipts(
     room_id: &RoomId,
     read_receipts: &mut RoomReadReceipts,
 ) {
-    // Implementation note: we want to prioritize a `ReadPrivate` (private) receipt
-    // over a `Read` (public) one, as it's more likely to be ahead.
-    for receipt_type in [ReceiptType::ReadPrivate, ReceiptType::Read] {
+    for receipt_type in ALL_RECEIPT_TYPES {
         // Implementation note: we want to prioritize a `Unthreaded` receipt over a
         // `Main`-threaded one, for better compatibility with thread-unaware clients.
         for receipt_thread in [ReceiptThread::Unthreaded, ReceiptThread::Main] {
