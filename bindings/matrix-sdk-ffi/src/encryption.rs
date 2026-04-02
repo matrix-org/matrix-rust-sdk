@@ -16,6 +16,7 @@ use std::{str::FromStr, sync::Arc};
 
 use futures_util::StreamExt;
 use matrix_sdk::encryption::{self, backups, recovery};
+use matrix_sdk_base::crypto::types::{BackupSecrets, RoomKeyBackupInfo};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::OwnedUserId;
 use thiserror::Error;
@@ -244,6 +245,20 @@ pub struct SecretsBundleWithUserId {
     inner: matrix_sdk_base::crypto::types::SecretsBundle,
 }
 
+/// Result for the check if a store has a valid secrets bundle.
+#[derive(uniffi::Enum)]
+pub enum DetectedSecretsBundle {
+    /// The store doesn't contain a secrets bundle at all.
+    None,
+    /// The store contains a bundle without a backup.
+    WithoutBackup,
+    /// The store contains a bundle with an unused backup, the backup key in the
+    /// bundle isn't used on the homeserver.
+    UnusedBackup,
+    /// The store contains a complete secrets bundle.
+    Complete,
+}
+
 /// Error type describing failures that can happen while exporting a
 /// [`SecretsBundle`] from a SQLite store.
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -261,6 +276,10 @@ pub enum BundleExportError {
     /// The store is empty and doesn't contain a secrets bundle.
     #[error("the store is completely empty")]
     StoreEmpty,
+    /// A JSON object couldn't be deserialized while the secrets bundle was
+    /// exported.
+    #[error("Couldn't deserialize a JSON value: {msg}")]
+    Json { msg: String },
 }
 
 impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
@@ -279,14 +298,33 @@ impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
     }
 }
 
+impl From<serde_json::Error> for BundleExportError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::Json { msg: value.to_string() }
+    }
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl SecretsBundleWithUserId {
     /// Attempt to create a [`SecretsBundle`] from a previously JSON serialized
     /// bundle.
     #[uniffi::constructor]
-    pub fn from_str(user_id: &str, bundle: &str) -> Result<Arc<Self>, ClientError> {
+    pub fn from_str(
+        user_id: &str,
+        bundle: &str,
+        backup_info: &str,
+    ) -> Result<Arc<Self>, ClientError> {
         let user_id = OwnedUserId::from_str(user_id)?;
-        let bundle = serde_json::from_str(bundle)?;
+        let mut bundle: matrix_sdk_base::crypto::types::SecretsBundle =
+            serde_json::from_str(bundle)?;
+        let backup_info = serde_json::from_str(&backup_info)?;
+
+        let should_remove_backup =
+            bundle.backup.as_ref().is_some_and(|backup| !is_valid_backup(backup, &backup_info));
+
+        if should_remove_backup {
+            bundle.backup = None;
+        }
 
         Ok(Self { user_id, inner: bundle }.into())
     }
@@ -303,14 +341,24 @@ impl SecretsBundleWithUserId {
     pub async fn from_database(
         database_path: &str,
         mut passphrase: Option<String>,
+        backup_info: &str,
     ) -> Result<Arc<Self>, BundleExportError> {
-        let ret = if let Some((user_id, inner)) =
+        let backup_info = serde_json::from_str(&backup_info)?;
+
+        let ret = if let Some((user_id, mut inner)) =
             matrix_sdk::encryption::export_secrets_bundle_from_store(
                 database_path,
                 passphrase.as_deref(),
             )
             .await?
         {
+            let should_remove_backup =
+                inner.backup.as_ref().is_some_and(|backup| !is_valid_backup(backup, &backup_info));
+
+            if should_remove_backup {
+                inner.backup = None;
+            }
+
             Ok(SecretsBundleWithUserId { user_id, inner }.into())
         } else {
             Err(BundleExportError::StoreEmpty)
@@ -331,23 +379,40 @@ impl SecretsBundleWithUserId {
     }
 }
 
+fn is_valid_backup(secrets: &BackupSecrets, info: &RoomKeyBackupInfo) -> bool {
+    match secrets {
+        BackupSecrets::MegolmBackupV1Curve25519AesSha2(secrets) => {
+            secrets.key.backup_key_matches(info)
+        }
+    }
+}
+
 /// Check if a crypto store contains a valid [`SecretsBundle`].
 #[matrix_sdk_ffi_macros::export]
 pub async fn database_contains_secrets_bundle(
     database_path: &str,
     mut passphrase: Option<String>,
-) -> Result<bool, ClientError> {
-    let ret = matrix_sdk::encryption::export_secrets_bundle_from_store(
+    backup_info: String,
+) -> Result<DetectedSecretsBundle, ClientError> {
+    let info = serde_json::from_str(&backup_info)?;
+
+    let maybe_bundle = matrix_sdk::encryption::export_secrets_bundle_from_store(
         database_path,
         passphrase.as_deref(),
     )
     .await
-    .map_err(ClientError::from_err)?
-    .is_some();
+    .map_err(ClientError::from_err)?;
 
     passphrase.zeroize();
 
-    Ok(ret)
+    Ok(match maybe_bundle {
+        Some((_, bundle)) => match &bundle.backup {
+            Some(backup) if is_valid_backup(backup, &info) => DetectedSecretsBundle::Complete,
+            Some(_) => DetectedSecretsBundle::UnusedBackup,
+            None => DetectedSecretsBundle::WithoutBackup,
+        },
+        None => DetectedSecretsBundle::None,
+    })
 }
 
 #[matrix_sdk_ffi_macros::export]
