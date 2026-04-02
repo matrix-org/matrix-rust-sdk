@@ -480,6 +480,8 @@ impl PinnedEventCache {
             return Ok(Some(Vec::new()));
         }
 
+        let mut num_successful_loads = 0;
+
         let mut loaded_events: Vec<Event> =
             stream::iter(pinned_event_ids.clone().into_iter().map(|event_id| {
                 let room = room.clone();
@@ -500,16 +502,23 @@ impl PinnedEventCache {
                 }
             }))
             .buffer_unordered(max_concurrent_requests)
-            // Flatten all the vectors.
+            // Count successful queries.
+            .inspect(|result| {
+                if result.is_ok() {
+                    num_successful_loads += 1;
+                }
+            })
+            // Get rid of error results.
             .flat_map(stream::iter)
+            // Flatten the list of `Vec<Event>` into a list of `Event`.
             .flat_map(stream::iter)
             .collect()
             .await;
 
-        if loaded_events.len() != pinned_event_ids.len() {
+        if num_successful_loads != pinned_event_ids.len() {
             warn!(
                 "only successfully loaded {} out of {} pinned events",
-                loaded_events.len(),
+                num_successful_loads,
                 pinned_event_ids.len()
             );
         }
