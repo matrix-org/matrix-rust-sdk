@@ -22,7 +22,7 @@ hmac = { workspace = true, features = ["reset"] }
 hkdf.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
 pbkdf2.workspace = true
-rand.workspace = true
+rand = { workspace = true, features = ["thread_rng"] }
 sha2.workspace = true
 tantivy = { version = "0.25.0", default-features = false, features = ["mmap", "stopwords", "lz4-compression", "columnar-zstd-compression"] }
 tracing = { workspace = true, features = ["attributes"] }

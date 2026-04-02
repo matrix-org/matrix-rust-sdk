@@ -153,6 +153,7 @@ async fn main() -> Result<()> {
     });
 
     let event_cache = client.event_cache();
+    event_cache.config_mut().experimental_auto_backpagination = true;
     event_cache.subscribe()?;
 
     let terminal = ratatui::init();
@@ -743,7 +744,6 @@ impl App {
                                                 })
                                             {
                                                 let results = get_events_from_event_ids(
-                                                    &self.client,
                                                     &room,
                                                     results,
                                                 )
@@ -959,33 +959,19 @@ async fn login_with_password(client: &Client) -> Result<()> {
 }
 
 async fn get_events_from_event_ids(
-    client: &Client,
     room: &Room,
     event_ids: Vec<OwnedEventId>,
 ) -> Vec<TimelineEvent> {
-    if let Ok(cache_lock) = client.event_cache_store().lock().await {
-        let cache_lock =
-            cache_lock.as_clean().expect("Only one process must access the event cache store");
-
-        futures_util::future::join_all(event_ids.iter().map(|event_id| async {
-            let event_id = event_id.clone();
-            match cache_lock.find_event(room.room_id(), &event_id).await {
-                Ok(ev) => ev,
-                Err(_) => room
-                    .event(&event_id, None)
-                    .await
-                    .inspect_err(|err| {
-                        debug!("Failed to find event {event_id} in event cache and server: {err}");
-                    })
-                    .ok(),
-            }
-        }))
-        .await
-        .into_iter()
-        .flatten()
-        .collect::<Vec<TimelineEvent>>()
-    } else {
-        debug!("Couldnt get event cache store lock.");
-        Vec::new()
-    }
+    futures_util::future::join_all(event_ids.iter().map(|event_id| async move {
+        room.load_or_fetch_event(event_id, None)
+            .await
+            .inspect_err(|err| {
+                debug!("Failed to find event {event_id} in event cache and server: {err}");
+            })
+            .ok()
+    }))
+    .await
+    .into_iter()
+    .flatten()
+    .collect::<Vec<TimelineEvent>>()
 }

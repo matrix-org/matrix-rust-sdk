@@ -65,6 +65,7 @@ pub mod widget;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};
+pub use client::homeserver_capabilities::HomeserverCapabilities;
 #[cfg(feature = "experimental-search")]
 pub mod search_index;
 pub use client::{
@@ -76,8 +77,6 @@ pub use error::{
     RumaApiError,
 };
 pub use http_client::TransmissionProgress;
-#[cfg(feature = "rustls-tls")]
-pub use http_client::rustls;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]
@@ -103,5 +102,3 @@ pub mod test_utils;
 
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
-#[cfg(all(test, feature = "rustls-tls"))]
-crate::http_client::rustls::install_default_crypto_provider_for_tests!();

@@ -41,7 +41,7 @@ jobs:
           node-version: 20
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 

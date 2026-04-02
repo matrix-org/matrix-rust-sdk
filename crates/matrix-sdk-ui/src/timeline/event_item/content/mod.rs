@@ -122,6 +122,31 @@ pub enum TimelineItemContent {
 }
 
 impl TimelineItemContent {
+    /// Returns the raw Matrix event type string (e.g. `"m.room.message"`),
+    /// or `None` when the original type is not available (e.g. redacted
+    /// events).
+    pub fn event_type_str(&self) -> Option<String> {
+        match self {
+            Self::MsgLike(msg) => Some(match &msg.kind {
+                MsgLikeKind::Message(_) => MessageLikeEventType::RoomMessage.to_string(),
+                MsgLikeKind::Sticker(_) => MessageLikeEventType::Sticker.to_string(),
+                MsgLikeKind::Poll(_) => MessageLikeEventType::PollStart.to_string(),
+                MsgLikeKind::Redacted => return None,
+                MsgLikeKind::UnableToDecrypt(_) => MessageLikeEventType::RoomEncrypted.to_string(),
+                MsgLikeKind::Other(other) => other.event_type().to_string(),
+                MsgLikeKind::LiveLocation(_) => StateEventType::BeaconInfo.to_string(),
+            }),
+            Self::MembershipChange(_) | Self::ProfileChange(_) => {
+                Some(StateEventType::RoomMember.to_string())
+            }
+            Self::OtherState(state) => Some(state.content().event_type().to_string()),
+            Self::FailedToParseMessageLike { event_type, .. } => Some(event_type.to_string()),
+            Self::FailedToParseState { event_type, .. } => Some(event_type.to_string()),
+            Self::CallInvite => Some(MessageLikeEventType::CallInvite.to_string()),
+            Self::RtcNotification => Some(MessageLikeEventType::RtcNotification.to_string()),
+        }
+    }
+
     pub fn as_msglike(&self) -> Option<&MsgLikeContent> {
         as_variant!(self, TimelineItemContent::MsgLike)
     }

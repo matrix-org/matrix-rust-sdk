@@ -15,10 +15,8 @@ All notable changes to this project will be documented in this file.
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) key
   bundle.
   ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)), ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233)),
-
 - Add MSC4388 support to the QrcodeData struct.
   ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
-
 - Improved logging when we are sending secrets in `GossipMachine`.
   ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
   ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))
@@ -36,6 +34,12 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- **breaking** The `BackupDecryptionKey::new` and `DehydratedDeviceKey::new`
+  methods became infallible, they don't return a `Result` anymore.
+  ([#5502](https://github.com/matrix-org/matrix-rust-sdk/pull/5502))
+- [**breaking**] Remove cross-process lock generation logic from `OlmMachine`, which is now
+  implemented more generally in `matrix_sdk_common::cross_process_lock::CrossProcessLock`.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - [**breaking**] The `MediaEncryptionInfo` fields changed to match the new fields of `EncryptedFile`
   from Ruma. The serialized JSON format did not change and still matches the format of
   `EncryptedFile` defined in the spec, without the `url` field. The `DecryptorError::KeyNonceLength`

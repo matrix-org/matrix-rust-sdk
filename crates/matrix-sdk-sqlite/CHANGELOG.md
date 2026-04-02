@@ -25,6 +25,12 @@ All notable changes to this project will be documented in this file.
 - Fix a panic when the SQLite connection is aborted.
   ([#6091](https://github.com/matrix-org/matrix-rust-sdk/pull/6091))
 
+### Refactor
+
+- Add migration to `SqliteCryptoStore` that removes cross-process lock generation key from
+  `kv` table, as this is tracked in `lease_locks` table.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

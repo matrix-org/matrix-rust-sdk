@@ -51,12 +51,12 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -109,12 +109,12 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -165,12 +165,12 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Get xtask
-        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-macos }}"
@@ -223,7 +223,7 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c676846f29d98ff6b0106d3608c7ffd4048af17b # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 

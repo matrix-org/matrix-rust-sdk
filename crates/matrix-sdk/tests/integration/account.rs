@@ -4,9 +4,10 @@ use matrix_sdk_test::async_test;
 use ruma::{
     api::{
         MatrixVersion,
-        client::profile::{AvatarUrl, DisplayName, ProfileFieldName, ProfileFieldValue, TimeZone},
+        client::profile::{AvatarUrl, DisplayName, TimeZone},
     },
     mxc_uri,
+    profile::{ProfileFieldName, ProfileFieldValue},
 };
 use serde_json::json;
 use wiremock::{

@@ -33,15 +33,22 @@ Rust supports many different [targets], you'll have to make sure to pick the
 right one for your device or emulator.
 
 After this is done, we'll have to configure [Cargo] to use the correct linker
-for our target. Cargo is configured using a TOML file that will be found in
-`%USERPROFILE%\.cargo\config.toml` on Windows or `$HOME/.cargo/config` on Unix
-platforms. More details and configuration options for Cargo can be found in the
-official docs over [here](https://doc.rust-lang.org/cargo/reference/config.html).
+for our target, by providing the Cargo setting of
+[target.<triple>.linker](https://doc.rust-lang.org/cargo/reference/config.html#targettriplelinker)
+with a value of the path to an appropriate linker in your NDK installation.
+
+This may be set through an environment variable:
+
+```
+$ export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="<path-to-ndk-installation>/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang"
+```
+
+Alternatively, it may be set in the `.cargo/config.toml` file in the current directory,
+any parent directory, or your home directory:
 
 ```
 [target.aarch64-linux-android]
-ar = "NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/ar"
-linker = "NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang"
+linker = "<path-to-ndk-installation>/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang"
 ```
 
 ## Building
@@ -51,7 +58,13 @@ we'll need to set the `ANDROID_NDK` environment variable to the location of our
 Android NDK installation.
 
 ```
-$ export ANDROID_NDK=$HOME/Android/Sdk/ndk/22.0.7026061/
+$ export ANDROID_NDK=$HOME/Android/Sdk/ndk/<some-installed-version>
+```
+
+Also, include the NDK tools directory in your `PATH`:
+
+```
+$ export PATH="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
 ```
 
 ### Building for a target
@@ -62,12 +75,13 @@ The bindings can built for the `aarch64` target with:
 $ cargo build --target aarch64-linux-android
 ```
 
-After that, a dynamic library can be found in the `target/aarch64-linux-android/debug` directory.
-The library will be called `libmatrix_crypto.so` and needs to be renamed and
+After that, a dynamic library can be found in the `target/aarch64-linux-android/debug` directory,
+under the repository root directory.
+The library will be called `libmatrix_sdk_crypto_ffi.so` and needs to be renamed and
 copied into the `jniLibs` directory of your Android project, for Element Android:
 
 ```
-$ cp ../../target/aarch64-linux-android/debug/libmatrix_crypto.so \
+$ cp ../../target/aarch64-linux-android/debug/libmatrix_sdk_crypto_ffi.so \
      /home/example/matrix-sdk-android/src/main/jniLibs/aarch64/libuniffi_olm.so
 ```
 

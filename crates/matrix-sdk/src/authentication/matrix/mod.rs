@@ -30,7 +30,7 @@ use ruma::{
             session::{
                 get_login_types, login, logout, refresh_token, sso_login, sso_login_with_provider,
             },
-            uiaa::UserIdentifier,
+            uiaa::{MatrixUserIdentifier, UserIdentifier},
         },
     },
     serde::JsonObject,
@@ -173,7 +173,10 @@ impl MatrixAuth {
     ///
     /// [`restore_session`]: #method.restore_session
     pub fn login_username(&self, id: impl AsRef<str>, password: &str) -> LoginBuilder {
-        self.login_identifier(UserIdentifier::UserIdOrLocalpart(id.as_ref().to_owned()), password)
+        self.login_identifier(
+            UserIdentifier::Matrix(MatrixUserIdentifier::new(id.as_ref().to_owned())),
+            password,
+        )
     }
 
     /// Log into the server with a user identifier and password.
@@ -605,7 +608,7 @@ impl MatrixAuth {
         #[cfg(feature = "e2e-encryption")]
         let login_info = match (&request.username, &request.password) {
             (Some(u), Some(p)) => Some(login::v3::LoginInfo::Password(login::v3::Password::new(
-                UserIdentifier::UserIdOrLocalpart(u.into()),
+                UserIdentifier::Matrix(MatrixUserIdentifier::new(u.into())),
                 p.clone(),
             ))),
             _ => None,

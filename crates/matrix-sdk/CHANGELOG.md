@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
+  of the homeserver. This replaces `Client::get_capabilities()`. 
+  ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
 - [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
   a cross-signing reset does not succeed after some period of time.
   ([#6325](https://github.com/matrix-org/matrix-rust-sdk/pull/6325))
@@ -18,9 +21,6 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
   types as `Clone`able, and wrapping a few other error variants with `Arc`.
   ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
-- The scopes sent when logging in with the `OAuth` API now use the stable prefix defined in the
-  specification.
-  ([#6291](https://github.com/matrix-org/matrix-rust-sdk/pull/6291))
 - [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
   the event cache. As a result, it is necessary to enable the event cache if you want to keep a
   precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
@@ -95,6 +95,10 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
+  are now also eligible as the latest event for a room, preventing the live location sharing item
+  from disappearing from the room list summary once the session ends.
+  ([#6373](https://github.com/matrix-org/matrix-rust-sdk/pull/6373))
 - Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using 
   the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail. 
   ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))
@@ -131,6 +135,10 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Update `Encryption::{spin_lock_store, try_lock_once_store}` so that lock dirtiness
+  is determined entirely by `CrossProcessLock`, rather than logic defined by `OlmMachine`. Also enforce
+  that lock generation is opaque by removing `CrossProcessLockStoreGuardWithGeneration`.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - [**breaking**] The `EventCache` now owns pagination tasks, and will run them to completion, even
   if a manual caller stopped polling the called future.
   ([#6304](https://github.com/matrix-org/matrix-rust-sdk/pull/6304))

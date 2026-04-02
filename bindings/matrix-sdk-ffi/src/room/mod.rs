@@ -439,6 +439,37 @@ impl Room {
         Ok(())
     }
 
+    /// Send a raw state event to the room.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_type` - The type of the state event to send (e.g.
+    ///   `"m.room.name"` or a custom type).
+    ///
+    /// * `state_key` - A unique key which defines the overwriting semantics for
+    ///   this piece of room state. This is often an empty string.
+    ///
+    /// * `content` - The content of the state event encoded as a JSON string.
+    ///
+    /// Returns the event ID of the newly created state event.
+    pub async fn send_state_event_raw(
+        &self,
+        event_type: String,
+        state_key: String,
+        content: String,
+    ) -> Result<String, ClientError> {
+        let content_json: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| ClientError::Generic {
+                msg: format!("Failed to parse JSON: {e}"),
+                details: Some(format!("{e:?}")),
+            })?;
+
+        let response =
+            self.inner.send_state_event_raw(&event_type, &state_key, content_json).await?;
+
+        Ok(response.event_id.to_string())
+    }
+
     /// Redacts an event from the room.
     ///
     /// # Arguments

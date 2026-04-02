@@ -79,7 +79,7 @@ use ruma::{
         error::ErrorKind,
         profile::{AvatarUrl, DisplayName},
         room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
-        uiaa::UserIdentifier,
+        uiaa::{EmailUserIdentifier, UserIdentifier},
     },
     events::{
         direct::DirectEventContent,
@@ -138,6 +138,7 @@ use crate::{
     runtime::get_runtime_handle,
     spaces::SpaceService,
     sync_service::{SyncService, SyncServiceBuilder},
+    sync_v2::{SyncListenerV2, SyncResponseV2, SyncSettingsV2},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
@@ -533,7 +534,7 @@ impl Client {
         let mut builder = self
             .inner
             .matrix_auth()
-            .login_identifier(UserIdentifier::Email { address: email }, &password);
+            .login_identifier(UserIdentifier::Email(EmailUserIdentifier::new(email)), &password);
 
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
@@ -1610,6 +1611,55 @@ impl Client {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
     }
 
+    /// Start a sync v2 loop.
+    ///
+    /// This is an alternative to [`Client::sync_service`] (which uses Sliding
+    /// Sync / MSC4186). It works with any homeserver, including older
+    /// Synapse versions that do not support Sliding Sync.
+    ///
+    /// Returns a `TaskHandle` that can be used to cancel the sync loop.
+    /// The listener is called after each successful sync response.
+    pub fn sync_v2(
+        &self,
+        settings: SyncSettingsV2,
+        listener: Box<dyn SyncListenerV2>,
+    ) -> Arc<TaskHandle> {
+        let client = (*self.inner).clone();
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let listener: Arc<dyn SyncListenerV2> = Arc::from(listener);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let result = client
+                .sync_with_result_callback(sdk_settings, |result| {
+                    let listener = listener.clone();
+                    async move {
+                        let response = result?;
+                        let ffi_response: SyncResponseV2 = response.into();
+                        listener.on_update(ffi_response);
+                        Ok(matrix_sdk::LoopCtrl::Continue)
+                    }
+                })
+                .await;
+
+            if let Err(e) = result {
+                tracing::error!("Sync loop ended with error: {e}");
+            }
+        })))
+    }
+
+    /// Perform a single sync v2 call.
+    ///
+    /// This is useful for performing an initial sync or a one-shot sync
+    /// without entering a continuous loop.
+    pub async fn sync_once_v2(
+        &self,
+        settings: SyncSettingsV2,
+    ) -> Result<SyncResponseV2, ClientError> {
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let response = self.inner.sync_once(sdk_settings).await?;
+        Ok(response.into())
+    }
+
     pub async fn space_service(&self) -> Arc<SpaceService> {
         let inner = UISpaceService::new((*self.inner).clone()).await;
         Arc::new(SpaceService::new(inner))
@@ -2103,6 +2153,19 @@ impl Client {
                 }
             }
         }))))
+    }
+
+    /// Whether to enable automatic backpagination under certain conditions
+    /// (e.g. when processing read receipts).
+    ///
+    /// This is an experimental feature, and might cause performance issues on
+    /// large accounts. Use with caution.
+    pub fn enable_automatic_backpagination(&self) {
+        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
+    }
+
+    pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
+        HomeserverCapabilities::new(self.inner.homeserver_capabilities())
     }
 }
 
@@ -2987,6 +3050,74 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
             media_store: value.media_store.map(|v| v as u64),
         }
     }
+}
+
+#[derive(uniffi::Object)]
+pub struct HomeserverCapabilities {
+    inner: matrix_sdk::HomeserverCapabilities,
+}
+
+impl HomeserverCapabilities {
+    pub(crate) fn new(capabilities: matrix_sdk::HomeserverCapabilities) -> Self {
+        Self { inner: capabilities }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl HomeserverCapabilities {
+    pub async fn refresh(&self) -> Result<(), ClientError> {
+        Ok(self.inner.refresh().await?)
+    }
+
+    pub async fn can_change_password(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_password().await?)
+    }
+
+    pub async fn can_change_displayname(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_displayname().await?)
+    }
+
+    pub async fn can_change_avatar(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_avatar().await?)
+    }
+
+    pub async fn can_change_thirdparty_ids(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_thirdparty_ids().await?)
+    }
+
+    pub async fn can_get_login_token(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_get_login_token().await?)
+    }
+
+    pub async fn extended_profile_fields(&self) -> Result<ExtendedProfileFields, ClientError> {
+        let profile_fields = self.inner.extended_profile_fields().await?;
+        Ok(ExtendedProfileFields {
+            enabled: profile_fields.enabled,
+            allowed: profile_fields
+                .allowed
+                .unwrap_or_default()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            disallowed: profile_fields
+                .disallowed
+                .unwrap_or_default()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        })
+    }
+
+    pub async fn forgets_room_when_leaving(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.forgets_room_when_leaving().await?)
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct ExtendedProfileFields {
+    pub enabled: bool,
+    pub allowed: Vec<String>,
+    pub disallowed: Vec<String>,
 }
 
 #[cfg(test)]

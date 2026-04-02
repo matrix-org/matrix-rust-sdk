@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use ruma::{
     OwnedRoomId,
     push::{
-        Action, NewConditionalPushRule, NewPatternedPushRule, NewPushRule, NewSimplePushRule,
-        PushCondition, RuleKind, Tweak,
+        Action, EventMatchConditionData, NewConditionalPushRule, NewPatternedPushRule, NewPushRule,
+        NewSimplePushRule, PushCondition, RuleKind, SoundTweakValue, Tweak,
     },
 };
 
@@ -31,7 +31,7 @@ pub(crate) enum Command {
 
 fn get_notify_actions(notify: bool) -> Vec<Action> {
     if notify {
-        vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+        vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))]
     } else {
         vec![]
     }
@@ -51,10 +51,10 @@ impl Command {
                 // `Override` push rule matching this `room_id`
                 let new_rule = NewConditionalPushRule::new(
                     rule_id.clone(),
-                    vec![PushCondition::EventMatch {
-                        key: "room_id".to_owned(),
-                        pattern: room_id.to_string(),
-                    }],
+                    vec![PushCondition::EventMatch(EventMatchConditionData::new(
+                        "room_id".to_owned(),
+                        room_id.to_string(),
+                    ))],
                     get_notify_actions(*notify),
                 );
                 Ok(NewPushRule::Override(new_rule))

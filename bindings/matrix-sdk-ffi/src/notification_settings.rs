@@ -27,9 +27,12 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{
     events::push_rules::PushRulesEventContent,
     push::{
-        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, PredefinedOverrideRuleId,
-        PredefinedUnderrideRuleId, PushCondition as SdkPushCondition, RoomMemberCountIs,
-        RuleKind as SdkRuleKind, ScalarJsonValue as SdkJsonValue, Tweak as SdkTweak,
+        Action as SdkAction, ComparisonOperator as SdkComparisonOperator, EventMatchConditionData,
+        EventPropertyContainsConditionData, EventPropertyIsConditionData, HighlightTweakValue,
+        PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition as SdkPushCondition,
+        RoomMemberCountConditionData, RoomMemberCountIs, RuleKind as SdkRuleKind,
+        ScalarJsonValue as SdkJsonValue, SenderNotificationPermissionConditionData,
+        Tweak as SdkTweak,
     },
     Int, RoomId, UInt,
 };
@@ -181,20 +184,22 @@ impl TryFrom<SdkPushCondition> for PushCondition {
 
     fn try_from(value: SdkPushCondition) -> Result<Self, Self::Error> {
         Ok(match value {
-            SdkPushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            SdkPushCondition::EventMatch(data) => {
+                Self::EventMatch { key: data.key, pattern: data.pattern }
+            }
             #[allow(deprecated)]
             SdkPushCondition::ContainsDisplayName => Self::ContainsDisplayName,
-            SdkPushCondition::RoomMemberCount { is } => {
-                Self::RoomMemberCount { prefix: is.prefix.into(), count: is.count.into() }
+            SdkPushCondition::RoomMemberCount(data) => {
+                Self::RoomMemberCount { prefix: data.is.prefix.into(), count: data.is.count.into() }
             }
-            SdkPushCondition::SenderNotificationPermission { key } => {
-                Self::SenderNotificationPermission { key: key.to_string() }
+            SdkPushCondition::SenderNotificationPermission(data) => {
+                Self::SenderNotificationPermission { key: data.key.to_string() }
             }
-            SdkPushCondition::EventPropertyIs { key, value } => {
-                Self::EventPropertyIs { key, value: value.into() }
+            SdkPushCondition::EventPropertyIs(data) => {
+                Self::EventPropertyIs { key: data.key, value: data.value.into() }
             }
-            SdkPushCondition::EventPropertyContains { key, value } => {
-                Self::EventPropertyContains { key, value: value.into() }
+            SdkPushCondition::EventPropertyContains(data) => {
+                Self::EventPropertyContains { key: data.key, value: data.value.into() }
             }
             _ => return Err("Unsupported condition type".to_owned()),
         })
@@ -204,24 +209,28 @@ impl TryFrom<SdkPushCondition> for PushCondition {
 impl From<PushCondition> for SdkPushCondition {
     fn from(value: PushCondition) -> Self {
         match value {
-            PushCondition::EventMatch { key, pattern } => Self::EventMatch { key, pattern },
+            PushCondition::EventMatch { key, pattern } => {
+                Self::EventMatch(EventMatchConditionData::new(key, pattern))
+            }
             #[allow(deprecated)]
             PushCondition::ContainsDisplayName => Self::ContainsDisplayName,
-            PushCondition::RoomMemberCount { prefix, count } => Self::RoomMemberCount {
-                is: RoomMemberCountIs {
+            PushCondition::RoomMemberCount { prefix, count } => {
+                Self::RoomMemberCount(RoomMemberCountConditionData::new(RoomMemberCountIs {
                     prefix: prefix.into(),
                     count: UInt::new(count).unwrap_or_default(),
-                },
-            },
+                }))
+            }
             PushCondition::SenderNotificationPermission { key } => {
-                Self::SenderNotificationPermission { key: key.into() }
+                Self::SenderNotificationPermission(SenderNotificationPermissionConditionData::new(
+                    key.into(),
+                ))
             }
             PushCondition::EventPropertyIs { key, value } => {
-                Self::EventPropertyIs { key, value: value.into() }
+                Self::EventPropertyIs(EventPropertyIsConditionData::new(key, value.into()))
             }
-            PushCondition::EventPropertyContains { key, value } => {
-                Self::EventPropertyContains { key, value: value.into() }
-            }
+            PushCondition::EventPropertyContains { key, value } => Self::EventPropertyContains(
+                EventPropertyContainsConditionData::new(key, value.into()),
+            ),
         }
     }
 }
@@ -303,16 +312,19 @@ impl TryFrom<SdkTweak> for Tweak {
     type Error = String;
 
     fn try_from(value: SdkTweak) -> Result<Self, Self::Error> {
-        Ok(match value {
-            SdkTweak::Sound(sound) => Self::Sound { value: sound },
-            SdkTweak::Highlight(highlight) => Self::Highlight { value: highlight },
-            SdkTweak::Custom { name, value } => {
-                let json_string = serde_json::to_string(&value)
-                    .map_err(|e| format!("Failed to serialize custom tweak value: {e}"))?;
-
-                Self::Custom { name, value: json_string }
+        Ok(match &value {
+            SdkTweak::Sound(sound) => Self::Sound { value: sound.to_string() },
+            SdkTweak::Highlight(highlight) => {
+                Self::Highlight { value: matches!(highlight, HighlightTweakValue::Yes) }
             }
-            _ => return Err("Unsupported tweak type".to_owned()),
+            _ => {
+                let json_string = value
+                    .custom_value()
+                    .ok_or_else(|| "Unsupported tweak type".to_owned())?
+                    .to_string();
+
+                Self::Custom { name: value.set_tweak().to_owned(), value: json_string }
+            }
         })
     }
 }
@@ -322,16 +334,16 @@ impl TryFrom<Tweak> for SdkTweak {
 
     fn try_from(value: Tweak) -> Result<Self, Self::Error> {
         Ok(match value {
-            Tweak::Sound { value } => Self::Sound(value),
-            Tweak::Highlight { value } => Self::Highlight(value),
-            Tweak::Custom { name, value } => {
-                let json_value: serde_json::Value = serde_json::from_str(&value)
-                    .map_err(|e| format!("Failed to deserialize custom tweak value: {e}"))?;
-                let value = serde_json::from_value(json_value)
-                    .map_err(|e| format!("Failed to convert JSON value: {e}"))?;
-
-                Self::Custom { name, value }
-            }
+            Tweak::Sound { value } => Self::Sound(value.into()),
+            Tweak::Highlight { value } => Self::Highlight(value.into()),
+            Tweak::Custom { name, value } => Self::new(
+                name,
+                Some(
+                    serde_json::value::RawValue::from_string(value)
+                        .map_err(|e| format!("Failed to convert JSON value: {e}"))?,
+                ),
+            )
+            .map_err(|e| format!("Failed to convert custom tweak: {e}"))?,
         })
     }
 }
