@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "rustls-tls"]
+default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
 # Use an embedded version of SQLite.
@@ -34,8 +34,6 @@ indexeddb = ["matrix-sdk/indexeddb"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
-# Use Rustls as the TLS implementation, necessary on Android platforms.
-rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
