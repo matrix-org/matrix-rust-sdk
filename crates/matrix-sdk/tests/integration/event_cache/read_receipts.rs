@@ -792,3 +792,103 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     // The message counts are properly updated (three messages after $1).
     assert_eq!(room.num_unread_messages(), 3);
 }
+
+/// Test that a read receipt saved in the state store but not marked as active
+/// is selected for unread count computation.
+#[async_test]
+async fn test_read_receipt_from_store_used_as_latest_active() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    // Important test note: the read receipt must be in the state store *before* the
+    // event cache is subscribed to, so that it's not marked as active at start.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Then, subscribe the event cache.
+    client.event_cache().subscribe().unwrap();
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("ev1").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("ev2").event_id(event_id!("$2")))
+                .add_timeline_event(f.text_msg("ev3").event_id(event_id!("$3"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // Only ev3 (after the receipt) is unread.
+    assert_eq!(room.num_unread_messages(), 1);
+}
+
+/// Test that *all* the read receipts saved in the state store but not marked as
+/// active may be selected for the unread count computation.
+#[async_test]
+async fn test_all_read_receipts_from_store_used_as_latest_active() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    // Important test note: the read receipt must be in the state store *before* the
+    // event cache is subscribed to, so that it's not marked as active at start.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                    .add(
+                        event_id!("$3"),
+                        own_user_id,
+                        ReceiptType::ReadPrivate,
+                        ReceiptThread::Main,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Then, subscribe the event cache.
+    client.event_cache().subscribe().unwrap();
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("ev1").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("ev2").event_id(event_id!("$2")))
+                .add_timeline_event(f.text_msg("ev3").event_id(event_id!("$3"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // No event is unread, because the private main receipt points to $3.
+    assert_eq!(room.num_unread_messages(), 0);
+}
