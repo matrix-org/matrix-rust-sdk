@@ -381,13 +381,7 @@ impl RoomEventCache {
 
     /// Handle a single event from the `SendQueue`.
     pub(crate) async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
-        self.inner
-            .handle_timeline(
-                Timeline { limited: false, prev_batch: None, events: vec![event] },
-                Vec::new(),
-                BTreeMap::new(),
-            )
-            .await
+        self.inner.insert_sent_event_from_send_queue(event).await
     }
 
     /// Save some events in the event cache, for further retrieval with
@@ -515,6 +509,22 @@ impl RoomEventCacheInner {
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
     ) -> Result<()> {
+        self.handle_timeline_inner(
+            self.state.write().await?,
+            timeline,
+            ephemeral_events,
+            ambiguity_changes,
+        )
+        .await
+    }
+
+    async fn handle_timeline_inner(
+        &self,
+        mut state: RoomEventCacheStateLockWriteGuard<'_>,
+        timeline: Timeline,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
             && ephemeral_events.is_empty()
@@ -527,7 +537,9 @@ impl RoomEventCacheInner {
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
-            self.state.write().await?.handle_sync(timeline, &ephemeral_events).await?;
+            state.handle_sync(timeline, &ephemeral_events).await?;
+
+        drop(state);
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -555,6 +567,29 @@ impl RoomEventCacheInner {
         if !ambiguity_changes.is_empty() {
             self.update_sender
                 .send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes }, None);
+        }
+
+        Ok(())
+    }
+
+    /// Handle a single event from the `SendQueue`.
+    ///
+    /// The event is inserted if and only if the cache is not empty.
+    async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
+        let state = self.state.write().await?;
+
+        // Insert the event if the room is not empty, otherwise it can break the
+        // pagination logic when detecting the start of the timeline because no gap can
+        // be inserted properly: it is impossible to compute a `prev_batch` token here.
+        if state.room_linked_chunk().events().next().is_some() {
+            return self
+                .handle_timeline_inner(
+                    state,
+                    Timeline { limited: false, prev_batch: None, events: vec![event] },
+                    Vec::new(),
+                    BTreeMap::new(),
+                )
+                .await;
         }
 
         Ok(())
