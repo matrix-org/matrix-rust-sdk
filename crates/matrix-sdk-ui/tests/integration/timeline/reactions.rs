@@ -388,7 +388,7 @@ async fn test_local_reaction_to_local_echo() {
     // Now, wait for the remote echo for the message itself.
     {
         assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = stream.next());
-        assert_eq!(timeline_updates.len(), 5);
+        assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
         let item = item.as_event().unwrap();
@@ -402,17 +402,6 @@ async fn test_local_reaction_to_local_echo() {
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         // TODO: why not LocalToRemote here?
         assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
-
-        // And since the local event has been sent, it is inserted in the Event
-        // Cache, which transforms it to a remote event.
-        assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
-
-        assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
-        assert_eq!(remote_event.as_event().unwrap().event_id(), Some(event_id!("$0")));
-
-        // Adjust the date divider.
-        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
-        assert!(date_divider.is_date_divider());
 
         assert_pending!(stream);
     }

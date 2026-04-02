@@ -1914,13 +1914,23 @@ async fn test_reactions() {
 
 #[async_test]
 async fn test_redaction() {
+    let f = EventFactory::new();
     let server = MatrixMockServer::new().await;
 
     let client = server.client_builder().build().await;
     client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
-    let room = server.sync_joined_room(&client, room_id).await;
+    // Create a non-empty room, so that the Event Cache is not empty, and we can see
+    // the Send Queue injecting events in the Event Cache.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(f.text_msg("coucou").sender(*ALICE)),
+        )
+        .await;
+
+    sleep(Duration::from_millis(500)).await;
 
     server.mock_room_state_encryption().plain().mount().await;
 
@@ -1933,7 +1943,7 @@ async fn test_redaction() {
 
     // ----------------------
     // Sanity check: the cache and queue are empty at the start.
-    assert!(events.is_empty());
+    assert_eq!(events.len(), 1);
     assert!(local_echoes.is_empty());
     assert!(watch.is_empty());
 
@@ -1991,7 +2001,7 @@ async fn test_redaction() {
     assert_eq!(values.len(), 1);
     assert_eq!(values[0].event_id().as_deref().unwrap(), redaction_event_id);
     // The target event is now redacted.
-    assert_let!(VectorDiff::Set { index: 0, value: redacted_event } = &up.diffs[1]);
+    assert_let!(VectorDiff::Set { index: 1, value: redacted_event } = &up.diffs[1]);
     let ev = redacted_event.raw().deserialize().unwrap();
     assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(ev)) = ev);
     assert_matches!(ev.as_original(), None);
@@ -3981,22 +3991,45 @@ async fn test_sending_reply_in_thread_auto_subscribe() {
 #[async_test]
 async fn test_sending_event_still_saves_sync_gap() {
     let server = MatrixMockServer::new().await;
-
     let client = server.client_builder().build().await;
 
     client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
+
+    let own_user_id = client.user_id().unwrap();
+    let f = EventFactory::new().room(room_id).sender(own_user_id);
+
     let room = server.sync_joined_room(&client, room_id).await;
 
     server.mock_room_state_encryption().plain().mount().await;
+
+    // The room receives one event from the sync.
+    // This is mandatory, otherwise the event will not be inserted in the Event
+    // Cache by the Send Queue (because the Event Cache is empty, see the
+    // documentation of
+    // `RoomEventCacheInner::test_sending_event_still_saves_sync_gap`).
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("first!").event_id(event_id!("$first")))
+                    .set_timeline_prev_batch("first_batch")
+                    .set_timeline_limited(),
+            );
+        })
+        .await;
+
+    // Give time to the Event Cache to handle the sync.
+    sleep(Duration::from_secs(1)).await;
 
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
     let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
     // Sanity check: there's no event in the room at start.
-    assert!(events.is_empty());
+    assert_eq!(events.len(), 1);
 
     // Send a message in the room.
     let content = RoomMessageEventContent::text_plain("hello world");
@@ -4013,20 +4046,17 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
 
     // Now, assume that a /sync response comes with only this message as part of the
-    // response, and with a previous gap. This can happen under real-world
-    // conditions, like the timeline_limit being set to 1, and a fast client
-    // sending an event before the timeline_limit is updated to another value.
-    let own_user_id = client.user_id().unwrap();
-    let f = EventFactory::new().room(room_id).sender(own_user_id);
-
+    // response, and with a previous gap.
     server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id)
-                .add_timeline_event(f.text_msg("hello world").event_id(event_id!("$msg_now")))
-                .set_timeline_prev_batch("prev_batch")
-                .set_timeline_limited(),
-        )
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("hello world").event_id(event_id!("$msg_now")))
+                    .set_timeline_prev_batch("prev_batch")
+                    .set_timeline_limited(),
+            );
+        })
         .await;
 
     // After syncing, since a gap was saved, the cache should unload the chunk and
@@ -4050,11 +4080,13 @@ async fn test_sending_event_still_saves_sync_gap() {
 
     // Run a pagination; it should return the past message.
     let outcome = room_event_cache.pagination().run_backwards_once(42).await.unwrap();
-    assert!(outcome.reached_start);
+    assert!(outcome.reached_start.not());
 
     // We should have received the past message.
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
     assert_eq!(event.event_id().as_deref().unwrap(), event_id!("$past_msg"));
+
+    assert!(stream.is_empty());
 }
