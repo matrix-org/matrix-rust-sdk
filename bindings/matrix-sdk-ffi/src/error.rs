@@ -26,7 +26,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_ui::{encryption_sync_service, notification_client, spaces, sync_service, timeline};
 use ruma::{
-    api::client::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter, StandardErrorBody},
+    api::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter, StandardErrorBody},
     MilliSecondsSinceUnixEpoch,
 };
 use tracing::warn;

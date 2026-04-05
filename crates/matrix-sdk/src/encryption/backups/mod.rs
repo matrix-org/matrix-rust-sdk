@@ -36,8 +36,8 @@ use matrix_sdk_base::crypto::{
 use ruma::serde::JsonCastable;
 use ruma::{
     OwnedRoomId, RoomId, TransactionId,
-    api::client::{
-        backup::{
+    api::{
+        client::backup::{
             RoomKeyBackup, add_backup_keys, create_backup_version, get_backup_keys,
             get_backup_keys_for_room, get_backup_keys_for_session, get_latest_backup_info,
         },

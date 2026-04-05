@@ -17,8 +17,10 @@ use std::collections::BTreeMap;
 use as_variant::as_variant;
 use ruma::{
     OwnedEventId, OwnedRoomId,
-    api::client::{
-        delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
+    api::{
+        client::delayed_events::{
+            delayed_message_event, delayed_state_event, update_delayed_event,
+        },
         error::{ErrorBody, StandardErrorBody},
     },
     events::AnyTimelineEvent,

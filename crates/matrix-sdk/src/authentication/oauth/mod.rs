@@ -155,8 +155,8 @@
 //! [MSC4108]: https://github.com/matrix-org/matrix-spec-proposals/pull/4108
 //! [RFC 8628]: https://datatracker.ietf.org/doc/html/rfc8628
 //! [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens()
-//! [`Error`]: ruma::api::client::error::Error
-//! [`ErrorKind::UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
+//! [`Error`]: ruma::api::error::Error
+//! [`ErrorKind::UnknownToken`]: ruma::api::error::ErrorKind::UnknownToken
 //! [`examples/oauth_cli`]: https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples/oauth_cli
 
 #[cfg(feature = "e2e-encryption")]

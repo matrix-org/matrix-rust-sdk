@@ -315,7 +315,7 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
     // And it's properly pattern-matched as an HTTP error.
     assert_matches!(
         error.as_client_api_error().unwrap().error_kind(),
-        Some(ruma::api::client::error::ErrorKind::TooLarge)
+        Some(ruma::api::error::ErrorKind::TooLarge)
     );
 
     assert_pending!(timeline_stream);
