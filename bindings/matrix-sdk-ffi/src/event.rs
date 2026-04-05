@@ -224,9 +224,6 @@ impl From<RumaTimelineEventType> for TimelineEventType {
             RumaTimelineEventType::PolicyRuleUser => {
                 Self::State { value: StateEventType::PolicyRuleUser }
             }
-            RumaTimelineEventType::RoomAliases => {
-                Self::State { value: StateEventType::RoomAliases }
-            }
             RumaTimelineEventType::RoomAvatar => Self::State { value: StateEventType::RoomAvatar },
             RumaTimelineEventType::RoomCanonicalAlias => {
                 Self::State { value: StateEventType::RoomCanonicalAlias }
@@ -306,7 +303,6 @@ pub enum StateEventContent {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
-    RoomAliases,
     RoomAvatar,
     RoomCanonicalAlias,
     RoomCreate,
@@ -334,7 +330,6 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::PolicyRuleRoom(_) => StateEventContent::PolicyRuleRoom,
             AnySyncStateEvent::PolicyRuleServer(_) => StateEventContent::PolicyRuleServer,
             AnySyncStateEvent::PolicyRuleUser(_) => StateEventContent::PolicyRuleUser,
-            AnySyncStateEvent::RoomAliases(_) => StateEventContent::RoomAliases,
             AnySyncStateEvent::RoomAvatar(_) => StateEventContent::RoomAvatar,
             AnySyncStateEvent::RoomCanonicalAlias(_) => StateEventContent::RoomCanonicalAlias,
             AnySyncStateEvent::RoomCreate(_) => StateEventContent::RoomCreate,
@@ -526,7 +521,6 @@ pub enum StateEventType {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
-    RoomAliases,
     RoomAvatar,
     RoomCanonicalAlias,
     RoomCreate,
@@ -558,7 +552,6 @@ impl From<StateEventType> for ruma::events::StateEventType {
             StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
             StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
             StateEventType::PolicyRuleUser => Self::PolicyRuleUser,
-            StateEventType::RoomAliases => Self::RoomAliases,
             StateEventType::RoomAvatar => Self::RoomAvatar,
             StateEventType::RoomCanonicalAlias => Self::RoomCanonicalAlias,
             StateEventType::RoomCreate => Self::RoomCreate,

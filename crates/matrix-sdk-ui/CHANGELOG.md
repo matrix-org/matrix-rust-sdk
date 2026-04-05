@@ -80,6 +80,9 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] `AnyOtherStateEventContentChange::RoomAliases` was removed. This state event type
+  was removed from the Matrix specification a while ago, and support for it has been removed in Ruma.
+  ([#6414](https://github.com/matrix-org/matrix-rust-sdk/pull/6414))
 - [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
   so it has access to `MsgLikeContent` `reactions`.
   ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))

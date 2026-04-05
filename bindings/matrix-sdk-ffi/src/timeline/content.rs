@@ -265,7 +265,6 @@ pub enum OtherState {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
-    RoomAliases,
     RoomAvatar {
         url: Option<String>,
     },
@@ -363,7 +362,6 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
             Content::PolicyRuleServer(_) => Self::PolicyRuleServer,
             Content::PolicyRuleUser(_) => Self::PolicyRuleUser,
-            Content::RoomAliases(_) => Self::RoomAliases,
             Content::RoomAvatar(c) => {
                 let url = match c {
                     FullContent::Original { content, .. } => {

@@ -139,6 +139,10 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `RoomAliases` variants of `StateEventContent`, `StateEventType` and
+  `OtherState` was removed. This state event type was removed from the Matrix specification a while
+  ago, and support for it has been removed in Ruma.
+  ([#6414](https://github.com/matrix-org/matrix-rust-sdk/pull/6414))
 - `Client::new` no longer unnecessarily instantiates an `OAuth` component if `CrossProcessLockConfig::SingleProcess` 
   is used. ([#6293](https://github.com/matrix-org/matrix-rust-sdk/pull/6293))
 - [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was

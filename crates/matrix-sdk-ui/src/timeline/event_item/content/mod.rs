@@ -28,7 +28,6 @@ use ruma::{
         },
         relation::Replacement,
         room::{
-            aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent,
@@ -725,9 +724,6 @@ pub enum AnyOtherStateEventContentChange {
     /// m.policy.rule.user
     PolicyRuleUser(StateEventContentChange<PolicyRuleUserEventContent>),
 
-    /// m.room.aliases
-    RoomAliases(StateEventContentChange<RoomAliasesEventContent>),
-
     /// m.room.avatar
     RoomAvatar(StateEventContentChange<RoomAvatarEventContent>),
 
@@ -793,7 +789,6 @@ impl AnyOtherStateEventContentChange {
             AnyStateEventContentChange::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
             AnyStateEventContentChange::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
             AnyStateEventContentChange::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
-            AnyStateEventContentChange::RoomAliases(c) => Self::RoomAliases(c),
             AnyStateEventContentChange::RoomAvatar(c) => Self::RoomAvatar(c),
             AnyStateEventContentChange::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
             AnyStateEventContentChange::RoomCreate(c) => Self::RoomCreate(c),
@@ -821,7 +816,6 @@ impl AnyOtherStateEventContentChange {
             Self::PolicyRuleRoom(c) => c.event_type(),
             Self::PolicyRuleServer(c) => c.event_type(),
             Self::PolicyRuleUser(c) => c.event_type(),
-            Self::RoomAliases(c) => c.event_type(),
             Self::RoomAvatar(c) => c.event_type(),
             Self::RoomCanonicalAlias(c) => c.event_type(),
             Self::RoomCreate(c) => c.event_type(),
@@ -852,9 +846,6 @@ impl AnyOtherStateEventContentChange {
             }
             Self::PolicyRuleUser(c) => {
                 Self::PolicyRuleUser(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomAliases(c) => {
-                Self::RoomAliases(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomAvatar(c) => {
                 Self::RoomAvatar(StateEventContentChange::Redacted(c.clone().redact(rules)))
