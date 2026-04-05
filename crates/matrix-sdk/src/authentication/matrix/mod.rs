@@ -504,7 +504,7 @@ impl MatrixAuth {
     /// ```
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
+    /// [`UnknownToken`]: ruma::api::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     /// [`ClientBuilder::handle_refresh_tokens()`]: crate::ClientBuilder::handle_refresh_tokens
     pub async fn refresh_access_token(&self) -> Result<(), RefreshTokenError> {

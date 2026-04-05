@@ -33,7 +33,7 @@ pub use oauth2::{
     RequestTokenError, StandardErrorResponse,
     basic::{BasicErrorResponse, BasicRequestTokenError},
 };
-use ruma::api::{client::error::ErrorKind, error::FromHttpResponseError};
+use ruma::api::error::{ErrorKind, FromHttpResponseError};
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;

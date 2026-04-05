@@ -59,17 +59,19 @@ use matrix_sdk_base::{
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
-    api::client::{
+    api::{
+        client::{
+            keys::{
+                get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
+                upload_signing_keys::v3::Request as UploadSigningKeysRequest,
+            },
+            message::send_message_event,
+            to_device::send_event_to_device::v3::{
+                Request as RumaToDeviceRequest, Response as ToDeviceResponse,
+            },
+            uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
+        },
         error::{ErrorBody, StandardErrorBody},
-        keys::{
-            get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
-            upload_signing_keys::v3::Request as UploadSigningKeysRequest,
-        },
-        message::send_message_event,
-        to_device::send_event_to_device::v3::{
-            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-        },
-        uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
     },
     assign,
     events::room::{

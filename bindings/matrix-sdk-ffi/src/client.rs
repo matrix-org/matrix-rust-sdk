@@ -71,15 +71,17 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    api::client::{
-        alias::get_alias,
-        discovery::get_authorization_server_metadata::v1::{
-            AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+    api::{
+        client::{
+            alias::get_alias,
+            discovery::get_authorization_server_metadata::v1::{
+                AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+            },
+            profile::{AvatarUrl, DisplayName},
+            room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
+            uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
-        profile::{AvatarUrl, DisplayName},
-        room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
-        uiaa::{EmailUserIdentifier, UserIdentifier},
     },
     events::{
         direct::DirectEventContent,

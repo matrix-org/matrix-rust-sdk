@@ -40,13 +40,13 @@ use ruma::{
                 request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
             },
             config::{get_global_account_data, set_global_account_data},
-            error::ErrorKind,
             profile::{
                 DisplayName, StaticProfileField, delete_profile_field, get_avatar_url, get_profile,
                 get_profile_field, set_avatar_url, set_display_name, set_profile_field,
             },
             uiaa::AuthData,
         },
+        error::ErrorKind,
     },
     assign,
     events::{
@@ -379,7 +379,7 @@ impl Account {
     /// response, which would result in `Ok(None)`. Note that this error code
     /// might also mean that the given user ID doesn't exist.
     ///
-    /// [`ErrorCode::NotFound`]: ruma::api::client::error::ErrorCode::NotFound
+    /// [`ErrorCode::NotFound`]: ruma::api::error::ErrorCode::NotFound
     pub async fn fetch_profile_field_of(
         &self,
         user_id: OwnedUserId,
@@ -411,7 +411,7 @@ impl Account {
     /// response, which would result in `Ok(None)`. Note that this error code
     /// might also mean that the given user ID doesn't exist.
     ///
-    /// [`ErrorCode::NotFound`]: ruma::api::client::error::ErrorCode::NotFound
+    /// [`ErrorCode::NotFound`]: ruma::api::error::ErrorCode::NotFound
     pub async fn fetch_profile_field_of_static<F>(
         &self,
         user_id: OwnedUserId,
@@ -517,7 +517,7 @@ impl Account {
     /// ```
     /// [uiaa]: https://spec.matrix.org/v1.2/client-server-api/#user-interactive-authentication-api
     /// [`UiaaResponse`]: ruma::api::client::uiaa::UiaaResponse
-    /// [`ErrorKind::WeakPassword`]: ruma::api::client::error::ErrorKind::WeakPassword
+    /// [`ErrorKind::WeakPassword`]: ruma::api::error::ErrorKind::WeakPassword
     pub async fn change_password(
         &self,
         new_password: &str,
@@ -668,8 +668,8 @@ impl Account {
     /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
-    /// [`ErrorKind::ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
+    /// [`ErrorKind::ThreepidInUse`]: ruma::api::error::ErrorKind::ThreepidInUse
+    /// [`ErrorKind::ThreepidDenied`]: ruma::api::error::ErrorKind::ThreepidDenied
     pub async fn request_3pid_email_token(
         &self,
         client_secret: &ClientSecret,
@@ -743,8 +743,8 @@ impl Account {
     /// # anyhow::Ok(()) };
     /// ```
     /// [3pid]: https://spec.matrix.org/v1.2/appendices/#3pid-types
-    /// [`ErrorKind::ThreepidInUse`]: ruma::api::client::error::ErrorKind::ThreepidInUse
-    /// [`ErrorKind::ThreepidDenied`]: ruma::api::client::error::ErrorKind::ThreepidDenied
+    /// [`ErrorKind::ThreepidInUse`]: ruma::api::error::ErrorKind::ThreepidInUse
+    /// [`ErrorKind::ThreepidDenied`]: ruma::api::error::ErrorKind::ThreepidDenied
     pub async fn request_3pid_msisdn_token(
         &self,
         client_secret: &ClientSecret,

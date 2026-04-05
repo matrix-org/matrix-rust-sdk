@@ -78,31 +78,33 @@ use ruma::events::{
 use ruma::{
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
-    api::client::{
-        config::{set_global_account_data, set_room_account_data},
-        context,
-        error::ErrorKind,
-        filter::LazyLoadOptions,
-        membership::{
-            Invite3pid, ban_user, forget_room, get_member_events,
-            invite_user::{
-                self,
-                v3::{InvitationRecipient, InviteUserId},
+    api::{
+        client::{
+            config::{set_global_account_data, set_room_account_data},
+            context,
+            filter::LazyLoadOptions,
+            membership::{
+                Invite3pid, ban_user, forget_room, get_member_events,
+                invite_user::{
+                    self,
+                    v3::{InvitationRecipient, InviteUserId},
+                },
+                kick_user, leave_room, unban_user,
             },
-            kick_user, leave_room, unban_user,
+            message::send_message_event,
+            read_marker::set_read_marker,
+            receipt::create_receipt,
+            redact::redact_event,
+            room::{get_room_event, report_content, report_room},
+            state::{get_state_event_for_key, send_state_event},
+            tag::{create_tag, delete_tag},
+            threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
+            typing::create_typing_event::{
+                self,
+                v3::{Typing, TypingInfo},
+            },
         },
-        message::send_message_event,
-        read_marker::set_read_marker,
-        receipt::create_receipt,
-        redact::redact_event,
-        room::{get_room_event, report_content, report_room},
-        state::{get_state_event_for_key, send_state_event},
-        tag::{create_tag, delete_tag},
-        threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
-        typing::create_typing_event::{
-            self,
-            v3::{Typing, TypingInfo},
-        },
+        error::ErrorKind,
     },
     assign,
     events::{
