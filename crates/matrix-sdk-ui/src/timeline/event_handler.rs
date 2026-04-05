@@ -411,8 +411,8 @@ impl TimelineAction {
                 Self::add_item(TimelineItemContent::CallInvite)
             }
 
-            AnyMessageLikeEventContent::RtcNotification(_) => {
-                Self::add_item(TimelineItemContent::RtcNotification)
+            AnyMessageLikeEventContent::RtcNotification(c) => {
+                Self::add_item(TimelineItemContent::RtcNotification { call_intent: c.call_intent })
             }
 
             AnyMessageLikeEventContent::Sticker(content) => {

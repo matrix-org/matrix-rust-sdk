@@ -47,6 +47,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        rtc::notification::CallIntent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
     },
@@ -121,7 +122,10 @@ pub enum TimelineItemContent {
     CallInvite,
 
     /// An `m.rtc.notification` event
-    RtcNotification,
+    RtcNotification {
+        /// The intent of this notification.
+        call_intent: Option<CallIntent>,
+    },
 }
 
 impl TimelineItemContent {
@@ -146,7 +150,7 @@ impl TimelineItemContent {
             Self::FailedToParseMessageLike { event_type, .. } => Some(event_type.to_string()),
             Self::FailedToParseState { event_type, .. } => Some(event_type.to_string()),
             Self::CallInvite => Some(MessageLikeEventType::CallInvite.to_string()),
-            Self::RtcNotification => Some(MessageLikeEventType::RtcNotification.to_string()),
+            Self::RtcNotification { .. } => Some(MessageLikeEventType::RtcNotification.to_string()),
         }
     }
 
@@ -330,7 +334,7 @@ impl TimelineItemContent {
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::CallInvite => "a call invite",
-            TimelineItemContent::RtcNotification => "a call notification",
+            TimelineItemContent::RtcNotification { .. } => "a call notification",
         }
     }
 
@@ -401,7 +405,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
+            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification { .. } => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -433,7 +437,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification { .. } => {
                 // No reactions for these kind of items.
                 None
             }
@@ -458,7 +462,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification { .. } => {
                 // No reactions for these kind of items.
                 None
             }

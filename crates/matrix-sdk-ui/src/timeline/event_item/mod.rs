@@ -593,7 +593,7 @@ impl EventTimelineItem {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => None,
+            | TimelineItemContent::RtcNotification { .. } => None,
         };
 
         if let Some(body) = body {
