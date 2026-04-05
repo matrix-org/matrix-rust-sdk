@@ -2,7 +2,10 @@ use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
 use ruma::{
     api::client::discovery::{
         get_capabilities,
-        get_capabilities::v3::{Capabilities, ProfileFieldsCapability},
+        get_capabilities::v3::{
+            AccountModerationCapability, Capabilities, ProfileFieldsCapability,
+            RoomVersionsCapability,
+        },
     },
     profile::ProfileFieldName,
 };
@@ -107,6 +110,22 @@ impl HomeserverCapabilities {
             return Ok(profile_fields);
         }
         Ok(ProfileFieldsCapability::new(false))
+    }
+
+    /// Returns the room versions supported by the server.
+    ///
+    /// Spec: <https://spec.matrix.org/latest/client-server-api/#mroom_versions-capability>
+    pub async fn room_versions(&self) -> crate::Result<RoomVersionsCapability> {
+        let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
+        Ok(capabilities.room_versions)
+    }
+
+    /// Returns whether the user can perform account moderation actions.
+    ///
+    /// Spec: <https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3capabilities_response-200_accountmoderationcapability>
+    pub async fn account_moderation(&self) -> crate::Result<AccountModerationCapability> {
+        let capabilities = self.load_or_fetch_homeserver_capabilities().await?;
+        Ok(capabilities.account_moderation)
     }
 
     /// Returns whether or not the server automatically forgets rooms which the
