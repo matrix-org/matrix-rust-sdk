@@ -972,6 +972,7 @@ mod tests {
             state: None,
             heroes: None,
             via: vec![],
+            suggested: false,
         }
     }
 
