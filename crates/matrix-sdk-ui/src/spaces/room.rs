@@ -65,6 +65,10 @@ pub struct SpaceRoom {
     pub heroes: Option<Vec<RoomHero>>,
     /// The via parameters of the room.
     pub via: Vec<OwnedServerName>,
+    /// Whether the room is suggested by the space administrators.
+    ///
+    /// Defaults to `false` if not specified in the `m.space.child` event.
+    pub suggested: bool,
 }
 
 impl SpaceRoom {
@@ -75,6 +79,7 @@ impl SpaceRoom {
         known_room: Option<Room>,
         children_count: u64,
         via: Vec<OwnedServerName>,
+        suggested: bool,
     ) -> Self {
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             summary.name.clone(),
@@ -101,6 +106,7 @@ impl SpaceRoom {
             state: known_room.as_ref().map(|r| r.state()),
             heroes: known_room.map(|r| r.heroes()),
             via,
+            suggested,
         }
     }
 
@@ -136,6 +142,7 @@ impl SpaceRoom {
             state: Some(known_room.state()),
             heroes: Some(room_info.heroes().to_vec()),
             via: vec![],
+            suggested: false,
         }
     }
 

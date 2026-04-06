@@ -320,6 +320,7 @@ impl SpaceRoomList {
                                 self.client.get_room(&room.summary.room_id),
                                 room.children_state.len() as u64,
                                 vec![],
+                                false,
                             )),
                         );
                     }
@@ -330,15 +331,21 @@ impl SpaceRoomList {
                 children
                     .iter()
                     .map(|room| {
-                        let via = children_state
-                            .get(&room.summary.room_id)
-                            .map(|state| state.content.via.clone());
+                        let child_state = children_state
+                            .get(&room.summary.room_id);
+                        let via = child_state
+                            .map(|state| state.content.via.clone())
+                            .unwrap_or_default();
+                        let suggested = child_state
+                            .map(|state| state.content.suggested)
+                            .unwrap_or(false);
 
                         SpaceRoom::new_from_summary(
                             &room.summary,
                             self.client.get_room(&room.summary.room_id),
                             room.children_state.len() as u64,
-                            via.unwrap_or_default(),
+                            via,
+                            suggested,
                         )
                     })
                     .sorted_by(|a, b| Self::compare_rooms(a, b, &children_state))
@@ -505,6 +512,7 @@ mod tests {
                         None,
                         1,
                         vec![],
+                        false,
                     )
                 },
                 VectorDiff::PushBack {
@@ -519,6 +527,7 @@ mod tests {
                         None,
                         1,
                         vec![],
+                        false,
                     ),
                 }
             ]
@@ -736,6 +745,7 @@ mod tests {
                         None,
                         2,
                         vec![owned_server_name!("matrix-client.example.org")],
+                        false,
                     )
                 },
                 VectorDiff::PushBack {
@@ -750,6 +760,7 @@ mod tests {
                         None,
                         2,
                         vec![owned_server_name!("other-matrix-client.example.org")],
+                        false,
                     ),
                 }
             ]
