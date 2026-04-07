@@ -2056,21 +2056,14 @@ async fn notification_handler(
             match raw.deserialize() {
                 Ok(deserialized) => {
                     let sender = deserialized.sender().to_owned();
-                    let thread_id = match &deserialized {
-                        AnySyncTimelineEvent::MessageLike(event) => {
-                            match event.original_content() {
-                                Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
-                                    match content.relates_to {
-                                        Some(Relation::Thread(thread)) => {
-                                            Some(thread.event_id.to_string())
-                                        }
-                                        _ => None,
-                                    }
-                                }
-                                _ => None,
-                            }
-                        }
-                        _ => None,
+                    let thread_id = if let AnySyncTimelineEvent::MessageLike(event) = &deserialized
+                        && let Some(AnyMessageLikeEventContent::RoomMessage(content)) =
+                            event.original_content()
+                        && let Some(Relation::Thread(thread)) = content.relates_to
+                    {
+                        Some(thread.event_id.to_string())
+                    } else {
+                        None
                     };
                     let event = NotificationEvent::Timeline {
                         event: Arc::new(crate::event::TimelineEvent(Box::new(deserialized))),
