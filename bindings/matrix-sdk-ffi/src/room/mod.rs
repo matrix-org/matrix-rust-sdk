@@ -38,6 +38,7 @@ use ruma::{
     ServerName, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        RoomAccountDataEventType as RumaRoomAccountDataEventType,
         receipt::ReceiptThread,
         room::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
@@ -45,6 +46,7 @@ use ruma::{
             join_rules::JoinRule as RumaJoinRule, message::RoomMessageEventContentWithoutRelation,
         },
     },
+    serde::Raw,
 };
 use tracing::{error, warn};
 
@@ -697,6 +699,34 @@ impl Room {
     /// explicitly marked it as unread.
     pub async fn set_unread_flag(&self, new_value: bool) -> Result<(), ClientError> {
         Ok(self.inner.set_unread_flag(new_value).await?)
+    }
+
+    /// Get the content of the event of the given type out of the room's
+    /// account data store.
+    ///
+    /// It will be returned as a JSON string.
+    pub async fn account_data(
+        &self,
+        event_type: String,
+    ) -> Result<Option<String>, ClientError> {
+        let event_type = RumaRoomAccountDataEventType::from(event_type);
+        let event = self.inner.account_data(event_type).await?;
+        Ok(event.map(|e| e.json().get().to_owned()))
+    }
+
+    /// Set the given account data content for the given event type in
+    /// this room.
+    ///
+    /// It should be supplied as a JSON string.
+    pub async fn set_account_data(
+        &self,
+        event_type: String,
+        content: String,
+    ) -> Result<(), ClientError> {
+        let event_type = RumaRoomAccountDataEventType::from(event_type);
+        let raw_content = Raw::from_json_string(content)?;
+        self.inner.set_account_data_raw(event_type, raw_content).await?;
+        Ok(())
     }
 
     /// Mark a room as read, by attaching a read receipt on the latest event.
