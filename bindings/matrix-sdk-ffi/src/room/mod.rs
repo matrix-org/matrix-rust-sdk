@@ -1672,23 +1672,30 @@ impl TryFrom<DraftAttachment> for SdkDraftAttachment {
     type Error = ClientError;
 
     fn try_from(value: DraftAttachment) -> Result<Self, Self::Error> {
+        fn draft_thumbnail(
+            thumbnail_info: Option<ThumbnailInfo>,
+            thumbnail_source: Option<UploadSource>,
+        ) -> Result<Option<DraftThumbnail>, ClientError> {
+            if let Some(info) = thumbnail_info
+                && let Some(source) = thumbnail_source
+            {
+                let (data, filename) = read_upload_source(source)?;
+                Ok(Some(DraftThumbnail {
+                    filename,
+                    data,
+                    mimetype: info.mimetype,
+                    width: info.width,
+                    height: info.height,
+                    size: info.size,
+                }))
+            } else {
+                Ok(None)
+            }
+        }
+
         match value {
             DraftAttachment::Image { image_info, source, thumbnail_source, .. } => {
                 let (data, filename) = read_upload_source(source)?;
-                let thumbnail = match (image_info.thumbnail_info, thumbnail_source) {
-                    (Some(info), Some(source)) => {
-                        let (data, filename) = read_upload_source(source)?;
-                        Some(DraftThumbnail {
-                            filename,
-                            data,
-                            mimetype: info.mimetype,
-                            width: info.width,
-                            height: info.height,
-                            size: info.size,
-                        })
-                    }
-                    _ => None,
-                };
                 Ok(Self {
                     filename,
                     content: DraftAttachmentContent::Image {
@@ -1698,26 +1705,12 @@ impl TryFrom<DraftAttachment> for SdkDraftAttachment {
                         width: image_info.width,
                         height: image_info.height,
                         blurhash: image_info.blurhash,
-                        thumbnail,
+                        thumbnail: draft_thumbnail(image_info.thumbnail_info, thumbnail_source)?,
                     },
                 })
             }
             DraftAttachment::Video { video_info, source, thumbnail_source, .. } => {
                 let (data, filename) = read_upload_source(source)?;
-                let thumbnail = match (video_info.thumbnail_info, thumbnail_source) {
-                    (Some(info), Some(source)) => {
-                        let (data, filename) = read_upload_source(source)?;
-                        Some(DraftThumbnail {
-                            filename,
-                            data,
-                            mimetype: info.mimetype,
-                            width: info.width,
-                            height: info.height,
-                            size: info.size,
-                        })
-                    }
-                    _ => None,
-                };
                 Ok(Self {
                     filename,
                     content: DraftAttachmentContent::Video {
@@ -1728,7 +1721,7 @@ impl TryFrom<DraftAttachment> for SdkDraftAttachment {
                         height: video_info.height,
                         duration: video_info.duration,
                         blurhash: video_info.blurhash,
-                        thumbnail,
+                        thumbnail: draft_thumbnail(video_info.thumbnail_info, thumbnail_source)?,
                     },
                 })
             }
