@@ -55,6 +55,7 @@ use matrix_sdk::{
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
+    sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
 };
 use matrix_sdk_common::{
@@ -953,139 +954,7 @@ impl Client {
         let listener = Arc::new(listener);
         self.inner
             .register_notification_handler(move |notification, room, _client| {
-                let listener = listener.clone();
-                let room_id = room.room_id().to_string();
-
-                async move {
-                    // Extract information about the actions
-                    let is_noisy = notification.actions.iter().any(|a| a.sound().is_some());
-                    let has_mention = notification.actions.iter().any(|a| a.is_highlight());
-
-                    // Convert SDK actions to FFI type
-                    let actions: Vec<crate::notification_settings::Action> = notification
-                        .actions
-                        .into_iter()
-                        .filter_map(|action| action.try_into().ok())
-                        .collect();
-
-                    // Convert SDK event to FFI type
-                    let (sender, event, thread_id, raw_event) = match notification.event {
-                        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => {
-                            let raw_event = raw.json().get().to_owned();
-                            match raw.deserialize() {
-                                Ok(deserialized) => {
-                                    let sender = deserialized.sender().to_owned();
-                                    let thread_id = match &deserialized {
-                                        AnySyncTimelineEvent::MessageLike(event) => {
-                                            match event.original_content() {
-                                                Some(AnyMessageLikeEventContent::RoomMessage(
-                                                    content,
-                                                )) => match content.relates_to {
-                                                    Some(Relation::Thread(thread)) => {
-                                                        Some(thread.event_id.to_string())
-                                                    }
-                                                    _ => None,
-                                                },
-                                                _ => None,
-                                            }
-                                        }
-                                        _ => None,
-                                    };
-                                    let event = NotificationEvent::Timeline {
-                                        event: Arc::new(crate::event::TimelineEvent(Box::new(
-                                            deserialized,
-                                        ))),
-                                    };
-                                    (sender, event, thread_id, raw_event)
-                                }
-                                Err(err) => {
-                                    tracing::warn!("Failed to deserialize timeline event: {err}");
-                                    return;
-                                }
-                            }
-                        }
-                        RawAnySyncOrStrippedTimelineEvent::Stripped(raw) => {
-                            let raw_event = raw.json().get().to_owned();
-                            match raw.deserialize() {
-                                Ok(deserialized) => {
-                                    let sender = deserialized.sender().to_owned();
-                                    let event =
-                                        NotificationEvent::Invite { sender: sender.to_string() };
-                                    let thread_id = None;
-                                    (sender, event, thread_id, raw_event)
-                                }
-                                Err(err) => {
-                                    tracing::warn!(
-                                        "Failed to deserialize stripped state event: {err}"
-                                    );
-                                    return;
-                                }
-                            }
-                        }
-                    };
-
-                    // Compile sender info
-                    let sender = room.get_member_no_sync(&sender).await.ok().flatten();
-                    let sender_info = if let Some(sender) = sender.as_ref() {
-                        NotificationSenderInfo {
-                            display_name: sender.display_name().map(|name| name.to_owned()),
-                            avatar_url: sender.avatar_url().map(|uri| uri.to_string()),
-                            is_name_ambiguous: sender.name_ambiguous(),
-                        }
-                    } else {
-                        NotificationSenderInfo {
-                            display_name: None,
-                            avatar_url: None,
-                            is_name_ambiguous: false,
-                        }
-                    };
-
-                    // Compile room info
-                    let display_name = match room.display_name().await {
-                        Ok(name) => name.to_string(),
-                        Err(err) => {
-                            tracing::warn!("Failed to calculate the room's display name: {err}");
-                            return;
-                        }
-                    };
-                    let is_direct = match room.is_direct().await {
-                        Ok(is_direct) => is_direct,
-                        Err(err) => {
-                            tracing::warn!("Failed to determine if room is direct or not: {err}");
-                            return;
-                        }
-                    };
-                    let room_info = NotificationRoomInfo {
-                        display_name,
-                        avatar_url: room.avatar_url().map(Into::into),
-                        canonical_alias: room.canonical_alias().map(Into::into),
-                        topic: room.topic(),
-                        join_rule: room
-                            .join_rule()
-                            .map(TryInto::try_into)
-                            .transpose()
-                            .ok()
-                            .flatten(),
-                        joined_members_count: room.joined_members_count(),
-                        is_encrypted: Some(room.encryption_state().is_encrypted()),
-                        is_direct,
-                        is_space: room.is_space(),
-                    };
-
-                    listener.on_notification(
-                        NotificationItem {
-                            event,
-                            raw_event,
-                            sender_info,
-                            room_info,
-                            is_noisy: Some(is_noisy),
-                            has_mention: Some(has_mention),
-                            thread_id,
-                            actions: Some(actions),
-                        },
-                        room_id,
-                    );
-                }
+                notification_handler(notification, room, listener.clone())
             })
             .await;
     }
@@ -2163,6 +2032,126 @@ impl Client {
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
         HomeserverCapabilities::new(self.inner.homeserver_capabilities())
     }
+}
+
+async fn notification_handler(
+    notification: Notification,
+    room: matrix_sdk::Room,
+    listener: Arc<Box<dyn SyncNotificationListener>>,
+) {
+    let room_id = room.room_id().to_string();
+
+    // Extract information about the actions
+    let is_noisy = notification.actions.iter().any(|a| a.sound().is_some());
+    let has_mention = notification.actions.iter().any(|a| a.is_highlight());
+
+    // Convert SDK actions to FFI type
+    let actions: Vec<crate::notification_settings::Action> =
+        notification.actions.into_iter().filter_map(|action| action.try_into().ok()).collect();
+
+    // Convert SDK event to FFI type
+    let (sender, event, thread_id, raw_event) = match notification.event {
+        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => {
+            let raw_event = raw.json().get().to_owned();
+            match raw.deserialize() {
+                Ok(deserialized) => {
+                    let sender = deserialized.sender().to_owned();
+                    let thread_id = match &deserialized {
+                        AnySyncTimelineEvent::MessageLike(event) => {
+                            match event.original_content() {
+                                Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
+                                    match content.relates_to {
+                                        Some(Relation::Thread(thread)) => {
+                                            Some(thread.event_id.to_string())
+                                        }
+                                        _ => None,
+                                    }
+                                }
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    let event = NotificationEvent::Timeline {
+                        event: Arc::new(crate::event::TimelineEvent(Box::new(deserialized))),
+                    };
+                    (sender, event, thread_id, raw_event)
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to deserialize timeline event: {err}");
+                    return;
+                }
+            }
+        }
+        RawAnySyncOrStrippedTimelineEvent::Stripped(raw) => {
+            let raw_event = raw.json().get().to_owned();
+            match raw.deserialize() {
+                Ok(deserialized) => {
+                    let sender = deserialized.sender().to_owned();
+                    let event = NotificationEvent::Invite { sender: sender.to_string() };
+                    let thread_id = None;
+                    (sender, event, thread_id, raw_event)
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to deserialize stripped state event: {err}");
+                    return;
+                }
+            }
+        }
+    };
+
+    // Compile sender info
+    let sender = room.get_member_no_sync(&sender).await.ok().flatten();
+    let sender_info = if let Some(sender) = sender.as_ref() {
+        NotificationSenderInfo {
+            display_name: sender.display_name().map(|name| name.to_owned()),
+            avatar_url: sender.avatar_url().map(|uri| uri.to_string()),
+            is_name_ambiguous: sender.name_ambiguous(),
+        }
+    } else {
+        NotificationSenderInfo { display_name: None, avatar_url: None, is_name_ambiguous: false }
+    };
+
+    // Compile room info
+    let display_name = match room.display_name().await {
+        Ok(name) => name.to_string(),
+        Err(err) => {
+            tracing::warn!("Failed to calculate the room's display name: {err}");
+            return;
+        }
+    };
+    let is_direct = match room.is_direct().await {
+        Ok(is_direct) => is_direct,
+        Err(err) => {
+            tracing::warn!("Failed to determine if room is direct or not: {err}");
+            return;
+        }
+    };
+    let room_info = NotificationRoomInfo {
+        display_name,
+        avatar_url: room.avatar_url().map(Into::into),
+        canonical_alias: room.canonical_alias().map(Into::into),
+        topic: room.topic(),
+        join_rule: room.join_rule().map(TryInto::try_into).transpose().ok().flatten(),
+        joined_members_count: room.joined_members_count(),
+        is_encrypted: Some(room.encryption_state().is_encrypted()),
+        is_direct,
+        is_space: room.is_space(),
+    };
+
+    listener.on_notification(
+        NotificationItem {
+            event,
+            raw_event,
+            sender_info,
+            room_info,
+            is_noisy: Some(is_noisy),
+            has_mention: Some(has_mention),
+            thread_id,
+            actions: Some(actions),
+        },
+        room_id,
+    );
 }
 
 #[cfg(feature = "experimental-element-recent-emojis")]
