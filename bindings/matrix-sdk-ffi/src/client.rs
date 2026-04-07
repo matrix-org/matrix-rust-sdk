@@ -1127,10 +1127,7 @@ impl Client {
     pub async fn reset_well_known(&self) -> Result<(), ClientError> {
         Ok(self.inner.reset_well_known().await?)
     }
-}
 
-#[matrix_sdk_ffi_macros::export]
-impl Client {
     /// Retrieves a media file from the media source
     ///
     /// Not available on Wasm platforms, due to lack of accessible file system.
@@ -1197,10 +1194,7 @@ impl Client {
 
         Ok(())
     }
-}
 
-#[matrix_sdk_ffi_macros::export]
-impl Client {
     /// The sliding sync version.
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
         self.inner.sliding_sync_version().into()
