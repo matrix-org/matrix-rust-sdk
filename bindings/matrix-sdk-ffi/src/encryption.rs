@@ -19,6 +19,7 @@ use matrix_sdk::encryption::{self, backups, recovery};
 use matrix_sdk_base::crypto::types::{BackupSecrets, RoomKeyBackupInfo};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::OwnedUserId;
+use serde::de::Error;
 use thiserror::Error;
 use tracing::{error, info};
 use zeroize::Zeroize;
@@ -280,6 +281,10 @@ pub enum BundleExportError {
     /// exported.
     #[error("Couldn't deserialize a JSON value: {msg}")]
     Json { msg: String },
+    /// Error returned when the secrets bundle includes a backup key
+    /// that doesn’t match the key configured for the active backup version.
+    #[error("The bundle contained a backup key which isn't the one that's currently used")]
+    MismatchedBackupKey,
 }
 
 impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
@@ -313,20 +318,20 @@ impl SecretsBundleWithUserId {
         user_id: &str,
         bundle: &str,
         backup_info: &str,
-    ) -> Result<Arc<Self>, ClientError> {
-        let user_id = OwnedUserId::from_str(user_id)?;
-        let mut bundle: matrix_sdk_base::crypto::types::SecretsBundle =
-            serde_json::from_str(bundle)?;
+    ) -> Result<Arc<Self>, BundleExportError> {
+        let user_id =
+            OwnedUserId::from_str(user_id).map_err(|e| serde_json::Error::custom(e.to_string()))?;
+        let bundle: matrix_sdk_base::crypto::types::SecretsBundle = serde_json::from_str(bundle)?;
         let backup_info = serde_json::from_str(backup_info)?;
 
-        let should_remove_backup =
-            bundle.backup.as_ref().is_some_and(|backup| !is_valid_backup(backup, &backup_info));
+        let is_backup_ok =
+            bundle.backup.as_ref().is_some_and(|backup| is_valid_backup(backup, &backup_info));
 
-        if should_remove_backup {
-            bundle.backup = None;
+        if is_backup_ok {
+            Ok(Self { user_id, inner: bundle }.into())
+        } else {
+            Err(BundleExportError::MismatchedBackupKey)
         }
-
-        Ok(Self { user_id, inner: bundle }.into())
     }
 
     /// Attempt to export a [`SecretsBundle`] from a crypto store.
@@ -345,21 +350,21 @@ impl SecretsBundleWithUserId {
     ) -> Result<Arc<Self>, BundleExportError> {
         let backup_info = serde_json::from_str(backup_info)?;
 
-        let ret = if let Some((user_id, mut inner)) =
+        let ret = if let Some((user_id, bundle)) =
             matrix_sdk::encryption::export_secrets_bundle_from_store(
                 database_path,
                 passphrase.as_deref(),
             )
             .await?
         {
-            let should_remove_backup =
-                inner.backup.as_ref().is_some_and(|backup| !is_valid_backup(backup, &backup_info));
+            let is_backup_ok =
+                bundle.backup.as_ref().is_some_and(|backup| is_valid_backup(backup, &backup_info));
 
-            if should_remove_backup {
-                inner.backup = None;
+            if is_backup_ok {
+                Ok(SecretsBundleWithUserId { user_id, inner: bundle }.into())
+            } else {
+                Err(BundleExportError::MismatchedBackupKey)
             }
-
-            Ok(SecretsBundleWithUserId { user_id, inner }.into())
         } else {
             Err(BundleExportError::StoreEmpty)
         };
