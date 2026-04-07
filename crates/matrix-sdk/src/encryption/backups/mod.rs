@@ -929,7 +929,7 @@ impl Backups {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
         for secret in secrets {
-            match self.maybe_enable_backups(&secret.event.content.secret).await {
+            match self.maybe_enable_backups(&secret).await {
                 Ok(enabled) => {
                     if enabled {
                         break;
@@ -1605,7 +1605,7 @@ mod test {
         let gossipped_secret =
             GossippedSecret { secret_name: SecretName::RecoveryKey, gossip_request, event };
 
-        let changes = Changes { secrets: vec![gossipped_secret], ..Default::default() };
+        let changes = Changes { secrets: vec![gossipped_secret.into()], ..Default::default() };
 
         machine
             .store()
