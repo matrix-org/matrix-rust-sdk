@@ -160,7 +160,7 @@ impl Platform {
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
 
 /// The features enabled for the FFI library.
-const FFI_FEATURES: &str = "rustls-tls,sentry";
+const FFI_FEATURES: &str = "sentry";
 
 /// The list of targets supported by the SDK.
 const TARGETS: &[Target] = &[

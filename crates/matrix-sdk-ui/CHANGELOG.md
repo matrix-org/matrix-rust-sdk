@@ -30,6 +30,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Remove support for `native-tls` and remove all feature
+  flags for selecting TLS backend, as `rustls` is the now the only supported
+  TLS backend.
+  ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
 - Add `call_intent` to `TimelineItemContent::RtcNotification`
   ([#6412](https://github.com/matrix-org/matrix-rust-sdk/pull/6412))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
