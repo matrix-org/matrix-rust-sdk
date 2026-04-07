@@ -847,7 +847,10 @@ mod tests {
 
         // The child with "suggested": true should have suggested == true.
         let suggested_room = rooms_by_id.get(suggested_child).expect("suggested child not found");
-        assert!(suggested_room.suggested, "Room with 'suggested: true' should have suggested == true");
+        assert!(
+            suggested_room.suggested,
+            "Room with 'suggested: true' should have suggested == true"
+        );
 
         // The child with "suggested": false should have suggested == false.
         let not_suggested_room =
