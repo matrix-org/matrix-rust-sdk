@@ -33,12 +33,14 @@ use matrix_sdk_ui::{
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
+use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use ruma::{
     EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
     ServerName, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         RoomAccountDataEventType as RumaRoomAccountDataEventType,
+        StateEventType as RumaStateEventType,
         receipt::ReceiptThread,
         room::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
@@ -727,6 +729,23 @@ impl Room {
         let raw_content = Raw::from_json_string(content)?;
         self.inner.set_account_data_raw(event_type, raw_content).await?;
         Ok(())
+    }
+
+    /// Get a specific state event in this room, from the local store.
+    ///
+    /// It will be returned as a raw JSON string, or `None` if no such
+    /// state event exists.
+    pub async fn get_state_event(
+        &self,
+        event_type: String,
+        state_key: String,
+    ) -> Result<Option<String>, ClientError> {
+        let event_type = RumaStateEventType::from(event_type);
+        let raw = self.inner.get_state_event(event_type, &state_key).await?;
+        Ok(raw.map(|e| match e {
+            RawAnySyncOrStrippedState::Sync(ev) => ev.json().get().to_owned(),
+            RawAnySyncOrStrippedState::Stripped(ev) => ev.json().get().to_owned(),
+        }))
     }
 
     /// Mark a room as read, by attaching a read receipt on the latest event.
