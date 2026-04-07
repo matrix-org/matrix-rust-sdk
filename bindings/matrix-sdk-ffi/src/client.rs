@@ -20,45 +20,45 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use futures_util::pin_mut;
-#[cfg(not(target_family = "wasm"))]
-use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     authentication::oauth::{ClientId, OAuthAuthorizationData, OAuthError, OAuthSession},
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     executor::AbortOnDrop,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
+        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
             discovery::{
                 discover_homeserver::RtcFocusInfo,
                 get_authorization_server_metadata::v1::Prompt as RumaOidcPrompt,
             },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
-            room::{create_room, Visibility},
+            room::{Visibility, create_room},
             session::get_login_types,
             user_directory::search_users,
         },
         events::{
+            AnyInitialStateEvent, InitialStateEvent,
             room::{
                 avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent,
                 message::MessageType,
             },
-            AnyInitialStateEvent, InitialStateEvent,
         },
         serde::Raw,
-        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
     task_monitor::BackgroundTaskFailureReason,
-    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
 use matrix_sdk_common::{
-    cross_process_lock::CrossProcessLockConfig, stream::StreamExt, SendOutsideWasm, SyncOutsideWasm,
+    SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -71,17 +71,23 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    api::client::{
-        alias::get_alias,
-        discovery::get_authorization_server_metadata::v1::{
-            AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    api::{
+        client::{
+            alias::get_alias,
+            discovery::get_authorization_server_metadata::v1::{
+                AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+            },
+            profile::{AvatarUrl, DisplayName},
+            room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
+            uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
-        profile::{AvatarUrl, DisplayName},
-        room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
-        uiaa::UserIdentifier,
     },
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -100,25 +106,22 @@ use ruma::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
         },
         tag::TagEventContent,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
-        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
 use super::{
-    room::{room_info::RoomInfo, Room},
+    room::{Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
 use crate::{
+    ClientError,
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
@@ -142,7 +145,6 @@ use crate::{
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
-    ClientError,
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -365,12 +367,12 @@ impl Client {
 
         let controller = session_verification_controller.clone();
         sdk_client.add_event_handler(move |event: OriginalSyncRoomMessageEvent| async move {
-            if let MessageType::VerificationRequest(_) = &event.content.msgtype {
-                if let Some(session_verification_controller) = &*controller.clone().read().await {
-                    session_verification_controller
-                        .process_incoming_verification_request(&event.sender, event.event_id)
-                        .await;
-                }
+            if let MessageType::VerificationRequest(_) = &event.content.msgtype
+                && let Some(session_verification_controller) = &*controller.clone().read().await
+            {
+                session_verification_controller
+                    .process_incoming_verification_request(&event.sender, event.event_id)
+                    .await;
             }
         });
 
@@ -534,7 +536,7 @@ impl Client {
         let mut builder = self
             .inner
             .matrix_auth()
-            .login_identifier(UserIdentifier::Email { address: email }, &password);
+            .login_identifier(UserIdentifier::Email(EmailUserIdentifier::new(email)), &password);
 
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
@@ -2130,10 +2132,10 @@ impl Client {
         let room_id = RoomId::parse(room_id)?;
 
         // Emit the initial event, if present
-        if let Some(room) = self.inner.get_room(&room_id) {
-            if let Ok(room_info) = RoomInfo::new(&room).await {
-                listener.call(room_info);
-            }
+        if let Some(room) = self.inner.get_room(&room_id)
+            && let Ok(room_info) = RoomInfo::new(&room).await
+        {
+            listener.call(room_info);
         }
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn({
@@ -2145,14 +2147,23 @@ impl Client {
                         continue;
                     }
 
-                    if let Some(room) = client.get_room(&room_id) {
-                        if let Ok(room_info) = RoomInfo::new(&room).await {
-                            listener.call(room_info);
-                        }
+                    if let Some(room) = client.get_room(&room_id)
+                        && let Ok(room_info) = RoomInfo::new(&room).await
+                    {
+                        listener.call(room_info);
                     }
                 }
             }
         }))))
+    }
+
+    /// Whether to enable automatic backpagination under certain conditions
+    /// (e.g. when processing read receipts).
+    ///
+    /// This is an experimental feature, and might cause performance issues on
+    /// large accounts. Use with caution.
+    pub fn enable_automatic_backpagination(&self) {
+        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
     }
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
@@ -3114,7 +3125,7 @@ pub struct ExtendedProfileFields {
 #[cfg(test)]
 mod tests {
     use ruma::{
-        api::client::room::{create_room, Visibility},
+        api::client::room::{Visibility, create_room},
         events::StateEventType,
         room::RoomType,
     };
@@ -3159,9 +3170,9 @@ mod tests {
         assert_eq!(request.invite.len(), 1);
         assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomAvatar));
         assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomJoinRules));
-        assert!(initial_state
-            .iter()
-            .any(|e| e.event_type() == StateEventType::RoomHistoryVisibility));
+        assert!(
+            initial_state.iter().any(|e| e.event_type() == StateEventType::RoomHistoryVisibility)
+        );
         assert_eq!(request.room_alias_name, Some("#a-room:example.com".to_owned()));
 
         let room_type = request

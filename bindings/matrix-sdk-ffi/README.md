@@ -6,11 +6,6 @@ This uses [`uniffi`](https://mozilla.github.io/uniffi-rs/Overview.html) to build
 
 Given the number of platforms targeted, we have broken out a number of features
 
-### Platform specific
-
-- `rustls-tls`: Use Rustls as the TLS implementation, necessary on Android platforms.
-- `native-tls`: Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
-
 ### Functionality
 
 - `sentry`: Enable error monitoring using Sentry, not supports on Wasm platforms.
@@ -24,11 +19,11 @@ Given the number of platforms targeted, we have broken out a number of features
 
 ## Platforms
 
-Each supported target should use features to select the relevant TLS system. Here are some suggested feature flags for the major platforms:
+Each supported target should use features to build the relevant system. Here are some suggested feature flags for the major platforms:
 
-- Android: `"bundled-sqlite,unstable-msc4274,rustls-tls,sentry"`
-- iOS: `"bundled-sqlite,unstable-msc4274,native-tls,sentry"`
-- JavaScript/Wasm: `"indexeddb,unstable-msc4274,native-tls"`
+- Android: `"bundled-sqlite,unstable-msc4274,sentry"`
+- iOS: `"bundled-sqlite,unstable-msc4274,sentry"`
+- JavaScript/Wasm: `"indexeddb,unstable-msc4274"`
 
 ### Swift/iOS sync
 

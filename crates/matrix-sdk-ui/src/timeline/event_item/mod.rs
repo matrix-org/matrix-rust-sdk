@@ -20,7 +20,7 @@ use std::{
 use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{
-    Error,
+    Error, Room,
     deserialized_responses::{EncryptionInfo, ShieldState},
     send_queue::{SendHandle, SendReactionHandle},
 };
@@ -32,6 +32,7 @@ use ruma::{
     room_version_rules::RedactionRules,
     serde::Raw,
 };
+use tracing::error;
 use unicode_segmentation::UnicodeSegmentation;
 
 mod content;
@@ -622,7 +623,7 @@ impl EventTimelineItem {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => None,
+            | TimelineItemContent::RtcNotification { .. } => None,
         };
 
         if let Some(body) = body {
@@ -671,6 +672,24 @@ pub struct Profile {
 
     /// The avatar URL, if set.
     pub avatar_url: Option<OwnedMxcUri>,
+}
+
+impl Profile {
+    pub async fn load(room: &Room, user_id: &UserId) -> Option<Self> {
+        match room.get_member_no_sync(user_id).await {
+            Ok(Some(member)) => Some(Profile {
+                display_name: member.display_name().map(ToOwned::to_owned),
+                display_name_ambiguous: member.name_ambiguous(),
+                avatar_url: member.avatar_url().map(ToOwned::to_owned),
+            }),
+            Ok(None) if room.are_members_synced() => Some(Profile::default()),
+            Ok(None) => None,
+            Err(e) => {
+                error!(%user_id, "Failed to fetch room member information: {e}");
+                None
+            }
+        }
+    }
 }
 
 /// Some details of an [`EventTimelineItem`] that may require server requests

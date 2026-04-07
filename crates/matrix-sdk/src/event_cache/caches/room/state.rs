@@ -71,7 +71,13 @@ use super::{
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{Room, event_cache::caches::pagination::SharedPaginationStatus, room::WeakRoom};
+use crate::{
+    Room,
+    event_cache::{
+        automatic_pagination::AutomaticPagination, caches::pagination::SharedPaginationStatus,
+    },
+    room::WeakRoom,
+};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -141,6 +147,9 @@ pub struct RoomEventCacheState {
     /// An atomic count of the current number of subscriber of the
     /// [`super::RoomEventCache`].
     subscriber_count: Arc<AtomicUsize>,
+
+    /// A copy of the automatic pagination API object.
+    automatic_pagination: Option<AutomaticPagination>,
 }
 
 impl RoomEventCacheState {
@@ -301,6 +310,7 @@ impl LockedRoomEventCacheState {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
         pagination_status: SharedObservable<SharedPaginationStatus>,
+        automatic_pagination: Option<AutomaticPagination>,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
@@ -383,6 +393,7 @@ impl LockedRoomEventCacheState {
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
             pinned_event_cache: OnceLock::new(),
+            automatic_pagination,
         }))
     }
 }
@@ -1025,9 +1036,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        let state = &mut *self.state;
-        let user_id = &state.own_user_id;
-        let room_id = &state.room_id;
+        let user_id = &self.state.own_user_id;
+        let room_id = &self.state.room_id;
 
         let prev_read_receipts = room.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
@@ -1036,10 +1046,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             user_id,
             room_id,
             receipt_event,
-            &state.room_linked_chunk,
+            &self.state.room_linked_chunk,
             &mut read_receipts,
-            state.enabled_thread_support,
-        );
+            self.state.enabled_thread_support,
+            self.state.automatic_pagination.as_ref(),
+            room.client().state_store(),
+        )
+        .await;
 
         if prev_read_receipts != read_receipts {
             // The read receipt has changed! Do a little dance to update the `RoomInfo` in

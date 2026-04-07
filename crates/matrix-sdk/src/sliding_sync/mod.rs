@@ -38,7 +38,7 @@ use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
     OwnedRoomId, RoomId,
-    api::client::{error::ErrorKind, sync::sync_events::v5 as http},
+    api::{client::sync::sync_events::v5 as http, error::ErrorKind},
     assign,
 };
 use tokio::{

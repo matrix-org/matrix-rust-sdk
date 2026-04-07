@@ -17,7 +17,7 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use ruma::{
-    OwnedUserId,
+    OwnedMxcUri, OwnedUserId,
     api::client::{account::request_openid_token, delayed_events::update_delayed_event},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEventContent},
     serde::Raw,
@@ -31,7 +31,7 @@ use super::{
     Action, MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
     from_widget::SendEventResponse, incoming::MatrixDriverResponse,
 };
-use crate::widget::{Capabilities, StateKeySelector};
+use crate::widget::{Capabilities, StateKeySelector, machine::from_widget::DownloadFileResponse};
 
 #[derive(Clone, Debug)]
 pub(crate) enum MatrixDriverRequestData {
@@ -59,6 +59,9 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Data for sending a UpdateDelayedEvent client server api request.
     UpdateDelayedEvent(UpdateDelayedEventRequest),
+
+    /// Request a download of a file.
+    DownloadFile(DownloadFileRequest),
 }
 
 /// A handle to a pending `toWidget` request.
@@ -337,5 +340,21 @@ impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
                 None
             }
         }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub(crate) struct DownloadFileRequest {
+    // The MXC url of the file to download.
+    pub(crate) content_uri: OwnedMxcUri,
+}
+
+impl MatrixDriverRequest for DownloadFileRequest {
+    type Response = DownloadFileResponse;
+}
+
+impl From<DownloadFileRequest> for MatrixDriverRequestData {
+    fn from(req: DownloadFileRequest) -> Self {
+        MatrixDriverRequestData::DownloadFile(req)
     }
 }

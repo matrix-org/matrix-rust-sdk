@@ -172,7 +172,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
 
     let output = OUTPUT_TEMPLATE.replace("{log_file}", &log_path.to_string_lossy()).replace(
         "{longest-duration}",
-        &timers.get(0).map(|timer| timer.duration.as_nanos()).unwrap_or(0).to_string(),
+        &timers.first().map(|timer| timer.duration.as_nanos()).unwrap_or(0).to_string(),
     );
 
     output_file.write_all(output.as_bytes()).expect("Failed to write the output");

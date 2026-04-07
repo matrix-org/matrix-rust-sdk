@@ -34,3 +34,6 @@ pub const DIRECT_WITHHELD_INFO: &str = "direct_withheld_info";
 /// Old key used to manage cross-process lock generation in the [`CORE`]
 /// object store. This has been replaced by the [`LEASE_LOCKS`] table.
 pub const GENERATION_COUNTER_KEY: &str = "generation-counter";
+
+/// Old format for secrets inbox, which stored a full `GossippedSecret` event
+pub const SECRETS_INBOX_V1: &str = "secrets_inbox";

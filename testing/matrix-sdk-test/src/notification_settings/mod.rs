@@ -2,9 +2,10 @@ use ruma::{
     RoomId, UserId,
     power_levels::NotificationPowerLevelsKey,
     push::{
-        Action, ConditionalPushRule, ConditionalPushRuleInit, NewConditionalPushRule, NewPushRule,
-        NewSimplePushRule, PatternedPushRule, PatternedPushRuleInit, PredefinedContentRuleId,
-        PredefinedOverrideRuleId, PushCondition, RuleKind, Ruleset, Tweak,
+        Action, ConditionalPushRule, ConditionalPushRuleInit, EventMatchConditionData,
+        NewConditionalPushRule, NewPushRule, NewSimplePushRule, PatternedPushRule,
+        PatternedPushRuleInit, PredefinedContentRuleId, PredefinedOverrideRuleId, PushCondition,
+        RuleKind, Ruleset, SenderNotificationPermissionConditionData, SoundTweakValue, Tweak,
     },
     user_id,
 };
@@ -25,7 +26,7 @@ pub fn build_ruleset(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Ruleset {
     let mut ruleset = get_server_default_ruleset();
     for (kind, room_id, notify) in rule_list {
         let actions = if notify {
-            vec![Action::Notify, Action::SetTweak(Tweak::Sound("default".into()))]
+            vec![Action::Notify, Action::SetTweak(Tweak::Sound(SoundTweakValue::Default))]
         } else {
             vec![]
         };
@@ -37,10 +38,10 @@ pub fn build_ruleset(rule_list: Vec<(RuleKind, &RoomId, bool)>) -> Ruleset {
             RuleKind::Override | RuleKind::Underride => {
                 let new_rule = NewConditionalPushRule::new(
                     room_id.into(),
-                    vec![PushCondition::EventMatch {
-                        key: "room_id".to_owned(),
-                        pattern: room_id.to_string(),
-                    }],
+                    vec![PushCondition::EventMatch(EventMatchConditionData::new(
+                        "room_id".to_owned(),
+                        room_id.to_string(),
+                    ))],
                     actions,
                 );
                 let new_push_rule = match kind {
@@ -78,8 +79,13 @@ fn room_notif_push_rule() -> ConditionalPushRule {
         default: true,
         enabled: true,
         conditions: vec![
-            PushCondition::EventMatch { key: "content.body".into(), pattern: "@room".into() },
-            PushCondition::SenderNotificationPermission { key: NotificationPowerLevelsKey::Room },
+            PushCondition::EventMatch(EventMatchConditionData::new(
+                "content.body".into(),
+                "@room".into(),
+            )),
+            PushCondition::SenderNotificationPermission(
+                SenderNotificationPermissionConditionData::new(NotificationPowerLevelsKey::Room),
+            ),
         ],
         actions: vec![Action::Notify],
     }

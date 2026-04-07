@@ -261,7 +261,7 @@ pub trait StateStore: AsyncTraitDeps {
         event_type: RoomAccountDataEventType,
     ) -> Result<Option<Raw<AnyRoomAccountDataEvent>>, Self::Error>;
 
-    /// Get an event out of the user room receipt store.
+    /// Get a user's read receipt for a given room and receipt type and thread.
     ///
     /// # Arguments
     ///
@@ -272,7 +272,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `thread` - The thread containing this receipt.
     ///
-    /// * `user_id` - The id of the user for who the receipt should be fetched.
+    /// * `user_id` - The id of the user for whom the receipt should be fetched.
     async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
@@ -281,7 +281,7 @@ pub trait StateStore: AsyncTraitDeps {
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error>;
 
-    /// Get events out of the event room receipt store.
+    /// Get an event's read receipts for a given room, receipt type, and thread.
     ///
     /// # Arguments
     ///

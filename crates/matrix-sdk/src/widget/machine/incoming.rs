@@ -28,7 +28,7 @@ use super::{
     from_widget::{FromWidgetRequest, SendEventResponse},
     to_widget::ToWidgetResponse,
 };
-use crate::widget::Capabilities;
+use crate::widget::{Capabilities, machine::from_widget::DownloadFileResponse};
 
 /// Incoming message for the widget client side module that it must process.
 pub(crate) enum IncomingMessage {
@@ -87,6 +87,8 @@ pub(crate) enum MatrixDriverResponse {
     /// Client updated a delayed event.
     /// A response to a [`MatrixDriverRequestData::UpdateDelayedEvent`] command.
     DelayedEventUpdated(delayed_events::update_delayed_event::unstable::Response),
+    /// The client successfully downloaded a file from a widget action.
+    FileDownloaded(DownloadFileResponse),
 }
 
 pub(super) struct IncomingWidgetMessage {
@@ -134,5 +136,60 @@ impl<'de> Deserialize<'de> for IncomingWidgetMessage {
         };
 
         Ok(Self { widget_id, request_id, kind })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use assert_matches2::assert_let;
+
+    use crate::widget::machine::{
+        from_widget::FromWidgetRequest,
+        incoming::{IncomingWidgetMessage, IncomingWidgetMessageKind},
+    };
+
+    #[test]
+    fn parse_download_file_widget_action() {
+        let raw = r#"
+        {
+            "api": "fromWidget",
+            "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
+            "requestId": "generated-id-1234",
+            "action": "org.matrix.msc4039.download_file",
+            "data": {
+                "content_uri": "mxc://server/id"
+            }
+        }
+        "#;
+
+        assert_let!(
+            IncomingWidgetMessageKind::Request(incoming_request) =
+                serde_json::from_str::<IncomingWidgetMessage>(raw).unwrap().kind
+        );
+        assert_let!(FromWidgetRequest::DownloadFile(req) = incoming_request.deserialize().unwrap());
+
+        assert_eq!(req.content_uri, "mxc://server/id");
+    }
+    #[test]
+    fn parse_download_file_request_with_non_mxc_url() {
+        let raw = r#"
+        {
+            "api": "fromWidget",
+            "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
+            "requestId": "generated-id-1234",
+            "action": "org.matrix.msc4039.download_file",
+            "data": {
+                "content_uri": "https://server/id"
+            }
+        }
+        "#;
+
+        assert_let!(
+            IncomingWidgetMessageKind::Request(incoming_request) =
+                serde_json::from_str::<IncomingWidgetMessage>(raw).unwrap().kind
+        );
+        assert_let!(FromWidgetRequest::DownloadFile(req) = incoming_request.deserialize().unwrap());
+
+        assert!(!req.content_uri.is_valid());
     }
 }

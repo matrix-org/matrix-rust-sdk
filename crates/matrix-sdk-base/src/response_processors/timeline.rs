@@ -202,7 +202,6 @@ fn update_push_room_context(
 
     push_rules.member_count = UInt::new(room_info.active_members_count()).unwrap_or(UInt::MAX);
 
-    // TODO: Use if let chain once stable
     if let Some(member) = context.state_changes.member(room_id, user_id) {
         push_rules.user_display_name =
             member.content.displayname.unwrap_or_else(|| user_id.localpart().to_owned())
@@ -230,7 +229,6 @@ pub async fn get_push_room_context(
 
     let member_count = room_info.active_members_count();
 
-    // TODO: Use if let chain once stable
     let user_display_name = if let Some(member) = context.state_changes.member(room_id, user_id) {
         member.content.displayname.unwrap_or_else(|| user_id.localpart().to_owned())
     } else if let Some(member) = Box::pin(room.get_member(user_id)).await? {

@@ -11,11 +11,7 @@ rust-version.workspace = true
 rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
-default = ["rustls-tls"]
-
-native-tls = ["matrix-sdk/native-tls"]
-rustls-tls = ["matrix-sdk/rustls-tls"]
-
+default = []
 js = ["matrix-sdk/js"]
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
 

@@ -25,12 +25,9 @@ use super::{
 };
 use crate::{
     timeline::{
-        PaginationError, TimelineReadReceiptTracking,
-        controller::spawn_crypto_tasks,
-        tasks::{
-            event_focused_task, pinned_events_task, room_event_cache_updates_task,
-            room_send_queue_update_task, thread_updates_task,
-        },
+        TimelineReadReceiptTracking,
+        controller::{InitFocusResult, spawn_crypto_tasks},
+        tasks::{room_event_cache_updates_task, room_send_queue_update_task},
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -183,51 +180,8 @@ impl TimelineBuilder {
             settings,
         );
 
-        let has_events = controller.init_focus(&focus, &room_event_cache).await?;
-
-        let pinned_events_join_handle = if matches!(focus, TimelineFocus::PinnedEvents) {
-            let (_initial_events, pinned_events_recv) =
-                room_event_cache.subscribe_to_pinned_events().await?;
-
-            Some(
-                room.client()
-                    .task_monitor()
-                    .spawn_background_task(
-                        "timeline::pinned_event_cache_updates",
-                        pinned_events_task(
-                            room_event_cache.clone(),
-                            controller.clone(),
-                            pinned_events_recv,
-                        ),
-                    )
-                    .abort_on_drop(),
-            )
-        } else {
-            None
-        };
-
-        let event_focused_join_handle =
-            if let TimelineFocus::Event { target, thread_mode, .. } = &focus {
-                let cache = room_event_cache
-                    .get_event_focused_cache(target.clone(), (*thread_mode).into())
-                    .await?
-                    .ok_or(Error::PaginationError(PaginationError::MissingCache))?;
-
-                let (_initial_events, recv) = cache.subscribe().await;
-
-                Some(room.client().task_monitor().spawn_background_task(
-                    "timeline::event_focused_cache_updates",
-                    event_focused_task(
-                        target.clone(),
-                        (*thread_mode).into(),
-                        room_event_cache.clone(),
-                        controller.clone(),
-                        recv,
-                    ),
-                ))
-            } else {
-                None
-            };
+        let InitFocusResult { focus_task, has_events } =
+            controller.init_focus(&focus, &room_event_cache).await?;
 
         let room_update_join_handle = room
             .client()
@@ -251,41 +205,6 @@ impl TimelineBuilder {
                 .instrument(span)
             })
             .abort_on_drop();
-
-        let thread_update_join_handle =
-            if let TimelineFocus::Thread { root_event_id: root } = &focus {
-                Some({
-                    let span = info_span!(
-                        parent: Span::none(),
-                        "thread_live_update_handler",
-                        room_id = ?room.room_id(),
-                        focus = focus.debug_string(),
-                        prefix = internal_id_prefix
-                    );
-                    span.follows_from(Span::current());
-
-                    // Note: must be done here *before* spawning the task, to avoid race conditions
-                    // with event cache updates happening in the background.
-                    let (_events, receiver) =
-                        room_event_cache.subscribe_to_thread(root.clone()).await?;
-
-                    room.client()
-                        .task_monitor()
-                        .spawn_background_task(
-                            "timeline::thread_event_cache_updates",
-                            thread_updates_task(
-                                receiver,
-                                room_event_cache.clone(),
-                                controller.clone(),
-                                root.clone(),
-                            )
-                            .instrument(span),
-                        )
-                        .abort_on_drop()
-                })
-            } else {
-                None
-            };
 
         let local_echo_listener_handle = {
             let timeline_controller = controller.clone();
@@ -318,10 +237,8 @@ impl TimelineBuilder {
             drop_handle: Arc::new(TimelineDropHandle {
                 _crypto_drop_handles: crypto_drop_handles,
                 _room_update_join_handle: room_update_join_handle,
-                _thread_update_join_handle: thread_update_join_handle,
-                _pinned_events_join_handle: pinned_events_join_handle,
                 _local_echo_listener_handle: local_echo_listener_handle,
-                _event_focused_join_handle: event_focused_join_handle,
+                _focus_drop_handle: focus_task,
                 _event_cache_drop_handle: event_cache_drop,
             }),
         };

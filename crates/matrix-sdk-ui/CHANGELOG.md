@@ -32,12 +32,18 @@ All notable changes to this project will be documented in this file.
 
 - Handle local echoes of redactions in the timeline.
   ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
+- [**breaking**] Remove support for `native-tls` and remove all feature
+  flags for selecting TLS backend, as `rustls` is the now the only supported
+  TLS backend.
+  ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
+- Add `call_intent` to `TimelineItemContent::RtcNotification`
+  ([#6412](https://github.com/matrix-org/matrix-rust-sdk/pull/6412))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
   and managing the list of threads from a particular room.
-  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
+  ([#6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
 - [**breaking**] Remove the `Room::load_thread_list` in favor of the new `ThreadListService`
-  ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
-- Add support for [MSC3489](https://github.com/matrix-org/matrix-spec-proposals/pull/3489)  
+  ([#6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
+- Add support for [MSC3489](https://github.com/matrix-org/matrix-spec-proposals/pull/3489)
   live location sharing through a new `TimelineItemContent::LiveLocation` variant.
 - The internal timeline unique ID may be recycled when an event is deduplicated from the timeline,
   so that embedders can notice that it's the same item and avoid unnecessary re-rendering.
@@ -82,6 +88,9 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- [**breaking**] `AnyOtherStateEventContentChange::RoomAliases` was removed. This state event type
+  was removed from the Matrix specification a while ago, and support for it has been removed in Ruma.
+  ([#6414](https://github.com/matrix-org/matrix-rust-sdk/pull/6414))
 - [**breaking**] Move `LiveLocation` out of `TimelineItemContent` and into `MsgLikeKind`
   so it has access to `MsgLikeContent` `reactions`.
   ([#6286](https://github.com/matrix-org/matrix-rust-sdk/pull/6286))

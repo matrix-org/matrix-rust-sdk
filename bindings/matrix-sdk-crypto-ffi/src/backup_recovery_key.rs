@@ -3,10 +3,10 @@ use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 use hmac::Hmac;
 use matrix_sdk_crypto::{
     backups::DecryptionError,
-    store::{types::BackupDecryptionKey, CryptoStoreError as InnerStoreError},
+    store::{CryptoStoreError as InnerStoreError, types::BackupDecryptionKey},
 };
 use pbkdf2::pbkdf2;
-use rand::{distr::Alphanumeric, rng, RngExt};
+use rand::{RngExt, distr::Alphanumeric, rng};
 use sha2::Sha512;
 use thiserror::Error;
 use zeroize::Zeroize;

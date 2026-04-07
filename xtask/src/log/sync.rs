@@ -87,10 +87,9 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
             let connection_id =
                 captures.name("connection_id").expect("Failed to capture `connection_id`").as_str();
             let pos = captures.name("pos").map(|pos| pos.as_str());
-            let timeout = captures
-                .name("timeout")
-                .map(|timeout| timeout.as_str().parse::<u64>().ok().map(Duration::from_millis))
-                .flatten();
+            let timeout = captures.name("timeout").and_then(|timeout| {
+                timeout.as_str().parse::<u64>().ok().map(Duration::from_millis)
+            });
             let request_id = captures
                 .name("request_id")
                 .expect("Failed to capture `request_id`")
@@ -103,23 +102,22 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 captures.name("request_size").map(|request_size| request_size.as_str());
             let response_size =
                 captures.name("response_size").map(|response_size| response_size.as_str());
-            let status =
-                captures.name("status").map(|status| status.as_str().parse().ok()).flatten();
+            let status = captures.name("status").and_then(|status| status.as_str().parse().ok());
 
             if let Some(smallest_start_at_inner) = smallest_start_at {
                 if smallest_start_at_inner > date_time {
-                    smallest_start_at = Some(date_time.clone());
+                    smallest_start_at = Some(date_time);
                 }
             } else {
-                smallest_start_at = Some(date_time.clone());
+                smallest_start_at = Some(date_time);
             }
 
             if let Some(largest_end_at_inner) = largest_end_at {
                 if largest_end_at_inner < date_time {
-                    largest_end_at = Some(date_time.clone());
+                    largest_end_at = Some(date_time);
                 }
             } else {
-                largest_end_at = Some(date_time.clone());
+                largest_end_at = Some(date_time);
             }
 
             let spans_for_connection_id = spans.entry(connection_id.to_owned()).or_default();
@@ -170,7 +168,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
     let end_at = largest_end_at.saturating_sub(smallest_start_at).to_string();
     let rows = spans
         .iter()
-        .map(|(connection_id, spans)| {
+        .flat_map(|(connection_id, spans)| {
             spans.iter().map(
                 |(
                     request_id,
@@ -189,7 +187,7 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                     },
                 )| {
                     let uri = Url::parse(uri);
-                    let duration = duration.num_milliseconds().abs() as u64;
+                    let duration = duration.num_milliseconds().unsigned_abs();
                     let timeout: Option<u64> = timeout.map(|timeout| timeout.as_millis().try_into().expect("Failed to cast a u128 to u64"));
 
                     format!(
@@ -265,7 +263,6 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 },
             )
         })
-        .flatten()
         .collect::<String>();
 
     let output = OUTPUT_TEMPLATE

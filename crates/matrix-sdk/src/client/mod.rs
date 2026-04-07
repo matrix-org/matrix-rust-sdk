@@ -61,7 +61,6 @@ use ruma::{
                 discover_homeserver::{self, RtcFocusInfo},
                 get_supported_versions,
             },
-            error::{ErrorKind, UnknownTokenErrorData},
             filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
@@ -73,7 +72,7 @@ use ruma::{
             uiaa,
             user_directory::search_users,
         },
-        error::FromHttpResponseError,
+        error::{ErrorKind, FromHttpResponseError, UnknownTokenErrorData},
         path_builder::PathBuilder,
     },
     assign,
@@ -849,8 +848,8 @@ impl Client {
     ///         async move {
     ///             // A `Vec<Action>` parameter allows you to know which push actions
     ///             // are applicable for an event. For example, an event with
-    ///             // `Action::SetTweak(Tweak::Highlight(true))` should be highlighted
-    ///             // in the timeline.
+    ///             // `Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))`
+    ///             // should be highlighted in the timeline.
     ///         }
     ///     },
     /// );
@@ -1003,7 +1002,7 @@ impl Client {
     ///     );
     ///
     /// // Observe `SyncRoomMessageEvent` and fetch `Room` + push actions.
-    /// // For example, an event with `Action::SetTweak(Tweak::Highlight(true))`
+    /// // For example, an event with `Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))`
     /// // should be highlighted in the timeline.
     /// let _ =
     ///     client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
@@ -2497,7 +2496,7 @@ impl Client {
     /// if let Err(e) = client.delete_devices(devices, None).await {
     ///     if let Some(info) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = info.session.clone();

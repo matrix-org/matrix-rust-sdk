@@ -12,6 +12,10 @@ All notable changes to this project will be documented in this file.
   This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
   variant.
   ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
+- [**breaking**] Remove support for `native-tls` and remove all feature
+  flags for selecting TLS backend, as `rustls` is the now the only supported
+  TLS backend.
+  ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
 - [**breaking**] Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
   of the homeserver. This replaces `Client::get_capabilities()`. 
   ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
@@ -93,9 +97,16 @@ All notable changes to this project will be documented in this file.
   to true will now trigger a download of all historical keys for the room in
   question from the client's key backup.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+- Add widget partial support for MSC4039. Allows widgets to download non-encrypted files from the
+  content repository (like avatars).
+  ([#6354](https://github.com/matrix-org/matrix-rust-sdk/pull/6354))
 
 ### Bugfix
 
+- `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
+  are now also eligible as the latest event for a room, preventing the live location sharing item
+  from disappearing from the room list summary once the session ends.
+  ([#6373](https://github.com/matrix-org/matrix-rust-sdk/pull/6373))
 - Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using 
   the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail. 
   ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))

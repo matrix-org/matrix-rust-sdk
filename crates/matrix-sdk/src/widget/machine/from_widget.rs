@@ -17,12 +17,14 @@ use std::collections::BTreeMap;
 use as_variant::as_variant;
 use ruma::{
     OwnedEventId, OwnedRoomId,
-    api::client::{
-        delayed_events::{delayed_message_event, delayed_state_event, update_delayed_event},
+    api::{
+        client::delayed_events::{
+            delayed_message_event, delayed_state_event, update_delayed_event,
+        },
         error::{ErrorBody, StandardErrorBody},
     },
     events::AnyTimelineEvent,
-    serde::Raw,
+    serde::{Base64, Raw},
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -33,7 +35,10 @@ use super::{
 };
 use crate::{
     Error, HttpError, RumaApiError,
-    widget::{StateKeySelector, machine::driver_req::FromMatrixDriverResponse},
+    widget::{
+        StateKeySelector,
+        machine::driver_req::{DownloadFileRequest, FromMatrixDriverResponse},
+    },
 };
 
 #[derive(Deserialize, Debug)]
@@ -49,6 +54,8 @@ pub(super) enum FromWidgetRequest {
     SendToDevice(SendToDeviceRequest),
     #[serde(rename = "org.matrix.msc4157.update_delayed_event")]
     DelayedEventUpdate(UpdateDelayedEventRequest),
+    #[serde(rename = "org.matrix.msc4039.download_file")]
+    DownloadFile(DownloadFileRequest),
 }
 
 /// The full response a client sends to a [`FromWidgetRequest`] in case of an
@@ -145,6 +152,7 @@ impl SupportedApiVersionsResponse {
                 ApiVersion::MSC2762UpdateState,
                 ApiVersion::MSC2871,
                 ApiVersion::MSC3819,
+                ApiVersion::MSC4039,
             ],
         }
     }
@@ -192,6 +200,9 @@ pub(super) enum ApiVersion {
     /// Supports access to the TURN servers.
     #[serde(rename = "town.robin.msc3846")]
     MSC3846,
+
+    #[serde(rename = "org.matrix.msc4039")]
+    MSC4039,
 }
 
 #[derive(Deserialize, Debug)]
@@ -269,6 +280,30 @@ impl FromMatrixDriverResponse for SendToDeviceEventResponse {
     fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
         match matrix_driver_response {
             MatrixDriverResponse::ToDeviceSent(resp) => Some(Self { failures: resp.failures }),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
+/// Response for a download file request.
+/// https://github.com/matrix-org/matrix-spec-proposals/pull/4039
+#[derive(Serialize, Debug)]
+pub(crate) struct DownloadFileResponse {
+    // The binary file content in a format that can cross the
+    // widget-driver-api boundary.
+    #[serde(rename = "file")]
+    pub(crate) file_data_base64: Base64,
+}
+
+impl FromMatrixDriverResponse for DownloadFileResponse {
+    fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
+        match matrix_driver_response {
+            MatrixDriverResponse::FileDownloaded(resp) => {
+                Some(Self { file_data_base64: resp.file_data_base64 })
+            }
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None

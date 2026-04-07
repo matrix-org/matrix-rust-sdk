@@ -14,7 +14,7 @@ use matrix_sdk::{
         EventId, OwnedEventId, OwnedRoomId,
         api::client::{
             room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
-            uiaa::Password,
+            uiaa,
         },
         events::room::{
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
@@ -312,14 +312,12 @@ async fn test_history_share_on_invite_pin_violation() -> Result<()> {
             .expect("Resetting the identity should work")
         {
             handle
-                .reset(Some(matrix_sdk::ruma::api::client::uiaa::AuthData::Password(
-                    Password::new(
-                        matrix_sdk::ruma::api::client::uiaa::UserIdentifier::UserIdOrLocalpart(
-                            alice_user_id.localpart().to_owned(),
-                        ),
+                .reset(Some(uiaa::AuthData::Password(uiaa::Password::new(
+                    uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new(
                         alice_user_id.localpart().to_owned(),
-                    ),
-                )))
+                    )),
+                    alice_user_id.localpart().to_owned(),
+                ))))
                 .instrument(alice_span.clone())
                 .await
                 .expect("Providing the password to finalize the identity reset should work");

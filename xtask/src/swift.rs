@@ -160,7 +160,7 @@ impl Platform {
 const FFI_LIBRARY_NAME: &str = "libmatrix_sdk_ffi.a";
 
 /// The features enabled for the FFI library.
-const FFI_FEATURES: &str = "rustls-tls,sentry";
+const FFI_FEATURES: &str = "sentry";
 
 /// The list of targets supported by the SDK.
 const TARGETS: &[Target] = &[
@@ -246,6 +246,7 @@ fn build_library() -> Result<()> {
 
     consolidate_modulemap_files(&ffi_directory, &ffi_directory)?;
     move_files("swift", &ffi_directory, &swift_directory)?;
+    update_swift_module_imports(&swift_directory)?;
     Ok(())
 }
 
@@ -313,6 +314,7 @@ fn build_xcframework(
     consolidate_modulemap_files(&generated_dir, &headers_module_dir)?;
 
     move_files("swift", &generated_dir, &swift_dir)?;
+    update_swift_module_imports(&swift_dir)?;
 
     println!("-- Generating MatrixSDKFFI.xcframework framework");
     let xcframework_path = generated_dir.join("MatrixSDKFFI.xcframework");
@@ -497,11 +499,42 @@ fn move_files(extension: &str, source: &Utf8Path, destination: &Utf8Path) -> Res
     Ok(())
 }
 
-/// Consolidates the contents of each modulemap file found in the source
-/// directory into a single `module.modulemap` file in the destination
-/// directory.
+/// Updates all the swift files in the given directory to import the same module
+/// that gets defined by the `consolidate_modulemap_files` function.
+fn update_swift_module_imports(directory: &Utf8Path) -> Result<()> {
+    let regex = regex::Regex::new(r"#if canImport\(\w+FFI\)\nimport \w+FFI\n#endif")?;
+
+    for entry in directory.read_dir_utf8()? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            let path = entry.path();
+            if path.extension() == Some("swift") {
+                let contents = std::fs::read_to_string(path)?;
+                let new_contents = regex.replace_all(
+                    &contents,
+                    "#if canImport(MatrixSDKFFI)\nimport MatrixSDKFFI\n#endif",
+                );
+                if new_contents != contents {
+                    std::fs::write(path, new_contents.as_ref())?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Consolidates the modulemap files found in the source directory into a single
+/// `module.modulemap` file in the destination directory.
+///
+/// The first modulemap file found is used as the base and all `header`
+/// directives from the remaining modulemap files are spliced in after the
+/// base's own header line. All other content in the base (e.g. `export *`,
+/// `use` directives, and any future additions) is preserved verbatim.
 fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Result<()> {
-    let mut modulemap = String::new();
+    let mut base_contents: Option<String> = None;
+    let mut extra_headers: Vec<String> = Vec::new();
+
     for entry in source.read_dir_utf8()? {
         let entry = entry?;
 
@@ -509,13 +542,45 @@ fn consolidate_modulemap_files(source: &Utf8Path, destination: &Utf8Path) -> Res
             let path = entry.path();
             if path.extension() == Some("modulemap") {
                 let contents = std::fs::read_to_string(path)?;
-                modulemap.push_str(&contents);
-                modulemap.push_str("\n\n");
+                if base_contents.is_none() {
+                    base_contents = Some(contents);
+                } else {
+                    for line in contents.lines() {
+                        if line.trim().starts_with("header ")
+                            && !extra_headers.contains(&line.to_string())
+                        {
+                            extra_headers.push(line.to_string());
+                        }
+                    }
+                }
                 remove_file(path)?;
             }
         }
     }
 
+    let base = base_contents.expect("No modulemap files found");
+
+    // Rebuild the base line-by-line, renaming the module to MatrixSDKFFI and
+    // inserting the extra headers immediately after the base's own header line.
+    let mut lines: Vec<String> = Vec::new();
+    let mut last_header_position: Option<usize> = None;
+
+    for line in base.lines() {
+        if line.starts_with("module ") {
+            lines.push("module MatrixSDKFFI {".to_string());
+        } else {
+            if line.trim().starts_with("header ") {
+                last_header_position = Some(lines.len());
+            }
+            lines.push(line.to_string());
+        }
+    }
+
+    if let Some(last_header_position) = last_header_position {
+        lines.splice(last_header_position + 1..last_header_position + 1, extra_headers);
+    }
+
+    let modulemap = lines.join("\n") + "\n";
     std::fs::write(destination.join("module.modulemap"), modulemap)?;
     Ok(())
 }

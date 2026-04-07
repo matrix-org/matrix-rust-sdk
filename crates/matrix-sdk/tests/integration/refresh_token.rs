@@ -25,10 +25,8 @@ use matrix_sdk_test::{async_test, test_json};
 use ruma::{
     api::{
         MatrixVersion,
-        client::{
-            account::register,
-            error::{ErrorKind, UnknownTokenErrorData},
-        },
+        client::account::register,
+        error::{ErrorKind, UnknownTokenErrorData},
     },
     assign, owned_device_id, owned_user_id,
 };
