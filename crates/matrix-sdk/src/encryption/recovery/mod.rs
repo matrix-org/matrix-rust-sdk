@@ -120,7 +120,7 @@ mod types;
 pub use self::types::{EnableProgress, RecoveryError, RecoveryState, Result};
 use self::{
     futures::{Enable, RecoverAndReset, Reset},
-    types::{BackupDisabledContent, SecretStorageDisabledContent},
+    types::{BackupDisabledContent, KeyBackupContent, SecretStorageDisabledContent},
 };
 use crate::encryption::{AuthData, CrossSigningResetAuthType, CrossSigningResetHandle};
 
@@ -325,6 +325,8 @@ impl Recovery {
         // Now let's "delete" the actual `m.secret.storage.default_key` event.
         self.client.account().set_account_data(SecretStorageDisabledContent {}).await?;
         // Make sure that we don't re-enable backups automatically.
+        self.client.account().set_account_data(KeyBackupContent { enabled: false }).await?;
+        // (Unstable prefix version of KeyBackupContent)
         self.client.account().set_account_data(BackupDisabledContent { disabled: true }).await?;
         // Finally, "delete" all the known secrets we have in the account data.
         self.delete_all_known_secrets().await?;
@@ -651,16 +653,26 @@ impl Recovery {
     /// Run a network request to figure whether backups have been disabled at
     /// the account level.
     async fn are_backups_marked_as_disabled(&self) -> Result<bool> {
-        Ok(self
-            .client
-            .account()
-            .fetch_account_data_static::<BackupDisabledContent>()
-            .await?
-            .map(|event| event.deserialize().map(|event| event.disabled).unwrap_or(false))
-            .unwrap_or(false))
+        if let Some(key_backup_content) =
+            self.client.account().fetch_account_data_static::<KeyBackupContent>().await?
+        {
+            Ok(key_backup_content.deserialize().map(|event| !event.enabled).unwrap_or(false))
+        } else {
+            Ok(self
+                .client
+                .account()
+                .fetch_account_data_static::<BackupDisabledContent>()
+                .await?
+                .map(|event| event.deserialize().map(|event| event.disabled).unwrap_or(false))
+                .unwrap_or(false))
+        }
     }
 
     async fn mark_backup_as_enabled(&self) -> Result<()> {
+        self.client.account().set_account_data(KeyBackupContent { enabled: true }).await?;
+
+        // Unstable prefix: will be removed when sufficient time has passed for clients
+        // to use the stable prefix.
         self.client.account().set_account_data(BackupDisabledContent { disabled: false }).await?;
 
         Ok(())
