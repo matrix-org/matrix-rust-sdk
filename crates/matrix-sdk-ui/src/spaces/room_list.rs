@@ -331,14 +331,11 @@ impl SpaceRoomList {
                 children
                     .iter()
                     .map(|room| {
-                        let child_state = children_state
-                            .get(&room.summary.room_id);
-                        let via = child_state
-                            .map(|state| state.content.via.clone())
-                            .unwrap_or_default();
-                        let suggested = child_state
-                            .map(|state| state.content.suggested)
-                            .unwrap_or(false);
+                        let child_state = children_state.get(&room.summary.room_id);
+                        let via =
+                            child_state.map(|state| state.content.via.clone()).unwrap_or_default();
+                        let suggested =
+                            child_state.map(|state| state.content.suggested).unwrap_or(false);
 
                         SpaceRoom::new_from_summary(
                             &room.summary,
