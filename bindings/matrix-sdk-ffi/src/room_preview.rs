@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use anyhow::Context as _;
-use matrix_sdk::{room_preview::RoomPreview as SdkRoomPreview, Client};
+use matrix_sdk::{Client, room_preview::RoomPreview as SdkRoomPreview};
 use ruma::room::{JoinRuleSummary, RoomType as RumaRoomType};
 
 use crate::{

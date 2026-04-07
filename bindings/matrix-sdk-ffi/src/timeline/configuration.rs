@@ -15,12 +15,12 @@
 use std::sync::Arc;
 
 use matrix_sdk_ui::timeline::{
-    event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
     TimelineEventFocusThreadMode, TimelineReadReceiptTracking,
+    event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
 };
 use ruma::{
-    events::{AnySyncTimelineEvent, TimelineEventType},
     EventId,
+    events::{AnySyncTimelineEvent, TimelineEventType},
 };
 
 use super::FocusEventError;

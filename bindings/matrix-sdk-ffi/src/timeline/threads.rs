@@ -21,22 +21,22 @@ use matrix_sdk::room::{
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::timeline::{
+    RoomExt,
     thread_list_service::{
         ThreadListItem as UIThreadListItem, ThreadListItemEvent as UIThreadListItemEvent,
         ThreadListPaginationState as UIThreadListPaginationState,
         ThreadListService as UIThreadListService,
         ThreadListServiceError as UIThreadListServiceError,
     },
-    RoomExt,
 };
 use ruma::api::client::threads::get_threads::v1::IncludeThreads as SdkIncludeThreads;
 
 use crate::{
+    TaskHandle,
     error::ClientError,
     runtime::get_runtime_handle,
     timeline::{ProfileDetails, TimelineItemContent},
     utils::Timestamp,
-    TaskHandle,
 };
 
 /// A thread subscription (MSC4306).

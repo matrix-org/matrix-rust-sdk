@@ -15,14 +15,14 @@
 use std::sync::Arc;
 
 use matrix_sdk::authentication::oauth::{
+    OAuth,
     qrcode::{
         self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
         DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
     },
-    OAuth,
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
-use matrix_sdk_common::{stream::StreamExt, SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
 
 use crate::{
     authentication::OidcConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,

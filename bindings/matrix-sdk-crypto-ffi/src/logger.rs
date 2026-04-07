@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use tracing_subscriber::{fmt::MakeWriter, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt::MakeWriter};
 
 /// Trait that can be used to forward Rust logs over FFI to a language specific
 /// logger.

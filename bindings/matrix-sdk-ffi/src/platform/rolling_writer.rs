@@ -403,11 +403,7 @@ impl<'a> Write for SizeAndDateRollingWriterHandle<'a> {
 
     fn flush(&mut self) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        if let Some(s) = state.as_mut() {
-            s.current_file.flush()
-        } else {
-            Ok(())
-        }
+        if let Some(s) = state.as_mut() { s.current_file.flush() } else { Ok(()) }
     }
 }
 
@@ -658,11 +654,7 @@ mod tests {
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
-                if path.is_file() {
-                    path.file_name()?.to_str().map(|s| s.to_owned())
-                } else {
-                    None
-                }
+                if path.is_file() { path.file_name()?.to_str().map(|s| s.to_owned()) } else { None }
             })
             .collect();
 
