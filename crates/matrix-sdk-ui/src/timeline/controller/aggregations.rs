@@ -245,9 +245,9 @@ impl Aggregation {
 
             AggregationKind::Redaction { is_local } => {
                 let is_local_redacted =
-                    event.content().is_redacted() && event.unredacted_content.is_some();
+                    event.content().is_redacted() && event.unredacted_item.is_some();
                 let is_remote_redacted =
-                    event.content().is_redacted() && event.unredacted_content.is_none();
+                    event.content().is_redacted() && event.unredacted_item.is_none();
                 if *is_local && is_local_redacted || !*is_local && is_remote_redacted {
                     ApplyAggregationResult::LeftItemIntact
                 } else {
@@ -364,7 +364,7 @@ impl Aggregation {
 
             AggregationKind::Redaction { is_local } => {
                 if *is_local {
-                    if event.unredacted_content.is_some() {
+                    if event.unredacted_item.is_some() {
                         // Unapply local redaction.
                         *event = Cow::Owned(event.unredact());
                         ApplyAggregationResult::UpdatedItem

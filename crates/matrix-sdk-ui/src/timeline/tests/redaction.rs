@@ -30,7 +30,7 @@ use stream_assert::{assert_next_matches, assert_pending};
 use super::TestTimeline;
 use crate::timeline::{
     AnyOtherStateEventContentChange, TimelineDetails, TimelineItemContent,
-    event_item::RemoteEventOrigin,
+    event_item::{EventTimelineItemKind, RemoteEventOrigin, RemoteEventTimelineItem},
 };
 
 #[async_test]
@@ -219,19 +219,32 @@ async fn test_local_and_remote_echo_of_redaction() {
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
     assert!(!item.content().is_redacted());
-    assert!(item.unredacted_content.is_none());
+    assert!(item.unredacted_item.is_none());
+    assert_let!(
+        EventTimelineItemKind::Remote(RemoteEventTimelineItem { original_json, .. }) = item.kind
+    );
+    assert!(original_json.is_some());
 
     // Now redact the message. We first emit the local echo of the redaction event.
     // The timeline event should be marked as being under redaction.
     timeline.handle_local_redaction(event_id.clone()).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert!(item.unredacted_content.is_some());
+    assert_let!(Some(unredacted_item) = item.unredacted_item);
+    assert!(unredacted_item.original_json.is_some());
+    assert_let!(
+        EventTimelineItemKind::Remote(RemoteEventTimelineItem { original_json, .. }) = item.kind
+    );
+    assert!(original_json.is_none());
 
     // Then comes the remote echo of the redaction event. The timeline event should
     // now be redacted.
     timeline.handle_live_event(f.redaction(&event_id).sender(&ALICE)).await;
     let item = assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
     assert!(item.content().is_redacted());
-    assert!(item.unredacted_content.is_none());
+    assert!(item.unredacted_item.is_none());
+    assert_let!(
+        EventTimelineItemKind::Remote(RemoteEventTimelineItem { original_json, .. }) = item.kind
+    );
+    assert!(original_json.is_none());
 }
