@@ -21,7 +21,7 @@ use vodozemac::Ed25519PublicKey;
 
 use crate::{
     error::{DecodingError, EncodingError},
-    utils::{to_bytes, to_qr_code, HEADER, MAX_MODE, MIN_SECRET_LEN, VERSION},
+    utils::{HEADER, MAX_MODE, MIN_SECRET_LEN, VERSION, to_bytes, to_qr_code},
 };
 
 /// An enum representing the different modes for a QR verification code.
