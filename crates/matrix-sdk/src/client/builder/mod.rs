@@ -446,7 +446,7 @@ impl ClientBuilder {
     ///   to be able to [restore the session] later.
     ///
     /// [refreshing access tokens]: https://spec.matrix.org/v1.3/client-server-api/#refreshing-access-tokens
-    /// [`UnknownToken`]: ruma::api::client::error::ErrorKind::UnknownToken
+    /// [`UnknownToken`]: ruma::api::error::ErrorKind::UnknownToken
     /// [restore the session]: Client::restore_session
     pub fn handle_refresh_tokens(mut self) -> Self {
         self.handle_refresh_tokens = true;

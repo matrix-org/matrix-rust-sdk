@@ -41,10 +41,10 @@ impl UnableToDecryptHook for UtdHook {
 
         // UTDs that have been decrypted in the `IGNORE_UTD_PERIOD` are just ignored and
         // not considered UTDs.
-        if let Some(duration) = &info.time_to_decrypt {
-            if *duration < IGNORE_UTD_PERIOD {
-                return;
-            }
+        if let Some(duration) = &info.time_to_decrypt
+            && *duration < IGNORE_UTD_PERIOD
+        {
+            return;
         }
 
         // Report the UTD to the client.

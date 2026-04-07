@@ -22,8 +22,8 @@ use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, boxed_into_future};
 use oauth2::{RequestTokenError, basic::BasicErrorResponseType};
 use ruma::api::{
     OutgoingRequest,
-    client::{error::ErrorKind, media},
-    error::FromHttpResponseError,
+    client::media,
+    error::{ErrorKind, FromHttpResponseError},
     path_builder::PathBuilder,
 };
 use tracing::{error, trace};

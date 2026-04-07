@@ -1,5 +1,5 @@
 use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
-use ruma::{events::room::power_levels::UserPowerLevel, UserId};
+use ruma::{UserId, events::room::power_levels::UserPowerLevel};
 
 use crate::error::{ClientError, NotYetImplemented};
 

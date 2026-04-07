@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -76,7 +76,7 @@ use crate::{
         Account, ExportedRoomKey, ForwarderData, InboundGroupSession, PrivateCrossSigningIdentity,
         SenderData, Session, StaticAccountData,
     },
-    store::types::RoomKeyWithheldEntry,
+    store::types::{RoomKeyWithheldEntry, SecretsInboxItem},
     types::{
         BackupSecrets, CrossSigningSecrets, MegolmBackupV1Curve25519AesSha2Secrets, RoomKeyExport,
         SecretsBundle,
@@ -1381,7 +1381,7 @@ impl Store {
     /// }
     /// # });
     /// ```
-    pub fn secrets_stream(&self) -> impl Stream<Item = GossippedSecret> + use<> {
+    pub fn secrets_stream(&self) -> impl Stream<Item = SecretsInboxItem> + use<> {
         self.inner.store.secrets_stream()
     }
 

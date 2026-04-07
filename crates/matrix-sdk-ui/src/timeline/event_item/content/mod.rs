@@ -28,7 +28,6 @@ use ruma::{
         },
         relation::Replacement,
         room::{
-            aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent,
@@ -47,6 +46,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        rtc::notification::CallIntent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
     },
@@ -121,7 +121,10 @@ pub enum TimelineItemContent {
     CallInvite,
 
     /// An `m.rtc.notification` event
-    RtcNotification,
+    RtcNotification {
+        /// The intent of this notification.
+        call_intent: Option<CallIntent>,
+    },
 }
 
 impl TimelineItemContent {
@@ -146,7 +149,7 @@ impl TimelineItemContent {
             Self::FailedToParseMessageLike { event_type, .. } => Some(event_type.to_string()),
             Self::FailedToParseState { event_type, .. } => Some(event_type.to_string()),
             Self::CallInvite => Some(MessageLikeEventType::CallInvite.to_string()),
-            Self::RtcNotification => Some(MessageLikeEventType::RtcNotification.to_string()),
+            Self::RtcNotification { .. } => Some(MessageLikeEventType::RtcNotification.to_string()),
         }
     }
 
@@ -330,7 +333,7 @@ impl TimelineItemContent {
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::CallInvite => "a call invite",
-            TimelineItemContent::RtcNotification => "a call notification",
+            TimelineItemContent::RtcNotification { .. } => "a call notification",
         }
     }
 
@@ -401,7 +404,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
+            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification { .. } => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -433,7 +436,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification { .. } => {
                 // No reactions for these kind of items.
                 None
             }
@@ -458,7 +461,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification { .. } => {
                 // No reactions for these kind of items.
                 None
             }
@@ -725,9 +728,6 @@ pub enum AnyOtherStateEventContentChange {
     /// m.policy.rule.user
     PolicyRuleUser(StateEventContentChange<PolicyRuleUserEventContent>),
 
-    /// m.room.aliases
-    RoomAliases(StateEventContentChange<RoomAliasesEventContent>),
-
     /// m.room.avatar
     RoomAvatar(StateEventContentChange<RoomAvatarEventContent>),
 
@@ -793,7 +793,6 @@ impl AnyOtherStateEventContentChange {
             AnyStateEventContentChange::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
             AnyStateEventContentChange::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
             AnyStateEventContentChange::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
-            AnyStateEventContentChange::RoomAliases(c) => Self::RoomAliases(c),
             AnyStateEventContentChange::RoomAvatar(c) => Self::RoomAvatar(c),
             AnyStateEventContentChange::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
             AnyStateEventContentChange::RoomCreate(c) => Self::RoomCreate(c),
@@ -821,7 +820,6 @@ impl AnyOtherStateEventContentChange {
             Self::PolicyRuleRoom(c) => c.event_type(),
             Self::PolicyRuleServer(c) => c.event_type(),
             Self::PolicyRuleUser(c) => c.event_type(),
-            Self::RoomAliases(c) => c.event_type(),
             Self::RoomAvatar(c) => c.event_type(),
             Self::RoomCanonicalAlias(c) => c.event_type(),
             Self::RoomCreate(c) => c.event_type(),
@@ -852,9 +850,6 @@ impl AnyOtherStateEventContentChange {
             }
             Self::PolicyRuleUser(c) => {
                 Self::PolicyRuleUser(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomAliases(c) => {
-                Self::RoomAliases(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomAvatar(c) => {
                 Self::RoomAvatar(StateEventContentChange::Redacted(c.clone().redact(rules)))

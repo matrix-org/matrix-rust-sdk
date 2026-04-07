@@ -1,4 +1,4 @@
-// Copyright 2022 The Matrix.org Foundation C.I.C.
+// Copyright 2022, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
 use std::{
     collections::HashMap,
     fmt,
+    ops::Deref,
     path::Path,
     sync::{Arc, RwLock},
 };
@@ -48,6 +49,7 @@ use tokio::{
 };
 use tracing::{debug, instrument, warn};
 use vodozemac::Curve25519PublicKey;
+use zeroize::Zeroizing;
 
 use crate::{
     OpenStoreError, Secret, SqliteStoreConfig,
@@ -95,6 +97,36 @@ impl EncryptableStore for SqliteCryptoStore {
 }
 
 impl SqliteCryptoStore {
+    /// Create an `SqliteCryptoStore` struct without trying to create the
+    /// database or migrate to a newer version.  This is only for use
+    /// internally, and for testing.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret` - The secret used to encrypt the data.
+    ///
+    /// * `pool` - A connection pool to use for reading from the store.
+    ///
+    /// * `conn` - The connection to use for writing to the store.
+    pub(crate) async fn create_raw(
+        secret: Option<Secret>,
+        pool: SqlitePool,
+        conn: SqliteAsyncConn,
+    ) -> Result<Self, OpenStoreError> {
+        let store_cipher = match secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
+            None => None,
+        };
+
+        Ok(Self {
+            store_cipher,
+            pool,
+            write_connection: Arc::new(Mutex::new(conn)),
+            static_account: Arc::new(RwLock::new(None)),
+            save_changes_lock: Default::default(),
+        })
+    }
+
     /// Open the SQLite-based crypto store at the given path using the given
     /// passphrase to encrypt private data.
     pub async fn open(
@@ -135,23 +167,16 @@ impl SqliteCryptoStore {
 
         let version = conn.db_version().await?;
         debug!("Opened sqlite store with version {}", version);
-        run_migrations(&conn, version).await?;
 
-        conn.wal_checkpoint().await;
+        let version = initialize_store(&conn, version).await?;
 
-        let store_cipher = match secret {
-            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
-            None => None,
-        };
+        let store = Self::create_raw(secret, pool, conn).await?;
 
-        Ok(SqliteCryptoStore {
-            store_cipher,
-            pool,
-            // Use `conn` as our selected write connections.
-            write_connection: Arc::new(Mutex::new(conn)),
-            static_account: Arc::new(RwLock::new(None)),
-            save_changes_lock: Default::default(),
-        })
+        run_migrations(&store, version, None).await?;
+
+        store.write().await.wal_checkpoint().await;
+
+        Ok(store)
     }
 
     fn deserialize_and_unpickle_inbound_group_session(
@@ -190,16 +215,35 @@ impl SqliteCryptoStore {
 
     /// Acquire a connection for executing write operations.
     #[instrument(skip_all)]
-    async fn write(&self) -> OwnedMutexGuard<SqliteAsyncConn> {
+    pub(crate) async fn write(&self) -> OwnedMutexGuard<SqliteAsyncConn> {
         self.write_connection.clone().lock_owned().await
     }
 }
 
+const DATABASE_VERSION: u8 = 15;
+
 /// key for the dehydrated device pickle key in the key/value table.
 const DEHYDRATED_DEVICE_PICKLE_KEY: &str = "dehydrated_device_pickle_key";
 
-/// Run migrations for the given version of the database.
-async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
+/// Initialize the database to version 1
+///
+/// This must be done before creating the store cipher, because the store cipher
+/// requires the `kv` table.
+///
+/// # Arguments
+///
+/// * `conn` - The connection to use.
+///
+/// * `version` - the current version of the database.
+pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Result<u8> {
+    if version == 0 {
+        debug!("Creating database");
+    } else if version < DATABASE_VERSION {
+        debug!(version, new_version = DATABASE_VERSION, "Upgrading database");
+    } else {
+        return Ok(version);
+    }
+
     if version < 1 {
         debug!("Creating database");
         // First turn on WAL mode, this can't be done in the transaction, it fails with
@@ -210,7 +254,29 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
             txn.set_db_version(1)
         })
         .await?;
+        return Ok(1);
     }
+
+    Ok(version)
+}
+
+/// Run migrations for the given version of the database.
+///
+/// # Arguments
+///
+/// * `store` - The store to run the migrations on
+///
+/// * `version` - The current version of the database.
+///
+/// * `max_version` - The maximum version that the database will be migrated to.
+///   Only used for testing, so will only be checked for the versions that are
+///   needed for tests.
+pub(crate) async fn run_migrations(
+    store: &SqliteCryptoStore,
+    version: u8,
+    max_version: Option<u8>,
+) -> Result<()> {
+    let conn = store.write().await;
 
     if version < 2 {
         debug!("Upgrading database to version 2");
@@ -363,6 +429,44 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
                 "../migrations/crypto_store/016_remove_old_generation_counter.sql"
             ))?;
             txn.set_db_version(16)
+        })
+        .await?;
+    }
+
+    if max_version.is_some_and(|max_version| max_version < 17) {
+        return Ok(());
+    }
+
+    if version < 17 {
+        let store = store.clone();
+        conn.with_transaction(move |txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/017_add_new_secrets_inbox.sql"
+            ))?;
+            let mut select_query = txn.prepare("SELECT data FROM secrets")?;
+            let mut secrets = select_query.query([])?;
+            let mut insert_query = txn.prepare(
+                "INSERT OR IGNORE INTO secrets_inbox (secret_name, secret)
+            VALUES (?1, ?2)",
+            )?;
+            while let Some(row) = secrets.next()? {
+                let Ok(secret) =
+                    store.deserialize_json::<GossippedSecret>(row.get::<_, Vec<u8>>(0)?.as_ref())
+                else {
+                    continue;
+                };
+                let Ok(encoded_secret) = store.serialize_json(&secret.event.content.secret) else {
+                    continue;
+                };
+                insert_query.execute((
+                    store.encode_key("secrets_inbox", secret.secret_name.to_string()),
+                    &encoded_secret,
+                ))?;
+            }
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/017_drop_old_secrets_inbox.sql"
+            ))?;
+            txn.set_db_version(17)
         })
         .await?;
     }
@@ -548,11 +652,13 @@ impl SqliteConnectionExt for rusqlite::Connection {
         Ok(())
     }
 
-    fn set_secret(&self, secret_name: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+    fn set_secret(&self, secret_name: &[u8], secret: &[u8]) -> rusqlite::Result<()> {
+        // Ignore duplicate values, since we may get set the same secret
+        // multiple times.
         self.execute(
-            "INSERT INTO secrets (secret_name, data)
+            "INSERT OR IGNORE INTO secrets_inbox (secret_name, secret)
             VALUES (?1, ?2)",
-            (secret_name, data),
+            (secret_name, secret),
         )?;
 
         Ok(())
@@ -850,14 +956,14 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_secrets_from_inbox(&self, secret_name: Key) -> Result<Vec<Vec<u8>>> {
         Ok(self
-            .prepare("SELECT data FROM secrets WHERE secret_name = ?", |mut stmt| {
+            .prepare("SELECT secret FROM secrets_inbox WHERE secret_name = ?", |mut stmt| {
                 stmt.query((secret_name,))?.mapped(|row| row.get(0)).collect()
             })
             .await?)
     }
 
     async fn delete_secrets_from_inbox(&self, secret_name: Key) -> Result<()> {
-        self.execute("DELETE FROM secrets WHERE secret_name = ?", (secret_name,)).await?;
+        self.execute("DELETE FROM secrets_inbox WHERE secret_name = ?", (secret_name,)).await?;
         Ok(())
     }
 
@@ -1132,8 +1238,9 @@ impl CryptoStore for SqliteCryptoStore {
                 }
 
                 for secret in changes.secrets {
-                    let secret_name = this.encode_key("secrets", secret.secret_name.to_string());
-                    let value = this.serialize_json(&secret)?;
+                    let secret_name =
+                        this.encode_key("secrets_inbox", secret.secret_name.to_string());
+                    let value = this.serialize_json(secret.secret.deref())?;
                     txn.set_secret(&secret_name, &value)?;
                 }
 
@@ -1508,20 +1615,20 @@ impl CryptoStore for SqliteCryptoStore {
     async fn get_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
-    ) -> Result<Vec<GossippedSecret>> {
-        let secret_name = self.encode_key("secrets", secret_name.to_string());
+    ) -> Result<Vec<Zeroizing<String>>> {
+        let secret_name = self.encode_key("secrets_inbox", secret_name.to_string());
 
         self.read()
             .await?
             .get_secrets_from_inbox(secret_name)
             .await?
             .into_iter()
-            .map(|value| self.deserialize_json(value.as_ref()))
+            .map(|value| self.deserialize_json(value.as_ref()).map(|value: String| value.into()))
             .collect()
     }
 
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
-        let secret_name = self.encode_key("secrets", secret_name.to_string());
+        let secret_name = self.encode_key("secrets_inbox", secret_name.to_string());
         self.write().await.delete_secrets_from_inbox(secret_name).await
     }
 
@@ -2107,6 +2214,79 @@ mod tests {
         let backup_keys = database.load_backup_keys().await.expect("backup key should be cached");
         assert_eq!(backup_keys.backup_version.unwrap(), "6");
         assert!(backup_keys.decryption_key.is_some());
+    }
+
+    /// Test that we migrate the secrets inbox properly.
+    ///
+    /// The format for the secrets inbox changed in version 15.  Previously, the
+    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 15,
+    /// the secrets inbox now stores only the secret.
+    #[async_test]
+    async fn test_secrets_inbox_migration() {
+        use std::ops::Deref;
+
+        use matrix_sdk_crypto::{
+            GossipRequest, GossippedSecret, SecretInfo,
+            types::events::{
+                olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
+                secret_send::SecretSendContent,
+            },
+            vodozemac::Ed25519SecretKey,
+        };
+        use ruma::{TransactionId, events::secret::request::SecretName, owned_user_id};
+
+        use crate::utils::{EncryptableStore, SqliteAsyncConnExt};
+
+        // Create a database with version 16
+        let tmpdir = tempdir().unwrap();
+        let config = SqliteStoreConfig::new(tmpdir.path());
+        let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
+        let conn = pool.get().await.unwrap();
+        let version = super::initialize_store(&conn, 0).await.unwrap();
+        let old_data_store =
+            SqliteCryptoStore::create_raw(config.secret.clone(), pool, conn).await.unwrap();
+        super::run_migrations(&old_data_store, version, Some(16)).await.unwrap();
+        old_data_store.write().await.wal_checkpoint().await;
+
+        // Store a secret using the old format
+        let secret = GossippedSecret {
+            secret_name: SecretName::CrossSigningMasterKey,
+            gossip_request: GossipRequest {
+                request_recipient: owned_user_id!("@alice:example.com"),
+                request_id: TransactionId::new(),
+                info: SecretInfo::SecretRequest(SecretName::CrossSigningMasterKey),
+                sent_out: true,
+            },
+            event: DecryptedSecretSendEvent {
+                sender: owned_user_id!("@alice:example.com"),
+                recipient: owned_user_id!("@alice:example.com"),
+                keys: OlmV1Keys { ed25519: Ed25519SecretKey::new().public_key() },
+                recipient_keys: OlmV1Keys { ed25519: Ed25519SecretKey::new().public_key() },
+                sender_device_keys: None,
+                content: SecretSendContent::new(
+                    "abc".into(),
+                    "It is a secret to everybody".to_owned(),
+                ),
+            },
+        };
+        let value = old_data_store.serialize_json(&secret).unwrap();
+        old_data_store
+            .write()
+            .await
+            .prepare("INSERT INTO secrets (secret_name, data) VALUES (?1, ?2)", |mut stmt| {
+                stmt.execute((SecretName::CrossSigningMasterKey.to_string(), value))
+            })
+            .await
+            .unwrap();
+
+        // After we open the store, the data will be migrated
+        let store = SqliteCryptoStore::open_with_config(config).await.unwrap();
+
+        // and we should be able to read the secrets from the inbox
+        let secrets =
+            store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0].deref(), "It is a secret to everybody");
     }
 
     async fn get_store(

@@ -8,6 +8,14 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Enable sending redaction events through the send queue via `RoomSendQueue::redact`.
+  This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
+  variant.
+  ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
+- [**breaking**] Remove support for `native-tls` and remove all feature
+  flags for selecting TLS backend, as `rustls` is the now the only supported
+  TLS backend.
+  ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
 - [**breaking**] Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
   of the homeserver. This replaces `Client::get_capabilities()`. 
   ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))

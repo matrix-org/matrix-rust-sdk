@@ -742,8 +742,7 @@ impl TerminationReport {
         match &self.error {
             Some(Error::RoomList(room_list_service::Error::SlidingSync(error)))
             | Some(Error::EncryptionSync(encryption_sync_service::Error::SlidingSync(error))) => {
-                error.client_api_error_kind()
-                    == Some(&ruma::api::client::error::ErrorKind::UnknownPos)
+                error.client_api_error_kind() == Some(&ruma::api::error::ErrorKind::UnknownPos)
             }
             _ => false,
         }

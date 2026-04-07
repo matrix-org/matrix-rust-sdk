@@ -20,6 +20,8 @@ use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 #[cfg(not(any(target_family = "wasm", target_os = "android")))]
 use matrix_sdk::reqwest::Certificate;
 use matrix_sdk::{
+    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
+    RumaApiError, ThreadingSupport,
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
@@ -28,8 +30,6 @@ use matrix_sdk::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
-    Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
-    RumaApiError, ThreadingSupport,
 };
 use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
@@ -490,12 +490,11 @@ impl ClientBuilder {
                 updated_config = updated_config.timeout(Duration::from_millis(timeout));
             }
             updated_config = updated_config.read_timeout(DEFAULT_READ_TIMEOUT);
-            if let Some(max_concurrent_requests) = config.max_concurrent_requests {
-                if max_concurrent_requests > 0 {
-                    updated_config = updated_config.max_concurrent_requests(NonZeroUsize::new(
-                        max_concurrent_requests as usize,
-                    ));
-                }
+            if let Some(max_concurrent_requests) = config.max_concurrent_requests
+                && max_concurrent_requests > 0
+            {
+                updated_config = updated_config
+                    .max_concurrent_requests(NonZeroUsize::new(max_concurrent_requests as usize));
             }
             if let Some(max_retry_time) = config.max_retry_time {
                 updated_config =

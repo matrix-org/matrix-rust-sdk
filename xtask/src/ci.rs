@@ -129,7 +129,6 @@ enum FeatureSet {
     NoEncryptionAndSqlite,
     SqliteCryptostore,
     ExperimentalEncryptedStateEvents,
-    NativeTls,
     Markdown,
     Socks,
     SsoLogin,
@@ -262,7 +261,7 @@ fn check_clippy() -> Result<()> {
         "rustup run {NIGHTLY} cargo clippy --workspace --all-targets
             --exclude matrix-sdk-crypto --exclude xtask
             --no-default-features
-            --features rustls-tls,sso-login,sqlite,testing,experimental-element-recent-emojis
+            --features sso-login,sqlite,testing,experimental-element-recent-emojis
             -- -D warnings"
     )
     .run()?;
@@ -283,21 +282,17 @@ fn check_docs() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
-        (FeatureSet::NoEncryption, "--no-default-features --features sqlite,rustls-tls,testing"),
-        (
-            FeatureSet::NoSqlite,
-            "--no-default-features --features e2e-encryption,rustls-tls,testing",
-        ),
-        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features rustls-tls,testing"),
+        (FeatureSet::NoEncryption, "--no-default-features --features sqlite,testing"),
+        (FeatureSet::NoSqlite, "--no-default-features --features e2e-encryption,testing"),
+        (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features testing"),
         (
             FeatureSet::SqliteCryptostore,
-            "--no-default-features --features e2e-encryption,sqlite,rustls-tls,testing",
+            "--no-default-features --features e2e-encryption,sqlite,testing",
         ),
         (
             FeatureSet::ExperimentalEncryptedStateEvents,
-            "--no-default-features --features experimental-encrypted-state-events,e2e-encryption,sqlite,rustls-tls,testing",
+            "--no-default-features --features experimental-encrypted-state-events,e2e-encryption,sqlite,testing",
         ),
-        (FeatureSet::NativeTls, "--no-default-features --features native-tls,testing"),
         (FeatureSet::Markdown, "--features markdown,testing"),
         (FeatureSet::Socks, "--features socks,testing"),
         (FeatureSet::SsoLogin, "--features sso-login,testing"),
@@ -373,20 +368,17 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
 
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode --features js"),
-        (
-            WasmFeatureSet::MatrixSdkNoDefault,
-            "-p matrix-sdk --no-default-features --features js,rustls-tls",
-        ),
+        (WasmFeatureSet::MatrixSdkNoDefault, "-p matrix-sdk --no-default-features --features js"),
         (WasmFeatureSet::MatrixSdkBase, "-p matrix-sdk-base --features js,test-send-sync"),
         (WasmFeatureSet::MatrixSdkCommon, "-p matrix-sdk-common --features js"),
         (WasmFeatureSet::MatrixSdkUi, "-p matrix-sdk-ui --features js"),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            "-p matrix-sdk --no-default-features --features js,indexeddb,rustls-tls",
+            "-p matrix-sdk --no-default-features --features js,indexeddb",
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
-            "-p matrix-sdk --no-default-features --features js,indexeddb,e2e-encryption,rustls-tls",
+            "-p matrix-sdk --no-default-features --features js,indexeddb,e2e-encryption",
         ),
         (WasmFeatureSet::IndexeddbAllFeatures, "-p matrix-sdk-indexeddb"),
         (
@@ -434,19 +426,19 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
             WasmFeatureSet::MatrixSdkNoDefault,
-            ("crates/matrix-sdk", "--no-default-features --features js,rustls-tls --lib"),
+            ("crates/matrix-sdk", "--no-default-features --features js --lib"),
         ),
         (WasmFeatureSet::MatrixSdkBase, ("crates/matrix-sdk-base", "--features js")),
         (WasmFeatureSet::MatrixSdkCommon, ("crates/matrix-sdk-common", "--features js")),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStoresNoCrypto,
-            ("crates/matrix-sdk", "--no-default-features --features js,indexeddb,rustls-tls --lib"),
+            ("crates/matrix-sdk", "--no-default-features --features js,indexeddb --lib"),
         ),
         (
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             (
                 "crates/matrix-sdk",
-                "--no-default-features --features js,indexeddb,e2e-encryption,rustls-tls,testing --lib",
+                "--no-default-features --features js,indexeddb,e2e-encryption,testing --lib",
             ),
         ),
         (WasmFeatureSet::IndexeddbAllFeatures, ("crates/matrix-sdk-indexeddb", "")),

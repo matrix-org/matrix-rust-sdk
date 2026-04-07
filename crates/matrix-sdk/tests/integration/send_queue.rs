@@ -28,7 +28,8 @@ use ruma::events::room::message::GalleryItemType;
 use ruma::{
     MxcUri, OwnedEventId, OwnedTransactionId, TransactionId, event_id,
     events::{
-        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent, Mentions,
+        MessageLikeEventContent as _,
         poll::unstable_start::{
             NewUnstablePollStartEventContent, UnstablePollAnswer, UnstablePollAnswers,
             UnstablePollStartContentBlock, UnstablePollStartEventContent,
@@ -42,7 +43,7 @@ use ruma::{
             },
         },
     },
-    mxc_uri, owned_mxc_uri, owned_user_id, room_id,
+    mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id, room_id,
     serde::Raw,
     uint,
 };
@@ -239,6 +240,27 @@ macro_rules! assert_update {
 
         assert_eq!(key, $key);
         assert_eq!(applies_to, $parent_txn_id);
+
+        txn
+    }};
+
+    // Check the next stream event is a local echo for a redaction of an event with ID $redacts and reason $reason.
+    (($global_watch:ident, $watch:ident) => local echo redaction { redacts = $redacts:expr, reason = $reason:expr }) => {{
+        assert_let!(
+            Ok(Ok(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                content: LocalEchoContent::Redaction {
+                    redacts,
+                    reason,
+                    send_handle: _,
+                    send_error: _,
+                },
+                transaction_id: txn,
+            }))) = timeout(Duration::from_secs(1), $watch.recv()).await
+        );
+        assert_matches!($global_watch.recv().await, Ok(SendQueueUpdate { update: RoomSendQueueUpdate::NewLocalEvent { .. }, .. }));
+
+        assert_eq!(redacts, $redacts);
+        assert_eq!(reason, $reason);
 
         txn
     }};
@@ -1887,6 +1909,94 @@ async fn test_reactions() {
     // Cancelling sending of the third emoji fails because it's been sent already.
     assert!(emoji_handle3.abort().await.unwrap().not());
 
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_redaction() {
+    let server = MatrixMockServer::new().await;
+
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
+
+    let queue = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (local_echoes, mut watch) = queue.subscribe().await.unwrap();
+
+    // ----------------------
+    // Sanity check: the cache and queue are empty at the start.
+    assert!(events.is_empty());
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    // ----------------------
+    // Send a message in the room.
+    let content = RoomMessageEventContent::text_plain("hello world");
+    let msg_event_id = owned_event_id!("$1");
+    server.mock_room_send().ok(msg_event_id.clone()).mock_once().mount().await;
+    queue.send(content.into()).await.unwrap();
+
+    // ----------------------
+    // Observe the local echo.
+    let (txn, _) = assert_update!((global_watch, watch) => local echo { body = "hello world" });
+
+    // ----------------------
+    // The event is sent, at some point.
+    assert_update!((global_watch, watch) => sent {
+        txn = txn,
+        event_id = msg_event_id
+    });
+
+    // ----------------------
+    // Observe the event getting added to the cache.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(up)) = stream.recv());
+    assert_eq!(up.diffs.len(), 1);
+    assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id().as_deref().unwrap(), msg_event_id);
+
+    // ----------------------
+    // Send a redaction for the event.
+    let redacts = msg_event_id.clone();
+    let reason = Some("whatever");
+    let redaction_event_id = owned_event_id!("$2");
+    server.mock_room_redact().ok(redaction_event_id.clone()).mount().await;
+    queue.redact(redacts.clone(), reason).await.expect("queuing the redaction works");
+
+    // ----------------------
+    // Observe the local echo.
+    let txn = assert_update!((global_watch, watch) => local echo redaction { redacts = redacts, reason = reason.map(str::to_owned) });
+
+    // ----------------------
+    // The redaction event is sent, at some point.
+    assert_update!((global_watch, watch) => sent {
+        txn = txn,
+        event_id = redaction_event_id
+    });
+
+    // ----------------------
+    // Observe the redaction getting applied in the cache.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(up)) = stream.recv());
+    assert_eq!(up.diffs.len(), 2);
+    // The redaction event itself is added.
+    assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].event_id().as_deref().unwrap(), redaction_event_id);
+    // The target event is now redacted.
+    assert_let!(VectorDiff::Set { index: 0, value: redacted_event } = &up.diffs[1]);
+    let ev = redacted_event.raw().deserialize().unwrap();
+    assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(ev)) = ev);
+    assert_matches!(ev.as_original(), None);
+
+    // That's all, folks!
     assert!(watch.is_empty());
 }
 

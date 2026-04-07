@@ -16,13 +16,13 @@ use std::sync::{Arc, RwLock};
 
 use futures_util::StreamExt;
 use matrix_sdk::{
+    Account,
     encryption::{
+        Encryption,
         identities::UserIdentity,
         verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState},
-        Encryption,
     },
     ruma::events::key::verification::VerificationMethod,
-    Account,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::UserId;
@@ -246,16 +246,15 @@ impl SessionVerificationController {
         sender: &UserId,
         flow_id: impl AsRef<str>,
     ) {
-        if sender != self.user_identity.user_id() {
-            if let Some(status) = self.encryption.cross_signing_status().await {
-                if !status.is_complete() {
-                    warn!(
-                        "Cannot verify other users until our own device's cross-signing status \
-                         is complete: {status:?}"
-                    );
-                    return;
-                }
-            }
+        if sender != self.user_identity.user_id()
+            && let Some(status) = self.encryption.cross_signing_status().await
+            && !status.is_complete()
+        {
+            warn!(
+                "Cannot verify other users until our own device's cross-signing status \
+                 is complete: {status:?}"
+            );
+            return;
         }
 
         let Some(request) = self.encryption.get_verification_request(sender, flow_id).await else {
@@ -290,15 +289,10 @@ impl SessionVerificationController {
     ) -> Result<(), ClientError> {
         if let Some(ongoing_verification_request) =
             self.verification_request.read().unwrap().clone()
+            && !ongoing_verification_request.is_done()
+            && !ongoing_verification_request.is_cancelled()
         {
-            if !ongoing_verification_request.is_done()
-                && !ongoing_verification_request.is_cancelled()
-            {
-                return Err(ClientError::from_str(
-                    "There is another verification flow ongoing.",
-                    None,
-                ));
-            }
+            return Err(ClientError::from_str("There is another verification flow ongoing.", None));
         }
 
         *self.verification_request.write().unwrap() = Some(verification_request.clone());

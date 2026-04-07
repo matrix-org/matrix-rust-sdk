@@ -103,7 +103,7 @@ fn schema_add_v3(db: &Database) -> Result<(), Error> {
 }
 
 fn schema_add_v4(db: &Database) -> Result<(), Error> {
-    db.create_object_store(keys::SECRETS_INBOX).build()?;
+    db.create_object_store(old_keys::SECRETS_INBOX_V1).build()?;
     Ok(())
 }
 

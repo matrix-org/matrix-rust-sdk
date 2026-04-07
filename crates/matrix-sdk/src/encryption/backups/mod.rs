@@ -36,8 +36,8 @@ use matrix_sdk_base::crypto::{
 use ruma::serde::JsonCastable;
 use ruma::{
     OwnedRoomId, RoomId, TransactionId,
-    api::client::{
-        backup::{
+    api::{
+        client::backup::{
             RoomKeyBackup, add_backup_keys, create_backup_version, get_backup_keys,
             get_backup_keys_for_room, get_backup_keys_for_session, get_latest_backup_info,
         },
@@ -929,7 +929,7 @@ impl Backups {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
         for secret in secrets {
-            match self.maybe_enable_backups(&secret.event.content.secret).await {
+            match self.maybe_enable_backups(&secret).await {
                 Ok(enabled) => {
                     if enabled {
                         break;
@@ -1605,7 +1605,7 @@ mod test {
         let gossipped_secret =
             GossippedSecret { secret_name: SecretName::RecoveryKey, gossip_request, event };
 
-        let changes = Changes { secrets: vec![gossipped_secret], ..Default::default() };
+        let changes = Changes { secrets: vec![gossipped_secret.into()], ..Default::default() };
 
         machine
             .store()
