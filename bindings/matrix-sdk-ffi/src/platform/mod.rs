@@ -14,7 +14,7 @@
 
 use std::sync::OnceLock;
 #[cfg(feature = "sentry")]
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{Arc, atomic::AtomicBool};
 
 use ::tracing::info;
 #[cfg(feature = "sentry")]
@@ -24,18 +24,17 @@ use tracing_appender::rolling::Rotation;
 use tracing_core::Level;
 use tracing_core::Subscriber;
 use tracing_subscriber::{
+    EnvFilter, Layer, Registry,
     field::RecordFields,
     fmt::{
-        self,
+        self, FormatEvent, FormatFields, FormattedFields,
         format::{DefaultFields, Writer},
         time::FormatTime,
-        FormatEvent, FormatFields, FormattedFields,
     },
     layer::{Layered, SubscriberExt as _},
     registry::LookupSpan,
     reload::{self, Handle},
     util::SubscriberInitExt as _,
-    EnvFilter, Layer, Registry,
 };
 
 use crate::error::ClientError;
@@ -54,9 +53,9 @@ mod android_platform;
 
 use rolling_writer::SizeAndDateRollingWriter;
 
-use self::tracing::LogLevel;
 #[cfg(feature = "sentry")]
 use self::tracing::BRIDGE_SPAN_NAME;
+use self::tracing::LogLevel;
 
 // Adjusted version of tracing_subscriber::fmt::Format
 struct EventFormatter {
@@ -538,11 +537,7 @@ impl TracingConfiguration {
                         sentry::ClientOptions {
                             traces_sampler: Some(Arc::new(|ctx| {
                                 // Make sure bridge spans are always uploaded
-                                if ctx.name() == BRIDGE_SPAN_NAME {
-                                    1.0
-                                } else {
-                                    0.0
-                                }
+                                if ctx.name() == BRIDGE_SPAN_NAME { 1.0 } else { 0.0 }
                             })),
                             attach_stacktrace: true,
                             release: Some(env!("VERGEN_GIT_SHA").into()),

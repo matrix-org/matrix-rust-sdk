@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
 use ruma::events::{
-    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, StateEventContentChange,
+    StateEventContentChange, room::history_visibility::HistoryVisibility as RumaHistoryVisibility,
 };
 
 use crate::{

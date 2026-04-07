@@ -15,16 +15,17 @@
 use std::sync::{Arc, RwLock};
 
 use matrix_sdk::{
+    Client as MatrixClient,
     event_handler::EventHandlerHandle,
     notification_settings::{
         NotificationSettings as SdkNotificationSettings,
         RoomNotificationMode as SdkRoomNotificationMode,
     },
     ruma::events::push_rules::PushRulesEvent,
-    Client as MatrixClient,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::{
+    Int, RoomId, UInt,
     events::push_rules::PushRulesEventContent,
     push::{
         Action as SdkAction, ComparisonOperator as SdkComparisonOperator, EventMatchConditionData,
@@ -34,7 +35,6 @@ use ruma::{
         ScalarJsonValue as SdkJsonValue, SenderNotificationPermissionConditionData,
         Tweak as SdkTweak,
     },
-    Int, RoomId, UInt,
 };
 use tokio::sync::RwLock as AsyncRwLock;
 

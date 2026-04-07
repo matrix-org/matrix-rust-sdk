@@ -2,7 +2,7 @@ use std::{error::Error, mem::MaybeUninit};
 
 use jni::{
     errors::JniError,
-    sys::{JavaVM as RawJavaVM, JNI_OK},
+    sys::{JNI_OK, JavaVM as RawJavaVM},
 };
 use tracing::debug;
 
@@ -70,8 +70,8 @@ fn init_rustls_platform_verifier(env: &mut jni::JNIEnv<'_>) -> jni::errors::Resu
 }
 
 /// Attach the current thread to a JVM one.
-pub(crate) fn android_attach_current_thread_permanently(
-) -> jni::errors::Result<jni::JNIEnv<'static>> {
+pub(crate) fn android_attach_current_thread_permanently()
+-> jni::errors::Result<jni::JNIEnv<'static>> {
     ANDROID_JVM
         .get()
         .ok_or_else(|| jni::errors::Error::JniCall(JniError::Unknown))?
