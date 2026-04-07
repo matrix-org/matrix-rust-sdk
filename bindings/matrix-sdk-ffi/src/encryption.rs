@@ -317,7 +317,7 @@ impl SecretsBundleWithUserId {
         let user_id = OwnedUserId::from_str(user_id)?;
         let mut bundle: matrix_sdk_base::crypto::types::SecretsBundle =
             serde_json::from_str(bundle)?;
-        let backup_info = serde_json::from_str(&backup_info)?;
+        let backup_info = serde_json::from_str(backup_info)?;
 
         let should_remove_backup =
             bundle.backup.as_ref().is_some_and(|backup| !is_valid_backup(backup, &backup_info));
@@ -343,7 +343,7 @@ impl SecretsBundleWithUserId {
         mut passphrase: Option<String>,
         backup_info: &str,
     ) -> Result<Arc<Self>, BundleExportError> {
-        let backup_info = serde_json::from_str(&backup_info)?;
+        let backup_info = serde_json::from_str(backup_info)?;
 
         let ret = if let Some((user_id, mut inner)) =
             matrix_sdk::encryption::export_secrets_bundle_from_store(
@@ -387,30 +387,58 @@ fn is_valid_backup(secrets: &BackupSecrets, info: &RoomKeyBackupInfo) -> bool {
     }
 }
 
+fn check_bundle_and_info(
+    bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
+    info: Option<&RoomKeyBackupInfo>,
+) -> DetectedSecretsBundle {
+    match (&bundle.backup, info) {
+        (None, None) => DetectedSecretsBundle::WithoutBackup,
+        (None, Some(_)) => DetectedSecretsBundle::WithoutBackup,
+        (Some(_), None) => DetectedSecretsBundle::UnusedBackup,
+        (Some(backup), Some(info)) => {
+            if is_valid_backup(backup, info) {
+                DetectedSecretsBundle::UnusedBackup
+            } else {
+                DetectedSecretsBundle::Complete
+            }
+        }
+    }
+}
+
+/// Check if a JSON encoded string contains a valid [`SecretsBundle`].
+#[uniffi::export]
+pub fn json_string_contains_secrets_bundle(
+    bundle: &str,
+    backup_info: Option<String>,
+) -> Result<DetectedSecretsBundle, ClientError> {
+    let info: Option<RoomKeyBackupInfo> =
+        backup_info.map(|info| serde_json::from_str(&info)).transpose()?;
+
+    let bundle: matrix_sdk_base::crypto::types::SecretsBundle = serde_json::from_str(bundle)?;
+
+    Ok(check_bundle_and_info(&bundle, info.as_ref()))
+}
+
 /// Check if a crypto store contains a valid [`SecretsBundle`].
 #[matrix_sdk_ffi_macros::export]
 pub async fn database_contains_secrets_bundle(
     database_path: &str,
     mut passphrase: Option<String>,
-    backup_info: String,
-) -> Result<DetectedSecretsBundle, ClientError> {
-    let info = serde_json::from_str(&backup_info)?;
+    backup_info: Option<String>,
+) -> Result<DetectedSecretsBundle, BundleExportError> {
+    let info: Option<RoomKeyBackupInfo> =
+        backup_info.map(|info| serde_json::from_str(&info)).transpose()?;
 
     let maybe_bundle = matrix_sdk::encryption::export_secrets_bundle_from_store(
         database_path,
         passphrase.as_deref(),
     )
-    .await
-    .map_err(ClientError::from_err)?;
+    .await?;
 
     passphrase.zeroize();
 
     Ok(match maybe_bundle {
-        Some((_, bundle)) => match &bundle.backup {
-            Some(backup) if is_valid_backup(backup, &info) => DetectedSecretsBundle::Complete,
-            Some(_) => DetectedSecretsBundle::UnusedBackup,
-            None => DetectedSecretsBundle::WithoutBackup,
-        },
+        Some((_, bundle)) => check_bundle_and_info(&bundle, info.as_ref()),
         None => DetectedSecretsBundle::None,
     })
 }
