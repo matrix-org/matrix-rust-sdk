@@ -223,7 +223,10 @@ impl TaskMonitor {
         self.failure_sender.subscribe()
     }
 
-    /// Spawn a background task that is expected to run indefinitely.
+    /// Spawn a background task that is expected to **run forever**.
+    ///
+    /// For one-off background tasks that are expected to complete successfully,
+    /// use [`Self::spawn_background_job`] instead.
     ///
     /// If the task completes (whether successfully or by panicking), it will be
     /// reported as a [`BackgroundTaskFailure`] report through the broadcast
@@ -246,6 +249,50 @@ impl TaskMonitor {
         &self,
         name: impl Into<String>,
         future: F,
+    ) -> BackgroundTaskHandle
+    where
+        F: Future<Output = ()> + SendOutsideWasm + 'static,
+    {
+        self.spawn_background_task_internal(name, future, true)
+    }
+
+    /// Spawn a background job that is expected to run once and complete
+    /// successfully in the background.
+    ///
+    /// For long-term background jobs that are expected to run forever, use
+    /// [`Self::spawn_background_task`] instead.
+    ///
+    /// If the task completes (by panicking), it will be reported as a
+    /// [`BackgroundTaskFailure`] report through the broadcast channel.
+    ///
+    /// Use this for one-shot background tasks that should complete under normal
+    /// operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - A human-readable name for the task (for debugging purposes).
+    /// * `future` - The async task to run.
+    ///
+    /// # Returns
+    ///
+    /// A [`BackgroundTaskHandle`] that can be used to abort the task or check
+    /// if it has finished. This is the equivalent of tokio's `JoinHandle`.
+    pub fn spawn_background_job<F>(
+        &self,
+        name: impl Into<String>,
+        future: F,
+    ) -> BackgroundTaskHandle
+    where
+        F: Future<Output = ()> + SendOutsideWasm + 'static,
+    {
+        self.spawn_background_task_internal(name, future, false)
+    }
+
+    fn spawn_background_task_internal<F>(
+        &self,
+        name: impl Into<String>,
+        future: F,
+        runs_forever: bool,
     ) -> BackgroundTaskHandle
     where
         F: Future<Output = ()> + SendOutsideWasm + 'static,
@@ -274,8 +321,14 @@ impl TaskMonitor {
 
             let failure_reason = match result {
                 Ok(()) => {
-                    // The task ended, this is considered an early termination.
-                    BackgroundTaskFailureReason::EarlyTermination
+                    if runs_forever {
+                        // The background forever task ended, this is considered an early
+                        // termination.
+                        BackgroundTaskFailureReason::EarlyTermination
+                    } else {
+                        // The task ended successfully, no failure to report.
+                        return;
+                    }
                 }
 
                 Err(panic_payload) => BackgroundTaskFailureReason::Panic {
@@ -474,7 +527,13 @@ fn extract_panic_message(payload: &Box<dyn Any + Send>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
+        time::Duration,
+    };
 
     use assert_matches::assert_matches;
     use matrix_sdk_test_macros::async_test;
@@ -615,5 +674,32 @@ mod tests {
         // Should NOT receive a failure for intentional abort.
         let result = timeout(failures.recv(), Duration::from_millis(100)).await;
         assert!(result.is_err(), "should timeout, no failure expected for abort");
+    }
+
+    #[async_test]
+    async fn test_background_job() {
+        let monitor = TaskMonitor::new();
+        let mut failures = monitor.subscribe();
+
+        let successful_completion = Arc::new(AtomicBool::new(false));
+
+        // Spawn a one-off background job that completes successfully.
+        let successful_completion_clone = successful_completion.clone();
+        let _handle = monitor.spawn_background_job("one-shot job", async move {
+            sleep(Duration::from_millis(10)).await;
+            successful_completion_clone.store(true, Ordering::SeqCst);
+        });
+
+        // Give the task time to finish.
+        sleep(Duration::from_millis(20)).await;
+
+        // Should NOT receive a failure for successful completion.
+        let result = timeout(failures.recv(), Duration::from_millis(100)).await;
+        assert!(result.is_err(), "should timeout, no failure expected for abort");
+
+        assert!(
+            successful_completion.load(Ordering::SeqCst),
+            "background job should have completed successfully"
+        );
     }
 }
