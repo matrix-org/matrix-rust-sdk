@@ -56,6 +56,10 @@ pub enum CryptoStoreError {
     #[error(transparent)]
     Pickle(#[from] vodozemac::PickleError),
 
+    /// Backing up a room key has failed.
+    #[error(transparent)]
+    Backup(#[from] vodozemac::pk_encryption::Error),
+
     /// The received room key couldn't be converted into a valid Megolm session.
     #[error(transparent)]
     SessionCreation(#[from] SessionCreationError),

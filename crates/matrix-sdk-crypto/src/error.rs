@@ -73,6 +73,11 @@ pub enum OlmError {
     )]
     MissingSession,
 
+    /// Encrypting of an Olm message failed because of a low-level cryptographic
+    /// issue occurred.
+    #[error(transparent)]
+    Encryption(#[from] vodozemac::olm::EncryptionError),
+
     /// Encryption failed due to an error collecting the recipient devices.
     #[error("encryption failed due to an error collecting the recipient devices: {0}")]
     SessionRecipientCollectionError(SessionRecipientCollectionError),

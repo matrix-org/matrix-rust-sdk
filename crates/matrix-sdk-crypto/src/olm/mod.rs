@@ -89,13 +89,15 @@ pub(crate) mod tests {
         bob.generate_one_time_keys(1);
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
-        let session = alice.create_outbound_session_helper(
-            SessionConfig::default(),
-            sender_key,
-            one_time_key,
-            false,
-            alice.device_keys(),
-        );
+        let session = alice
+            .create_outbound_session_helper(
+                SessionConfig::default(),
+                sender_key,
+                one_time_key,
+                false,
+                alice.device_keys(),
+            )
+            .unwrap();
 
         (alice, session)
     }
@@ -141,17 +143,25 @@ pub(crate) mod tests {
 
         let one_time_key = *one_time_keys.values().next().unwrap();
 
-        let mut bob_session = bob.create_outbound_session_helper(
-            SessionConfig::default(),
-            alice_keys.curve25519,
-            one_time_key,
-            false,
-            bob.device_keys(),
-        );
+        #[cfg(not(feature = "experimental-algorithms"))]
+        let config = SessionConfig::version_1();
+
+        #[cfg(feature = "experimental-algorithms")]
+        let config = SessionConfig::version_2();
+
+        let mut bob_session = bob
+            .create_outbound_session_helper(
+                config,
+                alice_keys.curve25519,
+                one_time_key,
+                false,
+                bob.device_keys(),
+            )
+            .unwrap();
 
         let plaintext = "Hello world";
 
-        let message = bob_session.encrypt_helper(plaintext).await;
+        let message = bob_session.encrypt_helper(plaintext).await.unwrap();
 
         let prekey_message = match message {
             OlmMessage::PreKey(m) => m,

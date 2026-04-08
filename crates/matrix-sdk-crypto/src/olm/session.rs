@@ -123,12 +123,14 @@ impl Session {
     /// # Arguments
     ///
     /// * `plaintext` - The plaintext that should be encrypted.
-    pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmMessage {
+    pub(crate) async fn encrypt_helper(&mut self, plaintext: &str) -> OlmResult<OlmMessage> {
         let mut session = self.inner.lock().await;
-        let message = session.encrypt(plaintext);
+        let message = session.encrypt(plaintext)?;
+
         self.last_use_time = SecondsSinceUnixEpoch::now();
         debug!(?session, "Successfully encrypted an event");
-        message
+
+        Ok(message)
     }
 
     /// Encrypt the given event content as an m.room.encrypted event
@@ -206,7 +208,7 @@ impl Session {
             serde_json::to_string(&content)?
         };
 
-        let ciphertext = self.encrypt_helper(&plaintext).await;
+        let ciphertext = self.encrypt_helper(&plaintext).await?;
 
         let content = self.build_encrypted_event(ciphertext, message_id).await?;
         let content = Raw::new(&content)?;
@@ -364,17 +366,25 @@ mod tests {
             Account::with_device_id(user_id!("@alice:localhost"), device_id!("ALICEDEVICE"));
         let mut bob = Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"));
 
+        #[cfg(not(feature = "experimental-algorithms"))]
+        let config = SessionConfig::version_1();
+
+        #[cfg(feature = "experimental-algorithms")]
+        let config = SessionConfig::version_2();
+
         // When Alice creates an Olm session with Bob
         bob.generate_one_time_keys(1);
         let one_time_key = *bob.one_time_keys().values().next().unwrap();
         let sender_key = bob.identity_keys().curve25519;
-        let mut alice_session = alice.create_outbound_session_helper(
-            SessionConfig::default(),
-            sender_key,
-            one_time_key,
-            false,
-            alice.device_keys(),
-        );
+        let mut alice_session = alice
+            .create_outbound_session_helper(
+                config,
+                sender_key,
+                one_time_key,
+                false,
+                alice.device_keys(),
+            )
+            .unwrap();
 
         let alice_device = DeviceData::from_account(&alice);
 

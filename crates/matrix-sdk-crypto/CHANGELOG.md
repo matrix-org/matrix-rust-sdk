@@ -17,7 +17,6 @@ All notable changes to this project will be documented in this file.
   - Add new method `OlmMachine::push_secret_to_verified_devices`.
   - Pushed secrets that we receive from verified devices are added to the
     secrets inbox.
-
 - Add `Store::{store,clear}_room_pending_key_bundle`,
   `CryptoStore::get_pending_key_bundle_details_for_room` and
   `CryptoStore::get_all_rooms_pending_key_bundle`, which can be used by
@@ -44,28 +43,26 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] The `MegolmV1BackupKey::encrypt` now returns a `Result`
+  ([#6477](https://github.com/matrix-org/matrix-rust-sdk/pull/6477))
 - [**breaking**] `CryptoStore::get_secrets_from_inbox` now returns a `Vec` of
   the secrets as strings, rather than a `Vec` of `GossippedSecret` structs.
   ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
-
 - [**breaking**] `store::types::Changes::sessions` now stores a `Vec` of
   `SecretsInboxItem`.
   ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
-
 - **breaking** The `BackupDecryptionKey::new` and `DehydratedDeviceKey::new`
   methods became infallible, they don't return a `Result` anymore.
   ([#5502](https://github.com/matrix-org/matrix-rust-sdk/pull/5502))
 - [**breaking**] Remove cross-process lock generation logic from `OlmMachine`, which is now
   implemented more generally in `matrix_sdk_common::cross_process_lock::CrossProcessLock`.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
-
 - [**breaking**] The `MediaEncryptionInfo` fields changed to match the new fields of `EncryptedFile`
   from Ruma. The serialized JSON format did not change and still matches the format of
   `EncryptedFile` defined in the spec, without the `url` field. The `DecryptorError::KeyNonceLength`
   variant was removed because the length of the key and nonce are now enforced in
   `MediaEncryptionInfo`.
   ([#6346](https://github.com/matrix-org/matrix-rust-sdk/pull/6346))
-
 - [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
   ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
@@ -74,7 +71,6 @@ All notable changes to this project will be documented in this file.
   returns an MSC-specific struct now. The `rendezvous_url()` method has been
   removed.
   ([#6081](https://github.com/matrix-org/matrix-rust-sdk/pull/6081))
-
 - [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
   been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
