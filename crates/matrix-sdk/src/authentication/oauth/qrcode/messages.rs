@@ -166,6 +166,9 @@ pub enum LoginFailureReason {
     /// Sent by either new or existing device to indicate that the user has
     /// cancelled the login.
     UserCancelled,
+    /// Sent by existing device to indicate that it was unable to open the
+    /// verification_uri_complete (or verification_uri).
+    UnableToOpenVerificationUri,
     #[doc(hidden)]
     _Custom(PrivOwnedStr),
 }

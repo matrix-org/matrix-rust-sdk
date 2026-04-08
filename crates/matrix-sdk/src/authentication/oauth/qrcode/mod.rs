@@ -384,10 +384,26 @@ impl CheckCodeSender {
     ///
     /// * `check_code` - The check code in digits representation.
     pub async fn send(&self, check_code: u8) -> Result<(), SenderError> {
-        match self.inner.lock().await.take() {
-            Some(tx) => tx.send(check_code).map_err(|_| SenderError::CannotSend),
-            None => Err(SenderError::AlreadySent),
-        }
+        self.send_impl(check_code).await
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ContinuationMessage {
+    Confirm,
+    Cancel,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContinuationMessageSender(CloneableSender<ContinuationMessage>);
+
+impl ContinuationMessageSender {
+    pub async fn confirm(&self) -> Result<(), SenderError> {
+        self.0.send_impl(ContinuationMessage::Confirm).await
+    }
+
+    pub async fn cancel(&self) -> Result<(), SenderError> {
+        self.0.send_impl(ContinuationMessage::Cancel).await
     }
 }
 
@@ -401,6 +417,13 @@ pub struct CloneableSender<T> {
 impl<T> CloneableSender<T> {
     pub(crate) fn new(tx: tokio::sync::oneshot::Sender<T>) -> Self {
         Self { inner: Arc::new(Mutex::new(Some(tx))) }
+    }
+
+    async fn send_impl(&self, message: T) -> Result<(), SenderError> {
+        match self.inner.lock().await.take() {
+            Some(tx) => tx.send(message).map_err(|_| SenderError::CannotSend),
+            None => Err(SenderError::AlreadySent),
+        }
     }
 }
 
