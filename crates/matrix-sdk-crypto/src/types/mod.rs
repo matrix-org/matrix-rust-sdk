@@ -87,7 +87,7 @@ macro_rules! to_base64 {
     };
 }
 
-/// Struct containing the bundle of secrets to fully activate a new devices for
+/// Struct containing the bundle of secrets to fully activate a new device for
 /// end-to-end encryption.
 #[derive(Debug, Deserialize, Clone, Serialize, ZeroizeOnDrop)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]

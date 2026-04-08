@@ -238,7 +238,7 @@ impl From<encryption::VerificationState> for VerificationState {
     }
 }
 
-/// Struct containing the bundle of secrets to fully activate a new devices for
+/// Struct containing the bundle of secrets to fully activate a new device for
 /// end-to-end encryption.
 #[derive(uniffi::Object)]
 pub struct SecretsBundleWithUserId {
@@ -265,14 +265,14 @@ pub enum DetectedSecretsBundle {
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum BundleExportError {
     /// The SQLite store couldn't be opened.
-    #[error("the store coulnd't be opened: {msg}")]
+    #[error("the store couldn't be opened: {msg}")]
     OpenStoreError { msg: String },
-    /// Data from the SQLite store coulnd't be exported.
-    #[error("the bundle coulnd't be exported due to a storage error: {msg}")]
+    /// Data from the SQLite store couldn't be exported.
+    #[error("the bundle couldn't be exported due to a storage error: {msg}")]
     StoreError { msg: String },
     /// The store doesn't contain a secrets bundle or it couldn't be read from
     /// the store.
-    #[error("the bundle coulnt' be exported: {msg}")]
+    #[error("the bundle couldn't be exported: {msg}")]
     SecretError { msg: String },
     /// The store is empty and doesn't contain a secrets bundle.
     #[error("the store is completely empty")]
@@ -281,10 +281,13 @@ pub enum BundleExportError {
     /// exported.
     #[error("Couldn't deserialize a JSON value: {msg}")]
     Json { msg: String },
-    /// Error returned when the secrets bundle includes a backup key
-    /// that doesn’t match the key configured for the active backup version.
-    #[error("The bundle contained a backup key which isn't the one that's currently used")]
-    MismatchedBackupKey,
+    /// Error returned when the secrets bundle is missing a backup key or
+    /// includes one that doesn’t match the key configured for the active backup
+    /// version.
+    #[error(
+        "The bundle is missing a backup key or has one that isn't the one that's currently used"
+    )]
+    InvalidBackup,
 }
 
 impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
@@ -330,7 +333,7 @@ impl SecretsBundleWithUserId {
         if is_backup_ok {
             Ok(Self { user_id, inner: bundle }.into())
         } else {
-            Err(BundleExportError::MismatchedBackupKey)
+            Err(BundleExportError::InvalidBackup)
         }
     }
 
@@ -363,7 +366,7 @@ impl SecretsBundleWithUserId {
             if is_backup_ok {
                 Ok(SecretsBundleWithUserId { user_id, inner: bundle }.into())
             } else {
-                Err(BundleExportError::MismatchedBackupKey)
+                Err(BundleExportError::InvalidBackup)
             }
         } else {
             Err(BundleExportError::StoreEmpty)
@@ -726,8 +729,8 @@ impl Encryption {
     /// **Warning**: Only import this from a trusted source, i.e. if an existing
     /// device is sharing this with a new device.
     ///
-    /// **Warning*: Only call this method before right after logging in and
-    /// before the initial sync has been started.
+    /// **Warning*: Only call this method right after logging in and before the
+    /// initial sync has been started.
     pub async fn import_secrets_bundle(
         &self,
         secrets_bundle: &SecretsBundleWithUserId,

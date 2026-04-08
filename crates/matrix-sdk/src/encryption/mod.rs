@@ -130,7 +130,7 @@ use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use crate::config::RequestConfig;
 pub use crate::error::RoomKeyImportError;
 
-/// Error type describinfg failures that can happen while exporting a
+/// Error type describing failures that can happen while exporting a
 /// [`SecretsBundle`] from a SQLite store.
 #[cfg(feature = "sqlite")]
 #[derive(Debug, thiserror::Error)]
@@ -138,7 +138,7 @@ pub enum BundleExportError {
     /// The SQLite store couldn't be opened.
     #[error(transparent)]
     OpenStoreError(#[from] matrix_sdk_sqlite::OpenStoreError),
-    /// Data from the SQLite store coulnd't be exported.
+    /// Data from the SQLite store couldn't be exported.
     #[error(transparent)]
     StoreError(#[from] CryptoStoreError),
     /// The store doesn't contain a secrets bundle or it couldn't be read from
@@ -147,14 +147,14 @@ pub enum BundleExportError {
     SecretExport(#[from] matrix_sdk_base::crypto::store::SecretsBundleExportError),
 }
 
-/// Error type describinfg failures that can happen while importing a
+/// Error type describing failures that can happen while importing a
 /// [`SecretsBundle`].
 #[derive(Debug, thiserror::Error)]
 pub enum BundleImportError {
-    /// The bundle coulnd't be imported.
+    /// The bundle couldn't be imported.
     #[error(transparent)]
     SecretImport(#[from] SecretImportError),
-    /// The cross-signed device keys coulnd't been uploaded.
+    /// The cross-signed device keys couldn't been uploaded.
     #[error(transparent)]
     DeviceKeys(#[from] Error),
 }
@@ -926,8 +926,8 @@ impl Encryption {
     /// **Warning**: Only import this from a trusted source, i.e. if an existing
     /// device is sharing this with a new device.
     ///
-    /// **Warning*: Only call this method before right after logging in and
-    /// before the initial sync has been started.
+    /// **Warning*: Only call this method right after logging in and before the
+    /// initial sync has been started.
     pub async fn import_secrets_bundle(
         &self,
         bundle: &SecretsBundle,
