@@ -47,10 +47,11 @@ All notable changes to this project will be documented in this file.
   flags for selecting TLS backend, as `rustls` is the now the only supported
   TLS backend.
   ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
-- Expose `event_type_raw` and `latest_content_raw()` on `EventTimelineItem`,
-  allowing clients to access the raw event type string and content JSON for
+- Expose `event_type_raw` and `latest_json()` on `EventTimelineItem`,
+  allowing clients to access the raw event type string and full event JSON for
   custom event handling without pattern-matching through nested enums.
   ([#6387](https://github.com/matrix-org/matrix-rust-sdk/pull/6387))
+  ([#6424](https://github.com/matrix-org/matrix-rust-sdk/pull/6424))
 - Expose sync v2 API through FFI via `Client.sync_v2()` and
   `Client.sync_once_v2()`, enabling mobile clients to sync without
   requiring Sliding Sync support on the homeserver. `Client.sync_v2()`

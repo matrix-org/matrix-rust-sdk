@@ -1327,14 +1327,11 @@ impl LazyTimelineItemProvider {
         self.0.contains_only_emojis()
     }
 
-    /// Returns the JSON string of the event's `content` field from the latest
-    /// version (including edits). Returns `None` for local echoes that haven't
-    /// been echoed back by the server yet.
-    fn latest_content_raw(&self) -> Option<String> {
-        let raw = self.0.latest_json()?;
-        let value: serde_json::Value = serde_json::from_str(raw.json().get()).ok()?;
-        let content = value.get("content")?;
-        serde_json::to_string(content).ok()
+    /// Returns the full raw JSON string of the latest version of the event
+    /// (including edits). Returns `None` for local echoes that haven't been
+    /// echoed back by the server yet.
+    fn latest_json(&self) -> Option<String> {
+        Some(self.0.latest_json()?.json().get().to_owned())
     }
 }
 
