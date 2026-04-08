@@ -30,6 +30,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Add the `suggested` field to the `SpaceRoom` struct,
+  which indicates whether a space's admins have marked that sub-space/room
+  as a "suggested" one to join. ([6417](https://github.com/matrix-org/matrix-rust-sdk/pull/6417))
 - Handle local echoes of redactions in the timeline.
   ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
 - [**breaking**] Remove support for `native-tls` and remove all feature
