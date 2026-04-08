@@ -121,6 +121,10 @@ pub struct RoomListService {
     ///
     /// `RoomListService` is a simple state-machine.
     state_machine: StateMachine,
+
+    /// Additional required state events requested by the caller, merged with
+    /// the defaults for both the all-rooms list and room subscriptions.
+    extra_required_state: Vec<(StateEventType, String)>,
 }
 
 impl RoomListService {
@@ -141,6 +145,17 @@ impl RoomListService {
     ///
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     pub async fn new_with_share_pos(client: Client, share_pos: bool) -> Result<Self, Error> {
+        Self::new_with_extra_required_state(client, share_pos, vec![]).await
+    }
+
+    /// Like [`RoomListService::new_with_share_pos`] but with additional
+    /// required state events that will be merged with the defaults for both
+    /// the all-rooms list and room subscriptions.
+    pub async fn new_with_extra_required_state(
+        client: Client,
+        share_pos: bool,
+        extra_required_state: Vec<(StateEventType, String)>,
+    ) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
@@ -205,6 +220,7 @@ impl RoomListService {
                         DEFAULT_REQUIRED_STATE
                             .iter()
                             .map(|(state_event, value)| (state_event.clone(), (*value).to_owned()))
+                            .chain(extra_required_state.iter().cloned())
                             .collect(),
                     )
                     .filters(Some(assign!(http::request::ListFilters::default(), {
@@ -248,7 +264,7 @@ impl RoomListService {
         // Eagerly subscribe the event cache to sync responses.
         client.event_cache().subscribe()?;
 
-        Ok(Self { client, sliding_sync, state_machine })
+        Ok(Self { client, sliding_sync, state_machine, extra_required_state })
     }
 
     /// Start to sync the room list.
@@ -472,6 +488,7 @@ impl RoomListService {
                     (state_event.clone(), (*value).to_owned())
                 })
             )
+            .chain(self.extra_required_state.iter().cloned())
             .collect(),
             timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
         });
@@ -565,6 +582,8 @@ mod tests {
     use ruma::api::MatrixVersion;
     use serde_json::json;
     use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
+
+    use ruma::events::StateEventType;
 
     use super::{ALL_ROOMS_LIST_NAME, Error, RoomListService, State};
 
@@ -667,6 +686,34 @@ mod tests {
 
         // State is `Error`, as a regular session expiration would generate!
         assert_eq!(room_list.state_machine.get(), State::Error { from: Box::new(State::Running) });
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_extra_required_state_is_accepted() -> Result<(), Error> {
+        let (client, _) = new_client().await;
+
+        let extra = vec![
+            (StateEventType::RoomPinnedEvents, "".to_owned()),
+            (StateEventType::RoomTopic, "".to_owned()),
+        ];
+
+        let room_list =
+            RoomListService::new_with_extra_required_state(client, true, extra).await?;
+
+        // The service was built successfully with extra required state. Verify
+        // the all_rooms list is present and operational.
+        let sliding_sync = room_list.sliding_sync();
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(matches!(
+                    list.sync_mode(),
+                    SlidingSyncMode::Selective { ranges } if ranges == vec![0..=19]
+                )))
+                .await,
+            Some(true)
+        );
 
         Ok(())
     }

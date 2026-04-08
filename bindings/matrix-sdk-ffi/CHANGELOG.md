@@ -41,6 +41,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `SyncServiceBuilder::with_required_state()` to request additional state
+  events during sliding sync. The provided entries are merged with the built-in
+  defaults, ensuring that essential state events are always requested.
 - Added the `Client::import_secrets_bundle` method.
   ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
 - [**breaking**] Remove support for `native-tls` and remove all feature

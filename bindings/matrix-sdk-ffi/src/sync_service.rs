@@ -26,8 +26,8 @@ use matrix_sdk_ui::{
 };
 
 use crate::{
-    TaskHandle, error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
-    runtime::get_runtime_handle,
+    TaskHandle, error::ClientError, event::StateEventType, helpers::unwrap_or_clone_arc,
+    room_list::RoomListService, runtime::get_runtime_handle,
 };
 
 #[derive(uniffi::Enum)]
@@ -101,6 +101,13 @@ impl SyncService {
     }
 }
 
+/// A state event type and state key pair to request during sliding sync.
+#[derive(Clone, uniffi::Record)]
+pub struct RequiredState {
+    pub event_type: StateEventType,
+    pub state_key: String,
+}
+
 #[derive(Clone, uniffi::Object)]
 pub struct SyncServiceBuilder {
     builder: MatrixSyncServiceBuilder,
@@ -125,6 +132,24 @@ impl SyncServiceBuilder {
     pub fn with_share_pos(self: Arc<Self>, enable: bool) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_share_pos(enable);
+        Arc::new(Self { builder, ..this })
+    }
+
+    /// Request additional state events during sliding sync.
+    ///
+    /// These entries are merged with the built-in defaults; they do not
+    /// replace them. Use the special state key `"*"` to request all state
+    /// keys for a given event type.
+    pub fn with_required_state(
+        self: Arc<Self>,
+        required_state: Vec<RequiredState>,
+    ) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let entries: Vec<(ruma::events::StateEventType, String)> = required_state
+            .into_iter()
+            .map(|rs| (rs.event_type.into(), rs.state_key))
+            .collect();
+        let builder = this.builder.with_required_state(entries);
         Arc::new(Self { builder, ..this })
     }
 
