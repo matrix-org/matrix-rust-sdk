@@ -610,9 +610,12 @@ pub enum GrantQrLoginProgress {
     },
     /// The secure channel has been confirmed using the [`CheckCode`] and this
     /// device is waiting for the authorization to complete.
-    WaitingForAuth {
+    OpeningVerificationUri {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
+        continuation_sender: Arc<ContinuationMessageSender>,
+    },
+    WaitingForAuth {
         continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
@@ -638,11 +641,15 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
                     check_code_string: format!("{check_code:02}"),
                 }
             }
-            GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
-                Self::WaitingForAuth {
-                    verification_uri: verification_uri.into(),
-                    continuation_sender: Arc::new(continuation_sender.into()),
-                }
+            GrantLoginProgress::OpeningVerificationUri {
+                verification_uri,
+                continuation_sender,
+            } => Self::OpeningVerificationUri {
+                verification_uri: verification_uri.into(),
+                continuation_sender: Arc::new(continuation_sender.into()),
+            },
+            GrantLoginProgress::WaitingForAuth { continuation_sender } => {
+                Self::WaitingForAuth { continuation_sender: Arc::new(continuation_sender.into()) }
             }
             GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
             GrantLoginProgress::Done => Self::Done,
@@ -659,17 +666,24 @@ pub enum GrantGeneratedQrLoginProgress {
     Starting,
     /// We have established the secure channel and now need to display the
     /// QR code so that the existing device can scan it.
-    QrReady { qr_code: Arc<QrCodeData> },
+    QrReady {
+        qr_code: Arc<QrCodeData>,
+    },
     /// The existing device has scanned the QR code and is displaying the
     /// checkcode. We now need to ask the user to enter the checkcode so that
     /// we can verify that the channel is indeed secure.
-    QrScanned { check_code_sender: Arc<CheckCodeSender> },
+    QrScanned {
+        check_code_sender: Arc<CheckCodeSender>,
+    },
     /// The secure channel has been confirmed using the [`CheckCode`] and this
     /// device is waiting for the authorization to complete.
-    WaitingForAuth {
+    OpeningVerificationUri {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
-        continuation_message_sender: Arc<ContinuationMessageSender>,
+        continuation_sender: Arc<ContinuationMessageSender>,
+    },
+    WaitingForAuth {
+        continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
     SyncingSecrets,
@@ -694,11 +708,15 @@ impl From<qrcode::GrantLoginProgress<GeneratedQrProgress>> for GrantGeneratedQrL
             GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
                 inner,
             )) => Self::QrScanned { check_code_sender: Arc::new(CheckCodeSender { inner }) },
-            GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
-                Self::WaitingForAuth {
-                    verification_uri: verification_uri.into(),
-                    continuation_message_sender: Arc::new(continuation_sender.into()),
-                }
+            GrantLoginProgress::OpeningVerificationUri {
+                verification_uri,
+                continuation_sender,
+            } => Self::OpeningVerificationUri {
+                verification_uri: verification_uri.into(),
+                continuation_sender: Arc::new(continuation_sender.into()),
+            },
+            GrantLoginProgress::WaitingForAuth { continuation_sender } => {
+                Self::WaitingForAuth { continuation_sender: Arc::new(continuation_sender.into()) }
             }
             GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
             GrantLoginProgress::Done => Self::Done,
