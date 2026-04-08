@@ -108,7 +108,7 @@ pub(in crate::timeline) async fn spawn_crypto_tasks(
     CryptoDropHandles {
         _redecryption_report_join_handle: redecryption_report_join_handle,
         _encryption_changes_handle: task_monitor
-            .spawn_background_task("timeline::encryption_state_changes", async move {
+            .spawn_background_job("timeline::encryption_state_changes", async move {
                 controller.handle_encryption_state_changes().await
             })
             .abort_on_drop(),
