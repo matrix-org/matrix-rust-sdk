@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+
+- A background task monitor has been added, that can spawn background tasks and monitor their
+  execution on a separate channel. Such tasks can run forever, or they can run for one-shot jobs.
+  ([#6075](https://github.com/matrix-org/matrix-rust-sdk/pull/6075) &&
+  [#6421](https://github.com/matrix-org/matrix-rust-sdk/pull/6421))
 - Add `AcquireCrossProcessLockResult` and `AcquireCrossProcessLockFn`
   for convenience in generalizing cross-process lock acquisition.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
