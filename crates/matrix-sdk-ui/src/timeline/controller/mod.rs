@@ -1396,16 +1396,21 @@ impl TimelineController {
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
                     .await;
 
-                let task = self.room_data_provider.client().task_monitor().spawn_infinite_task(
-                    "timeline::event_focused_cache_updates",
-                    event_focused_task(
-                        event_id.clone(),
-                        (*thread_mode).into(),
-                        room_event_cache.clone(),
-                        self.clone(),
-                        receiver,
-                    ),
-                );
+                let task = self
+                    .room_data_provider
+                    .client()
+                    .task_monitor()
+                    .spawn_infinite_task(
+                        "timeline::event_focused_cache_updates",
+                        event_focused_task(
+                            event_id.clone(),
+                            (*thread_mode).into(),
+                            room_event_cache.clone(),
+                            self.clone(),
+                            receiver,
+                        ),
+                    )
+                    .abort_on_drop();
 
                 Ok(InitFocusResult { has_events, focus_task: Some(task) })
             }
