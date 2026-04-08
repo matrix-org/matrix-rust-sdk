@@ -182,7 +182,7 @@ impl ThreadListService {
         let event_cache_task = room
             .client()
             .task_monitor()
-            .spawn_background_task("thread_list_service::event_cache_listener", {
+            .spawn_infinite_task("thread_list_service::event_cache_listener", {
                 let room = room.clone();
                 let items = items.clone();
                 async move {

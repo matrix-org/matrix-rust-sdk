@@ -264,12 +264,12 @@ impl EventCache {
             let task_monitor = client.task_monitor();
 
             // Spawn the task that will listen to all the room updates at once.
-            let listen_updates_task = task_monitor.spawn_background_task("event_cache::room_updates_task", tasks::room_updates_task(
+            let listen_updates_task = task_monitor.spawn_infinite_task("event_cache::room_updates_task", tasks::room_updates_task(
                 self.inner.clone(),
                 client.subscribe_to_all_room_updates(),
             )).abort_on_drop();
 
-            let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
+            let ignore_user_list_update_task = task_monitor.spawn_infinite_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
                 self.inner.clone(),
                 client.subscribe_to_ignore_user_list_changes(),
             )).abort_on_drop();
@@ -279,7 +279,7 @@ impl EventCache {
             // Force-initialize the sender in the [`RoomEventCacheInner`].
             self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
-            let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
+            let auto_shrink_linked_chunk_task = task_monitor.spawn_infinite_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
                 Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
             )).abort_on_drop();
@@ -299,7 +299,7 @@ impl EventCache {
 
         let thread_subscriber_task = client
             .task_monitor()
-            .spawn_background_task(
+            .spawn_infinite_task(
                 "event_cache::thread_subscriber",
                 tasks::thread_subscriber_task(
                     self.inner.client.clone(),
@@ -312,7 +312,7 @@ impl EventCache {
         #[cfg(feature = "experimental-search")]
         let search_indexing_task = client
             .task_monitor()
-            .spawn_background_task(
+            .spawn_infinite_task(
                 "event_cache::search_indexing",
                 tasks::search_indexing_task(
                     self.inner.client.clone(),

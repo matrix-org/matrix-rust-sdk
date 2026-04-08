@@ -45,7 +45,7 @@ impl AutomaticPagination {
     pub(super) fn new(event_cache: Weak<EventCacheInner>, task_monitor: &TaskMonitor) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
 
-        let task = task_monitor.spawn_background_task(
+        let task = task_monitor.spawn_infinite_task(
             "event_cache::automatic_paginations_task",
             automatic_paginations_task(event_cache, receiver),
         );

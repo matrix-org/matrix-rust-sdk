@@ -77,7 +77,7 @@ impl RoomList {
             loading_state: loading_state.clone(),
             _loading_state_task: client
                 .task_monitor()
-                .spawn_background_task("room_list::loading_state_task", async move {
+                .spawn_infinite_task("room_list::loading_state_task", async move {
                     pin_mut!(room_list_service_state);
 
                     // As soon as `RoomListService` changes its state, if it isn't

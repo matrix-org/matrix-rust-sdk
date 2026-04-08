@@ -186,7 +186,7 @@ impl TimelineBuilder {
         let room_update_join_handle = room
             .client()
             .task_monitor()
-            .spawn_background_task("timeline::room_event_cache_updates", {
+            .spawn_infinite_task("timeline::room_event_cache_updates", {
                 let span = info_span!(
                     parent: Span::none(),
                     "live_update_handler",
@@ -210,7 +210,7 @@ impl TimelineBuilder {
             let timeline_controller = controller.clone();
             let (local_echoes, send_queue_stream) = room.send_queue().subscribe().await?;
 
-            room.client().task_monitor().spawn_background_task("timeline::local_echo_listener", {
+            room.client().task_monitor().spawn_infinite_task("timeline::local_echo_listener", {
                 // Handles existing local echoes first.
                 for echo in local_echoes {
                     timeline_controller.handle_local_echo(echo).await;

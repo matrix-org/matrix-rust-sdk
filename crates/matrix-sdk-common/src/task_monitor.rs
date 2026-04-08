@@ -25,7 +25,7 @@
 //! let mut failures = monitor.subscribe();
 //!
 //! // Spawn a monitored background task
-//! let handle = monitor.spawn_background_task("my_task", async {
+//! let handle = monitor.spawn_infinite_task("my_task", async {
 //!     loop {
 //!         // Do background work...
 //!         matrix_sdk_common::sleep::sleep(std::time::Duration::from_secs(1))
@@ -183,7 +183,7 @@ const FAILURE_CHANNEL_CAPACITY: usize = 8;
 /// let mut failures = monitor.subscribe();
 ///
 /// // Spawn a task that runs indefinitely
-/// let _handle = monitor.spawn_background_task("worker", async {
+/// let _handle = monitor.spawn_infinite_task("worker", async {
 ///     loop {
 ///         // Do work...
 ///         matrix_sdk_common::sleep::sleep(std::time::Duration::from_secs(1))
@@ -226,7 +226,7 @@ impl TaskMonitor {
     /// Spawn a background task that is expected to **run forever**.
     ///
     /// For one-off background tasks that are expected to complete successfully,
-    /// use [`Self::spawn_background_job`] instead.
+    /// use [`Self::spawn_finite_task`] instead.
     ///
     /// If the task completes (whether successfully or by panicking), it will be
     /// reported as a [`BackgroundTaskFailure`] report through the broadcast
@@ -245,22 +245,18 @@ impl TaskMonitor {
     ///
     /// A [`BackgroundTaskHandle`] that can be used to abort the task or check
     /// if it has finished. This is the equivalent of tokio's `JoinHandle`.
-    pub fn spawn_background_task<F>(
-        &self,
-        name: impl Into<String>,
-        future: F,
-    ) -> BackgroundTaskHandle
+    pub fn spawn_infinite_task<F>(&self, name: impl Into<String>, future: F) -> BackgroundTaskHandle
     where
         F: Future<Output = ()> + SendOutsideWasm + 'static,
     {
-        self.spawn_background_task_internal(name, future, true)
+        self.spawn_task_internal(name, future, true)
     }
 
     /// Spawn a background job that is expected to run once and complete
     /// successfully in the background.
     ///
     /// For long-term background jobs that are expected to run forever, use
-    /// [`Self::spawn_background_task`] instead.
+    /// [`Self::spawn_infinite_task`] instead.
     ///
     /// If the task completes (by panicking), it will be reported as a
     /// [`BackgroundTaskFailure`] report through the broadcast channel.
@@ -277,18 +273,14 @@ impl TaskMonitor {
     ///
     /// A [`BackgroundTaskHandle`] that can be used to abort the task or check
     /// if it has finished. This is the equivalent of tokio's `JoinHandle`.
-    pub fn spawn_background_job<F>(
-        &self,
-        name: impl Into<String>,
-        future: F,
-    ) -> BackgroundTaskHandle
+    pub fn spawn_finite_task<F>(&self, name: impl Into<String>, future: F) -> BackgroundTaskHandle
     where
         F: Future<Output = ()> + SendOutsideWasm + 'static,
     {
-        self.spawn_background_task_internal(name, future, false)
+        self.spawn_task_internal(name, future, false)
     }
 
-    fn spawn_background_task_internal<F>(
+    fn spawn_task_internal<F>(
         &self,
         name: impl Into<String>,
         future: F,
@@ -547,7 +539,7 @@ mod tests {
         let mut failures = monitor.subscribe();
 
         // Spawn a task that completes immediately.
-        let _handle = monitor.spawn_background_task("test_task", async {
+        let _handle = monitor.spawn_infinite_task("test_task", async {
             // Completes immediately: this is an "early termination".
         });
 
@@ -568,7 +560,7 @@ mod tests {
         let mut failures = monitor.subscribe();
 
         // Spawn a task that panics.
-        let _handle = monitor.spawn_background_task("panicking_task", async {
+        let _handle = monitor.spawn_infinite_task("panicking_task", async {
             panic!("test panic message");
         });
 
@@ -632,7 +624,7 @@ mod tests {
         let mut failures = monitor.subscribe();
 
         // Spawn a long-running task.
-        let handle = monitor.spawn_background_task("aborted_task", async {
+        let handle = monitor.spawn_infinite_task("aborted_task", async {
             loop {
                 sleep(Duration::from_secs(10)).await;
             }
@@ -658,7 +650,7 @@ mod tests {
 
         // Spawn a long-running task.
         let handle = monitor
-            .spawn_background_task("aborted_task", async {
+            .spawn_infinite_task("aborted_task", async {
                 loop {
                     sleep(Duration::from_secs(10)).await;
                 }
@@ -677,7 +669,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_background_job() {
+    async fn test_spawn_finite_task() {
         let monitor = TaskMonitor::new();
         let mut failures = monitor.subscribe();
 
@@ -685,7 +677,7 @@ mod tests {
 
         // Spawn a one-off background job that completes successfully.
         let successful_completion_clone = successful_completion.clone();
-        let _handle = monitor.spawn_background_job("one-shot job", async move {
+        let _handle = monitor.spawn_finite_task("one-shot job", async move {
             sleep(Duration::from_millis(10)).await;
             successful_completion_clone.store(true, Ordering::SeqCst);
         });

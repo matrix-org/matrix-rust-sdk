@@ -154,7 +154,7 @@ impl ThreadSubscriptionCatchup {
             let that = this.clone();
             let client_clone = client.clone();
 
-            client.task_monitor().spawn_background_task("client::thread_subscriptions_catchup", async move {
+            client.task_monitor().spawn_infinite_task("client::thread_subscriptions_catchup", async move {
                 match client_clone.enabled_thread_subscriptions().await {
                     Ok(enabled) => {
                         if !enabled {

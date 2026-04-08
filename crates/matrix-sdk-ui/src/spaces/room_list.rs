@@ -130,7 +130,7 @@ impl SpaceRoomList {
 
         let room_update_handle = client
             .task_monitor()
-            .spawn_background_task("space_room_list::room_updates", {
+            .spawn_infinite_task("space_room_list::room_updates", {
                 let client = client.clone();
                 let rooms = rooms.clone();
 
@@ -183,7 +183,7 @@ impl SpaceRoomList {
             let mut subscriber = parent.subscribe_info();
             let space_update_handle = client
                 .task_monitor()
-                .spawn_background_task("space_room_list::space_update", {
+                .spawn_infinite_task("space_room_list::space_update", {
                     let client = client.clone();
                     let space_id = space_id.clone();
                     let space_observable = space_observable.clone();
