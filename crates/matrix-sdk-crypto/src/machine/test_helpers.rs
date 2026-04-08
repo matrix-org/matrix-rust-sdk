@@ -272,7 +272,7 @@ pub async fn build_encrypted_to_device_content_without_sender_data(
     }))
     .unwrap();
 
-    let ciphertext = olm_session.encrypt_helper(&plaintext).await;
+    let ciphertext = olm_session.encrypt_helper(&plaintext).await.unwrap();
     let content =
         olm_session.build_encrypted_event(ciphertext, None).await.expect("could not encrypt");
 

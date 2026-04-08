@@ -534,7 +534,7 @@ impl BackupMachine {
         }
 
         let key_count = sessions.len();
-        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await;
+        let (backup, session_record) = Self::backup_keys(sessions, backup_key).await?;
 
         info!(
             key_count = key_count,
@@ -556,10 +556,13 @@ impl BackupMachine {
     async fn backup_keys(
         sessions: Vec<InboundGroupSession>,
         backup_key: &MegolmV1BackupKey,
-    ) -> (
-        BTreeMap<OwnedRoomId, RoomKeyBackup>,
-        BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
-    ) {
+    ) -> Result<
+        (
+            BTreeMap<OwnedRoomId, RoomKeyBackup>,
+            BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>>,
+        ),
+        vodozemac::pk_encryption::Error,
+    > {
         let mut backup: BTreeMap<OwnedRoomId, RoomKeyBackup> = BTreeMap::new();
         let mut session_record: BTreeMap<OwnedRoomId, BTreeMap<SenderKey, BTreeSet<SessionId>>> =
             BTreeMap::new();
@@ -568,7 +571,7 @@ impl BackupMachine {
             let room_id = session.room_id().to_owned();
             let session_id = session.session_id().to_owned();
             let sender_key = session.sender_key().to_owned();
-            let session = backup_key.encrypt(session).await;
+            let session = backup_key.encrypt(session).await?;
 
             session_record
                 .entry(room_id.to_owned())
@@ -586,7 +589,7 @@ impl BackupMachine {
                 .insert(session_id, session);
         }
 
-        (backup, session_record)
+        Ok((backup, session_record))
     }
 
     /// Import the given room keys into our store.

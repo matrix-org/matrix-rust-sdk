@@ -290,7 +290,7 @@ async fn create_and_share_session_without_sender_data(
     }))
     .unwrap();
 
-    let ciphertext = olm_session.encrypt_helper(&plaintext).await;
+    let ciphertext = olm_session.encrypt_helper(&plaintext).await.unwrap();
     ToDeviceEvent::new(
         alice.user_id().to_owned(),
         olm_session.build_encrypted_event(ciphertext, None).await.unwrap(),

@@ -101,7 +101,10 @@ impl MegolmV1BackupKey {
 
     /// Export the given inbound group session, and encrypt the data, ready for
     /// writing to the backup.
-    pub async fn encrypt(&self, session: InboundGroupSession) -> KeyBackupData {
+    pub async fn encrypt(
+        &self,
+        session: InboundGroupSession,
+    ) -> Result<KeyBackupData, vodozemac::pk_encryption::Error> {
         let pk = PkEncryption::from_key(self.inner.key);
 
         // The forwarding chains don't mean much, we only care whether we received the
@@ -117,7 +120,7 @@ impl MegolmV1BackupKey {
         let key =
             Zeroizing::new(serde_json::to_vec(&key).expect("Can't serialize exported room key"));
 
-        let message = pk.encrypt(&key);
+        let message = pk.encrypt(&key)?;
 
         let session_data = EncryptedSessionDataInit {
             ephemeral: Base64::new(message.ephemeral_key.to_vec()),
@@ -126,7 +129,7 @@ impl MegolmV1BackupKey {
         }
         .into();
 
-        KeyBackupDataInit {
+        Ok(KeyBackupDataInit {
             first_message_index,
             forwarded_count,
             // TODO: is this actually used anywhere? seems to be completely
@@ -136,6 +139,6 @@ impl MegolmV1BackupKey {
             is_verified: false,
             session_data,
         }
-        .into()
+        .into())
     }
 }
