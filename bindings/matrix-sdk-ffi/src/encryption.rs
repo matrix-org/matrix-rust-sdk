@@ -716,6 +716,18 @@ impl Encryption {
         }
     }
 
+    /// This method will import all the private cross-signing keys and
+    /// the private part of a backup key and its accompanying version into the
+    /// store.
+    ///
+    /// Importing all the secrets will mark the device as verified and enable
+    /// backups.
+    ///
+    /// **Warning**: Only import this from a trusted source, i.e. if an existing
+    /// device is sharing this with a new device.
+    ///
+    /// **Warning*: Only call this method before right after logging in and
+    /// before the initial sync has been started.
     pub async fn import_secrets_bundle(
         &self,
         secrets_bundle: &SecretsBundleWithUserId,
