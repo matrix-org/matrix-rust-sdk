@@ -41,6 +41,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Added the `Client::import_secrets_bundle` method.
+  ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
 - [**breaking**] Remove support for `native-tls` and remove all feature
   flags for selecting TLS backend, as `rustls` is the now the only supported
   TLS backend.

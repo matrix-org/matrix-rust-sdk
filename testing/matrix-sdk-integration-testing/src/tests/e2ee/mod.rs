@@ -10,7 +10,7 @@ use assign::assign;
 use matrix_sdk::{
     Client, assert_next_eq_with_timeout,
     encryption::{
-        BackupDownloadStrategy, EncryptionSettings, LocalTrust,
+        BackupDownloadStrategy, EncryptionSettings, LocalTrust, VerificationState,
         backups::BackupState,
         recovery::{Recovery, RecoveryState},
         verification::{
@@ -1196,6 +1196,53 @@ async fn test_recovery_disabling_deletes_secret_storage_secrets() -> Result<()> 
             "The known secret {event_type} should have been deleted from the server"
         );
     }
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_importing_secrets_bundle_verifies_the_device() -> Result<()> {
+    let encryption_settings = EncryptionSettings {
+        auto_enable_cross_signing: true,
+        auto_enable_backups: true,
+        ..Default::default()
+    };
+    let alice = SyncTokenAwareClient::new(
+        TestClientBuilder::new("alice_import_secrets_test")
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    alice.encryption().wait_for_e2ee_initialization_tasks().await;
+
+    let machine = alice.olm_machine_for_testing().await;
+    let machine = machine.as_ref().expect("An Olm machine should be available by now");
+
+    let bundle = machine.store().export_secrets_bundle().await?;
+
+    let user_id = machine.user_id();
+
+    let bob = SyncTokenAwareClient::new(
+        TestClientBuilder::with_exact_username(user_id.localpart().to_owned())
+            .encryption_settings(encryption_settings)
+            .build()
+            .await?,
+    );
+
+    bob.encryption().wait_for_e2ee_initialization_tasks().await;
+    bob.encryption().import_secrets_bundle(&bundle).await?;
+
+    assert_eq!(
+        bob.encryption().verification_state().get(),
+        VerificationState::Verified,
+        "Bob should be verified once the secrets bundle has been imported"
+    );
+
+    assert!(
+        bob.encryption().backups().are_enabled().await,
+        "Backups should have been enabled as part of the secrets import"
+    );
 
     Ok(())
 }

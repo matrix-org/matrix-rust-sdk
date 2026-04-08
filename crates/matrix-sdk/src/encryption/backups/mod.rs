@@ -949,7 +949,7 @@ impl Backups {
     }
 
     /// Check and re-enable a backup if we have a backup recovery key locally.
-    async fn maybe_resume_backups(&self) -> Result<(), Error> {
+    pub(super) async fn maybe_resume_backups(&self) -> Result<(), Error> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine = olm_machine.as_ref().ok_or(Error::NoOlmMachine)?;
 

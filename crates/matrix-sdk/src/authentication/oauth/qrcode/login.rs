@@ -183,7 +183,7 @@ async fn finish_login<Q>(
 
     // Import the secrets bundle, this will allow us to sign the device keys with
     // the master key when we upload them.
-    client.encryption().import_secrets_bundle(&bundle).await?;
+    client.encryption().import_secrets_bundle_impl(&bundle).await?;
 
     // Upload the device keys, this will ensure that other devices see us as a fully
     // verified device ass soon as this method returns.
