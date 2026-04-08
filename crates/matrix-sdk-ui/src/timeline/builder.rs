@@ -210,23 +210,27 @@ impl TimelineBuilder {
             let timeline_controller = controller.clone();
             let (local_echoes, send_queue_stream) = room.send_queue().subscribe().await?;
 
-            room.client().task_monitor().spawn_infinite_task("timeline::local_echo_listener", {
-                // Handles existing local echoes first.
-                for echo in local_echoes {
-                    timeline_controller.handle_local_echo(echo).await;
-                }
+            room.client()
+                .task_monitor()
+                .spawn_infinite_task("timeline::local_echo_listener", {
+                    // Handles existing local echoes first.
+                    for echo in local_echoes {
+                        timeline_controller.handle_local_echo(echo).await;
+                    }
 
-                let span = info_span!(
-                    parent: Span::none(),
-                    "local_echo_handler",
-                    room_id = ?room.room_id(),
-                    focus = focus.debug_string(),
-                    prefix = internal_id_prefix
-                );
-                span.follows_from(Span::current());
+                    let span = info_span!(
+                        parent: Span::none(),
+                        "local_echo_handler",
+                        room_id = ?room.room_id(),
+                        focus = focus.debug_string(),
+                        prefix = internal_id_prefix
+                    );
+                    span.follows_from(Span::current());
 
-                room_send_queue_update_task(send_queue_stream, timeline_controller).instrument(span)
-            })
+                    room_send_queue_update_task(send_queue_stream, timeline_controller)
+                        .instrument(span)
+                })
+                .abort_on_drop()
         };
 
         let crypto_drop_handles = spawn_crypto_tasks(controller.clone()).await;
