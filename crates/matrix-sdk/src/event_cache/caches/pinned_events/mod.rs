@@ -227,7 +227,7 @@ impl PinnedEventCache {
         let task = Arc::new(
             room.client()
                 .task_monitor()
-                .spawn_background_task(
+                .spawn_infinite_task(
                     "pinned_event_listener_task",
                     Self::pinned_event_listener_task(room, state.clone()),
                 )

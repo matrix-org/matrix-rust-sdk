@@ -474,7 +474,7 @@ impl RoomSendQueue {
         let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
         let locally_enabled = Arc::new(AtomicBool::new(globally_enabled));
 
-        let task = client.task_monitor().spawn_background_task(
+        let task = client.task_monitor().spawn_infinite_task(
             "send_queue",
             Self::sending_task(
                 weak_room.clone(),

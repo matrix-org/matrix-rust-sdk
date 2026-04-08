@@ -1351,7 +1351,7 @@ impl TimelineController {
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
                     .await;
 
-                let task = self.room_data_provider.client().task_monitor().spawn_background_task(
+                let task = self.room_data_provider.client().task_monitor().spawn_infinite_task(
                     "timeline::event_focused_cache_updates",
                     event_focused_task(
                         event_id.clone(),
@@ -1380,7 +1380,7 @@ impl TimelineController {
                 let task = room
                     .client()
                     .task_monitor()
-                    .spawn_background_task(
+                    .spawn_infinite_task(
                         "timeline::thread_event_cache_updates",
                         thread_updates_task(
                             receiver,
@@ -1411,7 +1411,7 @@ impl TimelineController {
                     .room_data_provider
                     .client()
                     .task_monitor()
-                    .spawn_background_task(
+                    .spawn_infinite_task(
                         "timeline::pinned_event_cache_updates",
                         pinned_events_task(
                             room_event_cache.clone(),

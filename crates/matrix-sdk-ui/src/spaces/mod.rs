@@ -156,7 +156,7 @@ impl SpaceService {
 
         let room_update_handle = client
             .task_monitor()
-            .spawn_background_task("space_service", {
+            .spawn_infinite_task("space_service", {
                 let client = client.clone();
                 let space_state = Arc::clone(&space_state);
                 let all_room_updates_receiver = client.subscribe_to_all_room_updates();
