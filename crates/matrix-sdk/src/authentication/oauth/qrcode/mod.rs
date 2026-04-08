@@ -27,7 +27,9 @@ use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::types::qr_login::{
     LoginQrCodeDecodeError, Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
 };
-use matrix_sdk_base::crypto::{SecretImportError, store::SecretsBundleExportError};
+use matrix_sdk_base::crypto::{
+    SecretImportError, store::SecretsBundleExportError, types::qr_login::QrCodeCreationError,
+};
 pub use oauth2::{
     ConfigurationError, DeviceCodeErrorResponse, DeviceCodeErrorResponseType, HttpClientError,
     RequestTokenError, StandardErrorResponse,
@@ -262,16 +264,35 @@ pub enum MessageDecodeError {
     /// A received message has failed to be decoded.
     #[error(transparent)]
     Ecies(#[from] EciesMessageDecodeError),
+
     /// A received message has failed to be decoded.
     #[error(transparent)]
     Hpke(#[from] HpkeMessageDecodeError),
+
     /// A message we received over the secure channel was not a valid UTF-8
     /// encoded string.
     #[error(transparent)]
     Utf8(#[from] std::str::Utf8Error),
+
     /// A message couldn't be deserialized from JSON.
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+
+    /// The sequence token of the rendezvous channel needs to be at most
+    /// [`u16::MAX`] bytes long, otherwise it can't be encoded as additional
+    /// authenticated data.
+    #[error("The base URL of the homeserver is too long")]
+    TooLongSequenceToken,
+
+    /// The base URL of the homeserver needs to be at most [`u16::MAX`] bytes
+    /// long, otherwise it can't be encoded as additional authenticated data.
+    #[error("The base URL of the homeserver is too long")]
+    TooLongBaseUrl,
+
+    /// The rendezvous ID of the channel needs to be at most [`u16::MAX`] bytes
+    /// long, otherwise it can't be encoded as additional authenticated data.
+    #[error("The rendezvous ID is too long")]
+    TooLongRendezvousId,
 }
 
 /// Error type for decryption failures of the secure channel.
@@ -334,9 +355,13 @@ pub enum SecureChannelError {
     )]
     CannotReceiveCheckCode,
 
-    #[error("The QR code specifies an unsupported protocol version")]
     /// The QR code specifies an unsupported protocol version.
+    #[error("The QR code specifies an unsupported protocol version")]
     UnsupportedQrCodeType,
+
+    /// The QR code couldn't have been created.
+    #[error(transparent)]
+    QrCodeCreationError(#[from] QrCodeCreationError),
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`]

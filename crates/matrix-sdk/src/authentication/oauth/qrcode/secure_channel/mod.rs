@@ -75,10 +75,11 @@ impl SecureChannel {
 
                 let qr_code_data = QrCodeData::new_msc4388(
                     crypto_channel.public_key(),
-                    rendezvous_id.to_owned(),
+                    // TODO: Avoid the double conversion here?
+                    rendezvous_id.as_str().to_owned(),
                     homeserver_url.clone(),
                     QrCodeIntent::Login,
-                );
+                )?;
 
                 (crypto_channel, qr_code_data)
             }
@@ -109,10 +110,11 @@ impl SecureChannel {
             RendezvousInfo::Msc4388 { rendezvous_id, .. } => {
                 channel.qr_code_data = QrCodeData::new_msc4388(
                     channel.crypto_channel.public_key(),
-                    rendezvous_id.to_owned(),
+                    // TODO: Avoid the double conversion here?
+                    rendezvous_id.as_str().to_owned(),
                     homeserver_url.clone(),
                     QrCodeIntent::Reciprocate,
-                );
+                )?;
             }
         }
 

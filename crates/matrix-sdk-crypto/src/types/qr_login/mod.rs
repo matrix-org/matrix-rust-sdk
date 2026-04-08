@@ -29,6 +29,8 @@ pub use msc_4108::Msc4108IntentData;
 use url::Url;
 use vodozemac::{Curve25519PublicKey, base64_decode, base64_encode};
 
+pub use crate::types::qr_login::msc_4388::{LimitedString, LimitedUrl, RendezvousId};
+
 /// Error type for the decoding of the [`QrCodeData`].
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
@@ -77,6 +79,20 @@ pub enum LoginQrCodeDecodeError {
     },
 }
 
+/// Error type for the creation of a new [`QrCodeData`] struct.
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error), uniffi(flat_error))]
+pub enum QrCodeCreationError {
+    /// The base URL of the homeserver needs to be at most [`u16::MAX`] bytes
+    /// long, otherwise it doesn't fit into the QR code.
+    #[error("The base URL of the homeserver is too long")]
+    TooLongBaseUrl,
+    /// The rendezvous ID of the channel needs to be at most [`u16::MAX`] bytes
+    /// long, otherwise it doesn't fit into the QR code.
+    #[error("The rendezvous ID is too long")]
+    TooLongRendezvousId,
+}
+
 /// Intent-specific data of the [`QrCodeData`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QrCodeIntentData<'a> {
@@ -98,7 +114,7 @@ pub enum QrCodeIntentData<'a> {
     Msc4388 {
         /// The ID of the rendezvous session, can be used to exchange messages
         /// with the other device.
-        rendezvous_id: &'a str,
+        rendezvous_id: &'a RendezvousId,
         /// The base URL of the homeserver that the device generating the QR is
         /// using.
         base_url: &'a Url,
@@ -187,15 +203,19 @@ impl QrCodeData {
         rendezvous_id: String,
         base_url: Url,
         intent: QrCodeIntent,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, QrCodeCreationError> {
+        let rendezvous_id =
+            RendezvousId::new(rendezvous_id).ok_or(QrCodeCreationError::TooLongRendezvousId)?;
+        let base_url = LimitedUrl::new(base_url).ok_or(QrCodeCreationError::TooLongBaseUrl)?;
+
+        Ok(Self {
             inner: QrCodeDataInner::Msc4388(msc_4388::QrCodeData {
                 intent: intent.into(),
                 public_key,
                 rendezvous_id,
                 base_url,
             }),
-        }
+        })
     }
 
     /// Attempt to decode a slice of bytes into a [`QrCodeData`] object.
@@ -263,7 +283,7 @@ impl QrCodeData {
             },
             QrCodeDataInner::Msc4388(qr_code_data) => QrCodeIntentData::Msc4388 {
                 rendezvous_id: &qr_code_data.rendezvous_id,
-                base_url: &qr_code_data.base_url,
+                base_url: qr_code_data.base_url.as_url(),
             },
         }
     }

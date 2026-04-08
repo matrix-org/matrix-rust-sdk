@@ -15,7 +15,10 @@
 use std::{borrow::Cow, time::Duration};
 
 use http::StatusCode;
-use matrix_sdk_base::sleep;
+use matrix_sdk_base::{
+    crypto::types::qr_login::{LimitedString, LimitedUrl, RendezvousId},
+    sleep,
+};
 use ruma::api::{
     EndpointError as _, SupportedVersions,
     client::rendezvous::{
@@ -26,7 +29,11 @@ use ruma::api::{
 use tracing::{debug, instrument, trace};
 use url::Url;
 
-use crate::{HttpError, RumaApiError, http_client::HttpClient};
+use crate::{
+    HttpError, RumaApiError,
+    authentication::oauth::qrcode::{MessageDecodeError, SecureChannelError},
+    http_client::HttpClient,
+};
 
 #[cfg(test)]
 const POLL_TIMEOUT: Duration = Duration::from_millis(10);
@@ -45,6 +52,12 @@ pub(super) struct InboundChannelCreationResult {
     pub initial_message: String,
 }
 
+/// Type representing the rendezvous ID of a rendezvous session.
+///
+/// The sequence token will be put into the additional authenticated data and
+/// need to be at most [`u16::MAX`] bytes long for it to fit into it.
+type SequenceToken = LimitedString;
+
 struct RendezvousMessage {
     pub status_code: StatusCode,
     pub data: String,
@@ -52,11 +65,11 @@ struct RendezvousMessage {
 
 pub(crate) struct Channel {
     client: HttpClient,
-    pub(super) base_url: Url,
+    pub(super) base_url: LimitedUrl,
     /// The ID of the rendezvous session we're using to exchange messages
     /// through the channel.
-    pub(super) rendezvous_id: String,
-    pub(super) sequence_token: String,
+    pub(super) rendezvous_id: RendezvousId,
+    pub(super) sequence_token: SequenceToken,
 }
 
 fn response_to_error(status: StatusCode, data: String) -> HttpError {
@@ -80,8 +93,8 @@ impl Channel {
     /// through the channel.
     pub(super) async fn create_outbound(
         client: HttpClient,
-        base_url: &Url,
-    ) -> Result<Self, HttpError> {
+        base_url: &LimitedUrl,
+    ) -> Result<Self, SecureChannelError> {
         use std::borrow::Cow;
 
         let request = create_rendezvous_session::unstable_msc4388::Request::new("".to_owned());
@@ -101,8 +114,10 @@ impl Channel {
             )
             .await?;
 
-        let rendezvous_id = response.id;
-        let sequence_token = response.sequence_token;
+        let rendezvous_id =
+            RendezvousId::new(response.id).ok_or(MessageDecodeError::TooLongRendezvousId)?;
+        let sequence_token = SequenceToken::new(response.sequence_token)
+            .ok_or(MessageDecodeError::TooLongRendezvousId)?;
 
         Ok(Self { client, base_url: base_url.to_owned(), rendezvous_id, sequence_token })
     }
@@ -113,14 +128,15 @@ impl Channel {
     /// message from the rendezvous session on the given [`rendezvous_url`].
     pub(super) async fn create_inbound(
         client: HttpClient,
-        base_url: &Url,
-        rendezvous_id: &str,
-    ) -> Result<InboundChannelCreationResult, HttpError> {
+        base_url: &LimitedUrl,
+        rendezvous_id: &RendezvousId,
+    ) -> Result<InboundChannelCreationResult, SecureChannelError> {
         // Receive the initial message, which should be empty. But we need the ETAG to
         // fully establish the rendezvous channel.
-        let response = Self::receive_message_impl(&client, base_url, rendezvous_id).await?;
-
-        let sequence_token = response.sequence_token.clone();
+        let response =
+            Self::receive_message_impl(&client, base_url.as_url(), rendezvous_id).await?;
+        let sequence_token = SequenceToken::new(response.sequence_token)
+            .ok_or(MessageDecodeError::TooLongSequenceToken)?;
 
         let initial_message =
             RendezvousMessage { status_code: StatusCode::OK, data: response.data };
@@ -137,17 +153,17 @@ impl Channel {
 
     /// Get the ID of the rendezvous session we're using to exchange messages
     /// through the channel.
-    pub(super) fn rendezvous_id(&self) -> &str {
+    pub(super) fn rendezvous_id(&self) -> &RendezvousId {
         &self.rendezvous_id
     }
 
     /// Send the given `message` through the [`RendezvousChannel`] to the other
     /// device.
     #[instrument(skip_all)]
-    pub(super) async fn send(&mut self, message: String) -> Result<(), HttpError> {
+    pub(super) async fn send(&mut self, message: String) -> Result<(), SecureChannelError> {
         let request = update_rendezvous_session::unstable::Request::new(
-            self.rendezvous_id.clone(),
-            self.sequence_token.clone(),
+            self.rendezvous_id.to_string(),
+            self.sequence_token.to_string(),
             message,
         );
 
@@ -170,7 +186,8 @@ impl Channel {
 
         // We successfully send out a message, get the sequence_token and update our
         // internal copy of the sequence_token.
-        self.sequence_token = response.sequence_token;
+        self.sequence_token = SequenceToken::new(response.sequence_token)
+            .ok_or(MessageDecodeError::TooLongSequenceToken)?;
 
         Ok(())
     }
@@ -183,7 +200,7 @@ impl Channel {
     ///
     /// This method will wait in a loop for the channel to give us a new
     /// message.
-    pub(super) async fn receive(&mut self) -> Result<String, HttpError> {
+    pub(super) async fn receive(&mut self) -> Result<String, SecureChannelError> {
         loop {
             let message = self.receive_single_message().await?;
 
@@ -202,7 +219,7 @@ impl Channel {
             } else {
                 let error = response_to_error(message.status_code, message.data);
 
-                return Err(error);
+                return Err(error.into());
             }
         }
     }
@@ -210,9 +227,10 @@ impl Channel {
     async fn receive_message_impl(
         client: &HttpClient,
         base_url: &Url,
-        rendezvous_id: &str,
+        rendezvous_id: &RendezvousId,
     ) -> Result<get_rendezvous_session::unstable::Response, HttpError> {
-        let request = get_rendezvous_session::unstable::Request::new(rendezvous_id.to_owned());
+        let request =
+            get_rendezvous_session::unstable::Request::new(rendezvous_id.as_str().to_owned());
         client
             .send(
                 request,
@@ -228,13 +246,17 @@ impl Channel {
             .await
     }
 
-    async fn receive_single_message(&mut self) -> Result<RendezvousMessage, HttpError> {
+    async fn receive_single_message(&mut self) -> Result<RendezvousMessage, SecureChannelError> {
         let response =
-            Self::receive_message_impl(&self.client, &self.base_url, &self.rendezvous_id).await?;
+            Self::receive_message_impl(&self.client, self.base_url.as_url(), &self.rendezvous_id)
+                .await?;
+
+        let new_sequence_token = SequenceToken::new(response.sequence_token)
+            .ok_or(MessageDecodeError::TooLongSequenceToken)?;
 
         // since the rendezvous API has changed it doesn't make sense to use the http
         // status code at this layer
-        if response.sequence_token == self.sequence_token {
+        if self.sequence_token == new_sequence_token {
             return Ok(RendezvousMessage {
                 status_code: StatusCode::NOT_MODIFIED,
                 data: response.data,
@@ -242,7 +264,7 @@ impl Channel {
         }
 
         // We received a new sequence_token, put it into the copy of our sequence_token.
-        self.sequence_token = response.sequence_token;
+        self.sequence_token = new_sequence_token;
 
         let message = RendezvousMessage { status_code: StatusCode::OK, data: response.data };
 
@@ -267,12 +289,12 @@ mod test {
 
     async fn mock_rendezvous_create(
         server: &MockServer,
-        rendezvous_id: &str,
+        rendezvous_id: &RendezvousId,
     ) -> Result<String, HttpError> {
         server
             .register(Mock::given(method("POST")).and(path(BASE_PATH)).respond_with(
                 ResponseTemplate::new(200).set_body_json(json!({
-                    "id": rendezvous_id,
+                    "id": rendezvous_id.as_str(),
                     "sequence_token": "1",
                     "expires_in_ms": 10_000,
                 })),
@@ -285,11 +307,13 @@ mod test {
     #[async_test]
     async fn test_creation() {
         let server = MockServer::start().await;
-        let base_url =
-            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
-        let rendezvous_id = "abcdEFG12345";
+        let base_url = LimitedUrl::new(
+            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver"),
+        )
+        .unwrap();
+        let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
 
-        let rendezvous_path = mock_rendezvous_create(&server, rendezvous_id)
+        let rendezvous_path = mock_rendezvous_create(&server, &rendezvous_id)
             .await
             .expect("We should be able to create a rendezvous");
 
@@ -301,12 +325,13 @@ mod test {
 
         assert_eq!(
             alice.rendezvous_id(),
-            rendezvous_id,
+            &rendezvous_id,
             "Alice should have configured the rendezvous ID correctly."
         );
 
         assert_eq!(
-            alice.sequence_token, "1",
+            alice.sequence_token.as_str(),
+            "1",
             "Alice should have remembered the sequence_token the server gave us."
         );
 
@@ -345,7 +370,7 @@ mod test {
 
             let client = HttpClient::new(reqwest::Client::new(), RequestConfig::short_retry());
             let InboundChannelCreationResult { channel: bob, initial_message: _ } =
-                Channel::create_inbound(client, &base_url, rendezvous_id).await.expect(
+                Channel::create_inbound(client, &base_url, &rendezvous_id).await.expect(
                     "We should be able to create a rendezvous channel from a received message",
                 );
 
@@ -355,7 +380,8 @@ mod test {
         };
 
         assert_eq!(
-            bob.sequence_token, "2",
+            bob.sequence_token.as_str(),
+            "2",
             "Bob should have remembered the sequence_token the server gave us."
         );
 
@@ -422,9 +448,12 @@ mod test {
     #[async_test]
     async fn test_retry_mechanism() {
         let server = MockServer::start().await;
-        let base_url =
-            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
-        let rendezvous_path = mock_rendezvous_create(&server, "abcdEFG12345")
+        let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
+        let base_url = LimitedUrl::new(
+            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver"),
+        )
+        .unwrap();
+        let rendezvous_path = mock_rendezvous_create(&server, &rendezvous_id)
             .await
             .expect("We should be able to create a rendezvous");
 
@@ -439,7 +468,7 @@ mod test {
                 Mock::given(method("GET"))
                     .and(path(rendezvous_path.clone()))
                     .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                        "sequence_token": alice.sequence_token,
+                        "sequence_token": alice.sequence_token.as_str(),
                         "data": "old data",
                         "expires_in_ms": 10_000,
                     })))
@@ -472,9 +501,12 @@ mod test {
     #[async_test]
     async fn test_receive_error() {
         let server = MockServer::start().await;
-        let url =
-            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver");
-        let rendezvous_path = mock_rendezvous_create(&server, "abcdEFG12345")
+        let rendezvous_id = RendezvousId::new("abcdEFG12345".to_owned()).unwrap();
+        let url = LimitedUrl::new(
+            Url::parse(&server.uri()).expect("We should be able to parse the example homeserver"),
+        )
+        .unwrap();
+        let rendezvous_path = mock_rendezvous_create(&server, &rendezvous_id)
             .await
             .expect("We should be able to create a rendezvous");
 

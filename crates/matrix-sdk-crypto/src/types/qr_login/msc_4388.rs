@@ -17,6 +17,7 @@
 //! [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
 
 use std::{
+    fmt,
     io::{Cursor, Read},
     str::{self},
 };
@@ -65,6 +66,95 @@ impl TryFrom<u8> for QrCodeIntent {
     }
 }
 
+/// A wrapper type for a [`Url`] which limits the length of the URL to
+/// [`u16::MAX`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitedUrl(Url);
+
+impl LimitedUrl {
+    /// Create a new [`LimitedUrl`] from a [`Url`].
+    ///
+    /// Returns `None` if the [`Url`] is too long.
+    pub fn new(s: Url) -> Option<Self> {
+        if s.as_str().len() <= u16::MAX as usize { Some(Self(s)) } else { None }
+    }
+
+    /// Return the length of the URL.
+    ///
+    /// Is returned as an `u16` as it is guaranteed to be <= [`u16::MAX`].
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u16 {
+        self.0.as_str().len() as u16
+    }
+
+    /// Get a reference to the underlying [`Url`].
+    pub fn as_url(&self) -> &Url {
+        &self.0
+    }
+
+    /// Get a reference to the string representation of this URL.
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// Get a reference to the byte representation of the URL.
+    ///
+    /// This is a shorthand for `url.as_str().as_bytes()`.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_str().as_bytes()
+    }
+}
+
+impl fmt::Display for LimitedUrl {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A wrapper type for a [`String`] which limits the length of the string to
+/// [`u16::MAX`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitedString(String);
+
+impl fmt::Display for LimitedString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl LimitedString {
+    /// Create a new [`LimitedString`] from a [`String`].
+    ///
+    /// Returns `None` if the [`String`] is too long.
+    pub fn new(s: String) -> Option<Self> {
+        if s.len() <= u16::MAX as usize { Some(Self(s)) } else { None }
+    }
+
+    /// Return the length of the string.
+    ///
+    /// Is returned as an `u16` as it is guaranteed to be <= [`u16::MAX`].
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u16 {
+        self.0.len() as u16
+    }
+
+    /// Get a reference to the string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Get a reference to the byte representation of the string.
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+/// Type representing the rendezvous ID of a rendezvous session.
+///
+/// Rendezvous IDs need to be put into the QR code for the QR code based login
+/// and need to be at most [`u16::MAX`] bytes long to fit into the QR code.
+pub type RendezvousId = LimitedString;
+
 /// Data for the QR code login mechanism.
 ///
 /// The [`QrCodeData`] can be serialized and encoded as a QR code or it can be
@@ -78,10 +168,10 @@ pub struct QrCodeData {
     pub public_key: Curve25519PublicKey,
     /// The ID of the rendezvous session, can be used to exchange messages with
     /// the other device.
-    pub rendezvous_id: String,
+    pub rendezvous_id: RendezvousId,
     /// The base URL of the homeserver that the device generating the QR is
     /// using.
-    pub base_url: Url,
+    pub base_url: LimitedUrl,
 }
 
 impl QrCodeData {
@@ -135,6 +225,10 @@ impl QrCodeData {
             reader.read_exact(&mut rendezvous_id)?;
             let rendezvous_id = String::from_utf8(rendezvous_id).map_err(|e| e.utf8_error())?;
 
+            // The length here is guaranteed to be <= u16::MAX because that's the maximum
+            // amount of bytes we might have read. So we can skip the constructor here.
+            let rendezvous_id = LimitedString(rendezvous_id);
+
             // 7. We read the two bytes for the length of the server base URL.
             let base_url_len = reader.read_u16::<BigEndian>()?;
 
@@ -142,6 +236,7 @@ impl QrCodeData {
             let mut base_url = vec![0u8; base_url_len.into()];
             reader.read_exact(&mut base_url)?;
             let base_url = Url::parse(str::from_utf8(&base_url)?)?;
+            let base_url = LimitedUrl(base_url);
 
             Ok(Self { public_key, rendezvous_id, base_url, intent })
         } else {
@@ -154,10 +249,10 @@ impl QrCodeData {
     /// The list of bytes can be used by a QR code generator to create an image
     /// containing a QR code.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let rendezvous_id_len = (self.rendezvous_id.as_str().len() as u16).to_be_bytes();
+        let rendezvous_id_len = self.rendezvous_id.len().to_be_bytes();
 
         // if path is / then don't include the trailing slash
-        let base_url = if self.base_url.path() == "/" {
+        let base_url = if self.base_url.as_url().path() == "/" {
             self.base_url.as_str().trim_end_matches('/')
         } else {
             self.base_url.as_str()
@@ -237,7 +332,8 @@ mod test {
         );
 
         assert_eq!(
-            "e8da6355-550b-4a32-a193-1619d9830668", data.rendezvous_id,
+            "e8da6355-550b-4a32-a193-1619d9830668",
+            data.rendezvous_id.as_str(),
             "The parsed rendezvous ID should match expected one",
         );
 
@@ -263,7 +359,8 @@ mod test {
         );
 
         assert_eq!(
-            "e8da6355-550b-4a32-a193-1619d9830668", data.rendezvous_id,
+            "e8da6355-550b-4a32-a193-1619d9830668",
+            data.rendezvous_id.as_str(),
             "The parsed rendezvous URL should match expected one",
         );
 
@@ -305,7 +402,8 @@ mod test {
         );
 
         assert_eq!(
-            "01HX9K00Q1H6KPD47EG4G1T3XG", data.rendezvous_id,
+            "01HX9K00Q1H6KPD47EG4G1T3XG",
+            data.rendezvous_id.as_str(),
             "The parsed rendezvous URL should match the expected one",
         );
 
