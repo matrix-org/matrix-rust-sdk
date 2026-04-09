@@ -767,6 +767,8 @@ impl Backups {
         info!("Setting up secret listeners and trying to resume backups");
 
         self.client.add_event_handler(Self::secret_send_event_handler);
+        #[cfg(feature = "experimental-push-secrets")]
+        self.client.add_event_handler(Self::secret_push_event_handler);
 
         if self.client.inner.e2ee.encryption_settings.backup_download_strategy
             == BackupDownloadStrategy::AfterDecryptionFailure
@@ -941,8 +943,9 @@ impl Backups {
         }
     }
 
-    /// Try to resume backups by iterating through the `m.secret.send` to-device
-    /// messages the [`OlmMachine`] has received and stored in the secret inbox.
+    /// Try to resume backups by iterating through the `m.secret.send` and
+    /// `io.element.msc4385.secret.push` to-device messages the [`OlmMachine`]
+    /// has received and stored in the secret inbox.
     async fn maybe_resume_from_secret_inbox(&self, olm_machine: &OlmMachine) -> Result<(), Error> {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
@@ -1000,6 +1003,31 @@ impl Backups {
             }
         } else {
             error!("Tried to handle a `m.secret.send` event but no OlmMachine was initialized");
+        }
+    }
+
+    /// Listen for `io.element.msc4385.secret.push` to-device messages and check
+    /// the pushed secret inbox if we do receive one.
+    #[cfg(feature = "experimental-push-secrets")]
+    #[instrument(skip_all)]
+    pub(crate) async fn secret_push_event_handler(_: ToDeviceSecretPushEvent, client: Client) {
+        let olm_machine = client.olm_machine().await;
+
+        // TODO: As with `secret_send_event_handler`, because of our crude
+        // multi-process support, which reloads the whole [`OlmMachine`] the
+        // `secrets_stream` might stop giving you updates. Once that's fixed,
+        // stop listening to individual secret push events and listen to the
+        // secrets stream.
+        if let Some(olm_machine) = olm_machine.as_ref() {
+            if let Err(e) =
+                client.encryption().backups().maybe_resume_from_secret_inbox(olm_machine).await
+            {
+                error!("Could not handle `io.element.msc4385.secret.push` event: {e:?}");
+            }
+        } else {
+            error!(
+                "Tried to handle a `io.element.msc4385.secret.push` event but no OlmMachine was initialized"
+            );
         }
     }
 
