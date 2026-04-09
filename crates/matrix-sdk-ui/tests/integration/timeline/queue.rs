@@ -28,10 +28,6 @@ use ruma::{
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::{task::yield_now, time::sleep};
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{body_string_contains, method, path_regex},
-};
 
 #[async_test]
 async fn test_message_order() {
@@ -46,28 +42,20 @@ async fn test_message_order() {
         timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
 
     // Response for first message takes 200ms to respond
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .and(body_string_contains("First!"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$ev0" }))
-                .set_delay(Duration::from_millis(200)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({ "body": "First!" }))
+        .ok_with_delay(event_id!("$ev0"), Duration::from_millis(200))
+        .mount()
         .await;
 
     // Response for second message only takes 100ms to respond, so should come
     // back first if we don't serialize requests
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .and(body_string_contains("Second."))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$ev1" }))
-                .set_delay(Duration::from_millis(100)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({ "body": "Second." }))
+        .ok_with_delay(event_id!("$ev1"), Duration::from_millis(100))
+        .mount()
         .await;
 
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
@@ -132,12 +120,7 @@ async fn test_retry_order() {
 
     // When trying to send an event, return with a 500 error, which is interpreted
     // as a transient error.
-    let scoped_faulty_send = server
-        .mock_room_send()
-        .respond_with(ResponseTemplate::new(500))
-        .expect(3)
-        .mount_as_scoped()
-        .await;
+    let scoped_faulty_send = server.mock_room_send().error500().expect(3).mount_as_scoped().await;
 
     // Send two messages without mocking the server response.
     // It will respond with a 500, resulting in a failed-to-send state.
@@ -167,28 +150,20 @@ async fn test_retry_order() {
 
     // Response for first message takes 100ms to respond.
     drop(scoped_faulty_send);
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .and(body_string_contains("First!"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$ev0" }))
-                .set_delay(Duration::from_millis(100)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({ "body": "First!" }))
+        .ok_with_delay(event_id!("$ev0"), Duration::from_millis(100))
+        .mount()
         .await;
 
     // Response for second message takes 200ms to respond, so should come back
     // after first if we don't serialize retries.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .and(body_string_contains("Second."))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$ev1" }))
-                .set_delay(Duration::from_millis(200)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({ "body": "Second." }))
+        .ok_with_delay(event_id!("$ev1"), Duration::from_millis(200))
+        .mount()
         .await;
 
     // Retry the second message first.
@@ -244,16 +219,7 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
 
     // When trying to send an event, return with a 413 error, which is interpreted
     // as a permanent error.
-    server
-        .mock_room_send()
-        .respond_with(ResponseTemplate::new(413).set_body_json(json!({
-            // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
-            "errcode": "M_TOO_LARGE",
-            "error": "Sounds like you have a lot to say!"
-        })))
-        .expect(1)
-        .mount()
-        .await;
+    server.mock_room_send().error_too_large().expect(1).mount().await;
 
     // Sending an event will respond with a 500, resulting in a failed-to-send
     // state.
@@ -301,10 +267,7 @@ async fn test_reloaded_failed_local_echoes_are_marked_as_failed() {
             assert_matches!(&**error, QueueWedgeError::GenericApiError { msg } => { msg })
         }
     );
-    assert_eq!(
-        msg,
-        "the server returned an error: [413 / M_TOO_LARGE] Sounds like you have a lot to say!"
-    );
+    assert_eq!(msg, "the server returned an error: [413 / M_TOO_LARGE] Request body too large");
 }
 
 #[async_test]
@@ -338,14 +301,10 @@ async fn test_clear_with_echoes() {
     }
 
     // Next message will take "forever" to send.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": "$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP" }))
-                .set_delay(Duration::from_secs(3600)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .ok_with_delay(event_id!("$PyHxV5mYzjetBUT3qZq7V95GOzxb02EP"), Duration::from_secs(3600))
+        .mount()
         .await;
 
     // (this one)
@@ -402,32 +361,20 @@ async fn test_no_duplicate_date_divider() {
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     // Response for first message takes 200ms to respond.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .and(body_string_contains("First!"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "event_id": "$ev0",
-                }))
-                .set_delay(Duration::from_millis(200)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({ "body": "First!" }))
+        .ok_with_delay(event_id!("$ev0"), Duration::from_millis(200))
+        .mount()
         .await;
 
     // Response for second message only takes 100ms to respond, so should come
     // back first if we don't serialize requests.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/v3/rooms/.*/send/.*"))
-        .and(body_string_contains("Second."))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "event_id": "$ev1",
-                }))
-                .set_delay(Duration::from_millis(100)),
-        )
-        .mount(server.server())
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({ "body": "Second." }))
+        .ok_with_delay(event_id!("$ev1"), Duration::from_millis(100))
+        .mount()
         .await;
 
     timeline.send(RoomMessageEventContent::text_plain("First!").into()).await.unwrap();
