@@ -169,6 +169,14 @@ pub struct MatrixMockServer {
     token_counter: AtomicU32,
 }
 
+impl std::ops::Deref for MatrixMockServer {
+    type Target = MockServer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.server
+    }
+}
+
 impl MatrixMockServer {
     /// Create a new [`wiremock`] server specialized for Matrix usage.
     pub async fn new() -> Self {

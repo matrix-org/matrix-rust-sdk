@@ -450,7 +450,7 @@ async fn test_notification_client_sliding_sync() {
         .unwrap();
 
     check_requests(
-        server,
+        &server,
         &[json!({
             "conn_id": "notifications",
             "lists": {
