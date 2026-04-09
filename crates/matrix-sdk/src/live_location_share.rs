@@ -26,9 +26,9 @@ use matrix_sdk_common::locks::Mutex;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
     events::{
-        StaticEventContent, SyncStateEvent,
-        beacon::{BeaconEventContent, OriginalSyncBeaconEvent},
-        beacon_info::BeaconInfoEventContent,
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncStateEvent,
+        beacon::OriginalSyncBeaconEvent,
+        beacon_info::{BeaconInfoEventContent, OriginalSyncBeaconInfoEvent},
         location::LocationContent,
         relation::RelationType,
     },
@@ -87,15 +87,15 @@ impl LiveLocationShares {
 
         let beacon_handle = room.add_event_handler({
             let shares = shares.clone();
-            async move |event: OriginalSyncBeaconEvent, _room: Room| {
+            async move |event: OriginalSyncBeaconEvent| {
                 Self::handle_beacon_event(&shares, event);
             }
         });
         let beacon_guard = room.client.event_handler_drop_guard(beacon_handle);
         let beacon_info_handle = room.add_event_handler({
             let shares = shares.clone();
-            async move |event: SyncStateEvent<BeaconInfoEventContent>| {
-                Self::handle_beacon_info_event(&shares, event);
+            async move |event: OriginalSyncBeaconInfoEvent, room: Room| {
+                Self::handle_beacon_info_event(&shares, &room, event).await;
             }
         });
         let beacon_info_guard = room.client.event_handler_drop_guard(beacon_info_handle);
@@ -216,24 +216,32 @@ impl LiveLocationShares {
     ///
     /// When a new beacon info is received for an already tracked user, the
     /// share is removed from the vector. If the new beacon info is live, we add
-    /// it at the end of the vector.
-    fn handle_beacon_info_event(
+    /// it at the end of the vector, looking up the event cache to find any
+    /// beacon event that may have arrived before the beacon_info.
+    async fn handle_beacon_info_event(
         shares: &Mutex<ObservableVector<LiveLocationShare>>,
-        event: SyncStateEvent<BeaconInfoEventContent>,
+        room: &Room,
+        event: OriginalSyncBeaconInfoEvent,
     ) {
-        let SyncStateEvent::Original(ev) = event else { return };
-        let mut shares = shares.lock();
-        if let Some(idx) = shares.iter().position(|s| s.user_id == *ev.state_key) {
-            shares.remove(idx);
+        {
+            let mut shares = shares.lock();
+            if let Some(idx) = shares.iter().position(|s| s.user_id == *event.state_key) {
+                shares.remove(idx);
+            }
         }
-        if ev.content.is_live() {
-            let share = LiveLocationShare {
-                user_id: ev.state_key,
-                beacon_id: ev.event_id,
-                beacon_info: ev.content,
-                last_location: None,
+        if event.content.is_live() {
+            let last_location = if let Ok((cache, _drop_handles)) = room.event_cache().await {
+                Self::find_last_location(&cache, &event.event_id).await
+            } else {
+                None
             };
-            shares.push_back(share);
+            let share = LiveLocationShare {
+                user_id: event.state_key,
+                beacon_id: event.event_id,
+                beacon_info: event.content,
+                last_location,
+            };
+            shares.lock().push_back(share);
         }
     }
 }
