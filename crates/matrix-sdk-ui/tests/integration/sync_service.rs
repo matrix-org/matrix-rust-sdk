@@ -213,11 +213,7 @@ async fn test_sync_service_offline_mode() {
     let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
     let mut states = sync_service.state();
 
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(ResponseTemplate::new(404))
-        .expect(1..)
-        .mount(mock_server.server())
-        .await;
+    mock_server.mock_sliding_sync().error_unrecognized().expect(1..).mount().await;
 
     {
         let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
@@ -240,11 +236,7 @@ async fn test_sync_service_offline_mode_stopping() {
     let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
     let mut states = sync_service.state();
 
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(ResponseTemplate::new(404))
-        .expect(1..)
-        .mount(mock_server.server())
-        .await;
+    mock_server.mock_sliding_sync().error_unrecognized().expect(1..).mount().await;
     mock_server.mock_versions().error500().mount().await;
 
     sync_service.start().await;
@@ -263,10 +255,7 @@ async fn test_sync_service_offline_mode_restarting() {
     let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
     let mut states = sync_service.state();
 
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(ResponseTemplate::new(404))
-        .mount(mock_server.server())
-        .await;
+    mock_server.mock_sliding_sync().error_unrecognized().expect(1..).mount().await;
     mock_server.mock_versions().error500().mount().await;
 
     sync_service.start().await;
