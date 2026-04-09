@@ -21,62 +21,53 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
 use matrix_sdk::{
     assert_let_timeout,
-    config::{SyncSettings, SyncToken},
-    test_utils::{
-        logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomContextResponseTemplate, RoomRelationsResponseTemplate},
+    test_utils::mocks::{
+        MatrixMockServer, RoomContextResponseTemplate, RoomMessagesResponseTemplate,
+        RoomRelationsResponseTemplate,
     },
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
-    mocks::mock_encryption_state,
-};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineEventFocusThreadMode, TimelineFocus};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
 use stream_assert::assert_pending;
 use tokio::time::sleep;
 
-use crate::{mock_context, mock_messages, mock_sync};
-
 #[async_test]
 async fn test_new_focused() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    // Mark the room as joined.
-    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new().room(room_id);
     let target_event = event_id!("$1");
 
-    mock_context(
-        &server,
-        room_id,
-        target_event,
-        Some("prev1".to_owned()),
-        vec![
-            f.text_msg("i tried so hard").sender(*ALICE).into_event(),
-            f.text_msg("and got so far").sender(*ALICE).into_event(),
-        ],
-        f.text_msg("in the end").event_id(target_event).sender(*BOB).into_event(),
-        vec![
-            f.text_msg("it doesn't even").sender(*ALICE).into_event(),
-            f.text_msg("matter").sender(*ALICE).into_event(),
-        ],
-        Some("next1".to_owned()),
-        vec![],
-    )
-    .await;
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(
+            // events_before are passed in reverse chronological order (newest first),
+            // as required by the /context response format.
+            RoomContextResponseTemplate::new(
+                f.text_msg("in the end").event_id(target_event).sender(*BOB).into_event(),
+            )
+            .events_before(vec![
+                f.text_msg("and got so far").sender(*ALICE).into_event(),
+                f.text_msg("i tried so hard").sender(*ALICE).into_event(),
+            ])
+            .events_after(vec![
+                f.text_msg("it doesn't even").sender(*ALICE).into_event(),
+                f.text_msg("matter").sender(*ALICE).into_event(),
+            ])
+            .start("prev1")
+            .end("next1"),
+        )
+        .mock_once()
+        .mount()
+        .await;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
@@ -91,8 +82,6 @@ async fn test_new_focused() {
         timeline.live_back_pagination_status().await.is_none(),
         "there should be no live back-pagination status for a focused timeline"
     );
-
-    server.reset().await;
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
@@ -116,23 +105,22 @@ async fn test_new_focused() {
     assert_pending!(timeline_stream);
 
     // Now trigger a backward pagination.
-    mock_messages(
-        &server,
-        "prev1".to_owned(),
-        None,
-        vec![
+    server
+        .mock_room_messages()
+        .match_from("prev1")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
             // reversed manually here
-            f.text_msg("And even though I tried, it all fell apart").sender(*BOB).into_event(),
-            f.text_msg("I kept everything inside").sender(*BOB).into_event(),
-        ],
-        vec![],
-    )
-    .await;
+            f.text_msg("And even though I tried, it all fell apart")
+                .sender(*BOB)
+                .into_raw_timeline(),
+            f.text_msg("I kept everything inside").sender(*BOB).into_raw_timeline(),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
 
     let hit_start = timeline.paginate_backwards(20).await.unwrap();
     assert!(hit_start);
-
-    server.reset().await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
@@ -150,22 +138,23 @@ async fn test_new_focused() {
     );
 
     // Now trigger a forward pagination.
-    mock_messages(
-        &server,
-        "next1".to_owned(),
-        Some("next2".to_owned()),
-        vec![
-            f.text_msg("I had to fall, to lose it all").sender(*BOB).into_event(),
-            f.text_msg("But in the end, it doesn't event matter").sender(*BOB).into_event(),
-        ],
-        vec![],
-    )
-    .await;
+    server
+        .mock_room_messages()
+        .match_from("next1")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![
+                f.text_msg("I had to fall, to lose it all").sender(*BOB).into_raw_timeline(),
+                f.text_msg("But in the end, it doesn't event matter")
+                    .sender(*BOB)
+                    .into_raw_timeline(),
+            ])
+            .end_token("next2"))
+        .mock_once()
+        .mount()
+        .await;
 
     let hit_start = timeline.paginate_forwards(20).await.unwrap();
     assert!(!hit_start); // because we gave it another next2 token.
-
-    server.reset().await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
@@ -188,38 +177,26 @@ async fn test_new_focused() {
 #[async_test]
 async fn test_live_aggregations_are_reflected_on_focused_timelines() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    // Mark the room as joined.
-    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Start a focused timeline.
     let f = EventFactory::new().room(room_id);
     let target_event = event_id!("$1");
 
-    mock_context(
-        &server,
-        room_id,
-        target_event,
-        None,
-        vec![],
-        f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
-        vec![],
-        None,
-        vec![],
-    )
-    .await;
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(
+            f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
+        ))
+        .mock_once()
+        .mount()
+        .await;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
@@ -229,8 +206,6 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
         .build()
         .await
         .unwrap();
-
-    server.reset().await;
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
@@ -245,17 +220,17 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
 
     // Now simulate a sync that returns a new message-like event, and a reaction
     // to the $1 event.
-    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-        // This event must be ignored.
-        f.text_msg("this is a sync event").sender(*ALICE).into(),
-        // This event must not be ignored.
-        f.reaction(target_event, "👍").sender(*BOB).into(),
-    ]));
-
-    // Sync the room.
-    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+                // This event must be ignored.
+                f.text_msg("this is a sync event").sender(*ALICE).into(),
+                // This event must not be ignored.
+                f.reaction(target_event, "👍").sender(*BOB).into(),
+            ]));
+        })
+        .await;
 
     // We only receive one updated for the reaction, from the timeline stream.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
@@ -272,37 +247,26 @@ async fn test_live_aggregations_are_reflected_on_focused_timelines() {
 #[async_test]
 async fn test_focused_timeline_local_echoes() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    // Mark the room as joined.
-    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Start a focused timeline.
     let f = EventFactory::new().room(room_id);
     let target_event = event_id!("$1");
 
-    mock_context(
-        &server,
-        room_id,
-        target_event,
-        None,
-        vec![],
-        f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
-        vec![],
-        None,
-        vec![],
-    )
-    .await;
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(
+            f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
+        ))
+        .mock_once()
+        .mount()
+        .await;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
@@ -312,8 +276,6 @@ async fn test_focused_timeline_local_echoes() {
         .build()
         .await
         .unwrap();
-
-    server.reset().await;
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
@@ -352,37 +314,26 @@ async fn test_focused_timeline_local_echoes() {
 #[async_test]
 async fn test_focused_timeline_doesnt_show_local_echoes() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    sync_response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    // Mark the room as joined.
-    mock_sync(&server, sync_response_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Start a focused timeline.
     let f = EventFactory::new().room(room_id);
     let target_event = event_id!("$1");
 
-    mock_context(
-        &server,
-        room_id,
-        target_event,
-        None,
-        vec![],
-        f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
-        vec![],
-        None,
-        vec![],
-    )
-    .await;
+    server
+        .mock_room_event_context()
+        .room(room_id)
+        .ok(RoomContextResponseTemplate::new(
+            f.text_msg("yolo").event_id(target_event).sender(*BOB).into_event(),
+        ))
+        .mock_once()
+        .mount()
+        .await;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = TimelineBuilder::new(&room)
         .with_focus(TimelineFocus::Event {
             target: target_event.to_owned(),
@@ -392,8 +343,6 @@ async fn test_focused_timeline_doesnt_show_local_echoes() {
         .build()
         .await
         .unwrap();
-
-    server.reset().await;
 
     let (items, mut timeline_stream) = timeline.subscribe().await;
 
