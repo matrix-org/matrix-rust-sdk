@@ -3,35 +3,29 @@ use std::time::Duration;
 use futures_util::{FutureExt, StreamExt as _, pin_mut};
 use js_int::uint;
 use matrix_sdk::{
-    assert_let_timeout,
-    config::{SyncSettings, SyncToken},
-    live_location_share::LiveLocationShare,
+    assert_let_timeout, live_location_share::LiveLocationShare, test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
-    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
-    event_factory::EventFactory, mocks::mock_encryption_state, test_json,
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, async_test, event_factory::EventFactory,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, event_id, events::location::AssetType, owned_event_id,
     user_id,
 };
 use serde_json::json;
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{body_partial_json, header, method, path_regex},
-};
 
-use crate::{logged_in_client_with_server, mock_sync};
 #[async_test]
 async fn test_send_location_beacon() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_room_state_encryption().plain().mount().await;
 
     // Validate request body and response, partial body matching due to
     // auto-generated `org.matrix.msc3488.ts`.
-    Mock::given(method("PUT"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/send/org.matrix.msc3672.beacon/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(body_partial_json(json!({
+    server
+        .mock_room_send()
+        .body_matches_partial_json(json!({
             "m.relates_to": {
                 "event_id": "$15139375514XsgmR:localhost",
                 "rel_type": "m.reference"
@@ -39,14 +33,14 @@ async fn test_send_location_beacon() {
              "org.matrix.msc3488.location": {
                 "uri": "geo:48.8588448,2.2943506"
             }
-        })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EVENT_ID))
-        .mount(&server)
+        }))
+        .ok(event_id!("$h29iv0s8:example.com"))
+        .mock_once()
+        .mount()
         .await;
 
     let current_time = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     let beacon_info_event = f
         .beacon_info(
@@ -60,17 +54,14 @@ async fn test_send_location_beacon() {
         .state_key(user_id!("@example:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    mock_encryption_state(&server, false).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    client.sync_once(sync_settings).await.unwrap();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
@@ -81,15 +72,10 @@ async fn test_send_location_beacon() {
 
 #[async_test]
 async fn test_send_location_beacon_fails_without_starting_live_share() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    mock_sync(&server, &*test_json::SYNC, None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    client.sync_once(sync_settings).await.unwrap();
-
-    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-
+    let room = server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
     let response = room.send_location_beacon("geo:48.8588448,2.2943506".to_owned()).await;
 
     assert!(response.is_err());
@@ -97,10 +83,10 @@ async fn test_send_location_beacon_fails_without_starting_live_share() {
 
 #[async_test]
 async fn test_send_location_beacon_with_expired_live_share() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     let beacon_info_event = f
         .beacon_info(
@@ -114,15 +100,14 @@ async fn test_send_location_beacon_with_expired_live_share() {
         .state_key(user_id!("@example2:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-
-    client.sync_once(sync_settings).await.unwrap();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
 
@@ -133,11 +118,11 @@ async fn test_send_location_beacon_with_expired_live_share() {
 
 #[async_test]
 async fn test_most_recent_event_in_stream() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let current_time = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     let beacon_info_event = f
         .beacon_info(
@@ -151,16 +136,14 @@ async fn test_most_recent_event_in_stream() {
         .state_key(user_id!("@example2:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     // Enable the event cache so the initial snapshot can be loaded from it.
     client.event_cache().subscribe().unwrap();
@@ -187,15 +170,16 @@ async fn test_most_recent_event_in_stream() {
         );
     }
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_bulk(timeline_events),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
     let mut event_cache_updates_stream = client.event_cache().subscribe_to_room_generic_updates();
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_bulk(timeline_events),
+            );
+        })
+        .await;
 
     // Wait for the event cache background task to commit the events before
     // querying.
@@ -231,11 +215,11 @@ async fn test_most_recent_event_in_stream() {
 
 #[async_test]
 async fn test_observe_single_live_location_share() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let current_time = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     let beacon_info_event = f
         .beacon_info(
@@ -249,16 +233,14 @@ async fn test_observe_single_live_location_share() {
         .state_key(user_id!("@example2:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_location_shares = room.subscribe_to_live_location_shares().await;
@@ -276,13 +258,14 @@ async fn test_observe_single_live_location_share() {
         .sender(user_id!("@example2:localhost"))
         .into_raw_sync();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(timeline_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(timeline_event),
+            );
+        })
+        .await;
 
     let diffs = stream.next().await.expect("Expected live location share update");
     let mut shares = diffs.into_iter().fold(initial, |mut v, diff| {
@@ -307,10 +290,10 @@ async fn test_observe_single_live_location_share() {
 
 #[async_test]
 async fn test_observing_live_location_does_not_return_non_live() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     // The user's beacon_info is NOT live.
     let beacon_info_event = f
@@ -320,16 +303,14 @@ async fn test_observing_live_location_does_not_return_non_live() {
         .state_key(user_id!("@example:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_location_shares = room.subscribe_to_live_location_shares().await;
@@ -346,23 +327,25 @@ async fn test_observing_live_location_does_not_return_non_live() {
         .sender(user_id!("@example:localhost"))
         .into_raw_sync();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(beacon_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(beacon_event),
+            );
+        })
+        .await;
 
     assert!(stream.next().now_or_never().is_none());
 }
 
 #[async_test]
 async fn test_location_update_for_already_tracked_user() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     // Set up alice with a live beacon_info.
     let beacon_info_event = f
@@ -377,16 +360,14 @@ async fn test_location_update_for_already_tracked_user() {
         .state_key(user_id!("@alice:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_location_shares = room.subscribe_to_live_location_shares().await;
@@ -398,18 +379,20 @@ async fn test_location_update_for_already_tracked_user() {
     assert!(initial[0].last_location.is_none());
 
     // Alice's first beacon — updates the existing share with last_location.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
-            f.beacon(owned_event_id!("$alice_beacon_info"), 10.0, 20.0, 5, None)
-                .event_id(event_id!("$loc1"))
-                .sender(user_id!("@alice:localhost"))
-                .server_ts(now)
-                .into_raw_sync(),
-        ),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
+                    f.beacon(owned_event_id!("$alice_beacon_info"), 10.0, 20.0, 5, None)
+                        .event_id(event_id!("$loc1"))
+                        .sender(user_id!("@alice:localhost"))
+                        .server_ts(now)
+                        .into_raw_sync(),
+                ),
+            );
+        })
+        .await;
 
     let diffs = stream.next().await.expect("Expected first location");
     let shares = diffs.into_iter().fold(initial, |mut v, diff| {
@@ -424,18 +407,20 @@ async fn test_location_update_for_already_tracked_user() {
     assert_eq!(share.beacon_info.description, Some("Alice location".to_owned()));
 
     // Alice's second beacon — already tracked, beacon_info is reused from cache.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
-            f.beacon(owned_event_id!("$alice_beacon_info"), 30.0, 40.0, 10, None)
-                .event_id(event_id!("$loc2"))
-                .sender(user_id!("@alice:localhost"))
-                .server_ts(now)
-                .into_raw_sync(),
-        ),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
+                    f.beacon(owned_event_id!("$alice_beacon_info"), 30.0, 40.0, 10, None)
+                        .event_id(event_id!("$loc2"))
+                        .sender(user_id!("@alice:localhost"))
+                        .server_ts(now)
+                        .into_raw_sync(),
+                ),
+            );
+        })
+        .await;
 
     let diffs = stream.next().await.expect("Expected second location update");
     let shares = diffs.into_iter().fold(shares, |mut v, diff| {
@@ -453,11 +438,11 @@ async fn test_location_update_for_already_tracked_user() {
 
 #[async_test]
 async fn test_beacon_info_stop_removes_user_from_stream() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     // Alice starts with a live beacon_info.
     let beacon_info_event = f
@@ -467,16 +452,14 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
         .state_key(user_id!("@alice:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+            );
+        })
+        .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_location_shares = room.subscribe_to_live_location_shares().await;
@@ -488,18 +471,20 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
     assert!(initial[0].last_location.is_none());
 
     // Alice stops her share — beacon_info timeline event with live: false.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
-            f.beacon_info(None, Duration::from_secs(300), false, None)
-                .event_id(event_id!("$alice_beacon_info_stop"))
-                .sender(user_id!("@alice:localhost"))
-                .state_key(user_id!("@alice:localhost"))
-                .into_raw_sync(),
-        ),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
+                    f.beacon_info(None, Duration::from_secs(300), false, None)
+                        .event_id(event_id!("$alice_beacon_info_stop"))
+                        .sender(user_id!("@alice:localhost"))
+                        .state_key(user_id!("@alice:localhost"))
+                        .into_raw_sync(),
+                ),
+            );
+        })
+        .await;
 
     // Stream emits an update with an empty list — alice is removed.
     let diffs = stream.next().await.expect("Expected share removal");
@@ -512,11 +497,11 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
 
 #[async_test]
 async fn test_multiple_users_in_stream() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     // Both alice and bob have live beacon_infos.
     let alice_beacon_info = f
@@ -533,18 +518,16 @@ async fn test_multiple_users_in_stream() {
         .state_key(user_id!("@bob:localhost"))
         .into_raw_sync_state();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID)
-            .add_state_event(alice_beacon_info)
-            .add_state_event(bob_beacon_info),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID)
+                    .add_state_event(alice_beacon_info)
+                    .add_state_event(bob_beacon_info),
+            );
+        })
+        .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
     let live_location_shares = room.subscribe_to_live_location_shares().await;
@@ -555,18 +538,20 @@ async fn test_multiple_users_in_stream() {
     assert_eq!(initial.len(), 2);
 
     // Alice's beacon arrives — updates her existing share with last_location.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
-            f.beacon(owned_event_id!("$alice_beacon_info"), 10.0, 20.0, 5, None)
-                .event_id(event_id!("$alice_loc"))
-                .sender(user_id!("@alice:localhost"))
-                .server_ts(now)
-                .into_raw_sync(),
-        ),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
+                    f.beacon(owned_event_id!("$alice_beacon_info"), 10.0, 20.0, 5, None)
+                        .event_id(event_id!("$alice_loc"))
+                        .sender(user_id!("@alice:localhost"))
+                        .server_ts(now)
+                        .into_raw_sync(),
+                ),
+            );
+        })
+        .await;
 
     let diffs = stream.next().await.expect("Expected alice's location");
     let shares = diffs.into_iter().fold(initial, |mut v, diff| {
@@ -576,18 +561,20 @@ async fn test_multiple_users_in_stream() {
     assert_eq!(shares.len(), 2);
 
     // Bob's beacon arrives — updates his existing share with last_location.
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
-            f.beacon(owned_event_id!("$bob_beacon_info"), 50.0, 60.0, 8, None)
-                .event_id(event_id!("$bob_loc"))
-                .sender(user_id!("@bob:localhost"))
-                .server_ts(now)
-                .into_raw_sync(),
-        ),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_timeline_event(
+                    f.beacon(owned_event_id!("$bob_beacon_info"), 50.0, 60.0, 8, None)
+                        .event_id(event_id!("$bob_loc"))
+                        .sender(user_id!("@bob:localhost"))
+                        .server_ts(now)
+                        .into_raw_sync(),
+                ),
+            );
+        })
+        .await;
 
     let diffs = stream.next().await.expect("Expected both users");
     let shares = diffs.into_iter().fold(shares, |mut v, diff| {
@@ -613,14 +600,14 @@ async fn test_multiple_users_in_stream() {
 
 #[async_test]
 async fn test_initial_load_contains_location_from_event_cache() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     // Enable event cache BEFORE syncing so events get cached.
     client.event_cache().subscribe().unwrap();
 
     let now = MilliSecondsSinceUnixEpoch::now();
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
 
     // Alice has a live beacon_info.
     let beacon_info_event = f
@@ -643,21 +630,18 @@ async fn test_initial_load_contains_location_from_event_cache() {
         .server_ts(now)
         .into_raw_sync();
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID)
-            .add_state_event(beacon_info_event)
-            .add_timeline_event(beacon_event),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
-
     let mut event_cache_updates_stream = client.event_cache().subscribe_to_room_generic_updates();
 
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID)
+                    .add_state_event(beacon_info_event)
+                    .add_timeline_event(beacon_event),
+            );
+        })
+        .await;
 
     // Wait for the event cache background task to commit the events before
     // querying.
