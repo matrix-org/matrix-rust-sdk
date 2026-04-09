@@ -1128,6 +1128,7 @@ mod test {
         },
     };
     use matrix_sdk_test::async_test;
+    #[cfg(feature = "experimental-push-secrets")]
     use ruma::{device_id, user_id};
     use serde_json::json;
     use vodozemac::Curve25519PublicKey;
