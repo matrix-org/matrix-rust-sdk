@@ -140,10 +140,7 @@ impl SyncServiceBuilder {
     /// These entries are merged with the built-in defaults; they do not
     /// replace them. Use the special state key `"*"` to request all state
     /// keys for a given event type.
-    pub fn with_required_state(
-        self: Arc<Self>,
-        required_state: Vec<RequiredState>,
-    ) -> Arc<Self> {
+    pub fn with_required_state(self: Arc<Self>, required_state: Vec<RequiredState>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let entries: Vec<(ruma::events::StateEventType, String)> = required_state
             .into_iter()

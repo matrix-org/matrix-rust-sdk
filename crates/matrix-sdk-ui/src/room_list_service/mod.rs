@@ -581,9 +581,8 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::api::MatrixVersion;
     use serde_json::json;
-    use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
-
     use ruma::events::StateEventType;
+    use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
 
     use super::{ALL_ROOMS_LIST_NAME, Error, RoomListService, State};
 
