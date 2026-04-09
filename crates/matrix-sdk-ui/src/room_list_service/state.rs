@@ -199,10 +199,17 @@ pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk::test_utils::client::MockClientBuilder;
     use matrix_sdk_test::async_test;
     use tokio::time::sleep;
 
-    use super::{super::tests::new_room_list, *};
+    use super::*;
+    use crate::RoomListService;
+
+    async fn new_room_list() -> Result<RoomListService, Error> {
+        let client = MockClientBuilder::new(None).build().await;
+        RoomListService::new(client).await
+    }
 
     #[async_test]
     async fn test_states() -> Result<(), Error> {

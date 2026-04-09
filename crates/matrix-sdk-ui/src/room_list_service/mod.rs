@@ -560,50 +560,18 @@ mod tests {
     use std::future::ready;
 
     use futures_util::{StreamExt, pin_mut};
-    use matrix_sdk::{
-        Client, SlidingSyncMode, config::RequestConfig, test_utils::client::mock_matrix_session,
-    };
-    use matrix_sdk_test::async_test;
-    use ruma::api::MatrixVersion;
-    use serde_json::json;
-    use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
+    use matrix_sdk::{SlidingSyncMode, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk_test::{TestError, async_test};
+    use ruma::{api::client::sync::sync_events::v5, assign, uint};
 
     use super::{ALL_ROOMS_LIST_NAME, Error, RoomListService, State};
 
-    async fn new_client() -> (Client, MockServer) {
-        let session = mock_matrix_session();
-
-        let server = MockServer::start().await;
-        let client = Client::builder()
-            .homeserver_url(server.uri())
-            .server_versions([MatrixVersion::V1_0])
-            .request_config(RequestConfig::new().disable_retry())
-            .build()
-            .await
-            .unwrap();
-        client.restore_session(session).await.unwrap();
-
-        (client, server)
-    }
-
-    pub(super) async fn new_room_list() -> Result<RoomListService, Error> {
-        let (client, _) = new_client().await;
-
-        RoomListService::new(client).await
-    }
-
-    struct SlidingSyncMatcher;
-
-    impl Match for SlidingSyncMatcher {
-        fn matches(&self, request: &Request) -> bool {
-            request.url.path() == "/_matrix/client/unstable/org.matrix.simplified_msc3575/sync"
-                && request.method == Method::POST
-        }
-    }
-
     #[async_test]
-    async fn test_all_rooms_are_declared() -> Result<(), Error> {
-        let room_list = new_room_list().await?;
+    async fn test_all_rooms_are_declared() -> Result<(), TestError> {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_list = RoomListService::new(client).await?;
+
         let sliding_sync = room_list.sliding_sync();
 
         // List is present, in Selective mode.
@@ -622,7 +590,8 @@ mod tests {
 
     #[async_test]
     async fn test_expire_sliding_sync_session_manually() -> Result<(), Error> {
-        let (client, server) = new_client().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         let room_list = RoomListService::new(client).await?;
 
@@ -631,20 +600,17 @@ mod tests {
 
         // Run a first sync.
         {
-            let _mock_guard = Mock::given(SlidingSyncMatcher)
-                .respond_with(move |_request: &Request| {
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "pos": "0",
-                        "lists": {
-                            ALL_ROOMS_LIST_NAME: {
-                                "count": 0,
-                                "ops": [],
-                            },
-                        },
-                        "rooms": {},
-                    }))
+            let _mock_guard = server
+                .mock_sliding_sync()
+                .ok({
+                    let mut response = v5::Response::new("0".to_owned());
+                    response.lists.insert(
+                        ALL_ROOMS_LIST_NAME.to_owned(),
+                        assign!(v5::response::List::default(), { count: uint!(0) }),
+                    );
+                    response
                 })
-                .mount_as_scoped(&server)
+                .mount_as_scoped()
                 .await;
 
             let _ = sync.next().await;
