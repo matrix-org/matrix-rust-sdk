@@ -18,10 +18,7 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use matrix_sdk::{
-    assert_next_matches_with_timeout,
-    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
-};
+use matrix_sdk::{assert_next_matches_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
 use serde_json::json;
@@ -63,7 +60,8 @@ async fn setup_mocking_sliding_sync_server(
 
 #[async_test]
 async fn test_sync_service_state() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let encryption_pos = Arc::new(Mutex::new(0));
     let room_pos = Arc::new(Mutex::new(0));
