@@ -18,16 +18,9 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt;
-use matrix_sdk::{
-    assert_let_timeout,
-    config::{SyncSettings, SyncToken},
-    test_utils::logged_in_client_with_server,
-};
+use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
-    mocks::mock_encryption_state,
-};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
 use ruma::{
     event_id,
@@ -39,26 +32,16 @@ use ruma::{
 };
 use stream_assert::assert_pending;
 
-use crate::mock_sync;
-
 #[async_test]
 async fn test_batched() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    server.mock_room_state_encryption().plain().mount().await;
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
@@ -69,17 +52,19 @@ async fn test_batched() {
         assert!(next_batch.len() >= 3);
     });
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("text message event").sender(&ALICE))
-            .add_timeline_event(
-                f.member(&BOB).membership(MembershipState::Join).previous(MembershipState::Invite),
-            )
-            .add_timeline_event(f.notice("notice message event").sender(&BOB)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("text message event").sender(&ALICE))
+                .add_timeline_event(
+                    f.member(&BOB)
+                        .membership(MembershipState::Join)
+                        .previous(MembershipState::Invite),
+                )
+                .add_timeline_event(f.notice("notice message event").sender(&BOB)),
+        )
+        .await;
 
     tokio::time::timeout(Duration::from_millis(500), hdl).await.unwrap().unwrap();
 }
@@ -87,32 +72,24 @@ async fn test_batched() {
 #[async_test]
 async fn test_event_filter() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let f = EventFactory::new();
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    server.mock_room_state_encryption().plain().mount().await;
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline_builder().event_filter(|_, _| true).build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
     let first_event_id = event_id!("$YTQwYl2ply");
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(
-        f.text_msg("hello").sender(user_id!("@alice:example.org")).event_id(first_event_id),
-    ));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("hello").sender(user_id!("@alice:example.org")).event_id(first_event_id),
+            ),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 2);
@@ -131,23 +108,22 @@ async fn test_event_filter() {
 
     let second_event_id = event_id!("$Ga6Y2l0gKY");
     let edit_event_id = event_id!("$7i9In0gEmB");
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-            f.text_html("Test", "<em>Test</em>")
-                .sender(user_id!("@bob:example.org"))
-                .event_id(second_event_id)
-                .into(),
-            f.text_msg(" * hi")
-                .sender(user_id!("@alice:example.org"))
-                .event_id(edit_event_id)
-                .edit(first_event_id, RoomMessageEventContent::text_plain("hi").into())
-                .into(),
-        ]),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+                f.text_html("Test", "<em>Test</em>")
+                    .sender(user_id!("@bob:example.org"))
+                    .event_id(second_event_id)
+                    .into(),
+                f.text_msg(" * hi")
+                    .sender(user_id!("@alice:example.org"))
+                    .event_id(edit_event_id)
+                    .edit(first_event_id, RoomMessageEventContent::text_plain("hi").into())
+                    .into(),
+            ]),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 3);
@@ -178,20 +154,10 @@ async fn test_event_filter() {
 #[async_test]
 async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline_builder().build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
@@ -204,18 +170,21 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     let mut ev_factory = EventFactory::new().room(room_id);
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(ev_factory.text_msg("hello").sender(alice).event_id(first_event_id))
-            .add_timeline_event(ev_factory.text_msg("hello").sender(bob).event_id(second_event_id))
-            .add_timeline_event(
-                ev_factory.text_msg("hello").sender(alice).event_id(third_event_id),
-            ),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    ev_factory.text_msg("hello").sender(alice).event_id(first_event_id),
+                )
+                .add_timeline_event(
+                    ev_factory.text_msg("hello").sender(bob).event_id(second_event_id),
+                )
+                .add_timeline_event(
+                    ev_factory.text_msg("hello").sender(alice).event_id(third_event_id),
+                ),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 5);
@@ -237,11 +206,12 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 
     assert_pending!(timeline_stream);
 
-    sync_builder.add_global_account_data(ev_factory.ignored_user_list([bob.to_owned()]));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(ev_factory.ignored_user_list([bob.to_owned()]));
+        })
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
@@ -255,15 +225,14 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
     // All the next events are sent by Alice now.
     ev_factory = ev_factory.sender(alice);
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(ev_factory.text_msg("hello").event_id(fourth_event_id))
-            .add_timeline_event(ev_factory.text_msg("hello").event_id(fifth_event_id)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(ev_factory.text_msg("hello").event_id(fourth_event_id))
+                .add_timeline_event(ev_factory.text_msg("hello").event_id(fifth_event_id)),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 4);
@@ -287,21 +256,12 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
 #[async_test]
 async fn test_profile_updates() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let f = EventFactory::new();
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    server.mock_room_state_encryption().plain().mount().await;
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = room.timeline_builder().build().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
@@ -312,14 +272,15 @@ async fn test_profile_updates() {
     let event_1_id = event_id!("$YTQwYl2pl1");
     let event_2_id = event_id!("$YTQwYl2pl2");
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-        f.text_msg("hello").event_id(event_1_id).sender(alice).into(),
-        f.text_msg("hello").event_id(event_2_id).sender(bob).into(),
-    ]));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+                f.text_msg("hello").event_id(event_1_id).sender(alice).into(),
+                f.text_msg("hello").event_id(event_2_id).sender(bob).into(),
+            ]),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 3);
@@ -344,15 +305,16 @@ async fn test_profile_updates() {
     let event_4_id = event_id!("$YTQwYl2pl4");
     let event_5_id = event_id!("$YTQwYl2pl5");
 
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_bulk([
-        f.member(bob).display_name("Member").event_id(event_3_id).into(),
-        f.member(alice).display_name("Alice").event_id(event_4_id).into(),
-        f.text_msg("hello").event_id(event_5_id).sender(alice).into(),
-    ]));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk([
+                f.member(bob).display_name("Member").event_id(event_3_id).into(),
+                f.member(alice).display_name("Alice").event_id(event_4_id).into(),
+                f.text_msg("hello").event_id(event_5_id).sender(alice).into(),
+            ]),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 8);
@@ -414,14 +376,13 @@ async fn test_profile_updates() {
     // Change name to be ambiguous.
     let event_6_id = event_id!("$YTQwYl2pl6");
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.member(alice).display_name("Member").event_id(event_6_id)),
-    );
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.member(alice).display_name("Member").event_id(event_6_id)),
+        )
+        .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 7);
