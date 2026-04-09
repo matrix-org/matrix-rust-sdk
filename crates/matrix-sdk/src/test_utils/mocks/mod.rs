@@ -875,7 +875,7 @@ impl MatrixMockServer {
     pub fn mock_add_room_keys_version(&self) -> MockEndpoint<'_, AddRoomKeysVersionEndpoint> {
         let mock =
             Mock::given(method("POST")).and(path_regex(r"_matrix/client/v3/room_keys/version"));
-        self.mock_endpoint(mock, AddRoomKeysVersionEndpoint).expect_default_access_token()
+        self.mock_endpoint(mock, AddRoomKeysVersionEndpoint).expect_any_access_token()
     }
 
     /// Create a prebuilt mock for adding key storage backups via POST
