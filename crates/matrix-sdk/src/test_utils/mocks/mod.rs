@@ -2937,6 +2937,19 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
             .respond_with(ResponseTemplate::new(200).set_body_json(event.into_raw().json()));
         MatrixMock { server: self.server, mock }
     }
+
+    /// Returns a room event endpoint mock with a custom [`ResponseTemplate`].
+    ///
+    /// The path restriction is applied automatically. This is useful when you
+    /// need to configure specific response properties like delays.
+    pub fn ok_with_template(self, template: ResponseTemplate) -> MatrixMock<'a> {
+        let room_path = self.endpoint.room.map_or_else(|| ".*".to_owned(), |room| room.to_string());
+        let mock = self
+            .mock
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/")))
+            .respond_with(template);
+        MatrixMock { server: self.server, mock }
+    }
 }
 
 /// A builder pattern for the response to a [`RoomEventContextEndpoint`]
