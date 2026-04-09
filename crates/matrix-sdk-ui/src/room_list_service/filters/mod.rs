@@ -79,9 +79,9 @@ pub use invite::new_filter as new_filter_invite;
 pub use joined::new_filter as new_filter_joined;
 pub use low_priority::new_filter as new_filter_low_priority;
 #[cfg(test)]
-use matrix_sdk::Client;
+use matrix_sdk::{Client, test_utils::mocks::MatrixMockServer};
 #[cfg(test)]
-use matrix_sdk_test::{JoinedRoomBuilder, SyncResponseBuilder};
+use matrix_sdk_test::JoinedRoomBuilder;
 pub use non_left::new_filter as new_filter_non_left;
 pub use none::new_filter as new_filter_none;
 pub use normalized_match_room_name::new_filter as new_filter_normalized_match_room_name;
@@ -91,11 +91,6 @@ use ruma::RoomId;
 pub use space::new_filter as new_filter_space;
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 pub use unread::new_filter as new_filter_unread;
-#[cfg(test)]
-use wiremock::{
-    Mock, MockServer, ResponseTemplate,
-    matchers::{header, method, path},
-};
 
 use super::RoomListItem;
 
@@ -123,24 +118,16 @@ fn normalize_string(str: &str) -> String {
 pub(super) async fn new_rooms<const N: usize>(
     room_ids: [&RoomId; N],
     client: &Client,
-    server: &MockServer,
+    server: &MatrixMockServer,
 ) -> [RoomListItem; N] {
-    let mut response_builder = SyncResponseBuilder::default();
-
-    for room_id in room_ids {
-        response_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-    }
-
-    let json_response = response_builder.build_json_sync_response();
-
-    let _scope = Mock::given(method("GET"))
-        .and(path("/_matrix/client/r0/sync"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json_response))
-        .mount_as_scoped(server)
+    server
+        .mock_sync()
+        .ok_and_run(client, |builder| {
+            for room_id in room_ids {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+            }
+        })
         .await;
-
-    let _response = client.sync_once(Default::default()).await.unwrap();
 
     room_ids.map(|room_id| client.get_room(room_id).unwrap().into())
 }
