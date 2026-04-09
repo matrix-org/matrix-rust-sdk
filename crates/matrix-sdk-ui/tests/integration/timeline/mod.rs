@@ -445,6 +445,20 @@ async fn test_redact_message() {
 
     timeline.redact(&first.as_event().unwrap().identifier(), Some("inapprops")).await.unwrap();
 
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    assert!(item.as_event().unwrap().content().is_redacted());
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    assert!(item.as_event().unwrap().content().is_redacted());
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[1]);
+    assert!(item.as_event().unwrap().content().is_redacted());
+
     // Redacting a local event works.
     timeline
         .send(RoomMessageEventContent::text_plain("i will disappear soon").into())
@@ -535,6 +549,26 @@ async fn test_redact_local_sent_message() {
 
     // Let's redact the local echo with the remote handle.
     timeline.redact(&event.identifier(), None).await.unwrap();
+
+    // We receive an update in the timeline from the send queue: the redaction's
+    // local echo.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let event = item.as_event().unwrap();
+    assert!(event.content().is_redacted());
+
+    // We receive an update in the timeline from the send queue: the redaction's
+    // remote echo.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    let event = item.as_event().unwrap();
+    assert!(event.content().is_redacted());
+
+    assert_pending!(timeline_stream);
 }
 
 #[async_test]

@@ -42,6 +42,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Send redactions issued via `Timeline::redact_event` through the send queue.
+  ([#6428](https://github.com/matrix-org/matrix-rust-sdk/pull/6428))
 - Added the `Client::import_secrets_bundle` method.
   ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
 - [**breaking**] Remove support for `native-tls` and remove all feature

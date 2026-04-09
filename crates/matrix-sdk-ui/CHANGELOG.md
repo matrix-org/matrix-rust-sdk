@@ -34,6 +34,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Send redactions issued via `Timeline::redact` through the send queue.
+  ([#6428](https://github.com/matrix-org/matrix-rust-sdk/pull/6428))
+- [**breaking**] Make it possible to send redactions via the send queue with
+  `Timeline::redact`.
+  ([#6428](https://github.com/matrix-org/matrix-rust-sdk/pull/6428))
 - [**breaking**] Add the `suggested` field to the `SpaceRoom` struct,
   which indicates whether a space's admins have marked that sub-space/room
   as a "suggested" one to join. ([6417](https://github.com/matrix-org/matrix-rust-sdk/pull/6417))
