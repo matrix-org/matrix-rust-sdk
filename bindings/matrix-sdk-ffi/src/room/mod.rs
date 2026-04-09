@@ -27,13 +27,13 @@ use matrix_sdk::{
     },
     send_queue::RoomSendQueueUpdate as SdkRoomSendQueueUpdate,
 };
+use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     timeline::{RoomExt, TimelineBuilder, default_event_filter},
     unable_to_decrypt_hook::UtdHookManager,
 };
 use mime::Mime;
-use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use ruma::{
     EventId, Int, OwnedDeviceId, OwnedRoomOrAliasId, OwnedServerName, OwnedUserId, RoomAliasId,
     ServerName, UserId, assign,
@@ -707,10 +707,7 @@ impl Room {
     /// account data store.
     ///
     /// It will be returned as a JSON string.
-    pub async fn account_data(
-        &self,
-        event_type: String,
-    ) -> Result<Option<String>, ClientError> {
+    pub async fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
         let event_type = RumaRoomAccountDataEventType::from(event_type);
         let event = self.inner.account_data(event_type).await?;
         Ok(event.map(|e| e.json().get().to_owned()))
