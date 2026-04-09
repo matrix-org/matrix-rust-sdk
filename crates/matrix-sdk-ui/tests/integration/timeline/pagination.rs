@@ -27,17 +27,10 @@ use futures_util::{
 };
 use matrix_sdk::{
     assert_let_timeout,
-    config::{SyncSettings, SyncToken},
     event_cache::PaginationStatus,
-    test_utils::{
-        logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
-    },
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
-use matrix_sdk_test::{
-    ALICE, BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
-    mocks::mock_encryption_state,
-};
+use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{AnyOtherStateEventContentChange, RoomExt, TimelineItemContent};
 use ruma::{
     EventId, event_id,
@@ -50,50 +43,38 @@ use tokio::{
     spawn,
     time::{sleep, timeout},
 };
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{header, method, path_regex, query_param, query_param_is_missing},
-};
+use wiremock::ResponseTemplate;
 
-use crate::{mock_sync, timeline::sliding_sync::assert_timeline_stream};
+use crate::timeline::sliding_sync::assert_timeline_stream;
 
 #[async_test]
 async fn test_back_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
-        .expect(1)
-        .named("messages_batch_1")
-        .mount(&server)
-        .await;
+    {
+        let _mock = server
+            .mock_room_messages()
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
+            .mock_once()
+            .named("messages_batch_1")
+            .mount_as_scoped()
+            .await;
 
-    let paginate = async {
-        timeline.paginate_backwards(10).await.unwrap();
-        server.reset().await;
-    };
-    let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
-    };
-    join(paginate, observe_paginating).await;
+        let paginate = async {
+            timeline.paginate_backwards(10).await.unwrap();
+        };
+        let observe_paginating = async {
+            assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        };
+        join(paginate, observe_paginating).await;
+    }
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
@@ -142,23 +123,27 @@ async fn test_back_pagination() {
 
     assert_pending!(timeline_stream);
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            // Usually there would be a few events here, but we just want to test
-            // that the timeline start item is added when there is no end token
-            "chunk": [],
-            "start": "t47409-4357353_219380_26003_2269"
-        })))
-        .expect(1)
-        .named("messages_batch_1")
-        .mount(&server)
-        .await;
+    {
+        let _mock = server
+            .mock_room_messages()
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                // Usually there would be a few events here, but we just want to test
+                // that the timeline start item is added when there is no end token
+                "chunk": [],
+                "start": "t47409-4357353_219380_26003_2269"
+            })))
+            .mock_once()
+            .named("messages_end")
+            .mount_as_scoped()
+            .await;
 
-    let hit_start = timeline.paginate_backwards(10).await.unwrap();
-    assert!(hit_start);
-    assert_next_eq!(back_pagination_status, PaginationStatus::Idle { hit_timeline_start: true });
+        let hit_start = timeline.paginate_backwards(10).await.unwrap();
+        assert!(hit_start);
+        assert_next_eq!(
+            back_pagination_status,
+            PaginationStatus::Idle { hit_timeline_start: true }
+        );
+    }
 
     // Timeline start is inserted.
     {
@@ -367,26 +352,21 @@ async fn test_skip_count_is_taken_into_account_in_pagination_status() {
 #[async_test]
 async fn test_back_pagination_highlighted() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new().sender(user_id!("@example:localhost"));
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder
-        // We need the member event and power levels locally so the push rules processor works.
-        .add_joined_room(
+    // We need the member event and power levels locally so the push rules processor
+    // works.
+    let room = server
+        .sync_room(
+            &client,
             JoinedRoomBuilder::new(room_id)
                 .add_state_event(f.member(user_id!("@example:localhost")).display_name("example"))
                 .add_state_event(f.default_power_levels()),
-        );
+        )
+        .await;
 
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
@@ -419,17 +399,17 @@ async fn test_back_pagination_highlighted() {
         "end": "t47409-4357353_219380_26003_2269",
         "start": "t392-516_47314_0_7_1_1_1_11444_1"
     });
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
-        .expect(1)
-        .named("messages_batch_1")
-        .mount(&server)
-        .await;
+    {
+        let _mock = server
+            .mock_room_messages()
+            .respond_with(ResponseTemplate::new(200).set_body_json(response_json))
+            .mock_once()
+            .named("messages_batch_1")
+            .mount_as_scoped()
+            .await;
 
-    timeline.paginate_backwards(10).await.unwrap();
-    server.reset().await;
+        timeline.paginate_backwards(10).await.unwrap();
+    }
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
@@ -461,44 +441,38 @@ async fn test_back_pagination_highlighted() {
 #[async_test]
 async fn test_wait_for_token() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     let from = "t392-516_47314_0_7_1_1_1_11444_1";
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(query_param("from", from)) // make sure the right token is sent
+    server
+        .mock_room_messages()
+        .match_from(from)
         .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
         .expect(1)
         .named("messages_batch_1")
-        .mount(&server)
+        .mount()
         .await;
 
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
-            .set_timeline_prev_batch(from.to_owned())
-            .set_timeline_limited(),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    let sync_mock_guard = server
+        .mock_sync()
+        .ok(|b| {
+            b.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
+                    .set_timeline_prev_batch(from.to_owned())
+                    .set_timeline_limited(),
+            );
+        })
+        .mock_once()
+        .mount_as_scoped()
+        .await;
 
     let paginate = async {
         timeline.paginate_backwards(10).await.unwrap();
@@ -515,39 +489,27 @@ async fn test_wait_for_token() {
     let sync = async {
         // Make sure syncing starts a little bit later than pagination
         sleep(Duration::from_millis(100)).await;
-        client.sync_once(sync_settings.clone()).await.unwrap();
+        client.sync_once(Default::default()).await.unwrap();
     };
 
     timeout(Duration::from_secs(4), join3(paginate, observe_paginating, sync)).await.unwrap();
 
     // Make sure pagination was called (with the right parameters)
-    server.verify().await;
+    drop(sync_mock_guard);
+    server.server().verify().await;
 }
 
 #[async_test]
 async fn test_dedup_pagination() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
-    let from = "t392-516_47314_0_7_1_1_1_11444_1";
-
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(&*ROOM_MESSAGES_BATCH_1)
@@ -557,15 +519,8 @@ async fn test_dedup_pagination() {
         )
         .expect(1) // endpoint should only be called once
         .named("messages_batch_1")
-        .mount(&server)
+        .mount()
         .await;
-
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("live event!").sender(&ALICE))
-            .set_timeline_prev_batch(from.to_owned()),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
 
     // If I try to paginate twice at the same time,
     let paginate_1 = async {
@@ -580,58 +535,58 @@ async fn test_dedup_pagination() {
     // `expect()`ed requested is indeed 1.
     //
     // Make sure pagination was called (with the right parameters).
-    server.verify().await;
+    server.server().verify().await;
 }
 
 #[async_test]
 async fn test_timeline_reset_while_paginating() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings =
-        SyncSettings::new().timeout(Duration::from_millis(3000)).token(SyncToken::NoToken);
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let f = EventFactory::new();
-    let mut sync_builder = SyncResponseBuilder::new();
-
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
 
     let alice_event = f.text_msg("live event!").sender(&ALICE).room(room_id).into_raw_timeline();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(alice_event.clone().cast())
-            .set_timeline_prev_batch("pagination_1".to_owned())
-            .set_timeline_limited(),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
+    server
+        .mock_sync()
+        .ok(|b| {
+            b.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(alice_event.clone().cast())
+                    .set_timeline_prev_batch("pagination_1".to_owned())
+                    .set_timeline_limited(),
+            );
+        })
+        .mock_once()
+        .mount()
+        .await;
+    client.sync_once(Default::default()).await.unwrap();
 
-    // Next sync response will response with pagination_2 token and limited
-    // response, resetting the timeline
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_timeline_event(f.text_msg("new live event.").sender(&BOB))
-            .set_timeline_prev_batch("pagination_2".to_owned())
-            .set_timeline_limited(),
-    );
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    // Next sync response will respond with pagination_2 token and limited
+    // response, resetting the timeline.
+    let sync_mock_guard = server
+        .mock_sync()
+        .ok(|b| {
+            b.add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_timeline_event(f.text_msg("new live event.").sender(&BOB))
+                    .set_timeline_prev_batch("pagination_2".to_owned())
+                    .set_timeline_limited(),
+            );
+        })
+        .mock_once()
+        .mount_as_scoped()
+        .await;
 
     // The pagination with the first token will be hit twice:
     // - first, before the sync response comes, then the gap is stored in the cache.
     // - second, after all other gaps have been resolved, we get back to resolving
     //   this one.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(query_param("from", "pagination_1"))
+    server
+        .mock_room_messages()
+        .match_from("pagination_1")
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(json!({
@@ -644,37 +599,35 @@ async fn test_timeline_reset_while_paginating() {
         )
         .expect(2)
         .named("pagination_1")
-        .mount(&server)
+        .mount()
         .await;
 
     // The pagination with the second token must return Alice's event, to be
     // consistent with the room's timeline (Alice's event was observed before
     // Bob's event).
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(query_param("from", "pagination_2"))
+    server
+        .mock_room_messages()
+        .match_from("pagination_2")
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [alice_event],
             "start": "pagination_2",
         })))
         .expect(1)
         .named("pagination_2")
-        .mount(&server)
+        .mount()
         .await;
 
     // pagination with third token
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
-        .and(query_param("from", "pagination_3"))
+    server
+        .mock_room_messages()
+        .match_from("pagination_3")
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [],
             "start": "pagination_3",
         })))
         .expect(1)
         .named("pagination_3")
-        .mount(&server)
+        .mount()
         .await;
 
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
@@ -723,7 +676,7 @@ async fn test_timeline_reset_while_paginating() {
     };
 
     let sync = async {
-        client.sync_once(sync_settings.clone()).await.unwrap();
+        client.sync_once(Default::default()).await.unwrap();
     };
 
     let (hit_start, _, _) =
@@ -738,7 +691,8 @@ async fn test_timeline_reset_while_paginating() {
     assert_eq!(timeline.items().await.len(), 4);
 
     // Make sure both pagination mocks were called.
-    server.verify().await;
+    drop(sync_mock_guard);
+    server.server().verify().await;
 }
 
 pub static ROOM_MESSAGES_BATCH_1: LazyLock<JsonValue> = LazyLock::new(|| {
@@ -815,56 +769,45 @@ pub static ROOM_MESSAGES_BATCH_2: LazyLock<JsonValue> = LazyLock::new(|| {
 #[async_test]
 async fn test_empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     // It should try to do another request after the empty chunk.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(query_param_is_missing("from"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [],
             "start": "t112-4357353_219380_26003_2269",
             "end": "t392-516_47314_0_7_1_1_1_11444_1",
         })))
-        .expect(1)
+        .mock_once()
         .named("messages_empty_chunk")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(query_param("from", "t392-516_47314_0_7_1_1_1_11444_1"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
+        .match_from("t392-516_47314_0_7_1_1_1_11444_1")
         .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
         .expect(1)
         .named("messages_batch_1")
-        .mount(&server)
+        .mount()
         .await;
 
-    let paginate = async {
-        timeline.paginate_backwards(10).await.unwrap();
-        server.reset().await;
-    };
-    let observe_paginating = async {
-        assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
-    };
-    join(paginate, observe_paginating).await;
+    {
+        let paginate = async {
+            timeline.paginate_backwards(10).await.unwrap();
+        };
+        let observe_paginating = async {
+            assert_eq!(back_pagination_status.next().await, Some(PaginationStatus::Paginating));
+        };
+        join(paginate, observe_paginating).await;
+    }
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
@@ -917,55 +860,42 @@ async fn test_empty_chunk() {
 #[async_test]
 async fn test_until_num_items_with_empty_chunk() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(JoinedRoomBuilder::new(room_id));
-
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(sync_settings.clone()).await.unwrap();
-    server.reset().await;
-
-    mock_encryption_state(&server, false).await;
-
-    let room = client.get_room(room_id).unwrap();
+    let room = server.sync_joined_room(&client, room_id).await;
     let timeline = Arc::new(room.timeline().await.unwrap());
     let (_, mut timeline_stream) = timeline.subscribe().await;
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(query_param_is_missing("from"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
         .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_1))
-        .expect(1)
+        .mock_once()
         .named("messages_batch_1")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(query_param("from", "t47409-4357353_219380_26003_2269"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
+        .match_from("t47409-4357353_219380_26003_2269")
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "chunk": [],
             "start": "t47409-4357353_219380_26003_2269",
             "end": "t54392-516_47314_0_7_1_1_1_11444_1",
         })))
-        .expect(1)
+        .mock_once()
         .named("messages_empty_chunk")
-        .mount(&server)
+        .mount()
         .await;
 
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(query_param("from", "t54392-516_47314_0_7_1_1_1_11444_1"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
+        .match_from("t54392-516_47314_0_7_1_1_1_11444_1")
         .respond_with(ResponseTemplate::new(200).set_body_json(&*ROOM_MESSAGES_BATCH_2))
         .expect(1)
         .named("messages_batch_2")
-        .mount(&server)
+        .mount()
         .await;
 
     let paginate = async {
@@ -1063,15 +993,14 @@ async fn test_back_pagination_aborted() {
     let (_, mut back_pagination_status) = timeline.live_back_pagination_status().await.unwrap();
 
     // Delay the server response, so we have time to abort the request.
-    Mock::given(method("GET"))
-        .and(path_regex(r"^/_matrix/client/r0/rooms/.*/messages$"))
-        .and(header("authorization", "Bearer 1234"))
+    server
+        .mock_room_messages()
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_json(&*ROOM_MESSAGES_BATCH_1)
                 .set_delay(Duration::from_secs(1)),
         )
-        .mount(server.server())
+        .mount()
         .await;
 
     let paginate = spawn({
