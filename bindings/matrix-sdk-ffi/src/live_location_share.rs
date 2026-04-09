@@ -37,7 +37,7 @@ pub struct LiveLocationShare {
     /// The user ID of the person sharing their live location.
     pub user_id: String,
     /// The time when location sharing started.
-    pub ts: u64,
+    pub start_ts: u64,
     /// The duration that the location sharing will be live.
     /// Meaning that the location will stop being shared at ts + timeout.
     pub timeout: u64,
@@ -73,7 +73,7 @@ pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
 
 impl From<SdkLiveLocationShare> for LiveLocationShare {
     fn from(share: SdkLiveLocationShare) -> Self {
-        let ts = share.beacon_info.ts.0.into();
+        let start_ts = share.beacon_info.ts.0.into();
         let timeout = share.beacon_info.timeout.as_millis() as u64;
         let asset = share.beacon_info.asset.type_.into();
         let last_location = share.last_location.map(|l| LastLocation {
@@ -86,7 +86,7 @@ impl From<SdkLiveLocationShare> for LiveLocationShare {
             },
             ts: l.ts.0.into(),
         });
-        LiveLocationShare { user_id: share.user_id.to_string(), last_location, ts, timeout }
+        LiveLocationShare { user_id: share.user_id.to_string(), last_location, start_ts, timeout }
     }
 }
 
