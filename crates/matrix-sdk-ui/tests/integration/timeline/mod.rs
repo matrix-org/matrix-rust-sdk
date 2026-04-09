@@ -443,7 +443,10 @@ async fn test_redact_message() {
     // Redacting a remote event works.
     server.mock_room_redact().ok(event_id!("$42")).mock_once().mount().await;
 
-    timeline.redact(&first.as_event().unwrap().identifier(), Some("inapprops")).await.unwrap();
+    timeline
+        .redact(&first.as_event().unwrap().identifier(), Some("inapprops"), false)
+        .await
+        .unwrap();
 
     // Redacting a local event works.
     timeline
@@ -471,7 +474,7 @@ async fn test_redact_message() {
     assert_matches!(second.send_state(), Some(EventSendState::SendingFailed { .. }));
 
     // Let's redact the local echo.
-    timeline.redact(&second.identifier(), None).await.unwrap();
+    timeline.redact(&second.identifier(), None, false).await.unwrap();
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
@@ -545,7 +548,7 @@ async fn test_redact_local_sent_message() {
     server.mock_room_redact().ok(event_id!("$redaction_event_id")).mock_once().mount().await;
 
     // Let's redact the local echo with the remote handle.
-    timeline.redact(&event.identifier(), None).await.unwrap();
+    timeline.redact(&event.identifier(), None, false).await.unwrap();
 }
 
 #[async_test]
@@ -561,13 +564,15 @@ async fn test_redact_nonexisting_item() {
     let timeline = room.timeline().await.unwrap();
 
     let error = timeline
-        .redact(&TimelineEventItemId::EventId(owned_event_id!("$123:example.com")), None)
+        .redact(&TimelineEventItemId::EventId(owned_event_id!("$123:example.com")), None, false)
         .await
         .err();
     assert_matches!(error, Some(Error::RedactError(RedactError::ItemNotFound(_))));
 
-    let error =
-        timeline.redact(&TimelineEventItemId::TransactionId("something".into()), None).await.err();
+    let error = timeline
+        .redact(&TimelineEventItemId::TransactionId("something".into()), None, false)
+        .await
+        .err();
     assert_matches!(error, Some(Error::RedactError(RedactError::ItemNotFound(_))));
 }
 

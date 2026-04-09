@@ -61,7 +61,7 @@ use tracing::{instrument, trace, warn};
 use self::{
     algorithms::rfind_event_by_id, controller::TimelineController, futures::SendAttachment,
 };
-use crate::timeline::controller::CryptoDropHandles;
+use crate::timeline::{controller::CryptoDropHandles, futures::Redact};
 
 mod algorithms;
 mod builder;
@@ -620,6 +620,7 @@ impl Timeline {
         &self,
         item_id: &TimelineEventItemId,
         reason: Option<&str>,
+        use_send_queue: bool,
     ) -> Result<(), Error> {
         let items = self.items().await;
         let Some((_pos, event)) = rfind_event_by_item_id(&items, item_id) else {
@@ -628,7 +629,11 @@ impl Timeline {
 
         match event.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                self.room().redact(event_id, reason, None).await.map_err(RedactError::HttpError)?;
+                let mut fut = Redact::new(self, event_id, reason);
+                if use_send_queue {
+                    fut = fut.use_send_queue();
+                }
+                return fut.await;
             }
             TimelineItemHandle::Local(handle) => {
                 if !handle.abort().await.map_err(RoomSendQueueError::StorageError)? {
