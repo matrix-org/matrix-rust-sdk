@@ -405,9 +405,9 @@ fn check_bundle_and_info(
         (Some(_), None) => DetectedSecretsBundle::UnusedBackup,
         (Some(backup), Some(info)) => {
             if is_valid_backup(backup, info) {
-                DetectedSecretsBundle::UnusedBackup
-            } else {
                 DetectedSecretsBundle::Complete
+            } else {
+                DetectedSecretsBundle::UnusedBackup
             }
         }
     }
