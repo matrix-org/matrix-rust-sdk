@@ -119,7 +119,7 @@ impl LiveLocationShares {
         // Beacon infos are stored in the state store, not the event cache.
         let beacon_infos = room.get_state_events_static::<BeaconInfoEventContent>().await?;
         // Event cache is only needed for finding last location (optional).
-        let event_cache = room.event_cache().await.ok().map(|(cache, _handles)| cache);
+        let event_cache = room.event_cache().await.ok();
         let mut shares = Vector::new();
         for raw_beacon_info in beacon_infos {
             let Ok(event) = raw_beacon_info.deserialize() else { continue };
@@ -128,7 +128,7 @@ impl LiveLocationShares {
                 continue;
             };
             let last_location = match &event_cache {
-                Some(cache) => Self::find_last_location(cache, &event_id).await,
+                Some((cache, _drop_handles)) => Self::find_last_location(cache, &event_id).await,
                 None => None,
             };
             shares.push_back(LiveLocationShare {
@@ -173,18 +173,23 @@ impl LiveLocationShares {
             .await
             .ok()?
             .into_iter()
-            .filter_map(|e| Self::event_to_last_location(&e))
-            .collect::<Vec<_>>()
-            .pop()
+            .rev()
+            .find_map(|e| Self::event_to_last_location(&e))
     }
 
     /// Converts an [`Event`] to a [`LastLocation`] if it is a beacon event.
     fn event_to_last_location(event: &Event) -> Option<LastLocation> {
-        if event.kind.event_type().as_deref()? != BeaconEventContent::TYPE {
-            return None;
+        if let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::Beacon(
+            beacon_event,
+        ))) = event.kind.raw().deserialize()
+        {
+            beacon_event.as_original().map(|beacon| LastLocation {
+                location: beacon.content.location.clone(),
+                ts: beacon.origin_server_ts,
+            })
+        } else {
+            None
         }
-        let beacon = event.kind.raw().deserialize_as_unchecked::<OriginalSyncBeaconEvent>().ok()?;
-        Some(LastLocation { location: beacon.content.location, ts: beacon.origin_server_ts })
     }
 
     /// Handles a single beacon event (location update).
