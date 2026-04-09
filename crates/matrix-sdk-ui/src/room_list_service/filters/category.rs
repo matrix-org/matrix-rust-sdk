@@ -68,7 +68,7 @@ pub fn new_filter(expected_category: RoomCategory) -> impl Filter {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
@@ -76,7 +76,8 @@ mod tests {
 
     #[async_test]
     async fn test_kind_is_group() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let number_of_direct_targets = |_room: &RoomListItem| Some(42);
@@ -98,7 +99,8 @@ mod tests {
 
     #[async_test]
     async fn test_kind_is_people() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let number_of_direct_targets = |_room: &RoomListItem| Some(1);
@@ -120,7 +122,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_kind_cannot_be_found() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let number_of_direct_targets = |_room: &RoomListItem| None;
