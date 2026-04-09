@@ -1147,9 +1147,11 @@ impl Room {
     ) -> Arc<TaskHandle> {
         let live_location_shares = self.inner.subscribe_to_live_location_shares().await;
         let (initial_values, mut stream) = live_location_shares.subscribe();
-        listener.on_update(vec![LiveLocationShareUpdate::Reset {
-            values: initial_values.into_iter().map(Into::into).collect(),
-        }]);
+        if !initial_values.is_empty() {
+            listener.on_update(vec![LiveLocationShareUpdate::Reset {
+                values: initial_values.into_iter().map(Into::into).collect(),
+            }]);
+        }
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(diffs) = stream.next().await {
                 listener.on_update(diffs.into_iter().map(Into::into).collect());
