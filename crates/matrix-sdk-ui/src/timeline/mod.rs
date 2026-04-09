@@ -628,16 +628,20 @@ impl Timeline {
 
         match event.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                self.room().redact(event_id, reason, None).await.map_err(RedactError::HttpError)?;
+                self.room()
+                    .send_queue()
+                    .redact(event_id.to_owned(), reason)
+                    .await
+                    .map_err(|_| Error::FailedSendingRedaction)?;
+                Ok(())
             }
             TimelineItemHandle::Local(handle) => {
                 if !handle.abort().await.map_err(RoomSendQueueError::StorageError)? {
                     return Err(RedactError::InvalidLocalEchoState.into());
                 }
+                Ok(())
             }
         }
-
-        Ok(())
     }
 
     /// Fetch unavailable details about the event with the given ID.
