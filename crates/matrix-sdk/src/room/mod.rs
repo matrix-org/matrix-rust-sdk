@@ -3933,20 +3933,15 @@ impl Room {
         &self,
         user_id: &UserId,
     ) -> Result<OriginalSyncStateEvent<BeaconInfoEventContent>, BeaconError> {
-        let raw_event =
-            match self.get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id).await {
-                Ok(Some(event)) => event,
-                Ok(None) => return Err(BeaconError::NotFound),
-                Err(e) => return Err(e.into()),
-            };
+        let raw_event = self
+            .get_state_event_static_for_key::<BeaconInfoEventContent, _>(user_id)
+            .await?
+            .ok_or(BeaconError::NotFound)?;
 
-        match raw_event.deserialize() {
-            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info))) => Ok(beacon_info),
-            Ok(SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_))) => {
-                Err(BeaconError::Redacted)
-            }
-            Ok(SyncOrStrippedState::Stripped(_)) => Err(BeaconError::Stripped),
-            Err(e) => Err(e.into()),
+        match raw_event.deserialize()? {
+            SyncOrStrippedState::Sync(SyncStateEvent::Original(beacon_info)) => Ok(beacon_info),
+            SyncOrStrippedState::Sync(SyncStateEvent::Redacted(_)) => Err(BeaconError::Redacted),
+            SyncOrStrippedState::Stripped(_) => Err(BeaconError::Stripped),
         }
     }
 
