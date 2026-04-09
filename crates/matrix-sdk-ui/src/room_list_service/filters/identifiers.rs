@@ -24,7 +24,7 @@ pub fn new_filter(identifiers: Vec<OwnedRoomId>) -> impl Filter {
 
 #[cfg(test)]
 mod tests {
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::async_test;
     use ruma::{owned_room_id, room_id};
 
@@ -32,7 +32,8 @@ mod tests {
 
     #[async_test]
     async fn test_space() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let rooms = new_rooms(
             [room_id!("!alpha:b.c"), room_id!("!beta:b.c"), room_id!("!gamma:b.c")],
             &client,
