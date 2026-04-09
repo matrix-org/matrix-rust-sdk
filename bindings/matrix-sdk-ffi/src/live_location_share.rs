@@ -23,7 +23,7 @@ use crate::ruma::LocationContent;
 /// Details of the last known location beacon.
 #[derive(uniffi::Record)]
 pub struct LastLocation {
-    /// The most recent location content of the user.
+    /// The most recent location content shared for this asset.
     pub location: LocationContent,
     /// The timestamp of when the location was updated.
     pub ts: u64,
@@ -32,7 +32,7 @@ pub struct LastLocation {
 /// Details of a user's live location share.
 #[derive(uniffi::Record)]
 pub struct LiveLocationShare {
-    /// The user's last known location.
+    /// The asset's last known location.
     pub last_location: Option<LastLocation>,
     /// The user ID of the person sharing their live location.
     pub user_id: String,

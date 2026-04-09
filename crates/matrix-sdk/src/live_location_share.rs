@@ -40,7 +40,7 @@ use crate::event_handler::EventHandlerDropGuard;
 /// Details of the last known location beacon.
 #[derive(Clone, Debug)]
 pub struct LastLocation {
-    /// The most recent location content of the user.
+    /// The most recent location content of the asset.
     pub location: LocationContent,
     /// The timestamp of when the location was updated.
     pub ts: MilliSecondsSinceUnixEpoch,
@@ -51,7 +51,7 @@ pub struct LastLocation {
 pub struct LiveLocationShare {
     /// The user ID of the person sharing their live location.
     pub user_id: OwnedUserId,
-    /// The user's last known location, if any beacon has been received.
+    /// The asset's last known location, if any beacon has been received.
     pub last_location: Option<LastLocation>,
     /// The event ID of the beacon_info state event for this share.
     pub beacon_id: OwnedEventId,
