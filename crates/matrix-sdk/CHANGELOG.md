@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add support for pushing the backup key to other clients, and receiving a
+  pushed backup key from other clients
+  ([MSC4385](https://github.com/matrix-org/matrix-spec-proposals/pull/4385)),
+  gated behind the `experimental-push-secrets` feature.
+  ([#6432](https://github.com/matrix-org/matrix-rust-sdk/pull/6432))
 - Add `room_versions()` & `account_moderation()` to `HomeserverCapabilities`.
   ([#6413](https://github.com/matrix-org/matrix-rust-sdk/pull/6413))
 - Enable sending redaction events through the send queue via `RoomSendQueue::redact`.
