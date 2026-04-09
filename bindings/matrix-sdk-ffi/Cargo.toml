@@ -38,6 +38,7 @@ js = ["matrix-sdk-ui/js"]
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-emojis"]
+experimental-push-secrets = ["matrix-sdk/experimental-push-secrets"]
 
 [dependencies]
 anyhow.workspace = true
