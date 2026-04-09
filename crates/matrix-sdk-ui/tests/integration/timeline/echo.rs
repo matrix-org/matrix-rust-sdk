@@ -26,10 +26,8 @@ use ruma::{
     events::room::message::{MessageType, RoomMessageEventContent},
     room_id, user_id,
 };
-use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::task::yield_now;
-use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_echo() {
@@ -227,14 +225,10 @@ async fn test_dedup_by_event_id_late() {
 
     server
         .mock_room_send()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": event_id }))
-                // Not great to use a timer for this, but it's what wiremock gives us right now.
-                // Ideally we'd wait on a channel to produce a value or sth. like that, but
-                // wiremock doesn't allow to handle multiple queries at the same time.
-                .set_delay(Duration::from_millis(500)),
-        )
+        // Not great to use a timer for this, but it's what wiremock gives us right now.
+        // Ideally we'd wait on a channel to produce a value or sth. like that, but
+        // wiremock doesn't allow to handle multiple queries at the same time.
+        .ok_with_delay(event_id, Duration::from_millis(500))
         .mount()
         .await;
 

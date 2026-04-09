@@ -23,14 +23,9 @@ use ruma::{
     owned_mxc_uri, room_id,
     time::{Duration, Instant},
 };
-use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::TempDir;
 use tokio::{spawn, sync::Barrier, task::yield_now, time::sleep};
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{header, method, path},
-};
 
 use crate::timeline::sliding_sync::{assert_timeline_stream, timeline_event};
 
@@ -2680,14 +2675,7 @@ async fn test_room_empty_timeline() {
     let (client, server, room_list) = new_room_list_service().await.unwrap();
     server.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("POST"))
-        .and(path("_matrix/client/v3/createRoom"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!example:localhost"})),
-        )
-        .mount(server.server())
-        .await;
+    server.mock_create_room().ok().mount().await;
 
     let room = client.create_room(CreateRoomRequest::default()).await.unwrap();
     let room_id = room.room_id().to_owned();
