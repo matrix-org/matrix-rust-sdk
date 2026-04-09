@@ -142,10 +142,8 @@ impl SyncServiceBuilder {
     /// keys for a given event type.
     pub fn with_required_state(self: Arc<Self>, required_state: Vec<RequiredState>) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
-        let entries: Vec<(ruma::events::StateEventType, String)> = required_state
-            .into_iter()
-            .map(|rs| (rs.event_type.into(), rs.state_key))
-            .collect();
+        let entries: Vec<(ruma::events::StateEventType, String)> =
+            required_state.into_iter().map(|rs| (rs.event_type.into(), rs.state_key)).collect();
         let builder = this.builder.with_required_state(entries);
         Arc::new(Self { builder, ..this })
     }

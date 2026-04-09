@@ -827,10 +827,7 @@ impl SyncServiceBuilder {
     /// not replace them. Each entry is a `(event_type, state_key)` pair
     /// following the same conventions as the sliding-sync `required_state`
     /// field (e.g. `""` for singleton state, `"*"` for all state keys).
-    pub fn with_required_state(
-        mut self,
-        required_state: Vec<(StateEventType, String)>,
-    ) -> Self {
+    pub fn with_required_state(mut self, required_state: Vec<(StateEventType, String)>) -> Self {
         self.extra_required_state = required_state;
         self
     }
@@ -841,13 +838,8 @@ impl SyncServiceBuilder {
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self {
-            client,
-            with_offline_mode,
-            with_share_pos,
-            parent_span,
-            extra_required_state,
-        } = self;
+        let Self { client, with_offline_mode, with_share_pos, parent_span, extra_required_state } =
+            self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 

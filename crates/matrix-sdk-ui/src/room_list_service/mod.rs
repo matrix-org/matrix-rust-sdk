@@ -579,9 +579,8 @@ mod tests {
         Client, SlidingSyncMode, config::RequestConfig, test_utils::client::mock_matrix_session,
     };
     use matrix_sdk_test::async_test;
-    use ruma::api::MatrixVersion;
+    use ruma::{api::MatrixVersion, events::StateEventType};
     use serde_json::json;
-    use ruma::events::StateEventType;
     use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
 
     use super::{ALL_ROOMS_LIST_NAME, Error, RoomListService, State};
@@ -698,8 +697,7 @@ mod tests {
             (StateEventType::RoomTopic, "".to_owned()),
         ];
 
-        let room_list =
-            RoomListService::new_with_extra_required_state(client, true, extra).await?;
+        let room_list = RoomListService::new_with_extra_required_state(client, true, extra).await?;
 
         // The service was built successfully with extra required state. Verify
         // the all_rooms list is present and operational.
