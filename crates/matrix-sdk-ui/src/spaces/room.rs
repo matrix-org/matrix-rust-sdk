@@ -168,7 +168,9 @@ impl SpaceRoom {
                     .cmp(&b_state.origin_server_ts)
                     .then(a_room_id.cmp(b_room_id)),
             },
-            _ => a_room_id.cmp(b_room_id),
+            (None, Some(_)) => Ordering::Greater,
+            (Some(_), None) => Ordering::Less,
+            (None, None) => a_room_id.cmp(b_room_id),
         }
     }
 }
