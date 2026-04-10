@@ -3,8 +3,8 @@ use std::{env, process::exit};
 use matrix_sdk::{
     Client, Result as MatrixResult,
     ruma::{
-        OwnedMxcUri, UserId,
-        api::client::profile::{self, AvatarUrl, DisplayName},
+        OwnedMxcUri,
+        api::client::profile::{AvatarUrl, DisplayName},
     },
 };
 use url::Url;
@@ -16,20 +16,17 @@ struct UserProfile {
     displayname: Option<String>,
 }
 
-/// This function calls the GET profile endpoint
-/// Spec: <https://spec.matrix.org/latest/client-server-api/#get_matrixclientv3profileuserid>
-/// Ruma: <https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/index.html>
-async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile> {
-    // First construct the request you want to make
-    // See https://docs.rs/ruma-client-api/latest/ruma_client_api/index.html for all available Endpoints
-    let request = profile::get_profile::v3::Request::new(mxid.to_owned());
+/// Fetch the profile of the currently logged-in user via
+/// Account::fetch_user_profile.
+///
+/// This uses the high-level Account API which automatically handles
+/// authentication headers, avoiding 401 errors on hardened homeservers.
+///
+/// See also: Account::fetch_user_profile_of for fetching another user's
+/// profile.
+async fn get_profile(client: &Client) -> MatrixResult<UserProfile> {
+    let resp = client.account().fetch_user_profile().await?;
 
-    // Start the request using matrix_sdk::Client::send
-    let resp = client.send(request).await?;
-
-    // Use the response and construct a UserProfile struct.
-    // See https://docs.rs/ruma-client-api/latest/ruma_client_api/profile/get_profile/v3/struct.Response.html
-    // for details on the Response for this Request
     let user_profile = UserProfile {
         avatar_url: resp.get_static::<AvatarUrl>()?,
         displayname: resp.get_static::<DisplayName>()?,
@@ -58,18 +55,16 @@ async fn login(
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
 
-    // parse the command line for homeserver, username and password
     let (Some(homeserver_url), Some(username), Some(password)) =
         (env::args().nth(1), env::args().nth(2), env::args().nth(3))
     else {
-        eprintln!("Usage: {} <homeserver_url> <mxid> <password>", env::args().next().unwrap());
+        eprintln!("Usage: {} <homeserver_url> <username> <password>", env::args().next().unwrap());
         exit(1)
     };
 
     let client = login(homeserver_url, &username, &password).await?;
 
-    let user_id = UserId::parse(username).expect("Couldn't parse the MXID");
-    let profile = get_profile(client, &user_id).await?;
+    let profile = get_profile(&client).await?;
     println!("{profile:#?}");
     Ok(())
 }
