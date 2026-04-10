@@ -68,7 +68,7 @@ mod tests {
     use matrix_sdk::{
         latest_events::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue},
         store::SerializableEventContent,
-        test_utils::logged_in_client_with_server,
+        test_utils::mocks::MatrixMockServer,
     };
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -142,7 +142,8 @@ mod tests {
 
     #[async_test]
     async fn test_none_or_remote_and_none_or_remote() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -170,7 +171,8 @@ mod tests {
 
     #[async_test]
     async fn test_none_or_remote_and_local() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -210,7 +212,8 @@ mod tests {
 
     #[async_test]
     async fn test_local_and_none_or_remote() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
@@ -250,7 +253,8 @@ mod tests {
 
     #[async_test]
     async fn test_local_and_local() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
 
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;

@@ -24,7 +24,7 @@ pub fn new_filter(filters: Vec<BoxedFilterFn>) -> impl Filter + use<> {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
@@ -32,7 +32,8 @@ mod tests {
 
     #[async_test]
     async fn test_one_filter_is_true() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter = |_: &_| true;
@@ -43,7 +44,8 @@ mod tests {
 
     #[async_test]
     async fn test_one_filter_is_false() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter = |_: &_| false;
@@ -54,7 +56,8 @@ mod tests {
 
     #[async_test]
     async fn test_two_filters_with_true_true() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter1 = |_: &_| true;
@@ -66,7 +69,8 @@ mod tests {
 
     #[async_test]
     async fn test_two_filters_with_true_false() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter1 = |_: &_| true;
@@ -78,7 +82,8 @@ mod tests {
 
     #[async_test]
     async fn test_two_filters_with_false_true() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter1 = |_: &_| false;
@@ -90,7 +95,8 @@ mod tests {
 
     #[async_test]
     async fn test_two_filters_with_false_false() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter1 = |_: &_| false;

@@ -107,7 +107,7 @@ mod tests {
         RoomRecencyStamp,
         latest_events::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue},
         store::SerializableEventContent,
-        test_utils::logged_in_client_with_server,
+        test_utils::mocks::MatrixMockServer,
     };
     use matrix_sdk_base::RoomInfoNotableUpdateReasons;
     use matrix_sdk_test::async_test;
@@ -179,7 +179,8 @@ mod tests {
 
     #[async_test]
     async fn test_extract_scores_with_none() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
@@ -219,7 +220,8 @@ mod tests {
 
     #[async_test]
     async fn test_extract_scores_with_remote_or_local() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
@@ -245,7 +247,8 @@ mod tests {
 
     #[async_test]
     async fn test_with_two_scores() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
@@ -274,7 +277,8 @@ mod tests {
 
     #[async_test]
     async fn test_with_one_score() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
@@ -293,7 +297,8 @@ mod tests {
 
     #[async_test]
     async fn test_with_zero_score() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room_a, room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 

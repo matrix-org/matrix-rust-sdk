@@ -82,7 +82,7 @@ pub fn new_filter() -> impl Filter {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_base::RoomState;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
@@ -91,7 +91,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_joined_and_room_b_is_none() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_room: &RoomListItem| (RoomState::Joined, None), &room));
@@ -99,7 +100,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_joined_and_room_b_is_joined() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Joined, Some(SuccessorRoomState::Joined)), &room).not());
@@ -107,7 +109,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_joined_and_room_b_is_left() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Joined, Some(SuccessorRoomState::Left)), &room).not());
@@ -115,7 +118,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_joined_and_room_b_is_banned() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Joined, Some(SuccessorRoomState::Banned)), &room).not());
@@ -123,7 +127,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_joined_and_room_b_is_invited() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Joined, Some(SuccessorRoomState::Invited)), &room));
@@ -131,7 +136,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_joined_and_room_b_is_knocked() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Joined, Some(SuccessorRoomState::Knocked)), &room));
@@ -139,7 +145,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_left_and_room_b_is_joined() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Left, Some(RoomState::Joined)), &room).not());
@@ -147,7 +154,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_invited_and_room_b_is_joined() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Invited, Some(RoomState::Joined)), &room).not());
@@ -155,7 +163,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_banned_and_room_b_is_joined() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Banned, Some(RoomState::Joined)), &room).not());
@@ -163,7 +172,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_knocked_and_room_b_is_joined() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         assert!(matches(|_| (RoomState::Knocked, Some(RoomState::Joined)), &room).not());
@@ -171,7 +181,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_left_and_room_b_is_none() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let state = |_: &RoomListItem| (RoomState::Left, None);
@@ -180,7 +191,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_invited_and_room_b_is_none() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let state = |_: &RoomListItem| (RoomState::Invited, None);
@@ -189,7 +201,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_banned_and_room_b_is_none() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let state = |_: &RoomListItem| (RoomState::Banned, None);
@@ -198,7 +211,8 @@ mod tests {
 
     #[async_test]
     async fn test_room_a_is_knocked_and_room_b_is_none() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let state = |_: &RoomListItem| (RoomState::Knocked, None);

@@ -7,12 +7,7 @@ use std::{
 };
 
 use futures_util::{StreamExt as _, pin_mut};
-use matrix_sdk::{
-    config::RequestConfig,
-    test_utils::{
-        client::mock_matrix_session, logged_in_client_with_server, test_client_builder_with_server,
-    },
-};
+use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_base::crypto::store::types::Changes;
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::async_test;
@@ -27,14 +22,14 @@ use wiremock::{
 };
 
 use crate::{
-    mock_sync,
     sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests},
     sliding_sync_then_assert_request_and_fake_response,
 };
 
 #[async_test]
 async fn test_smoke_encryption_sync_works() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.clone().lock_owned().await;
@@ -177,7 +172,8 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
 
 #[async_test]
 async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
@@ -201,14 +197,15 @@ async fn test_encryption_sync_one_fixed_iteration() -> anyhow::Result<()> {
         }
     })];
 
-    check_requests(server, &expected_requests).await;
+    check_requests(&server, &expected_requests).await;
 
     Ok(())
 }
 
 #[async_test]
 async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let _guard = setup_mocking_sliding_sync_server(&server).await;
 
@@ -243,14 +240,15 @@ async fn test_encryption_sync_two_fixed_iterations() -> anyhow::Result<()> {
         }),
     ];
 
-    check_requests(server, &expected_requests).await;
+    check_requests(&server, &expected_requests).await;
 
     Ok(())
 }
 
 #[async_test]
 async fn test_encryption_sync_always_reloads_todevice_token() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new_for_testing()));
     let sync_permit_guard = sync_permit.lock_owned().await;
@@ -351,17 +349,9 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
 
     let dir = tempdir().unwrap();
 
-    let (builder, server) = test_client_builder_with_server().await;
-    let client = builder
-        .request_config(RequestConfig::new().disable_retry())
-        .sqlite_store(dir.path(), None)
-        .build()
-        .await
-        .unwrap();
-
-    let session = mock_matrix_session();
-
-    client.restore_session(session.to_owned()).await.unwrap();
+    let server = MatrixMockServer::new().await;
+    let client =
+        server.client_builder().on_builder(|b| b.sqlite_store(dir.path(), None)).build().await;
 
     info!("Creating the notification client");
     let notification_client = client
@@ -377,9 +367,9 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
     pin_mut!(stream);
 
     Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/keys/query"))
+        .and(path("/_matrix/client/v3/keys/query"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     info!("First sync, uploading 50 one-time keys");
@@ -416,7 +406,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
     let uploaded_key_ids = Arc::new(Mutex::new(HashSet::new()));
 
     Mock::given(method("POST"))
-        .and(path("/_matrix/client/r0/keys/upload"))
+        .and(path("/_matrix/client/v3/keys/upload"))
         .respond_with({
             let found_duplicate = found_duplicate.clone();
             let uploaded_key_ids = uploaded_key_ids.clone();
@@ -456,7 +446,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
             }
         })
         .expect(4)
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     info!("Main sync now gets told that a one-time key has been used up.");
@@ -491,17 +481,16 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
         "The main sync should not have caused a duplicate one-time key"
     );
 
-    mock_sync(
-        &server,
-        json!({
+    server
+        .mock_sync()
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "next_batch": "foo",
             "device_one_time_keys_count": {
                 "signed_curve25519": 49
             }
-        }),
-        None,
-    )
-    .await;
+        })))
+        .mount()
+        .await;
 
     info!("The notification client now syncs and tries to upload some one-time keys");
 
@@ -562,7 +551,7 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
         "Duplicate one-time keys should not have been created"
     );
 
-    server.verify().await;
+    server.server().verify().await;
 
     Ok(())
 }

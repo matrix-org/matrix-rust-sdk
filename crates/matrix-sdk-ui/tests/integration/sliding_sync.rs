@@ -2,7 +2,7 @@
 
 use wiremock::{Match, MockServer, Request, http::Method};
 
-pub(crate) async fn check_requests(server: MockServer, expected_requests: &[serde_json::Value]) {
+pub(crate) async fn check_requests(server: &MockServer, expected_requests: &[serde_json::Value]) {
     let mut num_requests = 0;
 
     for request in &server.received_requests().await.expect("Request recording has been disabled") {

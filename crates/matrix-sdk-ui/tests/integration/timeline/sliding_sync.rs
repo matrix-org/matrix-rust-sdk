@@ -21,19 +21,19 @@ use eyeball_im::{Vector, VectorDiff};
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, SlidingSync, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode, UpdateSummary,
-    assert_let_timeout, test_utils::logged_in_client_with_server,
+    assert_let_timeout, test_utils::mocks::MatrixMockServer,
 };
-use matrix_sdk_test::{async_test, mocks::mock_encryption_state};
+use matrix_sdk_test::async_test;
 use matrix_sdk_ui::timeline::{
     TimelineBuilder, TimelineItem, TimelineItemKind, TimelineReadReceiptTracking,
 };
 use ruma::{RoomId, room_id, user_id};
 use serde_json::json;
-use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate, http::Method};
+use wiremock::{Match, Mock, Request, ResponseTemplate, http::Method};
 
 macro_rules! receive_response {
     (
-        [$server:ident, $sliding_sync_stream:ident]
+        [$server:expr, $sliding_sync_stream:ident]
         $( $json:tt )+
     ) => {
         {
@@ -41,7 +41,7 @@ macro_rules! receive_response {
                 .respond_with(ResponseTemplate::new(200).set_body_json(
                     json!( $( $json )+ )
                 ))
-                .mount_as_scoped(&$server)
+                .mount_as_scoped($server)
                 .await;
 
             let next = $sliding_sync_stream.next().await.context("`sync` trip")??;
@@ -357,8 +357,9 @@ pub(crate) use assert_timeline_stream;
 
 async fn new_sliding_sync(
     lists: Vec<SlidingSyncListBuilder>,
-) -> Result<(Client, MockServer, SlidingSync)> {
-    let (client, server) = logged_in_client_with_server().await;
+) -> Result<(Client, MatrixMockServer, SlidingSync)> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let mut sliding_sync_builder = client.sliding_sync("integration-test")?;
 
@@ -372,13 +373,13 @@ async fn new_sliding_sync(
 }
 
 async fn create_one_room(
-    server: &MockServer,
+    server: &MatrixMockServer,
     stream: &mut Pin<&mut impl Stream<Item = matrix_sdk::Result<UpdateSummary>>>,
     room_id: &RoomId,
     room_name: String,
 ) -> Result<()> {
     let update = receive_response!(
-        [server, stream]
+        [server.server(), stream]
         {
             "pos": "foo",
             "lists": {},
@@ -438,7 +439,7 @@ async fn test_timeline_basic() -> Result<()> {
 
     create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
     let (timeline_items, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
     assert!(timeline_items.is_empty());
@@ -446,7 +447,7 @@ async fn test_timeline_basic() -> Result<()> {
     // Receiving a bunch of events.
     {
         receive_response! {
-            [server, stream]
+            [server.server(), stream]
             {
                 "pos": "1",
                 "lists": {},
@@ -488,14 +489,14 @@ async fn test_timeline_duplicated_events() -> Result<()> {
 
     create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
     let (_, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
 
     // Receiving events.
     {
         receive_response! {
-            [server, stream]
+            [server.server(), stream]
             {
                 "pos": "1",
                 "lists": {},
@@ -525,7 +526,7 @@ async fn test_timeline_duplicated_events() -> Result<()> {
     // Receiving new events, where the first has already been received.
     {
         receive_response! {
-            [server, stream]
+            [server.server(), stream]
             {
                 "pos": "3",
                 "lists": {},
@@ -568,7 +569,7 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
 
     create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
     let (timeline_items, mut timeline_stream) = timeline_test_helper(&client, room_id).await?;
     assert!(timeline_items.is_empty());
@@ -576,7 +577,7 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
     // Receiving initial events.
     {
         receive_response! {
-            [server, stream]
+            [server.server(), stream]
             {
                 "pos": "1",
                 "lists": {},
@@ -603,7 +604,7 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
     // Now receiving a read receipt from another user in the room.
     {
         receive_response! {
-            [server, stream]
+            [server.server(), stream]
             {
                 "pos": "2",
                 "lists": {},
