@@ -17,7 +17,7 @@ use std::cmp::Ordering;
 use matrix_sdk::{Room, RoomHero, RoomState};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName,
-    OwnedSpaceChildOrder,
+    OwnedSpaceChildOrder, RoomId,
     events::{
         room::{guest_access::GuestAccess, history_visibility::HistoryVisibility},
         space::child::HierarchySpaceChildEvent,
@@ -149,25 +149,26 @@ impl SpaceRoom {
     /// Sorts space rooms by various criteria as defined in
     /// https://spec.matrix.org/latest/client-server-api/#ordering-of-children-within-a-space
     pub(crate) fn compare_rooms(
-        a: &SpaceRoom,
-        b: &SpaceRoom,
-        a_state: Option<SpaceRoomChildState>,
-        b_state: Option<SpaceRoomChildState>,
+        a: (&RoomId, Option<&SpaceRoomChildState>),
+        b: (&RoomId, Option<&SpaceRoomChildState>),
     ) -> Ordering {
+        let (a_room_id, a_state) = a;
+        let (b_room_id, b_state) = b;
+
         match (a_state, b_state) {
             (Some(a_state), Some(b_state)) => match (&a_state.order, &b_state.order) {
                 (Some(a_order), Some(b_order)) => a_order
                     .cmp(b_order)
                     .then(a_state.origin_server_ts.cmp(&b_state.origin_server_ts))
-                    .then(a.room_id.cmp(&b.room_id)),
+                    .then(a_room_id.cmp(b_room_id)),
                 (Some(_), None) => Ordering::Less,
                 (None, Some(_)) => Ordering::Greater,
                 (None, None) => a_state
                     .origin_server_ts
                     .cmp(&b_state.origin_server_ts)
-                    .then(a.room_id.to_string().cmp(&b.room_id.to_string())),
+                    .then(a_room_id.cmp(b_room_id)),
             },
-            _ => a.room_id.to_string().cmp(&b.room_id.to_string()),
+            _ => a_room_id.cmp(b_room_id),
         }
     }
 }
@@ -192,7 +193,7 @@ mod tests {
     use std::cmp::Ordering;
 
     use matrix_sdk_test::async_test;
-    use ruma::{MilliSecondsSinceUnixEpoch, OwnedRoomId, SpaceChildOrder, owned_room_id, uint};
+    use ruma::{MilliSecondsSinceUnixEpoch, SpaceChildOrder, room_id, uint};
 
     use crate::spaces::{SpaceRoom, room::SpaceRoomChildState};
 
@@ -201,21 +202,14 @@ mod tests {
         // Rooms without a `m.space.child` state event should be sorted by their
         // `room_id`
         assert_eq!(
-            SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!A:a.b")),
-                &make_space_room(owned_room_id!("!B:a.b")),
-                None,
-                None
-            ),
+            SpaceRoom::compare_rooms((room_id!("!A:a.b"), None), (room_id!("!B:a.b"), None),),
             Ordering::Less
         );
 
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Marțolea:a.b")),
-                &make_space_room(owned_room_id!("!Luana:a.b")),
-                None,
-                None,
+                (room_id!("!Marțolea:a.b"), None),
+                (room_id!("!Luana:a.b"), None),
             ),
             Ordering::Greater
         );
@@ -224,16 +218,20 @@ mod tests {
         // sorted by their `m.space.child` `origin_server_ts`
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Luana:a.b")),
-                &make_space_room(owned_room_id!("!Marțolea:a.b")),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
-                    order: None
-                }),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                    order: None
-                })
+                (
+                    room_id!("!Luana:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
+                        order: None
+                    })
+                ),
+                (
+                    room_id!("!Marțolea:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+                        order: None
+                    })
+                )
             ),
             Ordering::Greater
         );
@@ -241,16 +239,20 @@ mod tests {
         // The `m.space.child` `content.order` field should be used if provided
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Joiana:a.b"),),
-                &make_space_room(owned_room_id!("!Mioara:a.b"),),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(123)),
-                    order: Some(SpaceChildOrder::parse("second").unwrap())
-                }),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(234)),
-                    order: Some(SpaceChildOrder::parse("first").unwrap())
-                }),
+                (
+                    room_id!("!Joiana:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(123)),
+                        order: Some(SpaceChildOrder::parse("second").unwrap())
+                    })
+                ),
+                (
+                    room_id!("!Mioara:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(234)),
+                        order: Some(SpaceChildOrder::parse("first").unwrap())
+                    })
+                ),
             ),
             Ordering::Greater
         );
@@ -258,16 +260,20 @@ mod tests {
         // The timestamp should be used when the `order` is the same
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Joiana:a.b")),
-                &make_space_room(owned_room_id!("!Mioara:a.b")),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
-                    order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
-                }),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                    order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
-                }),
+                (
+                    room_id!("!Joiana:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
+                        order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
+                    })
+                ),
+                (
+                    room_id!("!Mioara:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+                        order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
+                    })
+                ),
             ),
             Ordering::Greater
         );
@@ -276,16 +282,20 @@ mod tests {
         // `timestamp` are equal
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Joiana:a.b")),
-                &make_space_room(owned_room_id!("!Mioara:a.b")),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                    order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
-                }),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                    order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
-                }),
+                (
+                    room_id!("!Joiana:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+                        order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
+                    })
+                ),
+                (
+                    room_id!("!Mioara:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+                        order: Some(SpaceChildOrder::parse("Same pasture").unwrap())
+                    })
+                ),
             ),
             Ordering::Less
         );
@@ -294,13 +304,14 @@ mod tests {
         // should take precedence
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Viola:a.b")),
-                &make_space_room(owned_room_id!("!Sâmbotina:a.b")),
-                None,
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
-                    order: None
-                }),
+                (room_id!("!Viola:a.b"), None),
+                (
+                    room_id!("!Sâmbotina:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+                        order: None
+                    })
+                ),
             ),
             Ordering::Greater
         );
@@ -309,40 +320,22 @@ mod tests {
         // is present then the other one should come first
         assert_eq!(
             SpaceRoom::compare_rooms(
-                &make_space_room(owned_room_id!("!Sâmbotina:a.b")),
-                &make_space_room(owned_room_id!("!Dumana:a.b")),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
-                    order: None
-                }),
-                Some(SpaceRoomChildState {
-                    origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
-                    order: Some(SpaceChildOrder::parse("Some pasture").unwrap())
-                }),
+                (
+                    room_id!("!Sâmbotina:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
+                        order: None
+                    })
+                ),
+                (
+                    room_id!("!Dumana:a.b"),
+                    Some(&SpaceRoomChildState {
+                        origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(1)),
+                        order: Some(SpaceChildOrder::parse("Some pasture").unwrap())
+                    })
+                ),
             ),
             Ordering::Greater
         );
-    }
-
-    fn make_space_room(room_id: OwnedRoomId) -> SpaceRoom {
-        SpaceRoom {
-            room_id,
-            canonical_alias: None,
-            name: Some("New room name".to_owned()),
-            display_name: "Empty room".to_owned(),
-            topic: None,
-            avatar_url: None,
-            room_type: None,
-            num_joined_members: 0,
-            join_rule: None,
-            world_readable: None,
-            guest_can_join: false,
-            is_direct: None,
-            children_count: 0,
-            state: None,
-            heroes: None,
-            via: vec![],
-            suggested: false,
-        }
     }
 }

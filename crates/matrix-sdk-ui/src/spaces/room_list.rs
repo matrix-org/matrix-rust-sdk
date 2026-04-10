@@ -390,7 +390,10 @@ impl SpaceRoomList {
         let a_state = children_state.get(&a.room_id);
         let b_state = children_state.get(&b.room_id);
 
-        SpaceRoom::compare_rooms(a, b, a_state.map(Into::into), b_state.map(Into::into))
+        SpaceRoom::compare_rooms(
+            (&a.room_id, a_state.map(Into::into).as_ref()),
+            (&b.room_id, b_state.map(Into::into).as_ref()),
+        )
     }
 }
 
