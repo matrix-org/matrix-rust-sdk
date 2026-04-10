@@ -187,7 +187,7 @@ async fn test_most_recent_event_in_stream() {
 
     // Create the stream after syncing all beacon events — the initial snapshot is
     // loaded from the event cache and already reflects the latest beacon.
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (mut shares, _stream) = live_location_shares.subscribe();
 
     assert_eq!(shares.len(), 1);
@@ -243,7 +243,7 @@ async fn test_observe_single_live_location_share() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (initial, stream) = live_location_shares.subscribe();
     pin_mut!(stream);
 
@@ -313,7 +313,7 @@ async fn test_observing_live_location_does_not_return_non_live() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (initial, stream) = live_location_shares.subscribe();
     pin_mut!(stream);
 
@@ -370,7 +370,7 @@ async fn test_location_update_for_already_tracked_user() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (initial, stream) = live_location_shares.subscribe();
     pin_mut!(stream);
 
@@ -462,7 +462,7 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (initial, stream) = live_location_shares.subscribe();
     pin_mut!(stream);
 
@@ -530,7 +530,7 @@ async fn test_multiple_users_in_stream() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (initial, stream) = live_location_shares.subscribe();
     pin_mut!(stream);
 
@@ -648,7 +648,7 @@ async fn test_initial_load_contains_location_from_event_cache() {
     assert_let_timeout!(Ok(_) = event_cache_updates_stream.recv());
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.subscribe_to_live_location_shares().await;
+    let live_location_shares = room.live_location_shares().await;
     let (initial, _stream) = live_location_shares.subscribe();
 
     // Initial snapshot should contain both beacon_info AND last_location.

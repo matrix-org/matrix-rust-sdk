@@ -56,7 +56,7 @@ use crate::{
     error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
     event::TimelineEvent,
     identity_status_change::IdentityStatusChange,
-    live_location_share::{LiveLocationShareListener, LiveLocationShareUpdate},
+    live_location_share::LiveLocationShares,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
@@ -1136,27 +1136,16 @@ impl Room {
         }))))
     }
 
-    /// Subscribes to active live location shares in this room.
+    /// Returns the active live location shares for this room.
     ///
-    /// The listener is called immediately with the current list of shares as a
-    /// `Reset` update, then called again with incremental updates whenever the
-    /// list changes (location updates, shares starting/stopping).
-    pub async fn subscribe_to_live_location_shares(
-        &self,
-        listener: Box<dyn LiveLocationShareListener>,
-    ) -> Arc<TaskHandle> {
-        let live_location_shares = self.inner.subscribe_to_live_location_shares().await;
-        let (initial_values, mut stream) = live_location_shares.subscribe();
-        if !initial_values.is_empty() {
-            listener.on_update(vec![LiveLocationShareUpdate::Reset {
-                values: initial_values.into_iter().map(Into::into).collect(),
-            }]);
-        }
-        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            while let Some(diffs) = stream.next().await {
-                listener.on_update(diffs.into_iter().map(Into::into).collect());
-            }
-        })))
+    /// The returned [`LiveLocationShares`] object tracks which users are
+    /// currently sharing their live location. It keeps the underlying event
+    /// handlers registered — and therefore the share list up-to-date — for as
+    /// long as it is alive. Call [`LiveLocationShares::subscribe`] on it to
+    /// receive an initial snapshot and a stream of incremental updates.
+    pub async fn live_location_shares(&self) -> Arc<LiveLocationShares> {
+        let inner = self.inner.live_location_shares().await;
+        Arc::new(LiveLocationShares::new(inner))
     }
 
     /// Forget this room.

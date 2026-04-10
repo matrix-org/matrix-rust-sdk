@@ -12,13 +12,16 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::live_location_share::LiveLocationShare as SdkLiveLocationShare;
+use futures_util::StreamExt as _;
+use matrix_sdk::live_location_share::{
+    LiveLocationShare as SdkLiveLocationShare, LiveLocationShares as SdkLiveLocationShares,
+};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
-use crate::ruma::LocationContent;
+use crate::{ruma::LocationContent, runtime::get_runtime_handle, task_handle::TaskHandle};
 
 /// Details of the last known location beacon.
 #[derive(uniffi::Record)]
@@ -69,6 +72,50 @@ pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     /// Called with a batch of [`LiveLocationShareUpdate`]s whenever the list
     /// of active shares changes.
     fn on_update(&self, updates: Vec<LiveLocationShareUpdate>);
+}
+
+/// Tracks active live location shares in a room.
+///
+/// Holds the SDK [`SdkLiveLocationShares`] which keeps the beacon and
+/// beacon_info event handlers registered for as long as this object is alive.
+/// Call [`LiveLocationShares::subscribe`] to start receiving updates.
+#[derive(uniffi::Object)]
+pub struct LiveLocationShares {
+    inner: SdkLiveLocationShares,
+}
+
+impl LiveLocationShares {
+    pub fn new(inner: SdkLiveLocationShares) -> Self {
+        Self { inner }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl LiveLocationShares {
+    /// Subscribe to changes in the list of active live location shares.
+    ///
+    /// Immediately calls `listener` with a `Reset` update containing the
+    /// current snapshot (if non-empty), then calls it again for every
+    /// subsequent change that arrives from sync.
+    ///
+    /// Returns a [`TaskHandle`] that, when dropped, stops the listener.
+    /// The event handlers remain registered for as long as this
+    /// [`LiveLocationShares`] object is alive.
+    pub fn subscribe(&self, listener: Box<dyn LiveLocationShareListener>) -> Arc<TaskHandle> {
+        let (initial_values, mut stream) = self.inner.subscribe();
+
+        if !initial_values.is_empty() {
+            listener.on_update(vec![LiveLocationShareUpdate::Reset {
+                values: initial_values.into_iter().map(Into::into).collect(),
+            }]);
+        }
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(diffs) = stream.next().await {
+                listener.on_update(diffs.into_iter().map(Into::into).collect());
+            }
+        })))
+    }
 }
 
 impl From<SdkLiveLocationShare> for LiveLocationShare {

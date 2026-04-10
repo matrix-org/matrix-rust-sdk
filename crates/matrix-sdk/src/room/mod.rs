@@ -724,7 +724,7 @@ impl Room {
     /// [`LiveLocationShares::subscribe`].
     ///
     /// Event handlers are active for as long as the returned struct is alive.
-    pub async fn subscribe_to_live_location_shares(&self) -> LiveLocationShares {
+    pub async fn live_location_shares(&self) -> LiveLocationShares {
         LiveLocationShares::new(self.clone()).await
     }
 
