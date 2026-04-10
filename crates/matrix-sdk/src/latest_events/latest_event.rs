@@ -519,8 +519,8 @@ impl LatestEventValueBuilder {
         power_levels: Option<&RoomPowerLevels>,
     ) -> LatestEventValue {
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                filter_timeline_event(event, previous_event_id, own_user_id, power_levels)
+            .rfind_map_event_in_memory_by(|event, previous_event| {
+                filter_timeline_event(event, previous_event, own_user_id, power_levels)
                     .then(|| event.clone())
             })
             .await
@@ -934,7 +934,7 @@ impl LatestEventValuesForLocalEvents {
 
 fn filter_timeline_event(
     event: &TimelineEvent,
-    previous_event_id: Option<OwnedEventId>,
+    previous_event: Option<&TimelineEvent>,
     own_user_id: Option<&UserId>,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
@@ -957,7 +957,7 @@ fn filter_timeline_event(
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => filter_any_message_like_event_content(
                     any_message_like_event_content,
-                    previous_event_id,
+                    previous_event,
                 ),
 
                 // The event has been redacted.
@@ -973,7 +973,7 @@ fn filter_timeline_event(
 
 fn filter_any_message_like_event_content(
     event: AnyMessageLikeEventContent,
-    previous_event_id: Option<OwnedEventId>,
+    previous_event: Option<&TimelineEvent>,
 ) -> bool {
     match event {
         AnyMessageLikeEventContent::RoomMessage(message) => {
@@ -987,7 +987,7 @@ fn filter_any_message_like_event_content(
                 Some(Relation::Replacement(Replacement { event_id, .. })) => {
                     // If the edit relates to the immediate previous event, this is an acceptable
                     // latest event, otherwise let's ignore it.
-                    Some(event_id) == previous_event_id.as_ref()
+                    Some(event_id) == previous_event.and_then(|e| e.event_id()).as_ref()
                 }
 
                 _ => true,
@@ -1069,6 +1069,7 @@ mod tests_latest_event_content {
     };
 
     use super::filter_timeline_event;
+    use crate::latest_events::latest_event::tests_latest_event_values_for_local_events::remote_room_message_with_event_id;
 
     macro_rules! assert_latest_event_content {
         ( event | $event_factory:ident | $event_builder:block
@@ -1147,12 +1148,13 @@ mod tests_latest_event_content {
 
         // With a previous event, but the one being replaced.
         {
-            let previous_event_id = Some(event_id!("$ev1").to_owned());
+            let previous_value =
+                remote_room_message_with_event_id(event_id!("$ev1"), "Hello world");
 
             assert!(
                 filter_timeline_event(
                     &event,
-                    previous_event_id,
+                    Some(&previous_value),
                     Some(user_id!("@mnt_io:matrix.org")),
                     None
                 )
@@ -1162,11 +1164,12 @@ mod tests_latest_event_content {
 
         // With a previous event, and that's the one being replaced!
         {
-            let previous_event_id = Some(event_id!("$ev0").to_owned());
+            let previous_value =
+                remote_room_message_with_event_id(event_id!("$ev0"), "Hello world");
 
             assert!(filter_timeline_event(
                 &event,
-                previous_event_id,
+                Some(&previous_value),
                 Some(user_id!("@mnt_io:matrix.org")),
                 None
             ));
@@ -1427,7 +1430,7 @@ mod tests_latest_event_content {
 mod tests_latest_event_values_for_local_events {
     use assert_matches::assert_matches;
     use ruma::{
-        MilliSecondsSinceUnixEpoch, OwnedTransactionId,
+        EventId, MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
         serde::Raw,
     };
@@ -1438,13 +1441,16 @@ mod tests_latest_event_values_for_local_events {
         RemoteLatestEventValue, SerializableEventContent,
     };
 
-    fn remote_room_message(body: &str) -> RemoteLatestEventValue {
+    pub fn remote_room_message_with_event_id(
+        event_id: &EventId,
+        body: &str,
+    ) -> RemoteLatestEventValue {
         RemoteLatestEventValue::from_plaintext(
             Raw::from_json_string(
                 json!({
                     "content": RoomMessageEventContent::text_plain(body),
                     "type": "m.room.message",
-                    "event_id": "$ev0",
+                    "event_id": event_id,
                     "origin_server_ts": 42,
                     "sender": "@mnt_io:matrix.org",
                 })
@@ -1452,6 +1458,11 @@ mod tests_latest_event_values_for_local_events {
             )
             .unwrap(),
         )
+    }
+
+    fn remote_room_message(body: &str) -> RemoteLatestEventValue {
+        let event_id = event_id!("$ev0");
+        remote_room_message_with_event_id(&event_id, body)
     }
 
     fn local_room_message(body: &str) -> LocalLatestEventValue {
