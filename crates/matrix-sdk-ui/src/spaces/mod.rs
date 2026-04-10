@@ -696,9 +696,10 @@ mod tests {
     use matrix_sdk_test::{
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
+    use proptest::prelude::*;
     use ruma::{
-        MilliSecondsSinceUnixEpoch, RoomVersionId, UserId, event_id, owned_room_id, room_id,
-        serde::Raw,
+        MilliSecondsSinceUnixEpoch, OwnedSpaceChildOrder, RoomVersionId, UserId, event_id,
+        owned_room_id, room_id, serde::Raw,
     };
     use serde_json::json;
     use stream_assert::{assert_next_eq, assert_pending};
@@ -1752,5 +1753,86 @@ mod tests {
         parents: Vec<&'static RoomId>,
         children: Vec<&'static RoomId>,
         power_level: Option<i32>,
+    }
+
+    fn any_room_id_and_space_room_order()
+    -> impl Strategy<Value = (OwnedRoomId, Option<OwnedSpaceChildOrder>)> {
+        let room_id = "[a-zA-Z]{1,5}".prop_map(|r| {
+            RoomId::new_v2(&r).expect("Any string starting with ! should be a valid room ID")
+        });
+
+        let order = prop::option::of("[a-zA-Z]{1,5}").prop_map(|order| {
+            order.map(|o| SpaceChildOrder::parse(o).expect("Any string should be a valid order"))
+        });
+
+        (room_id, order)
+    }
+
+    proptest! {
+        #[test]
+        fn sort_top_level_space_room_never_panics(mut v in prop::collection::vec(any_room_id_and_space_room_order(), 0..100)) {
+            v.sort_by(|a, b| {
+                let (a_room_id, a_order) = a;
+                let (b_room_id, b_order) = b;
+
+                let a = (a_room_id.as_ref(), a_order.as_deref());
+                let b = (b_room_id.as_ref(), b_order.as_deref());
+
+                compare_top_level_space_rooms(a, b)
+            })
+        }
+
+        #[test]
+        fn test_compare_top_level_rooms_reflexive(a in any_room_id_and_space_room_order()) {
+            let (a_room_id, a_order) = a;
+            let a = (a_room_id.as_ref(), a_order.as_deref());
+
+            prop_assert_eq!(compare_top_level_space_rooms(a, a), Ordering::Equal);
+        }
+
+        #[test]
+        fn test_compare_top_level_rooms_antisymmetric(a in any_room_id_and_space_room_order(), b in any_room_id_and_space_room_order()) {
+            let (a_room_id, a_order) = a;
+            let (b_room_id, b_order) = b;
+
+            let a = (a_room_id.as_ref(), a_order.as_deref());
+            let b = (b_room_id.as_ref(), b_order.as_deref());
+
+            let ab = compare_top_level_space_rooms(a, b);
+            let ba = compare_top_level_space_rooms(b, a);
+
+            prop_assert_eq!(ab, ba.reverse());
+        }
+
+        #[test]
+        fn test_compare_top_level_rooms_transitive(
+            a in any_room_id_and_space_room_order(),
+            b in any_room_id_and_space_room_order(),
+            c in any_room_id_and_space_room_order()
+        ) {
+            let (a_room_id, a_order) = a;
+            let (b_room_id, b_order) = b;
+            let (c_room_id, c_order) = c;
+
+            let a = (a_room_id.as_ref(), a_order.as_deref());
+            let b = (b_room_id.as_ref(), b_order.as_deref());
+            let c = (c_room_id.as_ref(), c_order.as_deref());
+
+            let ab = compare_top_level_space_rooms(a, b);
+            let bc = compare_top_level_space_rooms(b, c);
+            let ac = compare_top_level_space_rooms(a, c);
+
+            if ab == Ordering::Less && bc == Ordering::Less {
+                prop_assert_eq!(ac, Ordering::Less);
+            }
+
+            if ab == Ordering::Equal && bc == Ordering::Equal {
+                prop_assert_eq!(ac, Ordering::Equal);
+            }
+
+            if ab == Ordering::Greater && bc == Ordering::Greater {
+                prop_assert_eq!(ac, Ordering::Greater);
+            }
+        }
     }
 }
