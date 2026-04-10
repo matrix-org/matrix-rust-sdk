@@ -681,8 +681,12 @@ impl Timeline {
         &self,
         event_or_transaction_id: EventOrTransactionId,
         reason: Option<String>,
+        use_send_queue: bool,
     ) -> Result<(), ClientError> {
-        Ok(self.inner.redact(&(event_or_transaction_id.try_into()?), reason.as_deref()).await?)
+        Ok(self
+            .inner
+            .redact(&(event_or_transaction_id.try_into()?), reason.as_deref(), use_send_queue)
+            .await?)
     }
 
     /// Load the reply details for the given event id.

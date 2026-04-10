@@ -4,6 +4,7 @@ use eyeball::SharedObservable;
 use matrix_sdk::TransmissionProgress;
 use matrix_sdk_base::boxed_into_future;
 use mime::Mime;
+use ruma::{EventId, OwnedEventId};
 use tracing::{Instrument as _, Span};
 
 use super::{AttachmentSource, Error, Timeline};
@@ -166,5 +167,64 @@ mod galleries {
 
             Box::pin(fut.instrument(tracing_span))
         }
+    }
+}
+
+pub struct Redact<'a> {
+    timeline: &'a Timeline,
+    event_id: OwnedEventId,
+    reason: Option<String>,
+    tracing_span: Span,
+    use_send_queue: bool,
+}
+
+impl<'a> Redact<'a> {
+    pub(crate) fn new(timeline: &'a Timeline, event_id: &EventId, reason: Option<&str>) -> Self {
+        Self {
+            timeline,
+            event_id: event_id.to_owned(),
+            reason: reason.map(|r| r.to_owned()),
+            tracing_span: Span::current(),
+            use_send_queue: false,
+        }
+    }
+
+    /// (Experimental) Uses the send queue to send the redaction.
+    ///
+    /// This uses the send queue to send the redaction, and as such it provide a
+    /// local echo for the redact event too, not blocking the sending
+    /// request.
+    pub fn use_send_queue(self) -> Self {
+        Self { use_send_queue: true, ..self }
+    }
+}
+
+impl<'a> IntoFuture for Redact<'a> {
+    type Output = Result<(), Error>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self { timeline, event_id, reason, tracing_span, use_send_queue } = self;
+
+        let fut = async move {
+            if use_send_queue {
+                timeline
+                    .room()
+                    .send_queue()
+                    .redact(event_id, reason.as_deref())
+                    .await
+                    .map_err(|_| Error::FailedSendingRedaction)?;
+            } else {
+                timeline
+                    .room()
+                    .redact(&event_id, reason.as_deref(), None)
+                    .await
+                    .map_err(|_| Error::FailedSendingRedaction)?;
+            }
+
+            Ok(())
+        };
+
+        Box::pin(fut.instrument(tracing_span))
     }
 }
