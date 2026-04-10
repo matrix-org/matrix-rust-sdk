@@ -101,14 +101,9 @@ impl LatestEvent {
             return;
         }
 
-        let current_value_event_id = self.current_value.read().await.event_id();
-        let new_value = Builder::new_remote(
-            room_event_cache,
-            current_value_event_id,
-            own_user_id,
-            power_levels,
-        )
-        .await;
+        let current_event = self.current_value.get().await;
+        let new_value =
+            Builder::new_remote(room_event_cache, current_event, own_user_id, power_levels).await;
 
         trace!(value = ?new_value, "Computed a remote `LatestEventValue`");
 
@@ -126,12 +121,12 @@ impl LatestEvent {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) {
-        let current_value_event_id = self.current_value.read().await.event_id();
+        let current_event = self.current_value.get().await;
         let new_value = Builder::new_local(
             send_queue_update,
             &mut self.buffer_of_values_for_local_events,
             room_event_cache,
-            current_value_event_id,
+            current_event,
             own_user_id,
             power_levels,
         )
