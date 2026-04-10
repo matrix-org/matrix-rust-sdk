@@ -51,7 +51,7 @@ pub mod recent_emojis;
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
-pub use client::{BaseClient, ThreadingSupport};
+pub use client::{BaseClient, ThreadingSupport, normalize_predefined_push_rule_actions};
 #[cfg(any(test, feature = "testing"))]
 pub use http;
 #[cfg(feature = "e2e-encryption")]

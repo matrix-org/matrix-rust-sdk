@@ -72,6 +72,42 @@ use crate::{
     sync::{RoomUpdates, SyncResponse},
 };
 
+/// Normalizes the actions of predefined push rules to match the spec-defined
+/// defaults from [`Ruleset::server_default`].
+///
+/// Some homeservers provide predefined push rules with actions that differ from
+/// the Matrix spec (e.g., missing sound tweaks on `.m.rule.room_one_to_one`).
+/// This ensures clients produce correct notification behavior (such as playing
+/// sounds for 1:1 messages) regardless of the homeserver implementation.
+///
+/// Only rules marked as `default: true` are affected. The `enabled` state from
+/// the server is always preserved.
+pub fn normalize_predefined_push_rule_actions(rules: &mut Ruleset, user_id: &UserId) {
+    let defaults = Ruleset::server_default(user_id);
+
+    // Replace actions of server-default rules with spec-defined actions.
+    // We iterate the spec defaults (small, fixed-size) and look up each in the
+    // server rules by rule_id, avoiding any allocation.
+    macro_rules! normalize_rules {
+        ($rules:expr, $defaults:expr, $field:ident) => {
+            for default_rule in &$defaults.$field {
+                if let Some(server_rule) = $rules.$field.get(default_rule.rule_id.as_str()) {
+                    if server_rule.default {
+                        let enabled = server_rule.enabled;
+                        let mut replacement = default_rule.clone();
+                        replacement.enabled = enabled;
+                        $rules.$field.replace(replacement);
+                    }
+                }
+            }
+        };
+    }
+
+    normalize_rules!(rules, defaults, override_);
+    normalize_rules!(rules, defaults, underride);
+    normalize_rules!(rules, defaults, content);
+}
+
 /// A no (network) IO client implementation.
 ///
 /// This client is a state machine that receives responses and events and
@@ -1077,14 +1113,22 @@ impl BaseClient {
             .push_rules()
             .and_then(|ev| ev.deserialize_as_unchecked::<PushRulesEvent>().ok())
         {
-            Ok(event.content.global)
+            let mut rules = event.content.global;
+            if let Some(session_meta) = self.state_store.session_meta() {
+                normalize_predefined_push_rule_actions(&mut rules, &session_meta.user_id);
+            }
+            Ok(rules)
         } else if let Some(event) = self
             .state_store
             .get_account_data_event_static::<PushRulesEventContent>()
             .await?
             .and_then(|ev| ev.deserialize().ok())
         {
-            Ok(event.content.global)
+            let mut rules = event.content.global;
+            if let Some(session_meta) = self.state_store.session_meta() {
+                normalize_predefined_push_rule_actions(&mut rules, &session_meta.user_id);
+            }
+            Ok(rules)
         } else if let Some(session_meta) = self.state_store.session_meta() {
             Ok(Ruleset::server_default(&session_meta.user_id))
         } else {
@@ -1839,5 +1883,95 @@ mod tests {
         assert!(
             client.get_pending_key_bundle_details_for_room(known_room_id).await.unwrap().is_none()
         );
+    }
+
+    #[test]
+    fn test_normalize_predefined_push_rule_actions_restores_sound_tweaks() {
+        use ruma::push::{Action, Ruleset, Tweak};
+
+        let user_id = user_id!("@user:example.com");
+
+        // Simulate a server that provides rules without sound tweaks (like
+        // Continuwuity).
+        let mut server_rules = Ruleset::server_default(user_id);
+        server_rules.underride = server_rules
+            .underride
+            .into_iter()
+            .map(|mut rule| {
+                if rule.rule_id == ".m.rule.room_one_to_one"
+                    || rule.rule_id == ".m.rule.encrypted_room_one_to_one"
+                {
+                    rule.actions.retain(|a| !matches!(a, Action::SetTweak(Tweak::Sound(_))));
+                }
+                rule
+            })
+            .collect();
+
+        // Verify sound tweak was removed.
+        let rule = server_rules.underride.get(".m.rule.room_one_to_one").unwrap();
+        assert!(!rule.actions.iter().any(|a| a.sound().is_some()));
+
+        // Normalize should restore the spec-defined actions.
+        super::normalize_predefined_push_rule_actions(&mut server_rules, user_id);
+
+        let rule = server_rules.underride.get(".m.rule.room_one_to_one").unwrap();
+        assert!(rule.actions.iter().any(|a| a.sound().is_some()), "Sound tweak should be restored");
+
+        let rule = server_rules.underride.get(".m.rule.encrypted_room_one_to_one").unwrap();
+        assert!(rule.actions.iter().any(|a| a.sound().is_some()), "Sound tweak should be restored");
+    }
+
+    #[test]
+    fn test_normalize_predefined_push_rule_actions_preserves_enabled_state() {
+        use ruma::push::Ruleset;
+
+        let user_id = user_id!("@user:example.com");
+
+        let mut server_rules = Ruleset::server_default(user_id);
+
+        // Simulate user disabling a rule.
+        server_rules.underride = server_rules
+            .underride
+            .into_iter()
+            .map(|mut rule| {
+                if rule.rule_id == ".m.rule.room_one_to_one" {
+                    rule.enabled = false;
+                }
+                rule
+            })
+            .collect();
+
+        super::normalize_predefined_push_rule_actions(&mut server_rules, user_id);
+
+        let rule = server_rules.underride.get(".m.rule.room_one_to_one").unwrap();
+        assert!(!rule.enabled, "Enabled state should be preserved from server");
+    }
+
+    #[test]
+    fn test_normalize_predefined_push_rule_actions_skips_non_default_rules() {
+        use ruma::push::{Action, ConditionalPushRuleInit, PushCondition, Ruleset};
+
+        let user_id = user_id!("@user:example.com");
+        let mut server_rules = Ruleset::server_default(user_id);
+
+        // Add a user-defined rule (default = false).
+        let user_rule = ConditionalPushRuleInit {
+            actions: vec![Action::Notify],
+            default: false,
+            enabled: true,
+            rule_id: "custom.user.rule".to_owned(),
+            conditions: vec![PushCondition::EventMatch {
+                key: "type".to_owned(),
+                pattern: "m.custom".to_owned(),
+            }],
+        };
+        server_rules.underride.insert(user_rule.into());
+
+        super::normalize_predefined_push_rule_actions(&mut server_rules, user_id);
+
+        // User rule should still exist with its original actions.
+        let rule = server_rules.underride.get("custom.user.rule").unwrap();
+        assert_eq!(rule.actions.len(), 1);
+        assert!(rule.actions.iter().any(|a| a.should_notify()));
     }
 }

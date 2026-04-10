@@ -1107,9 +1107,14 @@ impl Account {
     /// If no push rules event was found, or it fails to deserialize, a ruleset
     /// with the server-default push rules is returned.
     ///
+    /// Predefined push rule actions are normalized to match the spec-defined
+    /// defaults, ensuring correct notification behavior regardless of the
+    /// homeserver implementation.
+    ///
     /// Panics if called when the client is not logged in.
     pub async fn push_rules(&self) -> Result<Ruleset> {
-        Ok(self
+        let user_id = self.client.user_id().expect("The client should be logged in");
+        let mut rules = self
             .account_data::<PushRulesEventContent>()
             .await?
             .and_then(|r| match r.deserialize() {
@@ -1119,11 +1124,9 @@ impl Account {
                     None
                 }
             })
-            .unwrap_or_else(|| {
-                Ruleset::server_default(
-                    self.client.user_id().expect("The client should be logged in"),
-                )
-            }))
+            .unwrap_or_else(|| Ruleset::server_default(user_id));
+        matrix_sdk_base::normalize_predefined_push_rule_actions(&mut rules, user_id);
+        Ok(rules)
     }
 
     /// Retrieves the user's recently visited room list
