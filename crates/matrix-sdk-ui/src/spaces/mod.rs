@@ -639,7 +639,10 @@ impl SpaceService {
                         let a_state = space_child_states.get(&a.room_id).cloned();
                         let b_state = space_child_states.get(&b.room_id).cloned();
 
-                        SpaceRoom::compare_rooms(a, b, a_state, b_state)
+                        SpaceRoom::compare_rooms(
+                            (&a.room_id, a_state.as_ref()),
+                            (&b.room_id, b_state.as_ref()),
+                        )
                     })
                     .map(|space_room| {
                         let descendants = graph.flattened_bottom_up_subtree(&space_room.room_id);
