@@ -14,6 +14,7 @@
 
 use anyhow::{Context, bail};
 use matrix_sdk::IdParseError;
+use matrix_sdk_base::deserialized_responses::RawAnySyncOrStrippedState;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
 use ruma::{
     EventId,
@@ -737,6 +738,36 @@ impl TryFrom<EventOrTransactionId> for TimelineEventItemId {
             }
             EventOrTransactionId::TransactionId { transaction_id } => {
                 Ok(TimelineEventItemId::TransactionId(transaction_id.into()))
+            }
+        }
+    }
+}
+
+/// A raw state event, either synced or stripped (for invited rooms).
+///
+/// The event content is provided as a JSON string.
+#[derive(Clone, uniffi::Enum)]
+pub enum RawSyncOrStrippedStateEvent {
+    /// A state event from a room in joined or left state.
+    Sync {
+        /// The raw JSON content of the event.
+        json: String,
+    },
+    /// A stripped state event from a room in invited state.
+    Stripped {
+        /// The raw JSON content of the event.
+        json: String,
+    },
+}
+
+impl From<RawAnySyncOrStrippedState> for RawSyncOrStrippedStateEvent {
+    fn from(value: RawAnySyncOrStrippedState) -> Self {
+        match value {
+            RawAnySyncOrStrippedState::Sync(raw) => {
+                RawSyncOrStrippedStateEvent::Sync { json: raw.json().to_string() }
+            }
+            RawAnySyncOrStrippedState::Stripped(raw) => {
+                RawSyncOrStrippedStateEvent::Stripped { json: raw.json().to_string() }
             }
         }
     }
