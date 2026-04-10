@@ -193,7 +193,10 @@ mod tests {
     use std::cmp::Ordering;
 
     use matrix_sdk_test::async_test;
-    use ruma::{MilliSecondsSinceUnixEpoch, SpaceChildOrder, room_id, uint};
+    use proptest::prelude::*;
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId, SpaceChildOrder, UInt, room_id, uint,
+    };
 
     use crate::spaces::{SpaceRoom, room::SpaceRoomChildState};
 
@@ -337,5 +340,135 @@ mod tests {
             ),
             Ordering::Greater
         );
+    }
+
+    /// This test was written because the [`SpaceRoom::compare_rooms`] method
+    /// wasn't adhering to a total order.
+    ///
+    /// More precisely it wasn't transitive. This was because as soon as the
+    /// [SpaceRoomChildState] for one room was set to `None` we would fall
+    /// back to comparing only room IDs.
+    ///
+    /// The correct way to preserve transitivity was to only fall back to room
+    /// IDs if both rooms don't have a state.
+    #[test]
+    fn test_compare_rooms_minimal_transitive_failure() {
+        let (a_room_id, a_state) = (room_id!("!Q"), None);
+
+        let (b_room_id, b_state) = (
+            room_id!("!A"),
+            Some(SpaceRoomChildState {
+                order: None,
+                origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(10)),
+            }),
+        );
+
+        let (c_room_id, c_state) = (
+            room_id!("!a"),
+            Some(SpaceRoomChildState {
+                order: None,
+                origin_server_ts: MilliSecondsSinceUnixEpoch(uint!(0)),
+            }),
+        );
+
+        let a = (a_room_id, a_state.as_ref());
+        let b = (b_room_id, b_state.as_ref());
+        let c = (c_room_id, c_state.as_ref());
+
+        let ab = SpaceRoom::compare_rooms(a, b);
+        let bc = SpaceRoom::compare_rooms(b, c);
+        let ac = SpaceRoom::compare_rooms(a, c);
+
+        assert_eq!(ab, Ordering::Greater, "a > b should hold");
+        assert_eq!(bc, Ordering::Greater, "b > c should hold");
+        assert_eq!(ac, Ordering::Greater, "therefore a > c should be true as well");
+    }
+
+    fn any_room_id_and_space_room_order()
+    -> impl Strategy<Value = (OwnedRoomId, Option<SpaceRoomChildState>)> {
+        let room_id = "[a-zA-Z]{1,5}".prop_map(|r| {
+            RoomId::new_v2(&r).expect("Any string starting with ! should be a valid room ID")
+        });
+
+        let timestamp = any::<u8>().prop_map(|t| MilliSecondsSinceUnixEpoch(UInt::from(t)));
+
+        let order = prop::option::of("[a-zA-Z]{1,5}").prop_map(|order| {
+            order.map(|o| SpaceChildOrder::parse(o).expect("Any string should be a valid order"))
+        });
+
+        let state = (order, timestamp)
+            .prop_map(|(o, t)| SpaceRoomChildState { order: o, origin_server_ts: t });
+
+        let state = prop::option::of(state);
+
+        (room_id, state)
+    }
+
+    proptest! {
+        #[test]
+        fn test_sort_space_room_children_never_panics(mut v in prop::collection::vec(any_room_id_and_space_room_order(), 0..100)) {
+            v.sort_by(|a, b| {
+                let (a_room_id, a_state) = a;
+                let (b_room_id, b_state) = b;
+
+                let a = (a_room_id.as_ref(), a_state.as_ref());
+                let b = (b_room_id.as_ref(), b_state.as_ref());
+
+                SpaceRoom::compare_rooms(a, b)
+            })
+        }
+
+        #[test]
+        fn test_compare_rooms_reflexive(a in any_room_id_and_space_room_order()) {
+            let (a_room_id, a_state) = a;
+            let a = (a_room_id.as_ref(), a_state.as_ref());
+
+            prop_assert_eq!(SpaceRoom::compare_rooms(a, a), Ordering::Equal);
+        }
+
+        #[test]
+        fn test_compare_rooms_antisymmetric(a in any_room_id_and_space_room_order(), b in any_room_id_and_space_room_order()) {
+            let (a_room_id, a_state) = a;
+            let (b_room_id, b_state) = b;
+
+            let a = (a_room_id.as_ref(), a_state.as_ref());
+            let b = (b_room_id.as_ref(), b_state.as_ref());
+
+            let ab = SpaceRoom::compare_rooms(a, b);
+            let ba = SpaceRoom::compare_rooms(b, a);
+
+            prop_assert_eq!(ab, ba.reverse());
+        }
+
+        #[test]
+        fn test_compare_rooms_transitive(
+            a in any_room_id_and_space_room_order(),
+            b in any_room_id_and_space_room_order(),
+            c in any_room_id_and_space_room_order()
+        ) {
+            let (a_room_id, a_state) = a;
+            let (b_room_id, b_state) = b;
+            let (c_room_id, c_state) = c;
+
+            let a = (a_room_id.as_ref(), a_state.as_ref());
+            let b = (b_room_id.as_ref(), b_state.as_ref());
+            let c = (c_room_id.as_ref(), c_state.as_ref());
+
+            let ab = SpaceRoom::compare_rooms(a, b);
+            let bc = SpaceRoom::compare_rooms(b, c);
+            let ac = SpaceRoom::compare_rooms(a, c);
+
+            if ab == Ordering::Less && bc == Ordering::Less {
+                prop_assert_eq!(ac, Ordering::Less);
+            }
+
+            if ab == Ordering::Equal && bc == Ordering::Equal {
+                prop_assert_eq!(ac, Ordering::Equal);
+            }
+
+            if ab == Ordering::Greater && bc == Ordering::Greater {
+                prop_assert_eq!(ac, Ordering::Greater);
+            }
+        }
     }
 }
