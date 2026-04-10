@@ -105,6 +105,12 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
 const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] =
     &[(StateEventType::RoomPinnedEvents, "")];
 
+/// The default Sliding Sync connection ID for the room list service.
+pub(crate) const DEFAULT_CONNECTION_ID: &str = "room-list";
+
+/// The default timeline limit for the room list service.
+pub(crate) const DEFAULT_LIST_TIMELINE_LIMIT: u32 = 1;
+
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
 
@@ -133,16 +139,25 @@ impl RoomListService {
     /// to create one in this case using
     /// [`EncryptionSyncService`][crate::encryption_sync_service::EncryptionSyncService].
     pub async fn new(client: Client) -> Result<Self, Error> {
-        Self::new_with_share_pos(client, true).await
+        Self::new_with(client, true, DEFAULT_CONNECTION_ID, DEFAULT_LIST_TIMELINE_LIMIT).await
     }
 
-    /// Like [`RoomListService::new`] but with a flag to turn the
-    /// [`SlidingSyncBuilder::share_pos`] on and off.
+    /// Like [`RoomListService::new`] but with additional configuration options.
+    ///
+    /// - `share_pos`: toggles [`SlidingSyncBuilder::share_pos`] for
+    ///   cross-process position sharing.
+    /// - `connection_id`: the Sliding Sync connection ID
+    /// - `timeline_limit`: the timeline limit
     ///
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
-    pub async fn new_with_share_pos(client: Client, share_pos: bool) -> Result<Self, Error> {
+    pub async fn new_with(
+        client: Client,
+        share_pos: bool,
+        connection_id: &str,
+        timeline_limit: u32,
+    ) -> Result<Self, Error> {
         let mut builder = client
-            .sliding_sync("room-list")
+            .sliding_sync(connection_id)
             .map_err(Error::SlidingSync)?
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
@@ -200,7 +215,7 @@ impl RoomListService {
                         SlidingSyncMode::new_selective()
                             .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                     )
-                    .timeline_limit(1)
+                    .timeline_limit(timeline_limit)
                     .required_state(
                         DEFAULT_REQUIRED_STATE
                             .iter()

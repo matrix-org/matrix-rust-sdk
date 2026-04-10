@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Allow setting a custom Sliding Sync connection ID and timeline limit on `RoomListService`.
+  ([#6289](https://github.com/matrix-org/matrix-rust-sdk/pull/6289))
 - Fix devices on Android 11 crashing because the SDK could not be initialized using `libloading` 
   to get a reference to the JVM. Replaced `libloading` with `jvm-getter`, which works like a 
   compatibility layer. ([#6370](https://github.com/matrix-org/matrix-rust-sdk/pull/6370))
