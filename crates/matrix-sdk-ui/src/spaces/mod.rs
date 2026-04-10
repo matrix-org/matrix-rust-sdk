@@ -38,7 +38,7 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
-    OwnedRoomId, RoomId,
+    OwnedRoomId, RoomId, SpaceChildOrder,
     events::{
         self, StateEventType, SyncStateEvent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
@@ -576,18 +576,10 @@ impl SpaceService {
         let top_level_space_rooms = top_level_space_rooms
             .into_iter()
             .sorted_by(|a, b| {
-                // MSC3230: lexicographically by `order` and then by room ID
-                match (
-                    top_level_space_order.get(a.room_id()),
-                    top_level_space_order.get(b.room_id()),
-                ) {
-                    (Some(a_order), Some(b_order)) => {
-                        a_order.cmp(b_order).then(a.room_id().cmp(b.room_id()))
-                    }
-                    (Some(_), None) => Ordering::Less,
-                    (None, Some(_)) => Ordering::Greater,
-                    (None, None) => a.room_id().cmp(b.room_id()),
-                }
+                let a = (a.room_id(), top_level_space_order.get(a.room_id()).map(AsRef::as_ref));
+                let b = (b.room_id(), top_level_space_order.get(b.room_id()).map(AsRef::as_ref));
+
+                compare_top_level_space_rooms(a, b)
             })
             .collect::<Vec<_>>();
 
@@ -659,6 +651,22 @@ impl SpaceService {
         }
 
         filters
+    }
+}
+
+// MSC3230: lexicographically by `order` and then by room ID
+fn compare_top_level_space_rooms(
+    a: (&RoomId, Option<&SpaceChildOrder>),
+    b: (&RoomId, Option<&SpaceChildOrder>),
+) -> Ordering {
+    let (a_room_id, a_order) = a;
+    let (b_room_id, b_order) = b;
+
+    match (a_order, b_order) {
+        (Some(a_order), Some(b_order)) => a_order.cmp(b_order).then(a_room_id.cmp(b_room_id)),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => a_room_id.cmp(b_room_id),
     }
 }
 
