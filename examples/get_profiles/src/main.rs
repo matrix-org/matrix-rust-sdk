@@ -16,12 +16,14 @@ struct UserProfile {
     displayname: Option<String>,
 }
 
-/// Fetch the profile of the currently logged-in user via Account::fetch_user_profile.
+/// Fetch the profile of the currently logged-in user via
+/// Account::fetch_user_profile.
 ///
 /// This uses the high-level Account API which automatically handles
 /// authentication headers, avoiding 401 errors on hardened homeservers.
 ///
-/// See also: Account::fetch_user_profile_of for fetching another user's profile.
+/// See also: Account::fetch_user_profile_of for fetching another user's
+/// profile.
 async fn get_profile(client: &Client) -> MatrixResult<UserProfile> {
     let resp = client.account().fetch_user_profile().await?;
 
@@ -56,10 +58,7 @@ async fn main() -> anyhow::Result<()> {
     let (Some(homeserver_url), Some(username), Some(password)) =
         (env::args().nth(1), env::args().nth(2), env::args().nth(3))
     else {
-        eprintln!(
-            "Usage: {} <homeserver_url> <username> <password>",
-            env::args().next().unwrap()
-        );
+        eprintln!("Usage: {} <homeserver_url> <username> <password>", env::args().next().unwrap());
         exit(1)
     };
 
