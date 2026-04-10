@@ -213,28 +213,22 @@ impl RoomListService {
                         // returned. If true, only invited rooms are returned.
                         is_invite: None,
                     })))
-                    .requires_timeout(move |request_generator| {
+                    .requires_timeout(move |_request_generator| {
                         // We want Sliding Sync to apply the poll + network timeout —i.e. to do the
                         // long-polling— in some particular cases. Let's define them.
                         match observable_state.get() {
-                            // These are the states where we want an immediate response from the
-                            // server, with no long-polling.
-                            State::Init
-                            | State::SettingUp
-                            | State::Recovering
-                            | State::Error { .. }
-                            | State::Terminated { .. } => PollTimeout::Some(0),
+                            // The very first request must return immediately so the session can
+                            // be established as fast as possible.
+                            State::Init => PollTimeout::Some(0),
 
-                            // Otherwise we want long-polling if the list is fully-loaded.
-                            State::Running => {
-                                if request_generator.is_fully_loaded() {
-                                    // Long-polling.
-                                    PollTimeout::Default
-                                } else {
-                                    // No long-polling yet.
-                                    PollTimeout::Some(0)
-                                }
+                            // Once we have a `pos`, let the server long-poll. If a list change
+                            // still needs to be delivered, the server can answer immediately.
+                            State::SettingUp | State::Recovering | State::Running => {
+                                PollTimeout::Default
                             }
+
+                            // Terminal states — included for exhaustiveness.
+                            State::Error { .. } | State::Terminated { .. } => PollTimeout::Some(0),
                         }
                     }),
             )
@@ -555,7 +549,13 @@ pub enum SyncIndicator {
 
 #[cfg(test)]
 mod tests {
-    use std::future::ready;
+    use std::{
+        future::ready,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+    };
 
     use futures_util::{StreamExt, pin_mut};
     use matrix_sdk::{
@@ -667,6 +667,52 @@ mod tests {
 
         // State is `Error`, as a regular session expiration would generate!
         assert_eq!(room_list.state_machine.get(), State::Error { from: Box::new(State::Running) });
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_long_poll_after_first_sync() -> Result<(), Error> {
+        let (client, server) = new_client().await;
+        let room_list = RoomListService::new(client).await?;
+
+        let sync = room_list.sync();
+        pin_mut!(sync);
+
+        let pos = Arc::new(AtomicUsize::new(0));
+        let _mock_guard = Mock::given(SlidingSyncMatcher)
+            .respond_with(move |_request: &Request| {
+                let next_pos = pos.fetch_add(1, Ordering::SeqCst).to_string();
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": next_pos,
+                    "lists": {
+                        ALL_ROOMS_LIST_NAME: {
+                            "count": 0,
+                            "ops": [],
+                        },
+                    },
+                    "rooms": {},
+                }))
+            })
+            .mount_as_scoped(&server)
+            .await;
+
+        let _ = sync.next().await;
+        assert_eq!(room_list.state().get(), State::SettingUp);
+        let _ = sync.next().await;
+
+        let requests = server.received_requests().await.unwrap();
+        let second_request =
+            requests.iter().filter(|request| SlidingSyncMatcher.matches(request)).nth(1).unwrap();
+
+        assert!(
+            second_request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "timeout" && value == "30000"),
+            "expected second sync request to enable long-poll timeout, got {:?}",
+            second_request.url
+        );
 
         Ok(())
     }
