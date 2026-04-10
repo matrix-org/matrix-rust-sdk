@@ -108,6 +108,16 @@ All notable changes to this project will be documented in this file.
   content repository (like avatars).
   ([#6354](https://github.com/matrix-org/matrix-rust-sdk/pull/6354))
 
+### Breaking Changes
+
+- `Room::observe_live_location_shares` has been replaced by `Room::subscribe_to_live_location_shares`.
+  The new API returns a `LiveLocationShares` struct with a `subscribe()` method that provides an initial
+  snapshot (`Vector<LiveLocationShare>`) and a batched stream of `VectorDiff` updates, instead of
+  emitting individual `LiveLocationShare` items as beacon events arrive. The initial snapshot is loaded
+  from the event cache on creation, includes the own user's shares (previously excluded), and properly
+  handles share start/stop by listening to beacon_info state events.
+  ([#6385](https://github.com/matrix-org/matrix-rust-sdk/pull/6385))
+
 ### Bugfix
 
 - `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))

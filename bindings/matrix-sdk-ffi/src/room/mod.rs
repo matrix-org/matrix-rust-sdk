@@ -46,7 +46,7 @@ use ruma::{
         },
     },
 };
-use tracing::{error, warn};
+use tracing::error;
 
 use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
 use crate::{
@@ -56,12 +56,10 @@ use crate::{
     error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
     event::TimelineEvent,
     identity_status_change::IdentityStatusChange,
-    live_location_share::{LastLocation, LiveLocationShare},
+    live_location_share::LiveLocationShares,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{
-        AudioInfo, FileInfo, ImageInfo, LocationContent, MediaSource, ThumbnailInfo, VideoInfo,
-    },
+    ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
     runtime::get_runtime_handle,
     timeline::{
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
@@ -1138,46 +1136,16 @@ impl Room {
         }))))
     }
 
-    /// Subscribes to live location shares in this room, using a `listener` to
-    /// be notified of the changes.
+    /// Returns the active live location shares for this room.
     ///
-    /// The current live location shares will be emitted immediately when
-    /// subscribing, along with a [`TaskHandle`] to cancel the subscription.
-    pub fn subscribe_to_live_location_shares(
-        self: Arc<Self>,
-        listener: Box<dyn LiveLocationShareListener>,
-    ) -> Arc<TaskHandle> {
-        let room = self.inner.clone();
-
-        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            let subscription = room.observe_live_location_shares();
-            let stream = subscription.subscribe();
-            let mut pinned_stream = pin!(stream);
-
-            while let Some(event) = pinned_stream.next().await {
-                let last_location = LocationContent {
-                    body: "".to_owned(),
-                    geo_uri: event.last_location.location.uri.clone().to_string(),
-                    description: None,
-                    zoom_level: None,
-                    asset: event.beacon_info.as_ref().map(|b| b.asset.type_.clone()).into(),
-                };
-
-                let Some(beacon_info) = event.beacon_info else {
-                    warn!("Live location share is missing the associated beacon_info state, skipping event.");
-                    continue;
-                };
-
-                listener.call(vec![LiveLocationShare {
-                    last_location: LastLocation {
-                        location: last_location,
-                        ts: event.last_location.ts.0.into(),
-                    },
-                    is_live: beacon_info.is_live(),
-                    user_id: event.user_id.to_string(),
-                }])
-            }
-        })))
+    /// The returned [`LiveLocationShares`] object tracks which users are
+    /// currently sharing their live location. It keeps the underlying event
+    /// handlers registered — and therefore the share list up-to-date — for as
+    /// long as it is alive. Call [`LiveLocationShares::subscribe`] on it to
+    /// receive an initial snapshot and a stream of incremental updates.
+    pub async fn live_location_shares(&self) -> Arc<LiveLocationShares> {
+        let inner = self.inner.live_location_shares().await;
+        Arc::new(LiveLocationShares::new(inner))
     }
 
     /// Forget this room.
@@ -1298,12 +1266,6 @@ impl Room {
             .into_full_event(self.inner.room_id().to_owned())
             .into())
     }
-}
-
-/// A listener for receiving new live location shares in a room.
-#[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait LiveLocationShareListener: SyncOutsideWasm + SendOutsideWasm {
-    fn call(&self, live_location_shares: Vec<LiveLocationShare>);
 }
 
 /// A listener for receiving call decline events in a room.

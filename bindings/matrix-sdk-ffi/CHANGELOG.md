@@ -146,6 +146,16 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `Room::observe_live_location_shares` has been replaced by
+  `Room::subscribe_to_live_location_shares`. The new API returns a stream via a
+  `LiveLocationShareListener` callback that is called with the full list of currently active
+  `LiveLocationShare` items whenever the list changes. The stream is seeded from the event cache
+  on creation and includes the own user's shares (previously excluded). `LiveLocationShare.is_live`
+  has been removed; instead `ts` (start timestamp) and `timeout` (duration in milliseconds) are now
+  exposed so clients can compute liveness themselves via `current_time < ts + timeout`. Non-live
+  shares are automatically removed from the list. A new `LiveLocationShareListener` callback
+  interface must be implemented and passed to the method.
+  ([#6385](https://github.com/matrix-org/matrix-rust-sdk/pull/6385))
 - [**breaking**] The `RoomAliases` variants of `StateEventContent`, `StateEventType` and
   `OtherState` was removed. This state event type was removed from the Matrix specification a while
   ago, and support for it has been removed in Ruma.
