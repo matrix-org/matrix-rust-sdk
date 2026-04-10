@@ -158,6 +158,11 @@ impl Backups {
 
             #[cfg(feature = "experimental-push-secrets")]
             {
+                // Push the backup key to our own verified devices.
+                // `push_secret_to_verified_devices` depends on having existing
+                // Olm sessions with the devices that the secret is being pushed
+                // to, so make sure we have Olm sessions with all our other
+                // devices.
                 if let Some((txn_id, keys_claim_request)) = olm_machine
                     .get_missing_sessions(vec![olm_machine.user_id()].into_iter())
                     .await?
