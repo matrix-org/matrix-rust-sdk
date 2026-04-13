@@ -24,10 +24,7 @@ use matrix_sdk::{
     room::{calls::CallError, edit::EditError},
     send_queue::RoomSendQueueError,
 };
-use matrix_sdk_ui::{
-    encryption_sync_service, notification_client, search::SearchError, spaces, sync_service,
-    timeline,
-};
+use matrix_sdk_ui::{encryption_sync_service, notification_client, spaces, sync_service, timeline};
 use ruma::{
     MilliSecondsSinceUnixEpoch,
     api::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter, StandardErrorBody},
@@ -235,12 +232,6 @@ impl From<RequestVerificationError> for ClientError {
 
 impl From<spaces::Error> for ClientError {
     fn from(e: spaces::Error) -> Self {
-        Self::from_err(e)
-    }
-}
-
-impl From<SearchError> for ClientError {
-    fn from(e: SearchError) -> Self {
         Self::from_err(e)
     }
 }

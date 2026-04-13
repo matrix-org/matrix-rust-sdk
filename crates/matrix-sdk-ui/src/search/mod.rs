@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! High-level search helpers that provide more convenient APIs on top of the
+//! low-level search API provided by the `search` module, such as streams for
+//! paginating search results and builders for configuring search queries.
+
 use std::collections::HashMap;
 
 use imbl::HashSet;
@@ -20,6 +24,8 @@ use matrix_sdk_base::RoomStateFilter;
 use matrix_sdk_search::error::IndexError;
 use ruma::{OwnedEventId, OwnedRoomId};
 
+/// An error that can occur while searching messages, using the high-level
+/// search helpers provided by this module provided by this module.
 #[derive(thiserror::Error, Debug)]
 pub enum SearchError {
     #[error(transparent)]
@@ -57,6 +63,8 @@ impl RoomSearchIterator {
             return Ok(None);
         }
 
+        // TODO: use the client/server API search endpoint for public rooms, as those
+        // may require lots of time for indexing all events.
         let result = self.room.search(&self.query, num_results, self.offset).await?;
 
         if result.is_empty() {
@@ -101,8 +109,8 @@ impl GlobalSearchRoomState {
     }
 }
 
-/// A builder for a [`GlobalSearchIterator`] that allows to configure the initial
-/// working set of rooms to search in.
+/// A builder for a [`GlobalSearchIterator`] that allows to configure the
+/// initial working set of rooms to search in.
 pub struct GlobalSearchBuilder {
     /// The search query, directly forwarded to the search API.
     query: String,
@@ -135,7 +143,7 @@ impl GlobalSearchBuilder {
     }
 
     /// Keep only non-DM rooms (groups) from the initial working set.
-    pub async fn only_groups(mut self) -> Result<Self, matrix_sdk::Error> {
+    pub async fn no_dms(mut self) -> Result<Self, matrix_sdk::Error> {
         let mut to_remove = HashSet::new();
         for room in &self.room_set {
             if room.is_direct().await? {
@@ -496,7 +504,7 @@ mod tests {
         // Search for an existing keyword, by event, only in groups.
         {
             let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned())
-                .only_groups()
+                .no_dms()
                 .await
                 .unwrap()
                 .build();

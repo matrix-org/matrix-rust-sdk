@@ -360,6 +360,17 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set up the search index store for this client, which is used to store
+    /// the message search index locally.
+    ///
+    /// As soon as this is enabled, messages will start to be indexed, and can
+    /// be later queried for search.
+    ///
+    /// `path` is the directory where the search index will be stored. It must
+    /// be unique per session.
+    ///
+    /// `password` is an optional password to encrypt the search index at rest.
+    /// If `None`, the search index will be stored unencrypted.
     pub fn with_search_index_store(
         self: Arc<Self>,
         path: String,
