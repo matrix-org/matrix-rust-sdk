@@ -1,14 +1,11 @@
 use std::{env, process::exit};
 
 use matrix_sdk::{
-    Client, HttpError, Result as MatrixResult, RumaApiError,
+    Client, Result as MatrixResult,
     reqwest::StatusCode,
     ruma::{
         OwnedMxcUri, UserId,
-        api::{
-            client::profile::{self, AvatarUrl, DisplayName},
-            error::FromHttpResponseError,
-        },
+        api::client::profile::{self, AvatarUrl, DisplayName},
     },
 };
 use url::Url;
@@ -45,19 +42,6 @@ async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile>
         displayname: resp.get_static::<DisplayName>()?,
     };
     Ok(user_profile)
-}
-
-// Helper function to avoid having a lot of nested errors in main() when trying
-// to get profile.
-fn is_auth_error(e: &matrix_sdk::Error) -> bool {
-    if let matrix_sdk::Error::Http(http_err) = e
-        && let HttpError::Api(resp_err) = http_err.as_ref()
-        && let FromHttpResponseError::Server(ruma_err) = resp_err.as_ref()
-        && let RumaApiError::ClientApi(inner_err) = ruma_err
-    {
-        return inner_err.status_code == StatusCode::UNAUTHORIZED;
-    }
-    false
 }
 
 /// This function calls the GET profile endpoint using the authenticated client.
@@ -107,7 +91,10 @@ async fn main() -> anyhow::Result<()> {
     let profile = match get_profile(client.clone(), &user_id).await {
         Ok(profile) => profile,
         Err(e) => {
-            if is_auth_error(&e) {
+            if e.as_client_api_error()
+                .is_some_and(|err| err.status_code == StatusCode::UNAUTHORIZED)
+            {
+                // if is_auth_error(&e) {
                 eprintln!(
                     "Authentication error: {e}. Check if the server requires authentication for profile requests. Trying to fetch profile using the authenticated client instead..."
                 );
