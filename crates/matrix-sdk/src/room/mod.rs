@@ -181,7 +181,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
-    live_location_share::ObservableLiveLocation,
+    live_location_share::LiveLocationShares,
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::{
@@ -715,6 +715,17 @@ impl Room {
         &self,
     ) -> Result<impl Stream<Item = Vec<IdentityStatusChange>> + use<>> {
         IdentityStatusChanges::create_stream(self.clone()).await
+    }
+
+    /// Subscribes to active live location shares in this room.
+    ///
+    /// Returns a [`LiveLocationShares`] that holds the current state and
+    /// exposes a stream of incremental [`eyeball_im::VectorDiff`] updates via
+    /// [`LiveLocationShares::subscribe`].
+    ///
+    /// Event handlers are active for as long as the returned struct is alive.
+    pub async fn live_location_shares(&self) -> LiveLocationShares {
+        LiveLocationShares::new(self.clone()).await
     }
 
     /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
@@ -4073,17 +4084,6 @@ impl Room {
                 _ => Err(http_error.into()),
             },
         }
-    }
-
-    /// Observe live location sharing events for this room.
-    ///
-    /// The returned observable will receive the newest event for each sync
-    /// response that contains an `m.beacon` event.
-    ///
-    /// Returns a stream of [`ObservableLiveLocation`] events from other users
-    /// in the room, excluding the live location events of the room's own user.
-    pub fn observe_live_location_shares(&self) -> ObservableLiveLocation {
-        ObservableLiveLocation::new(&self.client, self.room_id())
     }
 
     /// Subscribe to knock requests in this `Room`.
