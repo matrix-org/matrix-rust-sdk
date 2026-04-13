@@ -173,7 +173,18 @@ impl TimelineItemContent {
         {
             Some(TimelineAction::AddItem { content }) => Some(content),
 
-            // Aggregated event: only edits are supported at the moment.
+            // Aggregated event: only edits and beacon stop are supported at the moment.
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::BeaconStop { content },
+                ..
+            }) => Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content)),
+                reactions: Default::default(),
+                thread_root: None,
+                in_reply_to: None,
+                thread_summary: None,
+            })),
+
             Some(TimelineAction::HandleAggregation {
                 kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
                 ..

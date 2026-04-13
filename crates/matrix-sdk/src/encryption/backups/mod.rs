@@ -32,6 +32,8 @@ use matrix_sdk_base::crypto::{
     store::types::BackupDecryptionKey,
     types::{RoomKeyBackupInfo, requests::KeysBackupRequest},
 };
+#[cfg(feature = "experimental-push-secrets")]
+use ruma::events::secret::push::ToDeviceSecretPushEvent;
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::serde::JsonCastable;
 use ruma::{
@@ -153,6 +155,27 @@ impl Backups {
 
             // Enable the backup and start the upload of room keys.
             self.enable(olm_machine, backup_key, version).await?;
+
+            #[cfg(feature = "experimental-push-secrets")]
+            {
+                // Push the backup key to our own verified devices.
+                // `push_secret_to_verified_devices` depends on having existing
+                // Olm sessions with the devices that the secret is being pushed
+                // to, so make sure we have Olm sessions with all our other
+                // devices.
+                if let Some((txn_id, keys_claim_request)) = olm_machine
+                    .get_missing_sessions(vec![olm_machine.user_id()].into_iter())
+                    .await?
+                {
+                    let keys_claim_response = self.client.send(keys_claim_request).await?;
+                    olm_machine.mark_request_as_sent(&txn_id, &keys_claim_response).await?;
+                }
+
+                // We can ignore errors here because the only way this function
+                // fails is if the secret is not found.  But we saved the decryption
+                // key above, so this will never happen.
+                let _ = olm_machine.push_secret_to_verified_devices(SecretName::RecoveryKey).await;
+            }
 
             Ok(())
         };
@@ -749,6 +772,8 @@ impl Backups {
         info!("Setting up secret listeners and trying to resume backups");
 
         self.client.add_event_handler(Self::secret_send_event_handler);
+        #[cfg(feature = "experimental-push-secrets")]
+        self.client.add_event_handler(Self::secret_push_event_handler);
 
         if self.client.inner.e2ee.encryption_settings.backup_download_strategy
             == BackupDownloadStrategy::AfterDecryptionFailure
@@ -923,8 +948,9 @@ impl Backups {
         }
     }
 
-    /// Try to resume backups by iterating through the `m.secret.send` to-device
-    /// messages the [`OlmMachine`] has received and stored in the secret inbox.
+    /// Try to resume backups by iterating through the `m.secret.send` and
+    /// `io.element.msc4385.secret.push` to-device messages the [`OlmMachine`]
+    /// has received and stored in the secret inbox.
     async fn maybe_resume_from_secret_inbox(&self, olm_machine: &OlmMachine) -> Result<(), Error> {
         let secrets = olm_machine.store().get_secrets_from_inbox(&SecretName::RecoveryKey).await?;
 
@@ -982,6 +1008,31 @@ impl Backups {
             }
         } else {
             error!("Tried to handle a `m.secret.send` event but no OlmMachine was initialized");
+        }
+    }
+
+    /// Listen for `io.element.msc4385.secret.push` to-device messages and check
+    /// the pushed secret inbox if we do receive one.
+    #[cfg(feature = "experimental-push-secrets")]
+    #[instrument(skip_all)]
+    pub(crate) async fn secret_push_event_handler(_: ToDeviceSecretPushEvent, client: Client) {
+        let olm_machine = client.olm_machine().await;
+
+        // TODO: As with `secret_send_event_handler`, because of our crude
+        // multi-process support, which reloads the whole [`OlmMachine`] the
+        // `secrets_stream` might stop giving you updates. Once that's fixed,
+        // stop listening to individual secret push events and listen to the
+        // secrets stream.
+        if let Some(olm_machine) = olm_machine.as_ref() {
+            if let Err(e) =
+                client.encryption().backups().maybe_resume_from_secret_inbox(olm_machine).await
+            {
+                error!("Could not handle `io.element.msc4385.secret.push` event: {e:?}");
+            }
+        } else {
+            error!(
+                "Tried to handle a `io.element.msc4385.secret.push` event but no OlmMachine was initialized"
+            );
         }
     }
 
@@ -1082,6 +1133,8 @@ mod test {
         },
     };
     use matrix_sdk_test::async_test;
+    #[cfg(feature = "experimental-push-secrets")]
+    use ruma::{device_id, user_id};
     use serde_json::json;
     use vodozemac::Curve25519PublicKey;
     use wiremock::{
@@ -1612,5 +1665,51 @@ mod test {
             .save_changes(changes)
             .await
             .expect("We should be able to import a room key");
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn test_push_secret_on_create() {
+        let server = MatrixMockServer::new().await;
+        server.mock_add_room_keys_version().ok().mount().await;
+        server.mock_crypto_endpoints_preset().await;
+
+        // Set up two devices for the test user
+        let client = server
+            .client_builder_for_crypto_end_to_end(
+                user_id!("@example:localhost"),
+                device_id!("DEVICEID"),
+            )
+            .build()
+            .await;
+        let _other_client = server
+            .set_up_new_device_for_encryption(&client, device_id!("OTHERDEVICEID"), vec![])
+            .await;
+
+        // both devices are cross-signed
+        client.encryption().bootstrap_cross_signing(None).await.unwrap();
+        let other_device = client
+            .encryption()
+            .get_device(user_id!("@example:localhost"), device_id!("OTHERDEVICEID"))
+            .await
+            .unwrap()
+            .unwrap();
+        other_device.verify().await.unwrap();
+        client.encryption().request_user_identity(user_id!("@example:localhost")).await.unwrap();
+
+        // We create a new backup on one device
+        client
+            .encryption()
+            .backups()
+            .create()
+            .await
+            .expect("We should be able to create a new backup");
+
+        // which should result in pushing the key to our other device (i.e. a
+        // to-device event should be sent)
+        let (_guard, to_device) =
+            server.mock_capture_put_to_device(client.user_id().unwrap()).await;
+        client.send_outgoing_requests().await.unwrap();
+        to_device.await;
     }
 }

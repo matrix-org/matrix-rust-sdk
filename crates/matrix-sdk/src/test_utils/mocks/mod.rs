@@ -169,6 +169,14 @@ pub struct MatrixMockServer {
     token_counter: AtomicU32,
 }
 
+impl std::ops::Deref for MatrixMockServer {
+    type Target = MockServer;
+
+    fn deref(&self) -> &Self::Target {
+        &self.server
+    }
+}
+
 impl MatrixMockServer {
     /// Create a new [`wiremock`] server specialized for Matrix usage.
     pub async fn new() -> Self {
@@ -875,7 +883,7 @@ impl MatrixMockServer {
     pub fn mock_add_room_keys_version(&self) -> MockEndpoint<'_, AddRoomKeysVersionEndpoint> {
         let mock =
             Mock::given(method("POST")).and(path_regex(r"_matrix/client/v3/room_keys/version"));
-        self.mock_endpoint(mock, AddRoomKeysVersionEndpoint).expect_default_access_token()
+        self.mock_endpoint(mock, AddRoomKeysVersionEndpoint).expect_any_access_token()
     }
 
     /// Create a prebuilt mock for adding key storage backups via POST
@@ -2068,6 +2076,7 @@ impl<'a, T> MockEndpoint<'a, T> {
         self.respond_with(ResponseTemplate::new(413).set_body_json(json!({
             // From https://spec.matrix.org/v1.10/client-server-api/#standard-error-response
             "errcode": "M_TOO_LARGE",
+            "error": "Request body too large",
         })))
     }
 }
@@ -2323,6 +2332,62 @@ impl<'a> MockEndpoint<'a, RoomSendEndpoint> {
     /// ```
     pub fn ok(self, returned_event_id: impl Into<OwnedEventId>) -> MatrixMock<'a> {
         self.ok_with_event_id(returned_event_id.into())
+    }
+
+    /// Returns a send endpoint that emulates success after a delay, i.e. the
+    /// event has been sent with the given event id, but the response is delayed
+    /// by the given duration.
+    ///
+    /// This is useful for testing ordering guarantees when multiple events are
+    /// in-flight simultaneously.
+    ///
+    /// # Examples
+    /// ```
+    /// # tokio_test::block_on(async {
+    /// use std::time::Duration;
+    ///
+    /// use matrix_sdk::{
+    ///     ruma::{event_id, room_id},
+    ///     test_utils::mocks::MatrixMockServer,
+    /// };
+    /// use serde_json::json;
+    ///
+    /// let mock_server = MatrixMockServer::new().await;
+    /// let client = mock_server.client_builder().build().await;
+    ///
+    /// mock_server.mock_room_state_encryption().plain().mount().await;
+    ///
+    /// let room = mock_server
+    ///     .sync_joined_room(&client, room_id!("!room_id:localhost"))
+    ///     .await;
+    ///
+    /// mock_server
+    ///     .mock_room_send()
+    ///     .ok_with_delay(event_id!("$some_id"), Duration::from_millis(100))
+    ///     .mock_once()
+    ///     .mount()
+    ///     .await;
+    ///
+    /// let result = room.send_raw("m.room.message", json!({ "body": "Hello world" })).await?;
+    ///
+    /// assert_eq!(
+    ///     event_id!("$some_id"),
+    ///     result.response.event_id,
+    ///     "The event ID we mocked should match the one we received when we sent the event"
+    /// );
+    /// # anyhow::Ok(()) });
+    /// ```
+    pub fn ok_with_delay(
+        self,
+        returned_event_id: impl Into<OwnedEventId>,
+        delay: Duration,
+    ) -> MatrixMock<'a> {
+        let event_id = returned_event_id.into();
+        self.respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "event_id": event_id }))
+                .set_delay(delay),
+        )
     }
 
     /// Returns a send endpoint that emulates success, i.e. the event has been
@@ -2935,6 +3000,19 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
             .mock
             .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/{event_path}")))
             .respond_with(ResponseTemplate::new(200).set_body_json(event.into_raw().json()));
+        MatrixMock { server: self.server, mock }
+    }
+
+    /// Returns a room event endpoint mock with a custom [`ResponseTemplate`].
+    ///
+    /// The path restriction is applied automatically. This is useful when you
+    /// need to configure specific response properties like delays.
+    pub fn ok_with_template(self, template: ResponseTemplate) -> MatrixMock<'a> {
+        let room_path = self.endpoint.room.map_or_else(|| ".*".to_owned(), |room| room.to_string());
+        let mock = self
+            .mock
+            .and(path_regex(format!(r"^/_matrix/client/v3/rooms/{room_path}/event/")))
+            .respond_with(template);
         MatrixMock { server: self.server, mock }
     }
 }

@@ -290,6 +290,7 @@ pub enum BundleExportError {
     InvalidBackup,
 }
 
+#[cfg(feature = "sqlite")]
 impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
     fn from(value: matrix_sdk::encryption::BundleExportError) -> Self {
         match value {
@@ -312,31 +313,9 @@ impl From<serde_json::Error> for BundleExportError {
     }
 }
 
+#[cfg(feature = "sqlite")]
 #[matrix_sdk_ffi_macros::export]
 impl SecretsBundleWithUserId {
-    /// Attempt to create a [`SecretsBundle`] from a previously JSON serialized
-    /// bundle.
-    #[uniffi::constructor]
-    pub fn from_str(
-        user_id: &str,
-        bundle: &str,
-        backup_info: &str,
-    ) -> Result<Arc<Self>, BundleExportError> {
-        let user_id =
-            OwnedUserId::from_str(user_id).map_err(|e| serde_json::Error::custom(e.to_string()))?;
-        let bundle: matrix_sdk_base::crypto::types::SecretsBundle = serde_json::from_str(bundle)?;
-        let backup_info = serde_json::from_str(backup_info)?;
-
-        let is_backup_ok =
-            bundle.backup.as_ref().is_some_and(|backup| is_valid_backup(backup, &backup_info));
-
-        if is_backup_ok {
-            Ok(Self { user_id, inner: bundle }.into())
-        } else {
-            Err(BundleExportError::InvalidBackup)
-        }
-    }
-
     /// Attempt to export a [`SecretsBundle`] from a crypto store.
     ///
     /// This method can be used to retrieve a [`SecretsBundle`] from an existing
@@ -375,6 +354,32 @@ impl SecretsBundleWithUserId {
         passphrase.zeroize();
 
         ret
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl SecretsBundleWithUserId {
+    /// Attempt to create a [`SecretsBundle`] from a previously JSON serialized
+    /// bundle.
+    #[uniffi::constructor]
+    pub fn from_str(
+        user_id: &str,
+        bundle: &str,
+        backup_info: &str,
+    ) -> Result<Arc<Self>, BundleExportError> {
+        let user_id =
+            OwnedUserId::from_str(user_id).map_err(|e| serde_json::Error::custom(e.to_string()))?;
+        let bundle: matrix_sdk_base::crypto::types::SecretsBundle = serde_json::from_str(bundle)?;
+        let backup_info = serde_json::from_str(backup_info)?;
+
+        let is_backup_ok =
+            bundle.backup.as_ref().is_some_and(|backup| is_valid_backup(backup, &backup_info));
+
+        if is_backup_ok {
+            Ok(Self { user_id, inner: bundle }.into())
+        } else {
+            Err(BundleExportError::InvalidBackup)
+        }
     }
 
     /// Does the bundle contain a backup key.
@@ -428,6 +433,7 @@ pub fn json_string_contains_secrets_bundle(
 }
 
 /// Check if a crypto store contains a valid [`SecretsBundle`].
+#[cfg(feature = "sqlite")]
 #[matrix_sdk_ffi_macros::export]
 pub async fn database_contains_secrets_bundle(
     database_path: &str,

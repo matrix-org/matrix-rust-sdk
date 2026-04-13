@@ -7,16 +7,9 @@ use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use matrix_sdk::{
     ThreadingSupport,
-    config::SyncSettings,
-    test_utils::{
-        logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomContextResponseTemplate},
-    },
+    test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate},
 };
-use matrix_sdk_test::{
-    JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
-    mocks::mock_encryption_state,
-};
+use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{
     notification_client::{
         NotificationClient, NotificationEvent, NotificationItemsRequest, NotificationProcessSetup,
@@ -37,10 +30,7 @@ use wiremock::{
     matchers::{header, method, path},
 };
 
-use crate::{
-    mock_sync,
-    sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests},
-};
+use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests};
 
 #[async_test]
 async fn test_notification_client_with_context() {
@@ -342,7 +332,8 @@ async fn test_unsubscribed_threads_get_notifications() {
 #[async_test]
 async fn test_notification_client_sliding_sync() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let event_id = event_id!("$example_event_id");
     let event_id2 = event_id!("$example_event_id2");
@@ -434,7 +425,7 @@ async fn test_notification_client_sliding_sync() {
                 }
             }))
         })
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
@@ -450,7 +441,7 @@ async fn test_notification_client_sliding_sync() {
         .unwrap();
 
     check_requests(
-        server,
+        &server,
         &[json!({
             "conn_id": "notifications",
             "lists": {
@@ -531,7 +522,8 @@ async fn test_notification_client_sliding_sync() {
 async fn test_notification_client_sliding_sync_invites() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room_id2 = room_id!("!a98sd12bjh2:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let event_id = event_id!("$example_event_id");
     let invite_event_id = event_id!("$invite_event_id");
@@ -628,7 +620,7 @@ async fn test_notification_client_sliding_sync_invites() {
                 }
             }))
         })
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
@@ -676,7 +668,8 @@ async fn test_notification_client_sliding_sync_invites() {
 async fn test_notification_client_sliding_sync_invites_with_event_id() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room_id2 = room_id!("!a98sd12bjh2:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let event_id = event_id!("$example_event_id");
     let invite_event_id = event_id!("$invite_event_id");
@@ -772,7 +765,7 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
                 }
             }))
         })
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
@@ -819,7 +812,8 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
 #[async_test]
 async fn test_notification_client_mixed() {
     let room_id = room_id!("!a98sd12bjh:example.org");
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let event_id = event_id!("$example_event_id");
     let event_id2 = event_id!("$example_event_id2");
@@ -849,26 +843,24 @@ async fn test_notification_client_mixed() {
     let event_json =
         event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
 
-    let event_json2 = event_factory
+    let event2 = event_factory
         .text_msg("Hello world again!")
         .sender(sender)
         .event_id(event_id2)
-        .into_raw_sync();
+        .into_event();
 
     let room_name = "The Maltese Falcon";
     let sender_display_name = "John Mastodon";
 
-    let mut sync_builder = SyncResponseBuilder::new();
-    sync_builder.add_joined_room(
-        JoinedRoomBuilder::new(room_id)
-            .add_state_bulk([sender_member_event.clone(), own_member_event.clone()]),
-    );
-
     // First, mock a sync that contains a state event so we get a valid room for
     // room_id.
-    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
-    let _response = client.sync_once(SyncSettings::default()).await.unwrap();
-    server.reset().await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_state_bulk([sender_member_event.clone(), own_member_event.clone()]),
+        )
+        .await;
 
     let pos = Mutex::new(0);
     Mock::given(SlidingSyncMatcher)
@@ -913,27 +905,20 @@ async fn test_notification_client_mixed() {
                 }))
             }
         })
-        .mount(&server)
+        .mount(server.server())
         .await;
 
-    {
-        // The notification client retrieves the event via `/rooms/*/context/`.
-        Mock::given(method("GET"))
-            .and(path(format!("/_matrix/client/r0/rooms/{room_id}/context/{event_id2}")))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "event": event_json2,
-                "state": [
-                    sender_member_event,
-                ],
-            })))
-            .mount(&server)
-            .await;
+    // The notification client retrieves the event via `/rooms/*/context/`.
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(event2)
+            .state_events(vec![sender_member_event.cast_unchecked()]))
+        .mount()
+        .await;
 
-        // The encryption state is also fetched to figure whether the room is encrypted
-        // or not.
-        mock_encryption_state(&server, false).await;
-    }
+    // The encryption state is also fetched to figure whether the room is encrypted
+    // or not.
+    server.mock_room_state_encryption().plain().mount().await;
 
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
     let process_setup =
@@ -992,7 +977,7 @@ async fn test_notification_client_mixed() {
                 }
             }
         })))
-        .mount(&server)
+        .mount(server.server())
         .await;
 
     let Some(Ok(item)) = result.remove(event_id) else {

@@ -63,6 +63,14 @@ experimental-encrypted-state-events = [
     "matrix-sdk-test?/experimental-encrypted-state-events",
 ]
 
+experimental-push-secrets = [
+    "e2e-encryption",
+    "matrix-sdk-base/experimental-push-secrets",
+    "matrix-sdk-sqlite?/experimental-push-secrets",
+    "matrix-sdk-indexeddb?/experimental-push-secrets",
+    "ruma/unstable-msc4385",
+]
+
 markdown = ["ruma/markdown"]
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
