@@ -1728,6 +1728,9 @@ impl Account {
     ///  * The Ed25519 key in the device data matches that in the `keys` field
     ///    in the event, for consistency and sanity.
     ///
+    ///  * The `user_id` property in the `sender_device_keys` matches the event
+    ///    sender.
+    ///
     /// The first two checks are sufficient to bind together the Ed25519 and
     /// Curve25519 keys:
     ///
@@ -1765,6 +1768,15 @@ impl Account {
         let Some(sender_device_keys) = event.sender_device_keys() else {
             return Ok(None);
         };
+
+        if sender_device_keys.user_id != event.sender() {
+            warn!(
+                "Received a to-device message with sender_device_keys with incorrect user_id: expected {:?}, got {:?}",
+                event.sender(),
+                sender_device_keys.user_id
+            );
+            return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
+        }
 
         // Check the signature within the device_keys structure
         sender_device_keys.check_self_signature().map_err(|err| {
