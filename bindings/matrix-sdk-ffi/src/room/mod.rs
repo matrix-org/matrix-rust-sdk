@@ -704,20 +704,25 @@ impl Room {
     }
 
     /// Get the content of the event of the given type out of the room's
-    /// account data store.
+    /// account data store as a JSON string.
     ///
-    /// It will be returned as a JSON string.
-    pub async fn account_data(&self, event_type: String) -> Result<Option<String>, ClientError> {
+    /// This is mostly useful for custom event types that are not modeled by
+    /// typed SDK APIs.
+    pub async fn account_data_json(
+        &self,
+        event_type: String,
+    ) -> Result<Option<String>, ClientError> {
         let event_type = RumaRoomAccountDataEventType::from(event_type);
         let event = self.inner.account_data(event_type).await?;
         Ok(event.map(|e| e.json().get().to_owned()))
     }
 
     /// Set the given account data content for the given event type in
-    /// this room.
+    /// this room, from a JSON string.
     ///
-    /// It should be supplied as a JSON string.
-    pub async fn set_account_data(
+    /// This is mostly useful for custom event types that are not modeled by
+    /// typed SDK APIs.
+    pub async fn set_account_data_json(
         &self,
         event_type: String,
         content: String,
@@ -728,11 +733,12 @@ impl Room {
         Ok(())
     }
 
-    /// Get a specific state event in this room, from the local store.
+    /// Get a specific state event in this room, from the local store, as a
+    /// JSON string.
     ///
-    /// It will be returned as a raw JSON string, or `None` if no such
-    /// state event exists.
-    pub async fn get_state_event(
+    /// This is mostly useful for custom event types that are not modeled by
+    /// typed SDK APIs. Returns `None` if no such state event exists.
+    pub async fn get_state_event_json(
         &self,
         event_type: String,
         state_key: String,
