@@ -26,6 +26,7 @@ use matrix_sdk_ui::{
 };
 use ruma::{
     api::client::room::create_room::v3::Request as CreateRoomRequest,
+    events::StateEventType,
     events::room::message::RoomMessageEventContent,
     owned_mxc_uri, room_id,
     time::{Duration, Instant},
@@ -61,6 +62,17 @@ async fn new_persistent_room_list_service(
     set_client_session(&client).await;
 
     let room_list = RoomListService::new(client.clone()).await?;
+
+    Ok((server, room_list))
+}
+
+async fn new_room_list_service_with_all_rooms_required_state(
+    all_rooms_required_state: Vec<(StateEventType, String)>,
+) -> Result<(MockServer, RoomListService), Error> {
+    let (client, server) = logged_in_client_with_server().await;
+    let room_list =
+        RoomListService::new_with_all_rooms_required_state(client, true, all_rooms_required_state)
+            .await?;
 
     Ok((server, room_list))
 }
@@ -521,6 +533,258 @@ async fn test_sync_all_states() -> Result<(), Error> {
             "rooms": {
                 // let's ignore them for now
             },
+        },
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_all_rooms_required_state_is_added_to_all_rooms_only() -> Result<(), Error> {
+    let (server, room_list) = new_room_list_service_with_all_rooms_required_state(vec![(
+        StateEventType::RoomGuestAccess,
+        "".to_owned(),
+    )])
+    .await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert pos None,
+        assert timeout Some(0),
+        assert request = {
+            "conn_id": "room-list",
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.guest_access", ""],
+                    ],
+                    "filters": {},
+                    "timeline_limit": 1,
+                },
+            },
+            "extensions": {
+                "account_data": {
+                    "enabled": true
+                },
+                "receipts": {
+                    "enabled": true,
+                    "rooms": ["*"]
+                },
+                "typing": {
+                    "enabled": true,
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 1,
+                },
+            },
+            "rooms": {},
+            "extensions": {},
+        },
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_all_rooms_required_state_does_not_affect_room_subscriptions() -> Result<(), Error> {
+    let (server, room_list) = new_room_list_service_with_all_rooms_required_state(vec![(
+        StateEventType::RoomGuestAccess,
+        "".to_owned(),
+    )])
+    .await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let room_id = room_id!("!r1:bar.org");
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request >= {
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                    "timeline_limit": 1,
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 1,
+                },
+            },
+            "rooms": {
+                room_id: {
+                    "initial": true,
+                }
+            },
+        },
+    };
+
+    room_list.subscribe_to_rooms(&[room_id]).await;
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        assert request = {
+            "conn_id": "room-list",
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 0]],
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.guest_access", ""],
+                    ],
+                    "filters": {},
+                    "timeline_limit": 1,
+                },
+            },
+            "room_subscriptions": {
+                room_id: {
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.member", "$LAZY"],
+                        ["m.room.member", "$ME"],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.pinned_events", ""],
+                    ],
+                    "timeline_limit": 20,
+                },
+            },
+            "extensions": {
+                "account_data": { "enabled": true },
+                "receipts": { "enabled": true, "rooms": [ "*" ] },
+                "typing": { "enabled": true },
+            },
+        },
+        respond with = {
+            "pos": "1",
+            "lists": {},
+            "rooms": {},
+        },
+    };
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_all_rooms_required_state_overrides_default_event_type_entries() -> Result<(), Error> {
+    let (server, room_list) = new_room_list_service_with_all_rooms_required_state(vec![(
+        StateEventType::RoomMember,
+        "*".to_owned(),
+    )])
+    .await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    sync_then_assert_request_and_fake_response! {
+        [server, room_list, sync]
+        states = Init => SettingUp,
+        assert pos None,
+        assert timeout Some(0),
+        assert request = {
+            "conn_id": "room-list",
+            "lists": {
+                ALL_ROOMS: {
+                    "ranges": [[0, 19]],
+                    "required_state": [
+                        ["m.room.name", ""],
+                        ["m.room.encryption", ""],
+                        ["m.room.topic", ""],
+                        ["m.room.avatar", ""],
+                        ["m.room.canonical_alias", ""],
+                        ["m.room.power_levels", ""],
+                        ["org.matrix.msc3401.call.member", "*"],
+                        ["m.room.join_rules", ""],
+                        ["m.room.tombstone", ""],
+                        ["m.room.create", ""],
+                        ["m.room.history_visibility", ""],
+                        ["io.element.functional_members", ""],
+                        ["m.space.parent", "*"],
+                        ["m.space.child", "*"],
+                        ["m.room.member", "*"],
+                    ],
+                    "filters": {},
+                    "timeline_limit": 1,
+                },
+            },
+            "extensions": {
+                "account_data": {
+                    "enabled": true
+                },
+                "receipts": {
+                    "enabled": true,
+                    "rooms": ["*"]
+                },
+                "typing": {
+                    "enabled": true,
+                },
+            },
+        },
+        respond with = {
+            "pos": "0",
+            "lists": {
+                ALL_ROOMS: {
+                    "count": 0,
+                },
+            },
+            "rooms": {},
+            "extensions": {},
         },
     };
 

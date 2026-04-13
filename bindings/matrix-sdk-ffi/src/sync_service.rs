@@ -101,7 +101,7 @@ impl SyncService {
     }
 }
 
-/// A state event type and state key pair to request during sliding sync.
+/// A state event type and state key pair to request for `lists.ALL_ROOMS`.
 #[derive(Clone, uniffi::Record)]
 pub struct RequiredState {
     pub event_type: StateEventType,
@@ -135,16 +135,21 @@ impl SyncServiceBuilder {
         Arc::new(Self { builder, ..this })
     }
 
-    /// Request additional state events during sliding sync.
+    /// Request additional state entries for `lists.ALL_ROOMS.required_state`.
     ///
-    /// These entries are merged with the built-in defaults; they do not
-    /// replace them. Use the special state key `"*"` to request all state
-    /// keys for a given event type.
-    pub fn with_required_state(self: Arc<Self>, required_state: Vec<RequiredState>) -> Arc<Self> {
+    /// User-provided entries override built-in defaults for matching event
+    /// types. This does not affect `room_subscriptions.required_state`.
+    ///
+    /// Use the special state key `"*"` to request all state keys for a given
+    /// state event type.
+    pub fn with_all_rooms_required_state(
+        self: Arc<Self>,
+        required_state: Vec<RequiredState>,
+    ) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
-        let entries: Vec<(ruma::events::StateEventType, String)> =
+        let entries =
             required_state.into_iter().map(|rs| (rs.event_type.into(), rs.state_key)).collect();
-        let builder = this.builder.with_required_state(entries);
+        let builder = this.builder.with_all_rooms_required_state(entries);
         Arc::new(Self { builder, ..this })
     }
 

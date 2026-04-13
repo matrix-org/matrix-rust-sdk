@@ -781,9 +781,8 @@ pub struct SyncServiceBuilder {
     /// service.
     parent_span: Span,
 
-    /// Additional state events to request during sliding sync, merged with
-    /// the built-in defaults in the [`RoomListService`].
-    extra_required_state: Vec<(StateEventType, String)>,
+    /// Additional required state entries for `lists.ALL_ROOMS`.
+    all_rooms_required_state: Vec<(StateEventType, String)>,
 }
 
 impl SyncServiceBuilder {
@@ -793,7 +792,7 @@ impl SyncServiceBuilder {
             with_offline_mode: false,
             with_share_pos: true,
             parent_span: Span::none(),
-            extra_required_state: vec![],
+            all_rooms_required_state: vec![],
         }
     }
 
@@ -821,14 +820,19 @@ impl SyncServiceBuilder {
         self
     }
 
-    /// Request additional state events during sliding sync.
+    /// Request additional state entries for `lists.ALL_ROOMS.required_state`.
     ///
-    /// The provided entries are merged with the built-in defaults; they do
-    /// not replace them. Each entry is a `(event_type, state_key)` pair
-    /// following the same conventions as the sliding-sync `required_state`
-    /// field (e.g. `""` for singleton state, `"*"` for all state keys).
-    pub fn with_required_state(mut self, required_state: Vec<(StateEventType, String)>) -> Self {
-        self.extra_required_state = required_state;
+    /// User-provided entries override built-in defaults for matching event
+    /// types. This does not affect `room_subscriptions.required_state`.
+    ///
+    /// Each entry is a `(event_type, state_key)` pair following the sliding
+    /// sync `required_state` conventions, such as `""` for singleton state or
+    /// `"*"` for all state keys of a state event type.
+    pub fn with_all_rooms_required_state(
+        mut self,
+        all_rooms_required_state: Vec<(StateEventType, String)>,
+    ) -> Self {
+        self.all_rooms_required_state = all_rooms_required_state;
         self
     }
 
@@ -838,15 +842,20 @@ impl SyncServiceBuilder {
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self { client, with_offline_mode, with_share_pos, parent_span, extra_required_state } =
-            self;
+        let Self {
+            client,
+            with_offline_mode,
+            with_share_pos,
+            parent_span,
+            all_rooms_required_state,
+        } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new_with_extra_required_state(
+        let room_list = RoomListService::new_with_all_rooms_required_state(
             client.clone(),
             with_share_pos,
-            extra_required_state,
+            all_rooms_required_state,
         )
         .await?;
 
