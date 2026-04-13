@@ -173,7 +173,7 @@ impl LatestEventValue {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{ops::Not, time::Duration};
 
     use assert_matches::assert_matches;
     use matrix_sdk::{
@@ -377,6 +377,41 @@ mod tests {
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(message), .. }) => {
                     assert_eq!(message.body(), "fondue");
+                }
+            );
+        })
+    }
+
+    #[async_test]
+    async fn test_remote_beacon_stop() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
+        let sender = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new();
+
+        let base_value = BaseLatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            event_factory
+                .server_ts(42)
+                .sender(sender)
+                .beacon_info(Some("Alice's walk".to_owned()), Duration::from_secs(60), false, None)
+                .state_key(sender)
+                .event_id(event_id!("$beacon-stop"))
+                .into_raw_sync(),
+        ));
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(received_sender, sender);
+            assert!(is_own.not());
+            assert_matches!(profile, TimelineDetails::Unavailable);
+            assert_matches!(
+                content,
+                TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(state), .. }) => {
+                    assert!(!state.is_live(), "stop beacon should not be live");
+                    assert_eq!(state.description(), Some("Alice's walk"));
                 }
             );
         })
