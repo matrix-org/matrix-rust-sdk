@@ -16,7 +16,7 @@ use matrix_sdk::deserialized_responses::TimelineEvent;
 use matrix_sdk_ui::{
     search::{
         GlobalSearchIterator as SdkGlobalSearchIterator,
-        RoomSearchIterator as SdkRoomSearchIterator,
+        RoomSearchIterator as SdkRoomSearchIterator, SearchError as SdkSearchError,
     },
     timeline::TimelineDetails,
 };
@@ -29,6 +29,23 @@ use crate::{
     timeline::{ProfileDetails, TimelineItemContent},
     utils::Timestamp,
 };
+
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+pub enum SearchError {
+    #[error("Failed to search through the index: {0}")]
+    IndexError(String),
+    #[error("Failed to load event content for search result: {0}")]
+    EventLoadError(String),
+}
+
+impl From<SdkSearchError> for SearchError {
+    fn from(err: SdkSearchError) -> Self {
+        match err {
+            SdkSearchError::IndexError(err) => SearchError::IndexError(err.to_string()),
+            SdkSearchError::EventLoadError(err) => SearchError::EventLoadError(err.to_string()),
+        }
+    }
+}
 
 #[matrix_sdk_ffi_macros::export]
 impl Room {
@@ -50,7 +67,7 @@ pub struct RoomSearchIterator {
 impl RoomSearchIterator {
     /// Return a list of events for the next batch of search results, or `None`
     /// if there are no more results.
-    pub async fn next_events(&self) -> Result<Option<Vec<RoomSearchResult>>, ClientError> {
+    pub async fn next_events(&self) -> Result<Option<Vec<RoomSearchResult>>, SearchError> {
         let Some(events) = self.inner.lock().await.next_events(20).await? else {
             return Ok(None);
         };
@@ -103,16 +120,18 @@ impl RoomSearchResult {
 
 #[derive(Clone, uniffi::Enum)]
 pub enum SearchRoomFilter {
-    /// All the joined rooms (= DMs + groups).
+    /// All the joined rooms (= DMs + non-DMs).
     Rooms,
     /// Only joined DM rooms.
     Dms,
     /// Only joined non-DM (group) rooms.
-    Groups,
+    NonDms,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl Client {
+    /// Search across all all rooms for the given query, returning an iterator
+    /// over the results.
     pub async fn search(
         &self,
         query: String,
@@ -124,7 +143,7 @@ impl Client {
         match filter {
             SearchRoomFilter::Rooms => {}
             SearchRoomFilter::Dms => search = search.only_dm_rooms().await?,
-            SearchRoomFilter::Groups => search = search.only_groups().await?,
+            SearchRoomFilter::NonDms => search = search.no_dms().await?,
         }
 
         Ok(GlobalSearchIterator { sdk_client, inner: Mutex::new(search.build()) })
@@ -156,7 +175,7 @@ impl GlobalSearchIterator {
     pub async fn next_events(
         &self,
         num_results: u64,
-    ) -> Result<Option<Vec<GlobalSearchResult>>, ClientError> {
+    ) -> Result<Option<Vec<GlobalSearchResult>>, SearchError> {
         let Some(events) = self.inner.lock().await.next_events(num_results as usize).await? else {
             return Ok(None);
         };
