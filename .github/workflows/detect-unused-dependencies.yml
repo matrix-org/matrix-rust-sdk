@@ -13,4 +13,4 @@ jobs:
         with:
           persist-credentials: false
       - name: Machete
-        uses: bnjbvr/cargo-machete@b81ce1560c5fbd0210cb66d88bf210329ff04266
+        uses: bnjbvr/cargo-machete@e82b6af0d3610e62ddf49bf7c62e662d7e31db0d
