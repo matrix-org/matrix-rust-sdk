@@ -113,11 +113,12 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking Changes
 
-- [**breaking**] `LiveLocationShares` has been renamed to `RoomLiveLocationService`.
+- [**breaking**] `LiveLocationShares` has been renamed to `LiveLocationsObserver` and
+  `Room::live_location_shares` to `Room::live_locations_observer`.
   ([#6446](https://github.com/matrix-org/matrix-rust-sdk/pull/6446))
 
-- `Room::observe_live_location_shares` has been replaced by `Room::live_location_shares`.
-  The new API returns a `LiveLocationShares` struct with a `subscribe()` method that provides an initial
+- `Room::observe_live_location_shares` has been replaced by `Room::live_locations_observer`.
+  The new API returns a `LiveLocationsObserver` struct with a `subscribe()` method that provides an initial
   snapshot (`Vector<LiveLocationShare>`) and a batched stream of `VectorDiff` updates, instead of
   emitting individual `LiveLocationShare` items as beacon events arrive. The initial snapshot is loaded
   from the event cache on creation, includes the own user's shares (previously excluded), and properly

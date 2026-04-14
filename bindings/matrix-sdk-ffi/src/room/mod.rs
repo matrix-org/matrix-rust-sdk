@@ -56,7 +56,7 @@ use crate::{
     error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
     event::TimelineEvent,
     identity_status_change::IdentityStatusChange,
-    live_location_share::RoomLiveLocationService,
+    live_location_share::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
@@ -1138,14 +1138,14 @@ impl Room {
 
     /// Returns the active live location shares for this room.
     ///
-    /// The returned [`RoomLiveLocationService`] object tracks which users are
+    /// The returned [`LiveLocationsObserver`] object tracks which users are
     /// currently sharing their live location. It keeps the underlying event
     /// handlers registered — and therefore the share list up-to-date — for as
-    /// long as it is alive. Call [`RoomLiveLocationService::subscribe`] on it to
+    /// long as it is alive. Call [`LiveLocationsObserver::subscribe`] on it to
     /// receive an initial snapshot and a stream of incremental updates.
-    pub async fn live_location_shares(&self) -> Arc<RoomLiveLocationService> {
-        let inner = self.inner.live_location_shares().await;
-        Arc::new(RoomLiveLocationService::new(inner))
+    pub async fn live_locations_observer(&self) -> Arc<LiveLocationsObserver> {
+        let inner = self.inner.live_locations_observer().await;
+        Arc::new(LiveLocationsObserver::new(inner))
     }
 
     /// Forget this room.

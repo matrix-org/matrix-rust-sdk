@@ -63,18 +63,18 @@ pub struct LiveLocationShare {
 ///
 /// Registers event handlers for beacon (location update) and beacon info
 /// (share started/stopped) events and reflects changes into a vector that
-/// callers can subscribe to via [`RoomLiveLocationService::subscribe`].
+/// callers can subscribe to via [`LiveLocationsObserver::subscribe`].
 ///
 /// Event handlers are automatically unregistered when this struct is dropped.
 #[derive(Debug)]
-pub struct RoomLiveLocationService {
+pub struct LiveLocationsObserver {
     shares: Arc<Mutex<ObservableVector<LiveLocationShare>>>,
     _beacon_guard: EventHandlerDropGuard,
     _beacon_info_guard: EventHandlerDropGuard,
 }
 
-impl RoomLiveLocationService {
-    /// Create a new [`RoomLiveLocationService`] for the given room.
+impl LiveLocationsObserver {
+    /// Create a new [`LiveLocationsObserver`] for the given room.
     ///
     /// Loads the current active shares from the event cache as initial state,
     /// then begins listening for beacon events to keep the vector up-to-date.
