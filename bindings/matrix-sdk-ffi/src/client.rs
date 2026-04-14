@@ -72,7 +72,7 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::{
         client::{
             alias::get_alias,
@@ -1218,6 +1218,18 @@ impl Client {
     pub async fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
         let mime: Mime = mime_type.parse()?;
         self.inner.account().upload_avatar(&mime, data).await?;
+        Ok(())
+    }
+
+    /// Updates the user's avatar using the provided MXC url.
+    pub async fn set_avatar_url(&self, url: String) -> Result<(), ClientError> {
+        // MxcUri can't just be instantiated, serde deserialization seems to be the only
+        // way
+        let mxc = serde_json::from_str::<OwnedMxcUri>(&url)?;
+        // Validate the newly generated MxcUri
+        mxc.validate().map_err(ClientError::from_err)?;
+
+        self.inner.account().set_avatar_url(Some(&mxc)).await?;
         Ok(())
     }
 
