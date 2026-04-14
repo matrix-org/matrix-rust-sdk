@@ -771,10 +771,7 @@ mod tests {
 
         // Since the precision of the timestamp is in seconds, wait so the timestamps
         // differ.
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        gloo_timers::future::sleep(Duration::from_secs(3)).await;
+        matrix_sdk_common::sleep::sleep(Duration::from_secs(3)).await;
 
         media_store
             .add_media_content(
@@ -794,10 +791,7 @@ mod tests {
 
         // Since the precision of the timestamp is in seconds, wait so the timestamps
         // differ.
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        gloo_timers::future::sleep(Duration::from_secs(3)).await;
+        matrix_sdk_common::sleep::sleep(Duration::from_secs(3)).await;
 
         // Access the file so its last access is more recent.
         let _ = media_store
