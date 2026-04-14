@@ -14,16 +14,13 @@
 
 use core::fmt;
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::ops::DerefMut;
+use std::convert::Infallible;
 use std::{
     borrow::{Borrow, Cow},
     cmp::min,
     iter,
     ops::Deref,
-    path::Path,
 };
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use std::{cell::RefCell, convert::Infallible};
 
 use async_trait::async_trait;
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -34,10 +31,6 @@ use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, OpfsSAHPoolUtil, install};
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-use tokio::fs;
 use tracing::{error, trace, warn};
 use zeroize::Zeroize;
 
@@ -388,10 +381,10 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 /// An unreachable function to avoid having to put conditional compilation
-/// everywhere we want to use [`SyncOutsideWasmWrapper::interact()`].
+/// everywhere we want to use [`ConnectionWrapper::interact()`].
 ///
 /// This function should not be reachable under normal circumstance since
-/// [`SyncOutsideWasmWrapper::interact()`] return [`Infallible`] as an error
+/// [`ConnectionWrapper::interact()`] return [`Infallible`] as an error.
 fn map_interact_err(_error: Infallible) -> rusqlite::Error {
     unreachable!()
 }
@@ -749,75 +742,6 @@ pub(crate) trait EncryptableStore {
             err.into_inner().into()
         })
     }
-}
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-#[derive(Debug)]
-/// Wrapper object for providing interior mutability similar to [`SyncWrapper`]
-/// without `Send` requirement.
-///
-/// Like [`SyncWrapper`], access to the wrapped object is provided via the
-/// [`SyncOutsideWasmWrapper::interact()`] method.
-///
-/// [`SyncWrapper`]: deadpool_sync::SyncWrapper
-pub struct SyncOutsideWasmWrapper<T>(RefCell<T>);
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-impl<T> SyncOutsideWasmWrapper<T> {
-    /// Creates a new wrapped object.
-    pub fn new(value: T) -> Self {
-        Self(RefCell::new(value))
-    }
-
-    /// Interacts with the underlying object.
-    ///
-    /// Expects a closure that takes the object as its parameter.
-    pub async fn interact<F, R>(&self, f: F) -> Result<R, Infallible>
-    where
-        F: FnOnce(&mut T) -> R,
-    {
-        // This async block here is to maintain API compatibility with `SyncWrapper`
-        // without triggering clippy warning for `async fn` without a call to
-        // `await` inside
-        async {
-            let mut value = self.0.borrow_mut();
-
-            Ok(f(value.deref_mut()))
-        }
-        .await
-    }
-}
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-/// Configure VFS name using provided path.
-pub fn get_vfs_name(path: &Path) -> String {
-    format!(
-        "matrix-opfs-sahpool+{}",
-        uri_encode::encode_uri_component(path.to_string_lossy().as_ref())
-    )
-}
-
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-/// Setup file system for SQLite database depending on compilation target.
-pub async fn setup_db_fs(path: &Path) -> Result<(), OpenStoreError> {
-    // Use system native file system for non-WASM targets.
-    fs::create_dir_all(path).await.map_err(OpenStoreError::CreateDir)?;
-
-    Ok(())
-}
-
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
-/// Setup file system for SQLite database depending on compilation target.
-pub async fn setup_db_fs(path: &Path) -> Result<OpfsSAHPoolUtil, OpenStoreError> {
-    // Use emulated virtual file system for WASM target.
-    let cfg = OpfsSAHPoolCfgBuilder::new()
-        .vfs_name(&get_vfs_name(path))
-        .directory(path.to_string_lossy().as_ref())
-        .build();
-    // Avoid global installation, due to being harder to test.
-    let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
-
-    Ok(util)
 }
 
 #[cfg(test)]

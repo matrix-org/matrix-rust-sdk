@@ -46,7 +46,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, repeat_vars, setup_db_fs,
+        SqliteKeyValueStoreConnExt, repeat_vars,
     },
 };
 
@@ -112,9 +112,7 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        setup_db_fs(&config.path).await?;
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await?;
 
         let this = Self::open_with_pool(pool, config.secret).await?;
         this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
@@ -2564,9 +2562,7 @@ mod migration_tests {
     use crate::{
         Secret, SqliteStoreConfig,
         error::{Error, Result},
-        utils::{
-            EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt, setup_db_fs,
-        },
+        utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     };
 
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
@@ -2594,9 +2590,7 @@ mod migration_tests {
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
         let config = SqliteStoreConfig::new(path);
 
-        setup_db_fs(&config.path).await.unwrap();
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME).unwrap();
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await.unwrap();
         let conn = pool.get().await?;
 
         init(&conn).await?;

@@ -40,8 +40,7 @@ use crate::{
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
-        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars, setup_db_fs,
-        time_to_timestamp,
+        SqliteKeyValueStoreConnExt, SqliteTransactionExt, repeat_vars, time_to_timestamp,
     },
 };
 
@@ -113,9 +112,7 @@ impl SqliteMediaStore {
 
         let _timer = timer!("open_with_config");
 
-        setup_db_fs(&config.path).await?;
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await?;
 
         let this = Self::open_with_pool(pool, config.secret).await?;
         this.write().await?.apply_runtime_config(config.runtime_config).await?;

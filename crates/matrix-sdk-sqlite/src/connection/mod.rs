@@ -12,12 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+use std::convert::Infallible;
+
+use deadpool::managed;
+pub use deadpool::managed::reexports::*;
+
+#[cfg(not(target_family = "wasm"))]
 mod default;
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 mod wasm;
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(not(target_family = "wasm"))]
 pub use default::*;
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 pub use wasm::*;
+
+/// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
+pub const RUNTIME: Runtime = Runtime::Tokio1;
+
+deadpool::managed_reexports!(
+    "matrix-sdk-sqlite",
+    Manager,
+    managed::Object<Manager>,
+    rusqlite::Error,
+    Infallible
+);
+
+/// Type representing a connection to SQLite from the [`Pool`].
+pub type Connection = Object;

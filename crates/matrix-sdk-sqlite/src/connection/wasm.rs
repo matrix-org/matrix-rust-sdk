@@ -12,35 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! An implementation of `deadpool` for `rusqlite` for usage
-//! in WASM environment.
+//! An implementation of `deadpool::managed::Manager` for `rusqlite`
+//! for usage in WASM environments.
 //!
 //! Similar to the one implemented in `crate::connection::default`,
 //! we do not implement connection recycling here. Mostly due to
-//! [`managed::Manager`] trait expecting a future output with `Send`
+//! [`managed::Manager::recycle`] method expecting a future with `Send`
 //! bound which is not available in WASM environment.
 
-use std::{convert::Infallible, path::PathBuf};
+use std::{
+    cell::RefCell,
+    convert::Infallible,
+    ops::DerefMut,
+    path::{Path, PathBuf},
+};
 
-pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics};
 use rusqlite::OpenFlags;
+use sqlite_wasm_vfs::sahpool::{OpfsSAHPoolCfgBuilder, OpfsSAHPoolUtil, install};
 
-use crate::utils::SyncOutsideWasmWrapper;
-
-/// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
-pub const RUNTIME: Runtime = Runtime::Tokio1;
-
-deadpool::managed_reexports!(
-    "matrix-sdk-sqlite",
-    Manager,
-    managed::Object<Manager>,
-    rusqlite::Error,
-    Infallible
-);
-
-/// Type representing a connection to SQLite from the [`Pool`].
-pub type Connection = Object;
+use crate::OpenStoreError;
 
 /// [`Manager`][managed::Manager] for creating and recycling SQLite
 /// [`Connection`]s.
@@ -54,14 +45,19 @@ pub struct Manager {
 
 impl Manager {
     /// Creates a new [`Manager`] for a database.
-    #[must_use]
-    pub fn new(database_path: PathBuf, vfs: String) -> Self {
-        Self { database_path, vfs }
+    pub async fn new(path: &Path, database_name: &str) -> Result<Self, OpenStoreError> {
+        setup_vfs(path).await?;
+
+        // We don't need full path for database path as the parent
+        // directories are managed by VFS.
+        let database_path = PathBuf::from(database_name);
+
+        Ok(Self { database_path, vfs: get_vfs_name(path) })
     }
 }
 
 impl managed::Manager for Manager {
-    type Type = SyncOutsideWasmWrapper<rusqlite::Connection>;
+    type Type = ConnectionWrapper<rusqlite::Connection>;
     type Error = rusqlite::Error;
 
     async fn create(&self) -> Result<Self::Type, Self::Error> {
@@ -72,7 +68,7 @@ impl managed::Manager for Manager {
             OpenFlags::default(),
             self.vfs.as_str(),
         )?;
-        Ok(SyncOutsideWasmWrapper::new(conn))
+        Ok(ConnectionWrapper::new(conn))
     }
 
     async fn recycle(
@@ -80,8 +76,72 @@ impl managed::Manager for Manager {
         _conn: &mut Self::Type,
         _: &Metrics,
     ) -> managed::RecycleResult<Self::Error> {
-        // We cannot return an error here, since error
-        // must implement `Send`.
+        // We cannot implement connection recycling
+        // at the moment, due to
+        // `managed::Manager::recycle` expecting
+        // a future with `Send` bound which is not
+        // available in WASM environments.
         Ok(())
     }
+}
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[derive(Debug)]
+/// Wrapper object for providing interior mutability similar to [`SyncWrapper`]
+/// without `Send` requirement.
+///
+/// Like [`SyncWrapper`], access to the wrapped object is provided via the
+/// [`ConnectionWrapper::interact()`] method.
+///
+/// [`SyncWrapper`]: deadpool_sync::SyncWrapper
+pub struct ConnectionWrapper<T>(RefCell<T>);
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+impl<T> ConnectionWrapper<T> {
+    /// Creates a new wrapped object.
+    pub fn new(value: T) -> Self {
+        Self(RefCell::new(value))
+    }
+
+    /// Interacts with the underlying object.
+    ///
+    /// Expects a closure that takes the object as its parameter.
+    pub async fn interact<F, R>(&self, f: F) -> Result<R, Infallible>
+    where
+        F: FnOnce(&mut T) -> R,
+    {
+        // This async block here is to maintain API compatibility with `SyncWrapper`
+        // without triggering clippy warning for `async fn` without a call to
+        // `await` inside
+        async {
+            let mut value = self.0.borrow_mut();
+
+            Ok(f(value.deref_mut()))
+        }
+        .await
+    }
+}
+
+/// Configure VFS name using provided path.
+pub fn get_vfs_name(path: &Path) -> String {
+    format!(
+        "matrix-opfs-sahpool+{}",
+        uri_encode::encode_uri_component(path.to_string_lossy().as_ref())
+    )
+}
+
+/// Setup VFS for SQLite database using provided path and return management
+/// tool.
+///
+/// Subsequence call to this function will simply return the management tool
+/// without installing vfs.
+pub async fn setup_vfs(path: &Path) -> Result<OpfsSAHPoolUtil, OpenStoreError> {
+    let cfg = OpfsSAHPoolCfgBuilder::new()
+        .vfs_name(&get_vfs_name(path))
+        .directory(path.to_string_lossy().as_ref())
+        .build();
+    // Avoid global installation, due to being harder to test.
+    let util = install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await?;
+
+    Ok(util)
 }
