@@ -97,7 +97,7 @@ jobs:
         run: cargo codspeed build -p benchmarks --bench ${{ matrix.benchmark }} --features codspeed
 
       - name: Run the benchmarks
-        uses: CodSpeedHQ/action@1c8ae4843586d3ba879736b7f6b7b0c990757fab
+        uses: CodSpeedHQ/action@db35df748deb45fdef0960669f57d627c1956c30
         with:
           run: cargo codspeed run
           mode: simulation
