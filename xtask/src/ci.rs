@@ -471,43 +471,11 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         return Ok(());
     }
 
-    if let Some(WasmFeatureSet::MatrixSdkSqliteStores) = cmd
-        && let WasmTestRunner::All = runner
-    {
-        // Current VFS backend is not supported in Node.JS just yet.
-        // We force them to run in browser only for now.
-        run_wasm_pack_tests(Some(WasmFeatureSet::MatrixSdkSqliteStores), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::MatrixSdkSqliteStores), WasmTestRunner::Firefox)?;
-        return Ok(());
-    }
-
-    if let Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto) = cmd
-        && let WasmTestRunner::All = runner
-    {
-        // Current VFS backend is not supported in Node.JS just yet.
-        // We force them to run in browser only for now.
-        run_wasm_pack_tests(
-            Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto),
-            WasmTestRunner::Chrome,
-        )?;
-        run_wasm_pack_tests(
-            Some(WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto),
-            WasmTestRunner::Firefox,
-        )?;
-        return Ok(());
-    }
-
     if let Some(WasmFeatureSet::Sqlite) = cmd {
-        // Current VFS backend is not supported in Node.JS just yet.
-        // We force them to run in browser only for now.
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), WasmTestRunner::Firefox)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), WasmTestRunner::Firefox)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), WasmTestRunner::Firefox)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), WasmTestRunner::Chrome)?;
-        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), WasmTestRunner::Firefox)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), runner)?;
         return Ok(());
     }
 
@@ -547,14 +515,14 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
             WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
             (
                 "crates/matrix-sdk",
-                "--no-default-features --features js,sqlite,bundled-sqlite,rustls-tls,testing --lib --release",
+                "--no-default-features --features js,sqlite,bundled-sqlite,testing --lib --release",
             ),
         ),
         (
             WasmFeatureSet::MatrixSdkSqliteStores,
             (
                 "crates/matrix-sdk",
-                "--no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls,testing --lib --release",
+                "--no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,testing --lib --release",
             ),
         ),
         (
