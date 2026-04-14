@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,12 +22,18 @@ use std::{
     time::Duration,
 };
 
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId};
+use rand::Rng;
+use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, OwnedUserId,
+    events::secret::request::SecretName,
+};
 use serde::{Deserialize, Serialize};
 use vodozemac::{Curve25519PublicKey, base64_encode};
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::{DehydrationError, GossipRequest};
+#[cfg(feature = "experimental-push-secrets")]
+use crate::types::events::secret_push::SecretPushContent;
 use crate::{
     Account, Device, DeviceData, GossippedSecret, Session, UserIdentity, UserIdentityData,
     olm::{
@@ -80,7 +86,7 @@ pub struct Changes {
     /// Stores when a `m.room_key.withheld` is received
     pub withheld_session_info: BTreeMap<OwnedRoomId, BTreeMap<String, RoomKeyWithheldEntry>>,
     pub room_settings: HashMap<OwnedRoomId, RoomSettings>,
-    pub secrets: Vec<GossippedSecret>,
+    pub secrets: Vec<SecretsInboxItem>,
     pub next_batch_token: Option<String>,
 
     /// Historical room key history bundles that we have received and should
@@ -94,6 +100,36 @@ pub struct Changes {
     /// Updates to the list of rooms where we have recently accepted invites
     /// (and should now accept a key bundle, if one arrives soon).
     pub rooms_pending_key_bundle: HashMap<OwnedRoomId, Option<RoomPendingKeyBundleDetails>>,
+}
+
+/// A secret that was received via an `m.secret.send` or
+/// `io.element.msc4385.secret.push` event.
+#[derive(Clone)]
+pub struct SecretsInboxItem {
+    /// The name of the secret.
+    pub secret_name: SecretName,
+    /// The contents of the secret.
+    pub secret: Zeroizing<String>,
+}
+
+#[cfg(not(tarpaulin_include))]
+impl std::fmt::Debug for SecretsInboxItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("SecretsInboxItem").field(&self.secret_name).finish()
+    }
+}
+
+impl From<GossippedSecret> for SecretsInboxItem {
+    fn from(secret: GossippedSecret) -> Self {
+        Self { secret_name: secret.secret_name, secret: secret.event.content.secret.clone().into() }
+    }
+}
+
+#[cfg(feature = "experimental-push-secrets")]
+impl From<SecretPushContent> for SecretsInboxItem {
+    fn from(secret: SecretPushContent) -> Self {
+        Self { secret_name: secret.name.clone(), secret: secret.secret.clone().into() }
+    }
 }
 
 /// Information about an [MSC4268] room key bundle.
@@ -261,13 +297,14 @@ impl BackupDecryptionKey {
     pub const KEY_SIZE: usize = 32;
 
     /// Create a new random decryption key.
-    pub fn new() -> Result<Self, rand::Error> {
-        let mut rng = rand::thread_rng();
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let mut rng = rand::rng();
 
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
-        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+        rng.fill_bytes(key.as_mut_slice());
 
-        Ok(Self { inner: key })
+        Self { inner: key }
     }
 
     /// Export the [`BackupDecryptionKey`] as a base64 encoded string.
@@ -298,13 +335,14 @@ impl DehydratedDeviceKey {
     pub const KEY_SIZE: usize = 32;
 
     /// Generates a new random pickle key.
-    pub fn new() -> Result<Self, rand::Error> {
-        let mut rng = rand::thread_rng();
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        let mut rng = rand::rng();
 
         let mut key = Box::new([0u8; Self::KEY_SIZE]);
-        rand::Fill::try_fill(key.as_mut_slice(), &mut rng)?;
+        rng.fill_bytes(key.as_mut_slice());
 
-        Ok(Self { inner: key })
+        Self { inner: key }
     }
 
     /// Creates a new dehydration pickle key from the given slice.

@@ -14,18 +14,11 @@
 
 use matrix_sdk::{Client, Room, latest_events::LocalLatestEventValue};
 use matrix_sdk_base::latest_event::LatestEventValue as BaseLatestEventValue;
-use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedUserId,
-    events::{
-        AnyMessageLikeEventContent, relation::Replacement, room::message::RoomMessageEventContent,
-    },
-};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId};
 use tracing::trace;
 
 use crate::timeline::{
-    Profile, TimelineDetails, TimelineItemContent,
-    event_handler::{HandleAggregationKind, TimelineAction},
-    traits::RoomDataProvider,
+    Profile, TimelineDetails, TimelineItemContent, event_handler::TimelineAction,
 };
 
 /// A simplified version of [`matrix_sdk_base::latest_event::LatestEventValue`]
@@ -111,77 +104,17 @@ impl LatestEventValue {
                 };
                 let is_own = client.user_id().map(|user_id| user_id == sender).unwrap_or(false);
 
-                let raw_any_sync_timeline_event = timeline_event.into_raw();
-                let Ok(any_sync_timeline_event) = raw_any_sync_timeline_event.deserialize() else {
-                    return Self::None;
-                };
-                let profile = room
-                    .profile_from_user_id(&sender)
-                    .await
-                    .map(TimelineDetails::Ready)
-                    .unwrap_or(TimelineDetails::Unavailable);
+                let profile =
+                    TimelineDetails::from_initial_value(Profile::load(room, &sender).await);
 
-                match TimelineAction::from_event(
-                    any_sync_timeline_event,
-                    &raw_any_sync_timeline_event,
-                    room,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
-                .await
-                {
-                    // Easy path: no aggregation, direct event.
-                    Some(TimelineAction::AddItem { content }) => {
-                        Self::Remote { timestamp, sender, is_own, profile, content }
-                    }
-
-                    // Aggregated event.
-                    //
-                    // Only edits are supported for the moment.
-                    Some(TimelineAction::HandleAggregation {
-                        kind:
-                            HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
-                        ..
-                    }) => {
-                        // Let's map the edit into a regular message.
-                        match TimelineAction::from_content(
-                            AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
-                                new_content.msgtype,
-                            )),
-                            // We don't care about the `InReplyToDetails` in the context of a
-                            // `LatestEventValue`.
-                            None,
-                            // We don't care about the thread information in the context of a
-                            // `LatestEventValue`.
-                            None,
-                            None,
-                        ) {
-                            // The expected case.
-                            TimelineAction::AddItem { content } => {
-                                Self::Remote { timestamp, sender, is_own, profile, content }
-                            }
-
-                            // Supposedly unreachable, but let's pretend there is no
-                            // `LatestEventValue` if it happens.
-                            _ => {
-                                trace!("latest event was an edit that failed to be un-aggregated");
-
-                                Self::None
-                            }
-                        }
-                    }
-
-                    _ => Self::None,
+                match TimelineItemContent::from_event(room, timeline_event).await {
+                    Some(content) => Self::Remote { timestamp, sender, is_own, profile, content },
+                    None => Self::None,
                 }
             }
             BaseLatestEventValue::RemoteInvite { timestamp, inviter, .. } => {
                 let inviter_profile = if let Some(inviter_id) = &inviter {
-                    room.profile_from_user_id(inviter_id)
-                        .await
-                        .map(TimelineDetails::Ready)
-                        .unwrap_or(TimelineDetails::Unavailable)
+                    TimelineDetails::from_initial_value(Profile::load(room, inviter_id).await)
                 } else {
                     TimelineDetails::Unavailable
                 };
@@ -199,11 +132,8 @@ impl LatestEventValue {
 
                 let sender =
                     client.user_id().expect("The `Client` is supposed to be logged").to_owned();
-                let profile = room
-                    .profile_from_user_id(&sender)
-                    .await
-                    .map(TimelineDetails::Ready)
-                    .unwrap_or(TimelineDetails::Unavailable);
+                let profile =
+                    TimelineDetails::from_initial_value(Profile::load(room, &sender).await);
 
                 match TimelineAction::from_content(message_like_event_content, None, None, None) {
                     TimelineAction::AddItem { content } => Self::Local {
@@ -243,7 +173,7 @@ impl LatestEventValue {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Not;
+    use std::{ops::Not, time::Duration};
 
     use assert_matches::assert_matches;
     use matrix_sdk::{
@@ -447,6 +377,41 @@ mod tests {
                 content,
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Message(message), .. }) => {
                     assert_eq!(message.body(), "fondue");
+                }
+            );
+        })
+    }
+
+    #[async_test]
+    async fn test_remote_beacon_stop() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
+        let sender = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new();
+
+        let base_value = BaseLatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            event_factory
+                .server_ts(42)
+                .sender(sender)
+                .beacon_info(Some("Alice's walk".to_owned()), Duration::from_secs(60), false, None)
+                .state_key(sender)
+                .event_id(event_id!("$beacon-stop"))
+                .into_raw_sync(),
+        ));
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(received_sender, sender);
+            assert!(is_own.not());
+            assert_matches!(profile, TimelineDetails::Unavailable);
+            assert_matches!(
+                content,
+                TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(state), .. }) => {
+                    assert!(!state.is_live(), "stop beacon should not be live");
+                    assert_eq!(state.description(), Some("Alice's walk"));
                 }
             );
         })

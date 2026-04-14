@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Add `Client::set_avatar_url` to manually set the avatar URL of the user to a provided MXC one.
 - Fix devices on Android 11 crashing because the SDK could not be initialized using `libloading` 
   to get a reference to the JVM. Replaced `libloading` with `jvm-getter`, which works like a 
   compatibility layer. ([#6370](https://github.com/matrix-org/matrix-rust-sdk/pull/6370))
@@ -41,9 +42,28 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Added the `Client::import_secrets_bundle` method.
+  ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
+- [**breaking**] Remove support for `native-tls` and remove all feature
+  flags for selecting TLS backend, as `rustls` is the now the only supported
+  TLS backend.
+  ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
+- Expose `event_type_raw` and `latest_json()` on `EventTimelineItem`,
+  allowing clients to access the raw event type string and full event JSON for
+  custom event handling without pattern-matching through nested enums.
+  ([#6387](https://github.com/matrix-org/matrix-rust-sdk/pull/6387))
+  ([#6424](https://github.com/matrix-org/matrix-rust-sdk/pull/6424))
+- Expose sync v2 API through FFI via `Client.sync_v2()` and
+  `Client.sync_once_v2()`, enabling mobile clients to sync without
+  requiring Sliding Sync support on the homeserver. `Client.sync_v2()`
+  accepts a `SyncListenerV2` callback that receives a `SyncResponseV2`
+  after each successful sync.
+  ([#6359](https://github.com/matrix-org/matrix-rust-sdk/pull/6359))
+- Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
+  of the homeserver. ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
 - Expose `Room.send_state_event_raw()` for sending arbitrary state events
   through the FFI layer.
-  ([#6349](https://github.com/matrix-org/matrix-rust-sdk/issues/6349))
+  ([#6350](https://github.com/matrix-org/matrix-rust-sdk/pull/6350))
 - Introduce a `ThreadListService` which offers reactive interfaces for rendering
   and managing the list of threads from a particular room.
   ([6311](https://github.com/matrix-org/matrix-rust-sdk/pull/6311))
@@ -127,6 +147,19 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `Room::observe_live_location_shares` has been replaced by
+  `Room::live_location_shares`. Call [`LiveLocationShares::subscribe`] on it to
+  receive an initial snapshot and a stream of incremental updates.The stream is seeded from the event cache
+  on creation and includes the own user's shares (previously excluded). `LiveLocationShare.is_live`
+  has been removed; instead `ts` (start timestamp) and `timeout` (duration in milliseconds) are now
+  exposed so clients can compute liveness themselves via `current_time < ts + timeout`. Non-live
+  shares are automatically removed from the list. A new `LiveLocationShareListener` callback
+  interface must be implemented and passed to the method.
+  ([#6385](https://github.com/matrix-org/matrix-rust-sdk/pull/6385))
+- [**breaking**] The `RoomAliases` variants of `StateEventContent`, `StateEventType` and
+  `OtherState` was removed. This state event type was removed from the Matrix specification a while
+  ago, and support for it has been removed in Ruma.
+  ([#6414](https://github.com/matrix-org/matrix-rust-sdk/pull/6414))
 - `Client::new` no longer unnecessarily instantiates an `OAuth` component if `CrossProcessLockConfig::SingleProcess` 
   is used. ([#6293](https://github.com/matrix-org/matrix-rust-sdk/pull/6293))
 - [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was

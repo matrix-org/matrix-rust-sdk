@@ -1,7 +1,7 @@
 [package]
 name = "matrix-sdk-ffi"
 version = "0.16.0"
-edition = "2021"
+edition = "2024"
 homepage = "https://github.com/matrix-org/matrix-rust-sdk"
 keywords = ["matrix", "chat", "messaging", "ffi"]
 license = "Apache-2.0"
@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "rustls-tls"]
+default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
 # Use an embedded version of SQLite.
@@ -34,14 +34,11 @@ indexeddb = ["matrix-sdk/indexeddb"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
-# Use the TLS implementation provided by the host system, necessary on iOS and Wasm platforms.
-native-tls = ["matrix-sdk/native-tls", "sentry?/native-tls"]
-# Use Rustls as the TLS implementation, necessary on Android platforms.
-rustls-tls = ["matrix-sdk/rustls-tls", "sentry?/rustls"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
 sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-emojis"]
+experimental-push-secrets = ["matrix-sdk/experimental-push-secrets"]
 
 [dependencies]
 anyhow.workspace = true

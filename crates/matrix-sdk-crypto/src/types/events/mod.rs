@@ -26,6 +26,8 @@ pub mod room_key;
 pub mod room_key_bundle;
 pub mod room_key_request;
 pub mod room_key_withheld;
+#[cfg(feature = "experimental-push-secrets")]
+pub mod secret_push;
 pub mod secret_send;
 mod to_device;
 mod utd_cause;

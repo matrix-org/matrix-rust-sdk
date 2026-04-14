@@ -227,7 +227,7 @@ impl PinnedEventCache {
         let task = Arc::new(
             room.client()
                 .task_monitor()
-                .spawn_background_task(
+                .spawn_infinite_task(
                     "pinned_event_listener_task",
                     Self::pinned_event_listener_task(room, state.clone()),
                 )
@@ -463,7 +463,7 @@ impl PinnedEventCache {
     async fn reload_pinned_events(room: Room) -> Result<Option<Vec<Event>>> {
         let (max_events_to_load, max_concurrent_requests) = {
             let client = room.client();
-            let config = client.event_cache().config().await;
+            let config = client.event_cache().config();
             (config.max_pinned_events_to_load, config.max_pinned_events_concurrent_requests)
         };
 
@@ -479,6 +479,8 @@ impl PinnedEventCache {
         if pinned_event_ids.is_empty() {
             return Ok(Some(Vec::new()));
         }
+
+        let mut num_successful_loads = 0;
 
         let mut loaded_events: Vec<Event> =
             stream::iter(pinned_event_ids.clone().into_iter().map(|event_id| {
@@ -500,16 +502,23 @@ impl PinnedEventCache {
                 }
             }))
             .buffer_unordered(max_concurrent_requests)
-            // Flatten all the vectors.
+            // Count successful queries.
+            .inspect(|result| {
+                if result.is_ok() {
+                    num_successful_loads += 1;
+                }
+            })
+            // Get rid of error results.
             .flat_map(stream::iter)
+            // Flatten the list of `Vec<Event>` into a list of `Event`.
             .flat_map(stream::iter)
             .collect()
             .await;
 
-        if loaded_events.len() != pinned_event_ids.len() {
+        if num_successful_loads != pinned_event_ids.len() {
             warn!(
                 "only successfully loaded {} out of {} pinned events",
-                loaded_events.len(),
+                num_successful_loads,
                 pinned_event_ids.len()
             );
         }

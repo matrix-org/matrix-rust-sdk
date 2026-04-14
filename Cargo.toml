@@ -46,7 +46,7 @@ eyeball-im-util = { version = "0.10.0", default-features = false }
 futures-core = { version = "0.3.31", default-features = false, features = ["std"] }
 futures-executor = { version = "0.3.31", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.31", default-features = false, features = ["std"] }
-getrandom = { version = "0.3.4", default-features = false }
+getrandom = { version = "0.4.2", default-features = false }
 gloo-timers = { version = "0.3.0", default-features = false }
 gloo-utils = { version = "0.2.0", default-features = false, features = ["serde"] }
 growable-bloom-filter = { version = "2.1.1", default-features = false }
@@ -67,11 +67,11 @@ pin-project-lite = { version = "0.2.16", default-features = false }
 proc-macro2 = { version = "1.0.106", default-features = false }
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 quote = { version = "1.0.37", default-features = false }
-rand = { version = "0.8.5", default-features = false, features = ["std", "std_rng"] }
+rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = { version = "1.3.0", default-features = false }
-ruma = { git = "https://github.com/ruma/ruma", rev = "9666e207f2cd1a8b26e49bbdf656ad32e4639c7b", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "7680eebd9586669e1a4e5b1fd1c2c691221369d4", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",

@@ -35,7 +35,7 @@ impl Rules {
             // if the rule_id is the room_id
             if &rule.rule_id == room_id || rule.conditions.iter().any(|x| matches!(
                 x,
-                PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
+                PushCondition::EventMatch(data) if data.key == "room_id" && data.pattern == *room_id
             )) {
                 // the rule contains a condition matching this `room_id`
                 custom_rules.push((RuleKind::Override, rule.rule_id.clone()));
@@ -52,7 +52,7 @@ impl Rules {
             // if the rule_id is the room_id
             if &rule.rule_id == room_id || rule.conditions.iter().any(|x| matches!(
                 x,
-                PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
+                PushCondition::EventMatch(data) if data.key == "room_id" && data.pattern == *room_id
             )) {
                 // the rule contains a condition matching this `room_id`
                 custom_rules.push((RuleKind::Underride, rule.rule_id.clone()));
@@ -75,7 +75,7 @@ impl Rules {
             // (checking on x.rule_id is not sufficient here as more than one override rule may have a condition matching on `room_id`)
             x.conditions.iter().any(|x| matches!(
                 x,
-                PushCondition::EventMatch { key, pattern } if key == "room_id" && pattern == room_id
+                PushCondition::EventMatch(data) if data.key == "room_id" && data.pattern == *room_id
             )) &&
             // and without a Notify action
             !x.actions.iter().any(|x| x.should_notify())
@@ -142,10 +142,10 @@ impl Rules {
             match rule {
                 AnyPushRuleRef::Override(r) | AnyPushRuleRef::Underride(r) => {
                     for condition in &r.conditions {
-                        if let PushCondition::EventMatch { key, pattern } = condition
-                            && key == "room_id"
+                        if let PushCondition::EventMatch(data) = condition
+                            && data.key == "room_id"
                         {
-                            room_ids.insert(pattern.clone());
+                            room_ids.insert(data.pattern.clone());
                             break;
                         }
                     }
@@ -323,8 +323,9 @@ pub(crate) mod tests {
     use ruma::{
         OwnedRoomId, RoomId,
         push::{
-            Action, NewConditionalPushRule, NewPushRule, PredefinedContentRuleId,
-            PredefinedOverrideRuleId, PredefinedUnderrideRuleId, PushCondition, RuleKind,
+            Action, EventMatchConditionData, NewConditionalPushRule, NewPushRule,
+            PredefinedContentRuleId, PredefinedOverrideRuleId, PredefinedUnderrideRuleId,
+            PushCondition, RuleKind,
         },
     };
 
@@ -371,7 +372,10 @@ pub(crate) mod tests {
         // but with a condition that matches
         let new_rule = NewConditionalPushRule::new(
             "custom_rule_id".to_owned(),
-            vec![PushCondition::EventMatch { key: "room_id".into(), pattern: room_id.to_string() }],
+            vec![PushCondition::EventMatch(EventMatchConditionData::new(
+                "room_id".into(),
+                room_id.to_string(),
+            ))],
             vec![Action::Notify],
         );
         ruleset.insert(NewPushRule::Override(new_rule), None, None).unwrap();

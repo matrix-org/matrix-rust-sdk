@@ -28,20 +28,11 @@ use matrix_sdk::{
     task_monitor::BackgroundTaskHandle,
 };
 use matrix_sdk_common::serde_helpers::extract_thread_root;
-use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
-    events::{
-        AnyMessageLikeEventContent, relation::Replacement, room::message::RoomMessageEventContent,
-    },
-};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 use tokio::sync::Mutex as AsyncMutex;
 use tracing::{error, trace, warn};
 
-use crate::timeline::{
-    Profile, TimelineDetails, TimelineItemContent,
-    event_handler::{HandleAggregationKind, TimelineAction},
-    traits::RoomDataProvider,
-};
+use crate::timeline::{Profile, TimelineDetails, TimelineItemContent, traits::RoomDataProvider};
 
 /// Each `ThreadListItem` represents one thread root event in the room. The
 /// fields are pre-resolved from the raw homeserver response: the sender's
@@ -191,7 +182,7 @@ impl ThreadListService {
         let event_cache_task = room
             .client()
             .task_monitor()
-            .spawn_background_task("thread_list_service::event_cache_listener", {
+            .spawn_infinite_task("thread_list_service::event_cache_listener", {
                 let room = room.clone();
                 let items = items.clone();
                 async move {
@@ -379,53 +370,9 @@ impl ThreadListService {
         let timestamp = timeline_event.timestamp()?;
         let sender = timeline_event.sender()?;
         let is_own = room.own_user_id() == sender;
-
-        let raw = timeline_event.into_raw();
-        let deserialized = match raw.deserialize() {
-            Ok(ev) => ev,
-            Err(e) => {
-                error!("Failed deserializing thread event for latest_event: {e}");
-                return None;
-            }
-        };
-
-        let sender_profile = room
-            .profile_from_user_id(&sender)
-            .await
-            .map(TimelineDetails::Ready)
-            .unwrap_or(TimelineDetails::Unavailable);
-
-        let content: Option<TimelineItemContent> = match TimelineAction::from_event(
-            deserialized,
-            &raw,
-            room,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        {
-            Some(TimelineAction::AddItem { content }) => Some(content),
-            Some(TimelineAction::HandleAggregation {
-                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
-                ..
-            }) => {
-                match TimelineAction::from_content(
-                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
-                        new_content.msgtype,
-                    )),
-                    None,
-                    None,
-                    None,
-                ) {
-                    TimelineAction::AddItem { content } => Some(content),
-                    _ => None,
-                }
-            }
-            _ => None,
-        };
-
+        let sender_profile =
+            TimelineDetails::from_initial_value(Profile::load(room, &sender).await);
+        let content = TimelineItemContent::from_event(room, timeline_event).await;
         Some(ThreadListItemEvent { event_id, timestamp, sender, is_own, sender_profile, content })
     }
 

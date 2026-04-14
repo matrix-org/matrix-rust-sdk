@@ -210,6 +210,11 @@ impl Builder {
                 }
 
                 LocalEchoContent::React { .. } => None,
+
+                // TODO: Rework the latest event system to handle local redactions. This will
+                // require mixing the processing of local and remote events since a local redaction
+                // will target a previous remote event.
+                LocalEchoContent::Redaction { .. } => None,
             },
 
             // A local event has been cancelled before being sent.
@@ -788,12 +793,10 @@ fn filter_any_sync_state_event(
 
         // `org.matrix.msc3672.beacon_info`
         //
-        // Only the *start* event (`is_live() == true`) is suitable. The stop
-        // event (`is_live() == false`) merely terminates the sharing session
-        // and should not appear as the room's latest event.
-        AnySyncStateEvent::BeaconInfo(SyncStateEvent::Original(beacon)) => {
-            if beacon.content.is_live() { filter_break() } else { filter_continue() }
-        }
+        // Both the start (`is_live() == true`) and stop (`is_live() == false`)
+        // events are suitable, so that the item stays visible in the room
+        // summary even after the sharing session ends.
+        AnySyncStateEvent::BeaconInfo(SyncStateEvent::Original(_)) => filter_break(),
 
         _ => filter_continue(),
     }
@@ -1310,7 +1313,8 @@ mod filter_tests {
     fn test_beacon_info_stopped() {
         use std::time::Duration;
 
-        // A non-live beacon_info (stop event) is NOT a candidate.
+        // A non-live beacon_info (stop event) is still a candidate — the item
+        // should remain visible in the room summary after the session ends.
         assert_latest_event_content!(
             event | event_factory | {
                 event_factory
@@ -1318,7 +1322,7 @@ mod filter_tests {
                     .state_key(user_id!("@mnt_io:matrix.org"))
                     .into_event()
             }
-            is not a candidate
+            is a candidate
         );
     }
 
@@ -1680,7 +1684,7 @@ mod builder_tests {
         Client, Error,
         send_queue::{
             AbstractProgress, LocalEcho, LocalEchoContent, RoomSendQueue, SendHandle,
-            SendReactionHandle,
+            SendReactionHandle, SendRedactionHandle,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -3641,5 +3645,109 @@ mod builder_tests {
             => with body = "hello"
         );
         assert!(buffer.buffer.is_empty());
+    }
+
+    #[async_test]
+    async fn test_local_redaction() {
+        let room_id = room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(room_id);
+        let event_id = event_id!("$ev0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Prelude.
+        {
+            // Create the room.
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            // Initialise the event cache store.
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![event_factory.text_msg("hello").event_id(event_id).into()],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let send_queue = client.send_queue();
+        let room = client.get_room(room_id).unwrap();
+        let room_send_queue = send_queue.for_room(room);
+
+        let mut buffer = BufferOfValuesForLocalEvents::new();
+
+        // We get a `Remote` because there is no `Local*` values!
+        assert_remote_value_matches_room_message_with_body!(
+            Builder::new_local(
+                // An update that won't create a new `LatestEventValue`: it maps
+                // to zero existing local value.
+                &RoomSendQueueUpdate::SentEvent {
+                    transaction_id: OwnedTransactionId::from("txnid"),
+                    event_id: event_id.to_owned(),
+                },
+                &mut buffer,
+                &room_event_cache,
+                None,
+                user_id,
+                None,
+            )
+            .await
+            => with body = "hello"
+        );
+
+        // A local redaction of the latest event value is being sent
+        {
+            let transaction_id = OwnedTransactionId::from("txnid0");
+            let content = LocalEchoContent::Redaction {
+                redacts: event_id.to_owned(),
+                reason: Some("whatever".to_owned()),
+                send_handle: SendRedactionHandle::new(
+                    room_send_queue.clone(),
+                    transaction_id.clone(),
+                ),
+                send_error: None,
+            };
+            let update = RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+                transaction_id: transaction_id.clone(),
+                content,
+            });
+
+            // Local redactions are currently ignored.
+            assert_matches!(
+                Builder::new_local(
+                    &update,
+                    &mut buffer,
+                    &room_event_cache,
+                    Some(event_id.to_owned()),
+                    user_id,
+                    None
+                )
+                .await,
+                None
+            );
+        };
+        assert_eq!(buffer.buffer.len(), 0);
     }
 }

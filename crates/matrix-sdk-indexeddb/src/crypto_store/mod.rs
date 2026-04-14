@@ -1,4 +1,4 @@
-// Copyright 2020 The Matrix.org Foundation C.I.C.
+// Copyright 2020, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -34,7 +34,7 @@ use matrix_sdk_base::cross_process_lock::{
     CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
 };
 use matrix_sdk_crypto::{
-    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
+    Account, DeviceData, GossipRequest, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
         Curve25519PublicKey, InboundGroupSession, OlmMessageHash, OutboundGroupSession,
         PickledInboundGroupSession, PrivateCrossSigningIdentity, SenderDataType, Session,
@@ -95,7 +95,7 @@ mod keys {
 
     pub const ROOM_SETTINGS: &str = "room_settings";
 
-    pub const SECRETS_INBOX: &str = "secrets_inbox";
+    pub const SECRETS_INBOX_V2: &str = "secrets_inbox2";
 
     pub const WITHHELD_SESSIONS: &str = "withheld_sessions";
 
@@ -717,14 +717,19 @@ impl IndexeddbCryptoStore {
         }
 
         if !changes.secrets.is_empty() {
-            let mut secret_store = indexeddb_changes.get(keys::SECRETS_INBOX);
+            let mut secret_store = indexeddb_changes.get(keys::SECRETS_INBOX_V2);
 
             for secret in &changes.secrets {
+                use std::ops::Deref;
+                // The (hashed) secret value is included in the key to allow us to receive
+                // multiple secrets of the same name (indexeddb store entries must have a unique
+                // key), and allow the client to determine which one is the
+                // current secret.
                 let key = self.serializer.encode_key(
-                    keys::SECRETS_INBOX,
-                    (secret.secret_name.as_str(), secret.event.content.request_id.as_str()),
+                    keys::SECRETS_INBOX_V2,
+                    (secret.secret_name.as_str(), secret.secret.as_str()),
                 );
-                let value = self.serializer.serialize_value(&secret)?;
+                let value = self.serializer.serialize_value(secret.secret.deref())?;
 
                 secret_store.put(key, value);
             }
@@ -1368,35 +1373,35 @@ impl_crypto_store! {
     async fn get_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
-    ) -> Result<Vec<GossippedSecret>> {
-        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str());
+    ) -> Result<Vec<zeroize::Zeroizing<String>>> {
+        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX_V2, secret_name.as_str());
 
         self.inner
-            .transaction(keys::SECRETS_INBOX)
+            .transaction(keys::SECRETS_INBOX_V2)
             .with_mode(TransactionMode::Readonly)
             .build()?
-            .object_store(keys::SECRETS_INBOX)?
+            .object_store(keys::SECRETS_INBOX_V2)?
             .get_all()
             .with_query(&range)
             .await?
             .map(|result| {
                 let d = result?;
-                let secret = self.serializer.deserialize_value(d)?;
-                Ok(secret)
+                let secret: String = self.serializer.deserialize_value(d)?;
+                Ok(secret.into())
             })
             .collect()
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
-        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX, secret_name.as_str());
+        let range = self.serializer.encode_to_range(keys::SECRETS_INBOX_V2, secret_name.as_str());
 
         let transaction = self
             .inner
-            .transaction(keys::SECRETS_INBOX)
+            .transaction(keys::SECRETS_INBOX_V2)
             .with_mode(TransactionMode::Readwrite)
             .build()?;
-        transaction.object_store(keys::SECRETS_INBOX)?.delete(&range).build()?;
+        transaction.object_store(keys::SECRETS_INBOX_V2)?.delete(&range).build()?;
         transaction.commit().await?;
 
         Ok(())

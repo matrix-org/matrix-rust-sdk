@@ -29,7 +29,7 @@ use chacha20poly1305::{
 };
 use hmac::Hmac;
 use pbkdf2::pbkdf2;
-use rand::{Error as RandomError, Fill, thread_rng};
+use rand::{Rng, rng};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -61,10 +61,6 @@ pub enum Error {
     /// Error encrypting or decrypting a value.
     #[error("Error encrypting or decrypting a value: `{0}`")]
     Encryption(#[from] EncryptionError),
-
-    /// Could not generate enough randomness for a cryptographic operation: {0}
-    #[error("Could not generate enough randomness for a cryptographic operation: `{0}`")]
-    Random(#[from] RandomError),
 
     /// Unsupported ciphertext version.
     #[error("Unsupported ciphertext version, expected `{0}`, got `{1}`")]
@@ -191,7 +187,7 @@ impl StoreCipher {
         let key = ChachaKey::from_slice(key.as_ref());
         let cipher = XChaCha20Poly1305::new(key);
 
-        let nonce = Keys::get_nonce()?;
+        let nonce = Keys::get_nonce();
 
         let mut keys = [0u8; 64];
 
@@ -214,10 +210,10 @@ impl StoreCipher {
     }
 
     fn export_kdf(&self, passphrase: &str, kdf_rounds: u32) -> Result<Vec<u8>, Error> {
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
         let mut salt = [0u8; KDF_SALT_SIZE];
-        salt.try_fill(&mut rng)?;
+        rng.fill_bytes(&mut salt);
 
         let key = StoreCipher::expand_key(passphrase, &salt, kdf_rounds);
 
@@ -453,7 +449,7 @@ impl StoreCipher {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
-        let nonce = Keys::get_nonce()?;
+        let nonce = Keys::get_nonce();
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
         let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_ref())?;
@@ -735,10 +731,10 @@ impl Keys {
         let mut encryption_key = Box::new([0u8; 32]);
         let mut mac_key_seed = Box::new([0u8; 32]);
 
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
-        encryption_key.try_fill(&mut rng)?;
-        mac_key_seed.try_fill(&mut rng)?;
+        rng.fill_bytes(encryption_key.as_mut_slice());
+        rng.fill_bytes(mac_key_seed.as_mut_slice());
 
         Ok(Self { encryption_key, mac_key_seed })
     }
@@ -762,13 +758,13 @@ impl Keys {
         key
     }
 
-    fn get_nonce() -> Result<[u8; XNONCE_SIZE], RandomError> {
+    fn get_nonce() -> [u8; XNONCE_SIZE] {
         let mut nonce = [0u8; XNONCE_SIZE];
-        let mut rng = thread_rng();
+        let mut rng = rng();
 
-        nonce.try_fill(&mut rng)?;
+        rng.fill_bytes(&mut nonce);
 
-        Ok(nonce)
+        nonce
     }
 }
 

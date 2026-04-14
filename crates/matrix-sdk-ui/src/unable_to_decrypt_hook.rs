@@ -292,7 +292,7 @@ impl UtdHookManager {
 
         // Spawn a task that will wait for the given delay, and maybe call the parent
         // hook then.
-        let handle = self.client.task_monitor().spawn_background_task("utd_hook", async move {
+        let handle = self.client.task_monitor().spawn_finite_task("utd_hook", async move {
             // Wait for the given delay.
             sleep(max_delay).await;
 

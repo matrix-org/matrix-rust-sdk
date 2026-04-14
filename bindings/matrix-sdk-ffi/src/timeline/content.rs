@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use matrix_sdk::room::power_levels::power_level_user_changes;
 use matrix_sdk_ui::timeline::RoomPinnedEventsChange;
 use ruma::events::{
-    room::history_visibility::HistoryVisibility as RumaHistoryVisibility, StateEventContentChange,
+    StateEventContentChange, room::history_visibility::HistoryVisibility as RumaHistoryVisibility,
 };
 
 use crate::{
@@ -40,7 +40,9 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
-            Content::RtcNotification => TimelineItemContent::RtcNotification,
+            Content::RtcNotification { call_intent } => TimelineItemContent::RtcNotification {
+                call_intent: call_intent.map(|s| s.to_string()),
+            },
 
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
@@ -159,7 +161,9 @@ pub enum TimelineItemContent {
         content: MsgLikeContent,
     },
     CallInvite,
-    RtcNotification,
+    RtcNotification {
+        call_intent: Option<String>,
+    },
     RoomMembership {
         user_id: String,
         user_display_name: Option<String>,
@@ -265,7 +269,6 @@ pub enum OtherState {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
-    RoomAliases,
     RoomAvatar {
         url: Option<String>,
     },
@@ -363,7 +366,6 @@ impl From<&matrix_sdk_ui::timeline::AnyOtherStateEventContentChange> for OtherSt
             Content::PolicyRuleRoom(_) => Self::PolicyRuleRoom,
             Content::PolicyRuleServer(_) => Self::PolicyRuleServer,
             Content::PolicyRuleUser(_) => Self::PolicyRuleUser,
-            Content::RoomAliases(_) => Self::RoomAliases,
             Content::RoomAvatar(c) => {
                 let url = match c {
                     FullContent::Original { content, .. } => {

@@ -130,6 +130,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    ops::Not,
     str::FromStr as _,
     sync::{
         Arc, RwLock,
@@ -161,7 +162,7 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
     TransactionId,
     events::{
-        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _,
+        AnyMessageLikeEventContent, Mentions, MessageLikeEventContent as _, TimelineEventType,
         reaction::ReactionEventContent,
         relation::Annotation,
         room::{
@@ -474,7 +475,7 @@ impl RoomSendQueue {
         let weak_room = WeakRoom::new(WeakClient::from_client(client), room_id);
         let locally_enabled = Arc::new(AtomicBool::new(globally_enabled));
 
-        let task = client.task_monitor().spawn_background_task(
+        let task = client.task_monitor().spawn_infinite_task(
             "send_queue",
             Self::sending_task(
                 weak_room.clone(),
@@ -578,6 +579,59 @@ impl RoomSendQueue {
             content.event_type().to_string(),
         )
         .await
+    }
+
+    /// Queues a redaction of another event for sending it to this room.
+    ///
+    /// This immediately returns, and will push the redaction to be sent into a
+    /// queue, handled in the background.
+    ///
+    /// Callers are expected to consume [`RoomSendQueueUpdate`] via calling
+    /// the [`Self::subscribe()`] method to get updates about the sending of
+    /// that redaction.
+    ///
+    /// By default, if sending failed on the first attempt, it will be retried a
+    /// few times. If sending failed after those retries, the entire
+    /// client's sending queue will be disabled, and it will need to be
+    /// manually re-enabled by the caller (e.g. after network is back, or when
+    /// something has been done about the faulty requests).
+    pub async fn redact(
+        &self,
+        redacts: OwnedEventId,
+        reason: Option<&str>,
+    ) -> Result<SendRedactionHandle, RoomSendQueueError> {
+        let Some(room) = self.inner.room.get() else {
+            return Err(RoomSendQueueError::RoomDisappeared);
+        };
+        if room.state() != RoomState::Joined {
+            return Err(RoomSendQueueError::RoomNotJoined);
+        }
+
+        let request = QueuedRequestKind::Redaction {
+            redacts: redacts.clone(),
+            reason: reason.map(str::to_owned),
+        };
+
+        let created_at = MilliSecondsSinceUnixEpoch::now();
+        let transaction_id = self.inner.queue.push(request, created_at).await?;
+        trace!(%transaction_id, "manager sends a redaction event to the background task");
+
+        self.inner.notifier.notify_one();
+
+        let send_handle =
+            SendRedactionHandle { room: self.clone(), transaction_id: transaction_id.clone() };
+
+        self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
+            transaction_id,
+            content: LocalEchoContent::Redaction {
+                redacts,
+                reason: reason.map(str::to_owned),
+                send_handle: send_handle.clone(),
+                send_error: None,
+            },
+        }));
+
+        Ok(send_handle)
     }
 
     /// Returns the current local requests as well as a receiver to listen to
@@ -796,9 +850,8 @@ impl RoomSendQueue {
                                     }
                                 };
 
-                                // In case of an error, just log the error but not stop the Send
-                                // Queue. This feature is not
-                                // crucial.
+                                // In case of an error, just log the error but don't stop the Send
+                                // Queue. This feature is not crucial.
                                 if let Some(timeline_event) = timeline_event
                                     && let Err(err) = room_event_cache
                                         .insert_sent_event_from_send_queue(timeline_event)
@@ -838,6 +891,91 @@ impl RoomSendQueue {
                                 index,
                                 progress,
                             });
+                        }
+
+                        SentRequestKey::Redaction { event_id, redacts, reason } => {
+                            send_update(
+                                &global_update_sender,
+                                &update_sender,
+                                room_id,
+                                RoomSendQueueUpdate::SentEvent {
+                                    transaction_id: txn_id,
+                                    event_id: event_id.clone(),
+                                },
+                            );
+
+                            // The redaction event has been sent to the server and the server has
+                            // received it. It's safe to cache the event
+                            // now to avoid any inconsistencies until the server
+                            // sends down the remote echo via the sync.
+                            if let Ok((room_event_cache, _drop_handles)) = room.event_cache().await
+                            {
+                                let content_field_redacts = room.version().is_some_and(|id| {
+                                    id.rules()
+                                        .is_some_and(|rules| rules.redaction.content_field_redacts)
+                                });
+                                let redacts = if content_field_redacts.not() {
+                                    format!("\"redacts\":\"{redacts}\",")
+                                } else {
+                                    "".to_owned()
+                                };
+                                let reason = reason.map_or_else(
+                                    || "".to_owned(),
+                                    |r| format!("\"reason\": \"{r}\""),
+                                );
+                                let content = if content_field_redacts {
+                                    format!("\"redacts\":\"{redacts}\",{reason}")
+                                } else {
+                                    reason
+                                };
+
+                                let timeline_event = match Raw::from_json_string(
+                                    // Create a compact string: remove all useless spaces.
+                                    format!(
+                                        "{{\
+                                            {redacts}\
+                                            \"event_id\":\"{event_id}\",\
+                                            \"origin_server_ts\":{ts},\
+                                            \"sender\":\"{sender}\",\
+                                            \"type\":\"{type}\",\
+                                            \"content\":{{{content}}}\
+                                        }}",
+                                        redacts = redacts,
+                                        event_id = event_id,
+                                        ts = MilliSecondsSinceUnixEpoch::now().get(),
+                                        sender = room.client().user_id().expect("Client must be logged-in"),
+                                        type = TimelineEventType::RoomRedaction,
+                                        content = content
+                                    ),
+                                ) {
+                                    Ok(event) => Some(TimelineEvent::from_plaintext(event)),
+                                    Err(err) => {
+                                        error!(
+                                            ?err,
+                                            "Failed to build the (sync) redaction event before the saving in the Event Cache"
+                                        );
+                                        None
+                                    }
+                                };
+
+                                // In case of an error, just log the error but don't stop the Send
+                                // Queue. This feature is not crucial.
+                                if let Some(timeline_event) = timeline_event
+                                    && let Err(err) = room_event_cache
+                                        .insert_sent_event_from_send_queue(timeline_event)
+                                        .await
+                                {
+                                    error!(
+                                        ?err,
+                                        "Failed to save the sent redaction event in the Event Cache"
+                                    );
+                                }
+                            } else {
+                                info!(
+                                    "Cannot insert the sent redaction event in the Event Cache because \
+                                    either the room no longer exists, or the Room Event Cache cannot be retrieved"
+                                );
+                            }
                         }
                     },
 
@@ -1059,6 +1197,19 @@ impl RoomSendQueue {
                         res
                     }
                 }
+            }
+
+            QueuedRequestKind::Redaction { redacts, reason } => {
+                let result = room
+                    .redact(&redacts, reason.as_deref(), Some(request.transaction_id.clone()))
+                    .await?;
+
+                trace!(txn_id = %request.transaction_id, event_id = %result.event_id, "redaction successfully sent");
+
+                Ok((
+                    Some(SentRequestKey::Redaction { event_id: result.event_id, redacts, reason }),
+                    None,
+                ))
             }
         }
     }
@@ -1858,6 +2009,18 @@ impl QueueStorage {
                             // event represented as a dependent request should be sufficient.
                             return None;
                         }
+
+                        QueuedRequestKind::Redaction { redacts, reason } => {
+                            LocalEchoContent::Redaction {
+                                redacts,
+                                reason,
+                                send_handle: SendRedactionHandle {
+                                    room: room.clone(),
+                                    transaction_id: queued.transaction_id,
+                                },
+                                send_error: queued.error,
+                            }
+                        }
                     },
                 })
             });
@@ -2326,6 +2489,19 @@ pub enum LocalEchoContent {
         send_handle: SendReactionHandle,
         /// The local echo which has been reacted to.
         applies_to: OwnedTransactionId,
+    },
+
+    /// A local echo of a redaction event.
+    Redaction {
+        /// The ID of the redacted event.
+        redacts: OwnedEventId,
+        /// The reason for the event being redacted.
+        reason: Option<String>,
+        /// A handle to manipulate the sending of the associated event.
+        send_handle: SendRedactionHandle,
+        /// Whether trying to send this local echo failed in the past with an
+        /// unrecoverable error (see [`SendQueueRoomError::is_recoverable`]).
+        send_error: Option<QueueWedgeError>,
     },
 }
 
@@ -2810,6 +2986,49 @@ impl SendReactionHandle {
     /// The transaction id that will be used to send this reaction later.
     pub fn transaction_id(&self) -> &TransactionId {
         &self.transaction_id
+    }
+}
+
+/// A handle to manipulate a redaction event that was scheduled to be sent to a
+/// room.
+#[derive(Clone, Debug)]
+pub struct SendRedactionHandle {
+    /// Link to the send queue used to send this request.
+    room: RoomSendQueue,
+
+    /// Transaction id used for the sent request.
+    transaction_id: OwnedTransactionId,
+}
+
+impl SendRedactionHandle {
+    /// Creates a new [`SendRedactionHandle`].
+    #[cfg(test)]
+    pub(crate) fn new(room: RoomSendQueue, transaction_id: OwnedTransactionId) -> Self {
+        Self { room, transaction_id }
+    }
+
+    /// Abort the sending of the redaction.
+    ///
+    /// Will return true if the redaction could be aborted, false if it's been
+    /// sent (and there's no matching local echo anymore).
+    pub async fn abort(&self) -> Result<bool, RoomSendQueueStorageError> {
+        trace!("received a redaction abort request");
+
+        let queue = &self.room.inner.queue;
+
+        if queue.cancel_event(&self.transaction_id).await? {
+            trace!("successful redaction abort");
+
+            // Propagate a cancelled update too.
+            self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
+                transaction_id: self.transaction_id.clone(),
+            });
+
+            Ok(true)
+        } else {
+            debug!("local echo of redaction didn't exist anymore, can't abort");
+            Ok(false)
+        }
     }
 }
 

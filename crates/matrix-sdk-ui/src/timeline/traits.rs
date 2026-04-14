@@ -164,19 +164,7 @@ impl RoomDataProvider for Room {
     }
 
     async fn profile_from_user_id<'a>(&'a self, user_id: &'a UserId) -> Option<Profile> {
-        match self.get_member_no_sync(user_id).await {
-            Ok(Some(member)) => Some(Profile {
-                display_name: member.display_name().map(ToOwned::to_owned),
-                display_name_ambiguous: member.name_ambiguous(),
-                avatar_url: member.avatar_url().map(ToOwned::to_owned),
-            }),
-            Ok(None) if self.are_members_synced() => Some(Profile::default()),
-            Ok(None) => None,
-            Err(e) => {
-                error!(%user_id, "Failed to fetch room member information: {e}");
-                None
-            }
-        }
+        Profile::load(self, user_id).await
     }
 
     async fn load_user_receipt<'a>(

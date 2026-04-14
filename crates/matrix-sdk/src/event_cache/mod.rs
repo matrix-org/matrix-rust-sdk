@@ -30,8 +30,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    ops::{Deref, DerefMut},
-    sync::{Arc, OnceLock},
+    sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use futures_util::future::try_join_all;
@@ -57,6 +56,7 @@ use crate::{
     paginators::PaginatorError,
 };
 
+mod automatic_pagination;
 mod caches;
 mod deduplicator;
 mod persistence;
@@ -77,6 +77,8 @@ pub use caches::{
 };
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
+
+pub use crate::event_cache::automatic_pagination::AutomaticPagination;
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Clone, Debug)]
@@ -214,7 +216,7 @@ impl EventCache {
         Self {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
-                config: RwLock::new(EventCacheConfig::default()),
+                config: StdRwLock::new(EventCacheConfig::default()),
                 store: event_cache_store,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
@@ -224,6 +226,7 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
+                automatic_pagination: OnceLock::new(),
                 thread_subscriber_sender,
             }),
         }
@@ -231,13 +234,13 @@ impl EventCache {
 
     /// Get a read-only handle to the global configuration of the
     /// [`EventCache`].
-    pub async fn config(&self) -> impl Deref<Target = EventCacheConfig> + '_ {
-        self.inner.config.read().await
+    pub fn config(&self) -> RwLockReadGuard<'_, EventCacheConfig> {
+        self.inner.config.read().unwrap()
     }
 
     /// Get a writable handle to the global configuration of the [`EventCache`].
-    pub async fn config_mut(&self) -> impl DerefMut<Target = EventCacheConfig> + '_ {
-        self.inner.config.write().await
+    pub fn config_mut(&self) -> RwLockWriteGuard<'_, EventCacheConfig> {
+        self.inner.config.write().unwrap()
     }
 
     /// Subscribes to updates that a thread subscription has been sent.
@@ -261,12 +264,12 @@ impl EventCache {
             let task_monitor = client.task_monitor();
 
             // Spawn the task that will listen to all the room updates at once.
-            let listen_updates_task = task_monitor.spawn_background_task("event_cache::room_updates_task", tasks::room_updates_task(
+            let listen_updates_task = task_monitor.spawn_infinite_task("event_cache::room_updates_task", tasks::room_updates_task(
                 self.inner.clone(),
                 client.subscribe_to_all_room_updates(),
             )).abort_on_drop();
 
-            let ignore_user_list_update_task = task_monitor.spawn_background_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
+            let ignore_user_list_update_task = task_monitor.spawn_infinite_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
                 self.inner.clone(),
                 client.subscribe_to_ignore_user_list_changes(),
             )).abort_on_drop();
@@ -276,7 +279,7 @@ impl EventCache {
             // Force-initialize the sender in the [`RoomEventCacheInner`].
             self.inner.auto_shrink_sender.get_or_init(|| auto_shrink_sender);
 
-            let auto_shrink_linked_chunk_task = task_monitor.spawn_background_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
+            let auto_shrink_linked_chunk_task = task_monitor.spawn_infinite_task("event_cache::auto_shrink_linked_chunk_task", tasks::auto_shrink_linked_chunk_task(
                 Arc::downgrade(&self.inner),
                 auto_shrink_receiver,
             )).abort_on_drop();
@@ -296,7 +299,7 @@ impl EventCache {
 
         let thread_subscriber_task = client
             .task_monitor()
-            .spawn_background_task(
+            .spawn_infinite_task(
                 "event_cache::thread_subscriber",
                 tasks::thread_subscriber_task(
                     self.inner.client.clone(),
@@ -309,7 +312,7 @@ impl EventCache {
         #[cfg(feature = "experimental-search")]
         let search_indexing_task = client
             .task_monitor()
-            .spawn_background_task(
+            .spawn_infinite_task(
                 "event_cache::search_indexing",
                 tasks::search_indexing_task(
                     self.inner.client.clone(),
@@ -317,6 +320,15 @@ impl EventCache {
                 ),
             )
             .abort_on_drop();
+
+            if self.config().experimental_auto_backpagination {
+                // Run the deferred initialization of the automatic pagination request sender, that
+                // is shared with every room.
+                trace!("spawning the automatic paginations API");
+                self.inner.automatic_pagination.get_or_init(|| AutomaticPagination::new(Arc::downgrade(&self.inner), task_monitor));
+            } else {
+                trace!("automatic paginations API is disabled");
+            }
 
             Arc::new(EventCacheDropHandles {
                 _listen_updates_task: listen_updates_task,
@@ -377,6 +389,13 @@ impl EventCache {
     pub fn subscribe_to_room_generic_updates(&self) -> Receiver<RoomEventCacheGenericUpdate> {
         self.inner.generic_update_sender.subscribe()
     }
+
+    /// Returns a reference to the [`AutomaticPagination`] API, if enabled at
+    /// construction with the
+    /// [`EventCacheConfig::experimental_auto_backpagination`] flag.
+    pub fn automatic_pagination(&self) -> Option<AutomaticPagination> {
+        self.inner.automatic_pagination.get().cloned()
+    }
 }
 
 /// Global configuration for the [`EventCache`], applied to every single room.
@@ -387,15 +406,46 @@ pub struct EventCacheConfig {
 
     /// Maximum number of pinned events to load, for any room.
     pub max_pinned_events_to_load: usize,
+
+    /// Whether to automatically backpaginate a room under certain conditions.
+    ///
+    /// Off by default.
+    pub experimental_auto_backpagination: bool,
+
+    /// The maximum number of allowed room paginations, for a given room, that
+    /// can be executed in the automatic paginations task.
+    ///
+    /// After that number of paginations, the task will stop executing
+    /// paginations for that room *in the background* (user-requested
+    /// paginations will still be executed, of course).
+    ///
+    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_CREDITS`].
+    pub room_pagination_per_room_credit: usize,
+
+    /// The number of messages to paginate in a single batch, when executing an
+    /// automatic pagination request.
+    ///
+    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_BATCH_SIZE`].
+    pub room_pagination_batch_size: u16,
 }
 
 impl EventCacheConfig {
     /// The default maximum number of pinned events to load.
-    const DEFAULT_MAX_EVENTS_TO_LOAD: usize = 128;
+    pub const DEFAULT_MAX_EVENTS_TO_LOAD: usize = 128;
 
     /// The default maximum number of concurrent requests to perform when
     /// loading the pinned events.
-    const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
+    pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
+
+    /// The default number of credits to give to a room for automatic
+    /// paginations (see also
+    /// [`EventCacheConfig::room_pagination_per_room_credit`]).
+    pub const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
+
+    /// The default number of messages to paginate in a single batch, when
+    /// executing an automatic pagination request (see also
+    /// [`EventCacheConfig::room_pagination_batch_size`]).
+    pub const DEFAULT_ROOM_PAGINATION_BATCH_SIZE: u16 = 30;
 }
 
 impl Default for EventCacheConfig {
@@ -403,6 +453,9 @@ impl Default for EventCacheConfig {
         Self {
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
+            room_pagination_per_room_credit: Self::DEFAULT_ROOM_PAGINATION_CREDITS,
+            room_pagination_batch_size: Self::DEFAULT_ROOM_PAGINATION_BATCH_SIZE,
+            experimental_auto_backpagination: false,
         }
     }
 }
@@ -415,7 +468,7 @@ struct EventCacheInner {
     client: WeakClient,
 
     /// Global configuration for the event cache.
-    config: RwLock<EventCacheConfig>,
+    config: StdRwLock<EventCacheConfig>,
 
     /// Reference to the underlying store.
     store: EventCacheStoreLock,
@@ -440,6 +493,9 @@ struct EventCacheInner {
     ///
     /// Needs to live here, so it may be passed to each [`RoomEventCache`]
     /// instance.
+    ///
+    /// It's a `OnceLock` because its initialization is deferred to
+    /// [`EventCache::subscribe`].
     ///
     /// See doc comment of [`EventCache::auto_shrink_linked_chunk_task`].
     auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
@@ -468,6 +524,12 @@ struct EventCacheInner {
 
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
+
+    /// State for the automatic pagination mechanism.
+    ///
+    /// Depends on the [`EventCacheConfig::experimental_auto_backpagination`]
+    /// flag to be set at subscription time.
+    automatic_pagination: OnceLock<AutomaticPagination>,
 }
 
 type AutoShrinkChannelPayload = OwnedRoomId;
@@ -627,6 +689,7 @@ impl EventCacheInner {
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
                     self.store.clone(),
+                    self.automatic_pagination.get().cloned(),
                 )
                 .await?;
 

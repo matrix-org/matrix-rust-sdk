@@ -81,10 +81,10 @@ contributors' pull requests and pushes.
 
 ## Pull requests
 
-Ideally, a PR should have a *proper title*, with *atomic logical commits*, and
-each commit should have a *good commit message*.
+Ideally, a PR should have a _proper title_, with _atomic logical commits_, and
+each commit should have a _good commit message_.
 
-A *proper PR title* would be a one-liner summary of the changes in the PR,
+A _proper PR title_ would be a one-liner summary of the changes in the PR,
 following the same guidelines of a good commit message, including the
 area/feature prefix. Something like `FFI: Allow logs files to be pruned.` would
 be a good PR title.
@@ -126,10 +126,10 @@ A good example of a changelog entry could look like the following:
 For security-related changelog entries, please include the following additional
 details alongside the pull request number:
 
-* Impact: Clearly describe the issue's potential impact on users or systems.
-* CVE Number: If available, include the CVE (Common Vulnerabilities and
+- Impact: Clearly describe the issue's potential impact on users or systems.
+- CVE Number: If available, include the CVE (Common Vulnerabilities and
   Exposures) identifier.
-* GitHub Advisory Link: Provide a link to the corresponding GitHub security
+- GitHub Advisory Link: Provide a link to the corresponding GitHub security
   advisory for further context.
 
 ```markdown
@@ -156,12 +156,12 @@ Conventional Commits are structured as follows:
 The type of changes which will be included in changelogs is one of the
 following:
 
-* `feat`: A new feature
-* `fix`: A bugfix
-* `doc`: Documentation changes
-* `refactor`: Code refactoring
-* `perf`: Performance improvements
-* `ci`: Changes to CI configuration files and scripts
+- `feat`: A new feature
+- `fix`: A bugfix
+- `doc`: Documentation changes
+- `refactor`: Code refactoring
+- `perf`: Performance improvements
+- `ci`: Changes to CI configuration files and scripts
 
 The scope is optional and can specify the area of the codebase affected (e.g.,
 olm, cipher).
@@ -174,10 +174,10 @@ changelog entry.
 
 The metadata must be included in the following git-trailers:
 
-* `Security-Impact`: The magnitude of harm that can be expected, i.e.
+- `Security-Impact`: The magnitude of harm that can be expected, i.e.
   low/moderate/high/critical.
-* `CVE`: The CVE that was assigned to this issue.
-* `GitHub-Advisory`: The GitHub advisory identifier.
+- `CVE`: The CVE that was assigned to this issue.
+- `GitHub-Advisory`: The GitHub advisory identifier.
 
 Please include all the fields that are available.
 
@@ -333,16 +333,6 @@ on Git 2.17+ you can mass signoff using rebase:
 ```text
 git rebase --signoff origin/main
 ```
-
-## Tips for working on the `matrix-rust-sdk` with specific IDEs
-
-* [RustRover](https://www.jetbrains.com/rust/) will attempt to sync the project
-  with all features enabled, causing an error in `matrix-sdk` ("only one of the
-  features `native-tls` or `rustls-tls` can be enabled"). To work around this,
-  open `crates/matrix-sdk/Cargo.toml` in RustRover and uncheck one of the
-  `native-tls` or `rustls-tls` feature definitions:
-
-  ![Screenshot of RustRover](.img/rustrover-disable-feature.png)
 
 ## AI policy
 

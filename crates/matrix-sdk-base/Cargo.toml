@@ -40,6 +40,12 @@ experimental-encrypted-state-events = [
     "matrix-sdk-crypto?/experimental-encrypted-state-events"
 ]
 
+# Enable experimental support for pushing secrets
+experimental-push-secrets = [
+    "e2e-encryption",
+    "matrix-sdk-crypto?/experimental-push-secrets"
+]
+
 uniffi = ["dep:uniffi", "matrix-sdk-crypto?/uniffi", "matrix-sdk-common/uniffi"]
 
 # Private feature, see
@@ -113,6 +119,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
+getrandom3 = { version = "0.3.4", package = "getrandom", default-features = false, features = ["wasm_js"] }
 gloo-timers = { workspace = true, features = ["futures"] }
 
 [lints]

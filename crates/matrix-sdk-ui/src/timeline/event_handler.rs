@@ -411,8 +411,8 @@ impl TimelineAction {
                 Self::add_item(TimelineItemContent::CallInvite)
             }
 
-            AnyMessageLikeEventContent::RtcNotification(_) => {
-                Self::add_item(TimelineItemContent::RtcNotification)
+            AnyMessageLikeEventContent::RtcNotification(c) => {
+                Self::add_item(TimelineItemContent::RtcNotification { call_intent: c.call_intent })
             }
 
             AnyMessageLikeEventContent::Sticker(content) => {
@@ -852,8 +852,12 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
 
         let target = TimelineEventItemId::EventId(redacted.clone());
-        let aggregation =
-            Aggregation::new(self.ctx.flow.timeline_item_id(), AggregationKind::Redaction);
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::Redaction {
+                is_local: false, // We can only get here for remote echoes of redactions.
+            },
+        );
         self.meta.aggregations.add(target.clone(), aggregation.clone());
 
         find_item_and_apply_aggregation(

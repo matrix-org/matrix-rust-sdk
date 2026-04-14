@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{sync::Mutex, time::Duration};
+use std::time::Duration;
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
@@ -21,10 +21,8 @@ use matrix_sdk::{assert_let_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, ReactionStatus, RoomExt as _};
 use ruma::{event_id, events::room::message::RoomMessageEventContent, room_id};
-use serde_json::json;
 use stream_assert::assert_pending;
-use tokio::sync::oneshot;
-use wiremock::ResponseTemplate;
+use tokio::time::sleep;
 
 #[async_test]
 async fn test_abort_before_being_sent() {
@@ -76,31 +74,15 @@ async fn test_abort_before_being_sent() {
     // Mock the send endpoint with a delay, to give us time to abort the sending.
     server
         .mock_room_send()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({
-                    "event_id": "$2",
-                }))
-                .set_delay(Duration::from_millis(150)),
-        )
+        .ok_with_delay(event_id!("$2"), Duration::from_millis(150))
         .mock_once()
         .named("send for the first reaction")
         .mount()
         .await;
 
-    let (tx, rx) = oneshot::channel();
-    let tx = Mutex::new(Some(tx));
-
     server
         .mock_room_redact()
-        .respond_with(move |_req: &wiremock::Request| {
-            // Notify the main task that we're done with handling the request.
-            let mut tx_guard = tx.lock().unwrap();
-            let tx = tx_guard.take().expect("this endpoint called only once");
-            tx.send(()).unwrap();
-            // Return a response.
-            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$2" }))
-        })
+        .ok(event_id!("$3"))
         .named("redact for the first reaction")
         .mock_once()
         .mount()
@@ -188,8 +170,8 @@ async fn test_abort_before_being_sent() {
         assert_pending!(stream);
     }
 
-    // Wait for the redaction to be done in the background.
-    tokio::time::timeout(Duration::from_secs(2), rx).await.expect("timeout").expect("recv error");
+    // Let the send queue process the redaction in the background.
+    sleep(Duration::from_millis(300)).await;
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());
     assert_eq!(timeline_updates.len(), 1);
@@ -276,7 +258,7 @@ async fn test_redact_failed() {
         1
     );
 
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    sleep(Duration::from_millis(150)).await;
     assert_pending!(stream);
 }
 
@@ -299,28 +281,18 @@ async fn test_local_reaction_to_local_echo() {
 
     assert!(initial_items.is_empty());
 
+    // Mock for the first message.
     // Add a duration to the response, so we can check other things in the
     // meanwhile.
-    let next_event_id = Mutex::new(0);
-
     server
         .mock_room_send()
-        .respond_with(move |_req: &wiremock::Request| {
-            let mut next_event_id = next_event_id.lock().unwrap();
-            let event_id = *next_event_id;
-            *next_event_id += 1;
-            let mut tmp = ResponseTemplate::new(200).set_body_json(json!({
-                "event_id": format!("${event_id}"),
-            }));
-
-            if event_id == 0 {
-                tmp = tmp.set_delay(Duration::from_secs(1));
-            }
-
-            tmp
-        })
+        .ok_with_delay(event_id!("$0"), Duration::from_millis(150))
+        .mock_once()
         .mount()
         .await;
+
+    // Mock for the first reaction.
+    server.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
 
     // Send a local event.
     let _ = timeline.send(RoomMessageEventContent::text_plain("lol").into()).await.unwrap();
@@ -416,7 +388,7 @@ async fn test_local_reaction_to_local_echo() {
     // Now, wait for the remote echo for the message itself.
     {
         assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = stream.next());
-        assert_eq!(timeline_updates.len(), 5);
+        assert_eq!(timeline_updates.len(), 1);
 
         assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
         let item = item.as_event().unwrap();
@@ -430,17 +402,6 @@ async fn test_local_reaction_to_local_echo() {
         let reaction_info = reactions.get(key1).unwrap().get(user_id).unwrap();
         // TODO: why not LocalToRemote here?
         assert_matches!(&reaction_info.status, ReactionStatus::LocalToLocal(..));
-
-        // And since the local event has been sent, it is inserted in the Event
-        // Cache, which transforms it to a remote event.
-        assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
-
-        assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
-        assert_eq!(remote_event.as_event().unwrap().event_id(), Some(event_id!("$0")));
-
-        // Adjust the date divider.
-        assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
-        assert!(date_divider.is_date_divider());
 
         assert_pending!(stream);
     }
@@ -458,6 +419,6 @@ async fn test_local_reaction_to_local_echo() {
     }
 
     // And we're done.
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    sleep(Duration::from_millis(150)).await;
     assert_pending!(stream);
 }

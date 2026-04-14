@@ -12,29 +12,29 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use matrix_sdk::IdParseError;
 use matrix_sdk_ui::timeline::TimelineEventItemId;
 use ruma::{
+    EventId,
     events::{
+        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
+        MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
+        RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
+        TimelineEventType as RumaTimelineEventType,
         room::{
             encrypted,
             message::{MessageType as RumaMessageType, Relation},
             redaction::SyncRoomRedactionEvent,
         },
-        AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-        MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
-        RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
-        TimelineEventType as RumaTimelineEventType,
     },
-    EventId,
 };
 
 use crate::{
+    ClientError,
     room_member::MembershipState,
     ruma::{MessageType, RtcCallIntent, RtcNotificationType},
     utils::Timestamp,
-    ClientError,
 };
 
 #[derive(uniffi::Object)]
@@ -89,6 +89,7 @@ impl From<AnyTimelineEvent> for TimelineEvent {
 
 /// The timeline event type.
 #[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
+#[uniffi::export(Eq, Hash)]
 pub enum TimelineEventType {
     /// The event is a message-like one and should be displayed as such.
     MessageLike { value: MessageLikeEventType },
@@ -224,9 +225,6 @@ impl From<RumaTimelineEventType> for TimelineEventType {
             RumaTimelineEventType::PolicyRuleUser => {
                 Self::State { value: StateEventType::PolicyRuleUser }
             }
-            RumaTimelineEventType::RoomAliases => {
-                Self::State { value: StateEventType::RoomAliases }
-            }
             RumaTimelineEventType::RoomAvatar => Self::State { value: StateEventType::RoomAvatar },
             RumaTimelineEventType::RoomCanonicalAlias => {
                 Self::State { value: StateEventType::RoomCanonicalAlias }
@@ -306,7 +304,6 @@ pub enum StateEventContent {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
-    RoomAliases,
     RoomAvatar,
     RoomCanonicalAlias,
     RoomCreate,
@@ -334,7 +331,6 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             AnySyncStateEvent::PolicyRuleRoom(_) => StateEventContent::PolicyRuleRoom,
             AnySyncStateEvent::PolicyRuleServer(_) => StateEventContent::PolicyRuleServer,
             AnySyncStateEvent::PolicyRuleUser(_) => StateEventContent::PolicyRuleUser,
-            AnySyncStateEvent::RoomAliases(_) => StateEventContent::RoomAliases,
             AnySyncStateEvent::RoomAvatar(_) => StateEventContent::RoomAvatar,
             AnySyncStateEvent::RoomCanonicalAlias(_) => StateEventContent::RoomCanonicalAlias,
             AnySyncStateEvent::RoomCreate(_) => StateEventContent::RoomCreate,
@@ -526,7 +522,6 @@ pub enum StateEventType {
     PolicyRuleRoom,
     PolicyRuleServer,
     PolicyRuleUser,
-    RoomAliases,
     RoomAvatar,
     RoomCanonicalAlias,
     RoomCreate,
@@ -558,7 +553,6 @@ impl From<StateEventType> for ruma::events::StateEventType {
             StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
             StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
             StateEventType::PolicyRuleUser => Self::PolicyRuleUser,
-            StateEventType::RoomAliases => Self::RoomAliases,
             StateEventType::RoomAvatar => Self::RoomAvatar,
             StateEventType::RoomCanonicalAlias => Self::RoomCanonicalAlias,
             StateEventType::RoomCreate => Self::RoomCreate,

@@ -2,14 +2,14 @@ use std::{mem::ManuallyDrop, sync::Arc};
 
 use matrix_sdk_common::executor::Handle;
 use matrix_sdk_crypto::{
+    DecryptionSettings,
     dehydrated_devices::{
         DehydratedDevice as InnerDehydratedDevice, DehydratedDevices as InnerDehydratedDevices,
         RehydratedDevice as InnerRehydratedDevice,
     },
     store::types::DehydratedDeviceKey as InnerDehydratedDeviceKey,
-    DecryptionSettings,
 };
-use ruma::{api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw, OwnedDeviceId};
+use ruma::{OwnedDeviceId, api::client::dehydrated_device, events::AnyToDeviceEvent, serde::Raw};
 use serde_json::json;
 
 use crate::{CryptoStoreError, DehydratedDeviceKey};
@@ -29,8 +29,6 @@ pub enum DehydrationError {
     Store(#[from] matrix_sdk_crypto::CryptoStoreError),
     #[error("The pickle key has an invalid length, expected 32 bytes, got {0}")]
     PickleKeyLength(usize),
-    #[error(transparent)]
-    Rand(#[from] rand::Error),
 }
 
 impl From<matrix_sdk_crypto::dehydrated_devices::DehydrationError> for DehydrationError {
@@ -227,13 +225,11 @@ impl From<dehydrated_device::put_dehydrated_device::unstable::Request>
 
 #[cfg(test)]
 mod tests {
-    use crate::{dehydrated_devices::DehydrationError, DehydratedDeviceKey};
+    use crate::{DehydratedDeviceKey, dehydrated_devices::DehydrationError};
 
     #[test]
     fn test_creating_dehydrated_key() {
-        let result = DehydratedDeviceKey::new();
-        assert!(result.is_ok());
-        let dehydrated_device_key = result.unwrap();
+        let dehydrated_device_key = DehydratedDeviceKey::new();
         let base_64 = dehydrated_device_key.to_base64();
         let inner_bytes = dehydrated_device_key.inner;
 

@@ -20,45 +20,46 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::{Context as _, anyhow};
 use futures_util::pin_mut;
-#[cfg(not(target_family = "wasm"))]
-use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
+#[cfg(not(target_family = "wasm"))]
+use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
+    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
     authentication::oauth::{ClientId, OAuthAuthorizationData, OAuthError, OAuthSession},
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     executor::AbortOnDrop,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
     ruma::{
+        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
             discovery::{
                 discover_homeserver::RtcFocusInfo,
                 get_authorization_server_metadata::v1::Prompt as RumaOidcPrompt,
             },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
-            room::{create_room, Visibility},
+            room::{Visibility, create_room},
             session::get_login_types,
             user_directory::search_users,
         },
         events::{
+            AnyInitialStateEvent, InitialStateEvent,
             room::{
                 avatar::RoomAvatarEventContent, encryption::RoomEncryptionEventContent,
                 message::MessageType,
             },
-            AnyInitialStateEvent, InitialStateEvent,
         },
         serde::Raw,
-        EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
     },
     sliding_sync::Version as SdkSlidingSyncVersion,
     store::RoomLoadSettings as SdkRoomLoadSettings,
+    sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
-    Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
 };
 use matrix_sdk_common::{
-    cross_process_lock::CrossProcessLockConfig, stream::StreamExt, SendOutsideWasm, SyncOutsideWasm,
+    SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
 use matrix_sdk_ui::{
     notification_client::{
@@ -71,17 +72,23 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    api::client::{
-        alias::get_alias,
-        discovery::get_authorization_server_metadata::v1::{
-            AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    api::{
+        client::{
+            alias::get_alias,
+            discovery::get_authorization_server_metadata::v1::{
+                AccountManagementActionData, DeviceDeleteData, DeviceViewData,
+            },
+            profile::{AvatarUrl, DisplayName},
+            room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
+            uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
-        profile::{AvatarUrl, DisplayName},
-        room::create_room::{v3::CreationContent, RoomPowerLevelsContentOverride},
-        uiaa::UserIdentifier,
     },
     events::{
+        AnyMessageLikeEventContent, AnySyncTimelineEvent,
+        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -100,25 +107,22 @@ use ruma::{
             default_key::SecretStorageDefaultKeyEventContent, key::SecretStorageKeyEventContent,
         },
         tag::TagEventContent,
-        AnyMessageLikeEventContent, AnySyncTimelineEvent,
-        GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
     },
     push::{HttpPusherData as RumaHttpPusherData, PushFormat as RumaPushFormat},
     room::RoomType,
-    OwnedDeviceId, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 use tracing::{debug, error};
 use url::Url;
 
 use super::{
-    room::{room_info::RoomInfo, Room},
+    room::{Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
 use crate::{
+    ClientError,
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
@@ -138,10 +142,10 @@ use crate::{
     runtime::get_runtime_handle,
     spaces::SpaceService,
     sync_service::{SyncService, SyncServiceBuilder},
+    sync_v2::{SyncListenerV2, SyncResponseV2, SyncSettingsV2},
     task_handle::TaskHandle,
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
-    ClientError,
 };
 
 #[derive(Clone, uniffi::Record)]
@@ -364,12 +368,12 @@ impl Client {
 
         let controller = session_verification_controller.clone();
         sdk_client.add_event_handler(move |event: OriginalSyncRoomMessageEvent| async move {
-            if let MessageType::VerificationRequest(_) = &event.content.msgtype {
-                if let Some(session_verification_controller) = &*controller.clone().read().await {
-                    session_verification_controller
-                        .process_incoming_verification_request(&event.sender, event.event_id)
-                        .await;
-                }
+            if let MessageType::VerificationRequest(_) = &event.content.msgtype
+                && let Some(session_verification_controller) = &*controller.clone().read().await
+            {
+                session_verification_controller
+                    .process_incoming_verification_request(&event.sender, event.event_id)
+                    .await;
             }
         });
 
@@ -487,13 +491,17 @@ impl Client {
         device_id: Option<String>,
     ) -> Result<(), ClientError> {
         let mut builder = self.inner.matrix_auth().login_username(&username, &password);
+
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
         }
+
         if let Some(device_id) = device_id.as_ref() {
             builder = builder.device_id(device_id);
         }
+
         builder.send().await?;
+
         Ok(())
     }
 
@@ -519,6 +527,7 @@ impl Client {
         }
 
         builder.send().await?;
+
         Ok(())
     }
 
@@ -533,7 +542,7 @@ impl Client {
         let mut builder = self
             .inner
             .matrix_auth()
-            .login_identifier(UserIdentifier::Email { address: email }, &password);
+            .login_identifier(UserIdentifier::Email(EmailUserIdentifier::new(email)), &password);
 
         if let Some(initial_device_name) = initial_device_name.as_ref() {
             builder = builder.initial_device_display_name(initial_device_name);
@@ -950,139 +959,7 @@ impl Client {
         let listener = Arc::new(listener);
         self.inner
             .register_notification_handler(move |notification, room, _client| {
-                let listener = listener.clone();
-                let room_id = room.room_id().to_string();
-
-                async move {
-                    // Extract information about the actions
-                    let is_noisy = notification.actions.iter().any(|a| a.sound().is_some());
-                    let has_mention = notification.actions.iter().any(|a| a.is_highlight());
-
-                    // Convert SDK actions to FFI type
-                    let actions: Vec<crate::notification_settings::Action> = notification
-                        .actions
-                        .into_iter()
-                        .filter_map(|action| action.try_into().ok())
-                        .collect();
-
-                    // Convert SDK event to FFI type
-                    let (sender, event, thread_id, raw_event) = match notification.event {
-                        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => {
-                            let raw_event = raw.json().get().to_owned();
-                            match raw.deserialize() {
-                                Ok(deserialized) => {
-                                    let sender = deserialized.sender().to_owned();
-                                    let thread_id = match &deserialized {
-                                        AnySyncTimelineEvent::MessageLike(event) => {
-                                            match event.original_content() {
-                                                Some(AnyMessageLikeEventContent::RoomMessage(
-                                                    content,
-                                                )) => match content.relates_to {
-                                                    Some(Relation::Thread(thread)) => {
-                                                        Some(thread.event_id.to_string())
-                                                    }
-                                                    _ => None,
-                                                },
-                                                _ => None,
-                                            }
-                                        }
-                                        _ => None,
-                                    };
-                                    let event = NotificationEvent::Timeline {
-                                        event: Arc::new(crate::event::TimelineEvent(Box::new(
-                                            deserialized,
-                                        ))),
-                                    };
-                                    (sender, event, thread_id, raw_event)
-                                }
-                                Err(err) => {
-                                    tracing::warn!("Failed to deserialize timeline event: {err}");
-                                    return;
-                                }
-                            }
-                        }
-                        RawAnySyncOrStrippedTimelineEvent::Stripped(raw) => {
-                            let raw_event = raw.json().get().to_owned();
-                            match raw.deserialize() {
-                                Ok(deserialized) => {
-                                    let sender = deserialized.sender().to_owned();
-                                    let event =
-                                        NotificationEvent::Invite { sender: sender.to_string() };
-                                    let thread_id = None;
-                                    (sender, event, thread_id, raw_event)
-                                }
-                                Err(err) => {
-                                    tracing::warn!(
-                                        "Failed to deserialize stripped state event: {err}"
-                                    );
-                                    return;
-                                }
-                            }
-                        }
-                    };
-
-                    // Compile sender info
-                    let sender = room.get_member_no_sync(&sender).await.ok().flatten();
-                    let sender_info = if let Some(sender) = sender.as_ref() {
-                        NotificationSenderInfo {
-                            display_name: sender.display_name().map(|name| name.to_owned()),
-                            avatar_url: sender.avatar_url().map(|uri| uri.to_string()),
-                            is_name_ambiguous: sender.name_ambiguous(),
-                        }
-                    } else {
-                        NotificationSenderInfo {
-                            display_name: None,
-                            avatar_url: None,
-                            is_name_ambiguous: false,
-                        }
-                    };
-
-                    // Compile room info
-                    let display_name = match room.display_name().await {
-                        Ok(name) => name.to_string(),
-                        Err(err) => {
-                            tracing::warn!("Failed to calculate the room's display name: {err}");
-                            return;
-                        }
-                    };
-                    let is_direct = match room.is_direct().await {
-                        Ok(is_direct) => is_direct,
-                        Err(err) => {
-                            tracing::warn!("Failed to determine if room is direct or not: {err}");
-                            return;
-                        }
-                    };
-                    let room_info = NotificationRoomInfo {
-                        display_name,
-                        avatar_url: room.avatar_url().map(Into::into),
-                        canonical_alias: room.canonical_alias().map(Into::into),
-                        topic: room.topic(),
-                        join_rule: room
-                            .join_rule()
-                            .map(TryInto::try_into)
-                            .transpose()
-                            .ok()
-                            .flatten(),
-                        joined_members_count: room.joined_members_count(),
-                        is_encrypted: Some(room.encryption_state().is_encrypted()),
-                        is_direct,
-                        is_space: room.is_space(),
-                    };
-
-                    listener.on_notification(
-                        NotificationItem {
-                            event,
-                            raw_event,
-                            sender_info,
-                            room_info,
-                            is_noisy: Some(is_noisy),
-                            has_mention: Some(has_mention),
-                            thread_id,
-                            actions: Some(actions),
-                        },
-                        room_id,
-                    );
-                }
+                notification_handler(notification, room, listener.clone())
             })
             .await;
     }
@@ -1124,10 +1001,7 @@ impl Client {
     pub async fn reset_well_known(&self) -> Result<(), ClientError> {
         Ok(self.inner.reset_well_known().await?)
     }
-}
 
-#[matrix_sdk_ffi_macros::export]
-impl Client {
     /// Retrieves a media file from the media source
     ///
     /// Not available on Wasm platforms, due to lack of accessible file system.
@@ -1194,10 +1068,7 @@ impl Client {
 
         Ok(())
     }
-}
 
-#[matrix_sdk_ffi_macros::export]
-impl Client {
     /// The sliding sync version.
     pub fn sliding_sync_version(&self) -> SlidingSyncVersion {
         self.inner.sliding_sync_version().into()
@@ -1347,6 +1218,18 @@ impl Client {
     pub async fn upload_avatar(&self, mime_type: String, data: Vec<u8>) -> Result<(), ClientError> {
         let mime: Mime = mime_type.parse()?;
         self.inner.account().upload_avatar(&mime, data).await?;
+        Ok(())
+    }
+
+    /// Updates the user's avatar using the provided MXC url.
+    pub async fn set_avatar_url(&self, url: String) -> Result<(), ClientError> {
+        // MxcUri can't just be instantiated, serde deserialization seems to be the only
+        // way
+        let mxc = serde_json::from_str::<OwnedMxcUri>(&url)?;
+        // Validate the newly generated MxcUri
+        mxc.validate().map_err(ClientError::from_err)?;
+
+        self.inner.account().set_avatar_url(Some(&mxc)).await?;
         Ok(())
     }
 
@@ -1608,6 +1491,55 @@ impl Client {
 
     pub fn sync_service(&self) -> Arc<SyncServiceBuilder> {
         SyncServiceBuilder::new((*self.inner).clone(), self.utd_hook_manager.get().cloned())
+    }
+
+    /// Start a sync v2 loop.
+    ///
+    /// This is an alternative to [`Client::sync_service`] (which uses Sliding
+    /// Sync / MSC4186). It works with any homeserver, including older
+    /// Synapse versions that do not support Sliding Sync.
+    ///
+    /// Returns a `TaskHandle` that can be used to cancel the sync loop.
+    /// The listener is called after each successful sync response.
+    pub fn sync_v2(
+        &self,
+        settings: SyncSettingsV2,
+        listener: Box<dyn SyncListenerV2>,
+    ) -> Arc<TaskHandle> {
+        let client = (*self.inner).clone();
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let listener: Arc<dyn SyncListenerV2> = Arc::from(listener);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let result = client
+                .sync_with_result_callback(sdk_settings, |result| {
+                    let listener = listener.clone();
+                    async move {
+                        let response = result?;
+                        let ffi_response: SyncResponseV2 = response.into();
+                        listener.on_update(ffi_response);
+                        Ok(matrix_sdk::LoopCtrl::Continue)
+                    }
+                })
+                .await;
+
+            if let Err(e) = result {
+                tracing::error!("Sync loop ended with error: {e}");
+            }
+        })))
+    }
+
+    /// Perform a single sync v2 call.
+    ///
+    /// This is useful for performing an initial sync or a one-shot sync
+    /// without entering a continuous loop.
+    pub async fn sync_once_v2(
+        &self,
+        settings: SyncSettingsV2,
+    ) -> Result<SyncResponseV2, ClientError> {
+        let sdk_settings: matrix_sdk::config::SyncSettings = settings.into();
+        let response = self.inner.sync_once(sdk_settings).await?;
+        Ok(response.into())
     }
 
     pub async fn space_service(&self) -> Arc<SpaceService> {
@@ -2080,10 +2012,10 @@ impl Client {
         let room_id = RoomId::parse(room_id)?;
 
         // Emit the initial event, if present
-        if let Some(room) = self.inner.get_room(&room_id) {
-            if let Ok(room_info) = RoomInfo::new(&room).await {
-                listener.call(room_info);
-            }
+        if let Some(room) = self.inner.get_room(&room_id)
+            && let Ok(room_info) = RoomInfo::new(&room).await
+        {
+            listener.call(room_info);
         }
 
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn({
@@ -2095,15 +2027,141 @@ impl Client {
                         continue;
                     }
 
-                    if let Some(room) = client.get_room(&room_id) {
-                        if let Ok(room_info) = RoomInfo::new(&room).await {
-                            listener.call(room_info);
-                        }
+                    if let Some(room) = client.get_room(&room_id)
+                        && let Ok(room_info) = RoomInfo::new(&room).await
+                    {
+                        listener.call(room_info);
                     }
                 }
             }
         }))))
     }
+
+    /// Whether to enable automatic backpagination under certain conditions
+    /// (e.g. when processing read receipts).
+    ///
+    /// This is an experimental feature, and might cause performance issues on
+    /// large accounts. Use with caution.
+    pub fn enable_automatic_backpagination(&self) {
+        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
+    }
+
+    pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
+        HomeserverCapabilities::new(self.inner.homeserver_capabilities())
+    }
+}
+
+async fn notification_handler(
+    notification: Notification,
+    room: matrix_sdk::Room,
+    listener: Arc<Box<dyn SyncNotificationListener>>,
+) {
+    let room_id = room.room_id().to_string();
+
+    // Extract information about the actions
+    let is_noisy = notification.actions.iter().any(|a| a.sound().is_some());
+    let has_mention = notification.actions.iter().any(|a| a.is_highlight());
+
+    // Convert SDK actions to FFI type
+    let actions: Vec<crate::notification_settings::Action> =
+        notification.actions.into_iter().filter_map(|action| action.try_into().ok()).collect();
+
+    // Convert SDK event to FFI type
+    let (sender, event, thread_id, raw_event) = match notification.event {
+        RawAnySyncOrStrippedTimelineEvent::Sync(raw) => {
+            let raw_event = raw.json().get().to_owned();
+            match raw.deserialize() {
+                Ok(deserialized) => {
+                    let sender = deserialized.sender().to_owned();
+                    let thread_id = if let AnySyncTimelineEvent::MessageLike(event) = &deserialized
+                        && let Some(AnyMessageLikeEventContent::RoomMessage(content)) =
+                            event.original_content()
+                        && let Some(Relation::Thread(thread)) = content.relates_to
+                    {
+                        Some(thread.event_id.to_string())
+                    } else {
+                        None
+                    };
+                    let event = NotificationEvent::Timeline {
+                        event: Arc::new(crate::event::TimelineEvent(Box::new(deserialized))),
+                    };
+                    (sender, event, thread_id, raw_event)
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to deserialize timeline event: {err}");
+                    return;
+                }
+            }
+        }
+        RawAnySyncOrStrippedTimelineEvent::Stripped(raw) => {
+            let raw_event = raw.json().get().to_owned();
+            match raw.deserialize() {
+                Ok(deserialized) => {
+                    let sender = deserialized.sender().to_owned();
+                    let event = NotificationEvent::Invite { sender: sender.to_string() };
+                    let thread_id = None;
+                    (sender, event, thread_id, raw_event)
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to deserialize stripped state event: {err}");
+                    return;
+                }
+            }
+        }
+    };
+
+    // Compile sender info
+    let sender = room.get_member_no_sync(&sender).await.ok().flatten();
+    let sender_info = if let Some(sender) = sender.as_ref() {
+        NotificationSenderInfo {
+            display_name: sender.display_name().map(|name| name.to_owned()),
+            avatar_url: sender.avatar_url().map(|uri| uri.to_string()),
+            is_name_ambiguous: sender.name_ambiguous(),
+        }
+    } else {
+        NotificationSenderInfo { display_name: None, avatar_url: None, is_name_ambiguous: false }
+    };
+
+    // Compile room info
+    let display_name = match room.display_name().await {
+        Ok(name) => name.to_string(),
+        Err(err) => {
+            tracing::warn!("Failed to calculate the room's display name: {err}");
+            return;
+        }
+    };
+    let is_direct = match room.is_direct().await {
+        Ok(is_direct) => is_direct,
+        Err(err) => {
+            tracing::warn!("Failed to determine if room is direct or not: {err}");
+            return;
+        }
+    };
+    let room_info = NotificationRoomInfo {
+        display_name,
+        avatar_url: room.avatar_url().map(Into::into),
+        canonical_alias: room.canonical_alias().map(Into::into),
+        topic: room.topic(),
+        join_rule: room.join_rule().map(TryInto::try_into).transpose().ok().flatten(),
+        joined_members_count: room.joined_members_count(),
+        is_encrypted: Some(room.encryption_state().is_encrypted()),
+        is_direct,
+        is_space: room.is_space(),
+    };
+
+    listener.on_notification(
+        NotificationItem {
+            event,
+            raw_event,
+            sender_info,
+            room_info,
+            is_noisy: Some(is_noisy),
+            has_mention: Some(has_mention),
+            thread_id,
+            actions: Some(actions),
+        },
+        room_id,
+    );
 }
 
 #[cfg(feature = "experimental-element-recent-emojis")]
@@ -2989,10 +3047,78 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
     }
 }
 
+#[derive(uniffi::Object)]
+pub struct HomeserverCapabilities {
+    inner: matrix_sdk::HomeserverCapabilities,
+}
+
+impl HomeserverCapabilities {
+    pub(crate) fn new(capabilities: matrix_sdk::HomeserverCapabilities) -> Self {
+        Self { inner: capabilities }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl HomeserverCapabilities {
+    pub async fn refresh(&self) -> Result<(), ClientError> {
+        Ok(self.inner.refresh().await?)
+    }
+
+    pub async fn can_change_password(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_password().await?)
+    }
+
+    pub async fn can_change_displayname(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_displayname().await?)
+    }
+
+    pub async fn can_change_avatar(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_avatar().await?)
+    }
+
+    pub async fn can_change_thirdparty_ids(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_change_thirdparty_ids().await?)
+    }
+
+    pub async fn can_get_login_token(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.can_get_login_token().await?)
+    }
+
+    pub async fn extended_profile_fields(&self) -> Result<ExtendedProfileFields, ClientError> {
+        let profile_fields = self.inner.extended_profile_fields().await?;
+        Ok(ExtendedProfileFields {
+            enabled: profile_fields.enabled,
+            allowed: profile_fields
+                .allowed
+                .unwrap_or_default()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+            disallowed: profile_fields
+                .disallowed
+                .unwrap_or_default()
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
+        })
+    }
+
+    pub async fn forgets_room_when_leaving(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.forgets_room_when_leaving().await?)
+    }
+}
+
+#[derive(uniffi::Record)]
+pub struct ExtendedProfileFields {
+    pub enabled: bool,
+    pub allowed: Vec<String>,
+    pub disallowed: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use ruma::{
-        api::client::room::{create_room, Visibility},
+        api::client::room::{Visibility, create_room},
         events::StateEventType,
         room::RoomType,
     };
@@ -3037,9 +3163,9 @@ mod tests {
         assert_eq!(request.invite.len(), 1);
         assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomAvatar));
         assert!(initial_state.iter().any(|e| e.event_type() == StateEventType::RoomJoinRules));
-        assert!(initial_state
-            .iter()
-            .any(|e| e.event_type() == StateEventType::RoomHistoryVisibility));
+        assert!(
+            initial_state.iter().any(|e| e.event_type() == StateEventType::RoomHistoryVisibility)
+        );
         assert_eq!(request.room_alias_name, Some("#a-room:example.com".to_owned()));
 
         let room_type = request

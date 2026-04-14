@@ -313,6 +313,11 @@ async fn handle_thread_subscriber_send_queue_update(
                     // Nothing to do, reactions don't count as a thread
                     // subscription.
                 }
+
+                LocalEchoContent::Redaction { .. } => {
+                    // Nothing to do, redactions don't count as a thread
+                    // subscription.
+                }
             }
             return true;
         }
@@ -483,7 +488,7 @@ pub(super) async fn search_indexing_task(
                 }
 
                 let Some(client) = client.get() else {
-                    trace!("Client is shutting down, not spawning thread subscriber task");
+                    trace!("Client is shutting down, exiting search task");
                     return;
                 };
 

@@ -20,7 +20,7 @@ use std::{
 use as_variant::as_variant;
 use indexmap::IndexMap;
 use matrix_sdk::{
-    Error,
+    Error, Room,
     deserialized_responses::{EncryptionInfo, ShieldState},
     send_queue::{SendHandle, SendReactionHandle},
 };
@@ -32,6 +32,7 @@ use ruma::{
     room_version_rules::RedactionRules,
     serde::Raw,
 };
+use tracing::error;
 use unicode_segmentation::UnicodeSegmentation;
 
 mod content;
@@ -79,8 +80,14 @@ pub struct EventTimelineItem {
     pub(super) forwarder_profile: Option<TimelineDetails<Profile>>,
     /// The timestamp of the event.
     pub(super) timestamp: MilliSecondsSinceUnixEpoch,
-    /// The content of the event.
+    /// The content of the event. Might be redacted if a redaction for this
+    /// event is currently being sent or has been received from the server.
     pub(super) content: TimelineItemContent,
+    /// If a redaction for this event is currently being sent but the server
+    /// hasn't yet acknowledged it via its remote echo, the data
+    /// before redaction. This applies to all sorts of timeline items, including
+    /// state events. If no redaction is in flight, None.
+    pub(super) unredacted_item: Option<UnredactedEventTimelineItem>,
     /// The kind of event timeline item, local or remote.
     pub(super) kind: EventTimelineItemKind,
     /// Whether or not the event belongs to an encrypted room.
@@ -117,6 +124,20 @@ pub(crate) enum TimelineItemHandle<'a> {
     Local(&'a SendHandle),
 }
 
+/// A container for temporarily holding onto data that is going to be erased by
+/// a redaction once the server plays it back.
+#[derive(Clone, Debug)]
+pub(super) struct UnredactedEventTimelineItem {
+    /// The original content before redaction.
+    content: TimelineItemContent,
+
+    /// JSON of the original event.
+    pub(crate) original_json: Option<Raw<AnySyncTimelineEvent>>,
+
+    /// JSON of the latest edit to this item.
+    pub(crate) latest_edit_json: Option<Raw<AnySyncTimelineEvent>>,
+}
+
 impl EventTimelineItem {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
@@ -136,6 +157,7 @@ impl EventTimelineItem {
             forwarder_profile,
             timestamp,
             content,
+            unredacted_item: None,
             kind,
             is_room_encrypted,
         }
@@ -507,7 +529,12 @@ impl EventTimelineItem {
     }
 
     /// Create a clone of the current item, with content that's been redacted.
-    pub(super) fn redact(&self, rules: &RedactionRules) -> Self {
+    pub(super) fn redact(&self, rules: &RedactionRules, is_local: bool) -> Self {
+        let unredacted_item = is_local.then(|| UnredactedEventTimelineItem {
+            content: self.content.clone(),
+            original_json: self.original_json().cloned(),
+            latest_edit_json: self.latest_edit_json().cloned(),
+        });
         let content = self.content.redact(rules);
         let kind = match &self.kind {
             EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
@@ -520,6 +547,35 @@ impl EventTimelineItem {
             forwarder_profile: self.forwarder_profile.clone(),
             timestamp: self.timestamp,
             content,
+            unredacted_item,
+            kind,
+            is_room_encrypted: self.is_room_encrypted,
+        }
+    }
+
+    /// Create a clone of the current item, with data restored from the
+    /// item's unredacted_item field (if it was previously set by a call to
+    /// the `redact(...)` method).
+    pub(super) fn unredact(&self) -> Self {
+        let Some(unredacted_item) = &self.unredacted_item else { return self.clone() };
+        let kind = match &self.kind {
+            EventTimelineItemKind::Local(l) => EventTimelineItemKind::Local(l.clone()),
+            EventTimelineItemKind::Remote(r) => {
+                EventTimelineItemKind::Remote(RemoteEventTimelineItem {
+                    original_json: unredacted_item.original_json.clone(),
+                    latest_edit_json: unredacted_item.latest_edit_json.clone(),
+                    ..r.clone()
+                })
+            }
+        };
+        Self {
+            sender: self.sender.clone(),
+            sender_profile: self.sender_profile.clone(),
+            forwarder: self.forwarder.clone(),
+            forwarder_profile: self.forwarder_profile.clone(),
+            timestamp: self.timestamp,
+            content: unredacted_item.content.clone(),
+            unredacted_item: None,
             kind,
             is_room_encrypted: self.is_room_encrypted,
         }
@@ -592,7 +648,7 @@ impl EventTimelineItem {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => None,
+            | TimelineItemContent::RtcNotification { .. } => None,
         };
 
         if let Some(body) = body {
@@ -641,6 +697,24 @@ pub struct Profile {
 
     /// The avatar URL, if set.
     pub avatar_url: Option<OwnedMxcUri>,
+}
+
+impl Profile {
+    pub async fn load(room: &Room, user_id: &UserId) -> Option<Self> {
+        match room.get_member_no_sync(user_id).await {
+            Ok(Some(member)) => Some(Profile {
+                display_name: member.display_name().map(ToOwned::to_owned),
+                display_name_ambiguous: member.name_ambiguous(),
+                avatar_url: member.avatar_url().map(ToOwned::to_owned),
+            }),
+            Ok(None) if room.are_members_synced() => Some(Profile::default()),
+            Ok(None) => None,
+            Err(e) => {
+                error!(%user_id, "Failed to fetch room member information: {e}");
+                None
+            }
+        }
+    }
 }
 
 /// Some details of an [`EventTimelineItem`] that may require server requests

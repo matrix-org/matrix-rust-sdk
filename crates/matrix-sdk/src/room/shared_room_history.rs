@@ -24,7 +24,7 @@ use matrix_sdk_base::{
 };
 use ruma::{
     OwnedUserId, UserId,
-    api::client::error::ErrorKind,
+    api::error::ErrorKind,
     events::room::{MediaSource, history_visibility::HistoryVisibility},
 };
 use tracing::{debug, info, instrument, warn};

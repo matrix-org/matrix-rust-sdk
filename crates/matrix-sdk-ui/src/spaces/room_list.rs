@@ -130,7 +130,7 @@ impl SpaceRoomList {
 
         let room_update_handle = client
             .task_monitor()
-            .spawn_background_task("space_room_list::room_updates", {
+            .spawn_infinite_task("space_room_list::room_updates", {
                 let client = client.clone();
                 let rooms = rooms.clone();
 
@@ -183,7 +183,7 @@ impl SpaceRoomList {
             let mut subscriber = parent.subscribe_info();
             let space_update_handle = client
                 .task_monitor()
-                .spawn_background_task("space_room_list::space_update", {
+                .spawn_infinite_task("space_room_list::space_update", {
                     let client = client.clone();
                     let space_id = space_id.clone();
                     let space_observable = space_observable.clone();
@@ -320,6 +320,7 @@ impl SpaceRoomList {
                                 self.client.get_room(&room.summary.room_id),
                                 room.children_state.len() as u64,
                                 vec![],
+                                false,
                             )),
                         );
                     }
@@ -330,15 +331,18 @@ impl SpaceRoomList {
                 children
                     .iter()
                     .map(|room| {
-                        let via = children_state
-                            .get(&room.summary.room_id)
-                            .map(|state| state.content.via.clone());
+                        let child_state = children_state.get(&room.summary.room_id);
+                        let via =
+                            child_state.map(|state| state.content.via.clone()).unwrap_or_default();
+                        let suggested =
+                            child_state.map(|state| state.content.suggested).unwrap_or(false);
 
                         SpaceRoom::new_from_summary(
                             &room.summary,
                             self.client.get_room(&room.summary.room_id),
                             room.children_state.len() as u64,
-                            via.unwrap_or_default(),
+                            via,
+                            suggested,
                         )
                     })
                     .sorted_by(|a, b| Self::compare_rooms(a, b, &children_state))
@@ -386,7 +390,10 @@ impl SpaceRoomList {
         let a_state = children_state.get(&a.room_id);
         let b_state = children_state.get(&b.room_id);
 
-        SpaceRoom::compare_rooms(a, b, a_state.map(Into::into), b_state.map(Into::into))
+        SpaceRoom::compare_rooms(
+            (&a.room_id, a_state.map(Into::into).as_ref()),
+            (&b.room_id, b_state.map(Into::into).as_ref()),
+        )
     }
 }
 
@@ -402,7 +409,7 @@ mod tests {
         JoinedRoomBuilder, LeftRoomBuilder, async_test, event_factory::EventFactory,
     };
     use ruma::{
-        OwnedRoomId, RoomId,
+        MilliSecondsSinceUnixEpoch, OwnedRoomId, RoomId,
         events::space::child::HierarchySpaceChildEvent,
         owned_room_id, owned_server_name,
         room::{JoinRuleSummary, RoomSummary},
@@ -410,6 +417,7 @@ mod tests {
     };
     use serde_json::{from_value, json};
     use stream_assert::{assert_next_eq, assert_next_matches, assert_pending, assert_ready};
+    use wiremock::ResponseTemplate;
 
     use crate::spaces::{
         SpaceRoom, SpaceRoomList, SpaceService, room_list::SpaceRoomListPaginationState,
@@ -505,6 +513,7 @@ mod tests {
                         None,
                         1,
                         vec![],
+                        false,
                     )
                 },
                 VectorDiff::PushBack {
@@ -519,6 +528,7 @@ mod tests {
                         None,
                         1,
                         vec![],
+                        false,
                     ),
                 }
             ]
@@ -736,6 +746,7 @@ mod tests {
                         None,
                         2,
                         vec![owned_server_name!("matrix-client.example.org")],
+                        false,
                     )
                 },
                 VectorDiff::PushBack {
@@ -750,9 +761,106 @@ mod tests {
                         None,
                         2,
                         vec![owned_server_name!("other-matrix-client.example.org")],
+                        false,
                     ),
                 }
             ]
+        );
+    }
+
+    #[async_test]
+    async fn test_suggested_field() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let space_service = SpaceService::new(client.clone()).await;
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id = room_id!("!parent_space:example.org");
+        let suggested_child = room_id!("!suggested:example.org");
+        let not_suggested_child = room_id!("!not_suggested:example.org");
+
+        let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
+
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
+        pin_mut!(rooms_subscriber);
+
+        // Mock a /hierarchy response where one child is suggested and the other is not.
+        let children_state = vec![
+            json!({
+                "type": "m.space.child",
+                "state_key": suggested_child,
+                "content": { "via": ["example.org"], "suggested": true },
+                "sender": "@admin:example.org",
+                "origin_server_ts": MilliSecondsSinceUnixEpoch::now()
+            }),
+            json!({
+                "type": "m.space.child",
+                "state_key": not_suggested_child,
+                "content": { "via": ["example.org"], "suggested": false },
+                "sender": "@admin:example.org",
+                "origin_server_ts": MilliSecondsSinceUnixEpoch::now()
+            }),
+        ];
+
+        server
+            .mock_get_hierarchy()
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "rooms": [
+                    {
+                        "room_id": parent_space_id,
+                        "num_joined_members": 1,
+                        "world_readable": false,
+                        "guest_can_join": false,
+                        "children_state": children_state
+                    },
+                    {
+                        "room_id": suggested_child,
+                        "num_joined_members": 5,
+                        "world_readable": false,
+                        "guest_can_join": false,
+                        "children_state": []
+                    },
+                    {
+                        "room_id": not_suggested_child,
+                        "num_joined_members": 3,
+                        "world_readable": false,
+                        "guest_can_join": false,
+                        "children_state": []
+                    },
+                ]
+            })))
+            .mount()
+            .await;
+
+        room_list.paginate().await.unwrap();
+
+        let rooms_diff = assert_next_matches!(rooms_subscriber, diff => diff);
+        assert_eq!(rooms_diff.len(), 2);
+
+        // Collect the rooms into a map for easier assertion.
+        let mut rooms_by_id = HashMap::new();
+        for diff in rooms_diff {
+            if let VectorDiff::PushBack { value } = diff {
+                rooms_by_id.insert(value.room_id.clone(), value);
+            } else {
+                panic!("Expected PushBack, got {:?}", diff);
+            }
+        }
+
+        // The child with "suggested": true should have suggested == true.
+        let suggested_room = rooms_by_id.get(suggested_child).expect("suggested child not found");
+        assert!(
+            suggested_room.suggested,
+            "Room with 'suggested: true' should have suggested == true"
+        );
+
+        // The child with "suggested": false should have suggested == false.
+        let not_suggested_room =
+            rooms_by_id.get(not_suggested_child).expect("not-suggested child not found");
+        assert!(
+            !not_suggested_room.suggested,
+            "Room with 'suggested: false' should have suggested == false"
         );
     }
 
@@ -961,6 +1069,7 @@ mod tests {
             state: None,
             heroes: None,
             via: vec![],
+            suggested: false,
         }
     }
 

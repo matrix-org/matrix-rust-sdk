@@ -117,6 +117,14 @@ pub enum QueuedRequestKind {
         #[serde(default)]
         accumulated: Vec<AccumulatedSentMediaInfo>,
     },
+
+    /// A redaction of another event to send.
+    Redaction {
+        /// The ID of the event to redact.
+        redacts: OwnedEventId,
+        /// The reason for the event being redacted.
+        reason: Option<String>,
+    },
 }
 
 impl From<SerializableEventContent> for QueuedRequestKind {
@@ -421,12 +429,27 @@ pub enum SentRequestKey {
 
     /// The parent transaction returned an uploaded resource URL.
     Media(SentMediaInfo),
+
+    /// The parent transaction returned a redaction event when it succeeded.
+    Redaction {
+        /// The event ID returned by the server.
+        event_id: OwnedEventId,
+
+        /// The ID of the redacted event.
+        redacts: OwnedEventId,
+
+        /// The reason for the event being redacted.
+        reason: Option<String>,
+    },
 }
 
 impl SentRequestKey {
     /// Converts the current parent key into an event id, if possible.
     pub fn into_event_id(self) -> Option<OwnedEventId> {
-        as_variant!(self, Self::Event { event_id, .. } => event_id)
+        match self {
+            Self::Event { event_id, .. } | Self::Redaction { event_id, .. } => Some(event_id),
+            _ => None,
+        }
     }
 
     /// Converts the current parent key into information about a sent media, if

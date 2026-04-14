@@ -30,7 +30,8 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, TransactionId, UInt,
     api::{
         Metadata,
-        client::{authenticated_media, error::ErrorKind, media},
+        client::{authenticated_media, media},
+        error::ErrorKind,
     },
     assign,
     events::room::{MediaSource, ThumbnailInfo},

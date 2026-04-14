@@ -12,14 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use futures_util::StreamExt;
-use matrix_sdk::{
-    encryption,
-    encryption::{backups, recovery},
-};
+use matrix_sdk::encryption::{self, backups, recovery};
+use matrix_sdk_base::crypto::types::{BackupSecrets, RoomKeyBackupInfo};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+use ruma::OwnedUserId;
+use serde::de::Error;
 use thiserror::Error;
 use tracing::{error, info};
 use zeroize::Zeroize;
@@ -236,6 +236,225 @@ impl From<encryption::VerificationState> for VerificationState {
             encryption::VerificationState::Unverified => Self::Unverified,
         }
     }
+}
+
+/// Struct containing the bundle of secrets to fully activate a new device for
+/// end-to-end encryption.
+#[derive(uniffi::Object)]
+pub struct SecretsBundleWithUserId {
+    user_id: OwnedUserId,
+    inner: matrix_sdk_base::crypto::types::SecretsBundle,
+}
+
+/// Result for the check if a store has a valid secrets bundle.
+#[derive(uniffi::Enum)]
+pub enum DetectedSecretsBundle {
+    /// The store doesn't contain a secrets bundle at all.
+    None,
+    /// The store contains a bundle without a backup.
+    WithoutBackup,
+    /// The store contains a bundle with an unused backup, the backup key in the
+    /// bundle isn't used on the homeserver.
+    UnusedBackup,
+    /// The store contains a complete secrets bundle.
+    Complete,
+}
+
+/// Error type describing failures that can happen while exporting a
+/// [`SecretsBundle`] from a SQLite store.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum BundleExportError {
+    /// The SQLite store couldn't be opened.
+    #[error("the store couldn't be opened: {msg}")]
+    OpenStoreError { msg: String },
+    /// Data from the SQLite store couldn't be exported.
+    #[error("the bundle couldn't be exported due to a storage error: {msg}")]
+    StoreError { msg: String },
+    /// The store doesn't contain a secrets bundle or it couldn't be read from
+    /// the store.
+    #[error("the bundle couldn't be exported: {msg}")]
+    SecretError { msg: String },
+    /// The store is empty and doesn't contain a secrets bundle.
+    #[error("the store is completely empty")]
+    StoreEmpty,
+    /// A JSON object couldn't be deserialized while the secrets bundle was
+    /// exported.
+    #[error("Couldn't deserialize a JSON value: {msg}")]
+    Json { msg: String },
+    /// Error returned when the secrets bundle is missing a backup key or
+    /// includes one that doesn’t match the key configured for the active backup
+    /// version.
+    #[error(
+        "The bundle is missing a backup key or has one that isn't the one that's currently used"
+    )]
+    InvalidBackup,
+}
+
+#[cfg(feature = "sqlite")]
+impl From<matrix_sdk::encryption::BundleExportError> for BundleExportError {
+    fn from(value: matrix_sdk::encryption::BundleExportError) -> Self {
+        match value {
+            matrix_sdk::encryption::BundleExportError::OpenStoreError(e) => {
+                BundleExportError::OpenStoreError { msg: e.to_string() }
+            }
+            matrix_sdk::encryption::BundleExportError::StoreError(e) => {
+                BundleExportError::StoreError { msg: e.to_string() }
+            }
+            matrix_sdk::encryption::BundleExportError::SecretExport(e) => {
+                BundleExportError::SecretError { msg: e.to_string() }
+            }
+        }
+    }
+}
+
+impl From<serde_json::Error> for BundleExportError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::Json { msg: value.to_string() }
+    }
+}
+
+#[cfg(feature = "sqlite")]
+#[matrix_sdk_ffi_macros::export]
+impl SecretsBundleWithUserId {
+    /// Attempt to export a [`SecretsBundle`] from a crypto store.
+    ///
+    /// This method can be used to retrieve a [`SecretsBundle`] from an existing
+    /// `matrix-sdk`-based client in order to import the [`SecretsBundle`] in
+    /// another [`Client`] instance.
+    ///
+    /// This can be useful for migration purposes or to allow existing client
+    /// instances create new ones that will be fully verified.
+    #[uniffi::constructor]
+    pub async fn from_database(
+        database_path: &str,
+        mut passphrase: Option<String>,
+        backup_info: &str,
+    ) -> Result<Arc<Self>, BundleExportError> {
+        let backup_info = serde_json::from_str(backup_info)?;
+
+        let ret = if let Some((user_id, bundle)) =
+            matrix_sdk::encryption::export_secrets_bundle_from_store(
+                database_path,
+                passphrase.as_deref(),
+            )
+            .await?
+        {
+            let is_backup_ok =
+                bundle.backup.as_ref().is_some_and(|backup| is_valid_backup(backup, &backup_info));
+
+            if is_backup_ok {
+                Ok(SecretsBundleWithUserId { user_id, inner: bundle }.into())
+            } else {
+                Err(BundleExportError::InvalidBackup)
+            }
+        } else {
+            Err(BundleExportError::StoreEmpty)
+        };
+
+        passphrase.zeroize();
+
+        ret
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl SecretsBundleWithUserId {
+    /// Attempt to create a [`SecretsBundle`] from a previously JSON serialized
+    /// bundle.
+    #[uniffi::constructor]
+    pub fn from_str(
+        user_id: &str,
+        bundle: &str,
+        backup_info: &str,
+    ) -> Result<Arc<Self>, BundleExportError> {
+        let user_id =
+            OwnedUserId::from_str(user_id).map_err(|e| serde_json::Error::custom(e.to_string()))?;
+        let bundle: matrix_sdk_base::crypto::types::SecretsBundle = serde_json::from_str(bundle)?;
+        let backup_info = serde_json::from_str(backup_info)?;
+
+        let is_backup_ok =
+            bundle.backup.as_ref().is_some_and(|backup| is_valid_backup(backup, &backup_info));
+
+        if is_backup_ok {
+            Ok(Self { user_id, inner: bundle }.into())
+        } else {
+            Err(BundleExportError::InvalidBackup)
+        }
+    }
+
+    /// Does the bundle contain a backup key.
+    ///
+    /// Since enabling a backup is optional, the backup key might be missing
+    /// from the bundle. Returns `false` if the backup key is missing,
+    /// otherwise `true`.
+    pub fn contains_backup_key(&self) -> bool {
+        self.inner.backup.is_some()
+    }
+}
+
+fn is_valid_backup(secrets: &BackupSecrets, info: &RoomKeyBackupInfo) -> bool {
+    match secrets {
+        BackupSecrets::MegolmBackupV1Curve25519AesSha2(secrets) => {
+            secrets.key.backup_key_matches(info)
+        }
+    }
+}
+
+fn check_bundle_and_info(
+    bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
+    info: Option<&RoomKeyBackupInfo>,
+) -> DetectedSecretsBundle {
+    match (&bundle.backup, info) {
+        (None, None) => DetectedSecretsBundle::WithoutBackup,
+        (None, Some(_)) => DetectedSecretsBundle::WithoutBackup,
+        (Some(_), None) => DetectedSecretsBundle::UnusedBackup,
+        (Some(backup), Some(info)) => {
+            if is_valid_backup(backup, info) {
+                DetectedSecretsBundle::Complete
+            } else {
+                DetectedSecretsBundle::UnusedBackup
+            }
+        }
+    }
+}
+
+/// Check if a JSON encoded string contains a valid [`SecretsBundle`].
+#[uniffi::export]
+pub fn json_string_contains_secrets_bundle(
+    bundle: &str,
+    backup_info: Option<String>,
+) -> Result<DetectedSecretsBundle, ClientError> {
+    let info: Option<RoomKeyBackupInfo> =
+        backup_info.map(|info| serde_json::from_str(&info)).transpose()?;
+
+    let bundle: matrix_sdk_base::crypto::types::SecretsBundle = serde_json::from_str(bundle)?;
+
+    Ok(check_bundle_and_info(&bundle, info.as_ref()))
+}
+
+/// Check if a crypto store contains a valid [`SecretsBundle`].
+#[cfg(feature = "sqlite")]
+#[matrix_sdk_ffi_macros::export]
+pub async fn database_contains_secrets_bundle(
+    database_path: &str,
+    mut passphrase: Option<String>,
+    backup_info: Option<String>,
+) -> Result<DetectedSecretsBundle, BundleExportError> {
+    let info: Option<RoomKeyBackupInfo> =
+        backup_info.map(|info| serde_json::from_str(&info)).transpose()?;
+
+    let maybe_bundle = matrix_sdk::encryption::export_secrets_bundle_from_store(
+        database_path,
+        passphrase.as_deref(),
+    )
+    .await?;
+
+    passphrase.zeroize();
+
+    Ok(match maybe_bundle {
+        Some((_, bundle)) => check_bundle_and_info(&bundle, info.as_ref()),
+        None => DetectedSecretsBundle::None,
+    })
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -503,6 +722,43 @@ impl Encryption {
             Ok(identity.map(|identity| Arc::new(UserIdentity { inner: identity })))
         } else {
             Ok(None)
+        }
+    }
+
+    /// This method will import all the private cross-signing keys and
+    /// the private part of a backup key and its accompanying version into the
+    /// store.
+    ///
+    /// Importing all the secrets will mark the device as verified and enable
+    /// backups.
+    ///
+    /// **Warning**: Only import this from a trusted source, i.e. if an existing
+    /// device is sharing this with a new device.
+    ///
+    /// **Warning*: Only call this method right after logging in and before the
+    /// initial sync has been started.
+    pub async fn import_secrets_bundle(
+        &self,
+        secrets_bundle: &SecretsBundleWithUserId,
+    ) -> Result<(), ClientError> {
+        let user_id = self._client.inner.user_id().expect(
+            "We should have a user ID available now, this is only called once we're logged in",
+        );
+
+        if user_id == secrets_bundle.user_id {
+            self.inner
+                .import_secrets_bundle(&secrets_bundle.inner)
+                .await
+                .map_err(ClientError::from_err)?;
+
+            self.inner.wait_for_e2ee_initialization_tasks().await;
+
+            Ok(())
+        } else {
+            Err(ClientError::Generic {
+                msg: "Secrets bundle does not belong to the user which was logged in".to_owned(),
+                details: None,
+            })
         }
     }
 }

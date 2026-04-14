@@ -26,7 +26,7 @@ pub fn new_filter(filter: BoxedFilterFn) -> impl Filter {
 mod tests {
     use std::ops::Not;
 
-    use matrix_sdk::test_utils::logged_in_client_with_server;
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
@@ -34,7 +34,8 @@ mod tests {
 
     #[async_test]
     async fn test_true() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter = Box::new(|_: &_| true);
@@ -45,7 +46,8 @@ mod tests {
 
     #[async_test]
     async fn test_false() {
-        let (client, server) = logged_in_client_with_server().await;
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
         let filter = Box::new(|_: &_| false);

@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2023, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -32,6 +32,8 @@ mod v0_to_v5;
 mod v101_to_v102;
 mod v102_to_v103;
 mod v103_to_v104;
+mod v104_to_v105;
+mod v105_to_v107;
 mod v10_to_v11;
 mod v11_to_v12;
 mod v12_to_v13;
@@ -201,6 +203,20 @@ pub async fn open_and_upgrade_db(
         v103_to_v104::schema_add(name).await?;
     }
 
+    if old_version < 105 {
+        v104_to_v105::data_migrate(name, serializer).await?;
+        v104_to_v105::schema_bump(name).await?;
+    }
+
+    if old_version < 106 {
+        v105_to_v107::schema_add(name).await?;
+    }
+
+    if old_version < 107 {
+        v105_to_v107::data_migrate(name, serializer).await?;
+        v105_to_v107::schema_delete(name).await?;
+    }
+
     // If you add more migrations here, you'll need to update
     // `tests::EXPECTED_SCHEMA_VERSION`.
 
@@ -305,7 +321,7 @@ mod tests {
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
     /// The schema version we expect after we open the store.
-    const EXPECTED_SCHEMA_VERSION: u32 = 104;
+    const EXPECTED_SCHEMA_VERSION: u32 = 107;
 
     /// Adjust this to test do a more comprehensive perf test
     const NUM_RECORDS_FOR_PERF: usize = 2_000;
@@ -899,6 +915,105 @@ mod tests {
             .unwrap()
             .expect("Should find a withheld entry in migrated data");
         assert_eq!(withheld_entry.content.withheld_code(), WithheldCode::Blacklisted)
+    }
+
+    /// Test migrating `secrets_inbox` data from store v105 to latest,
+    /// on a store with encryption disabled.
+    #[async_test]
+    async fn test_v105_v107_migration_unencrypted() {
+        test_v105_v107_migration_with_cipher("test_v107_migration_unencrypted", None).await
+    }
+
+    /// Test migrating `secrets_inbox` data from store v105 to latest,
+    /// on a store with encryption enabled.
+    #[async_test]
+    async fn test_v105_v107_migration_encrypted() {
+        let cipher = StoreCipher::new().unwrap();
+        test_v105_v107_migration_with_cipher(
+            "test_v107_migration_encrypted",
+            Some(Arc::new(cipher)),
+        )
+        .await;
+    }
+
+    /// Helper function for `test_v105_v107_migration_{un,}encrypted`: test
+    /// migrating `secrets_inbox` data from store v105 to store v107.
+    async fn test_v105_v107_migration_with_cipher(
+        db_prefix: &str,
+        store_cipher: Option<Arc<StoreCipher>>,
+    ) {
+        use std::ops::Deref;
+
+        use matrix_sdk_crypto::{
+            GossipRequest, GossippedSecret, SecretInfo,
+            types::events::{
+                olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
+                secret_send::SecretSendContent,
+            },
+        };
+        use ruma::{TransactionId, events::secret::request::SecretName};
+
+        let serializer = SafeEncodeSerializer::new(store_cipher.clone());
+
+        let _ = make_tracing_subscriber(None).try_init();
+        let db_name = format!("{db_prefix:0}::matrix-sdk-crypto");
+
+        // delete the db in case it was used in a previous run
+        let _ = Database::delete_by_name(&db_name).unwrap().await.unwrap();
+
+        // Given a DB with data in it as it was at v5
+        {
+            let db = create_v5_db(&db_name).await.unwrap();
+            let txn = db
+                .transaction(old_keys::SECRETS_INBOX_V1)
+                .with_mode(TransactionMode::Readwrite)
+                .build()
+                .unwrap();
+            let store = txn.object_store(old_keys::SECRETS_INBOX_V1).unwrap();
+
+            let gossipped_secret = GossippedSecret {
+                secret_name: SecretName::CrossSigningMasterKey,
+                gossip_request: GossipRequest {
+                    request_recipient: owned_user_id!("@alice:example.com"),
+                    request_id: TransactionId::new(),
+                    info: SecretInfo::SecretRequest(SecretName::CrossSigningMasterKey),
+                    sent_out: true,
+                },
+                event: DecryptedSecretSendEvent {
+                    sender: owned_user_id!("@alice:example.com"),
+                    recipient: owned_user_id!("@alice:example.com"),
+                    keys: OlmV1Keys { ed25519: Ed25519SecretKey::new().public_key() },
+                    recipient_keys: OlmV1Keys { ed25519: Ed25519SecretKey::new().public_key() },
+                    sender_device_keys: None,
+                    content: SecretSendContent::new(
+                        "abc".into(),
+                        "It is a secret to everybody".to_owned(),
+                    ),
+                },
+            };
+
+            let key = serializer.encode_key(
+                old_keys::SECRETS_INBOX_V1,
+                (
+                    gossipped_secret.secret_name.to_string(),
+                    gossipped_secret.gossip_request.request_id.to_string(),
+                ),
+            );
+            let value = serializer.serialize_value(&gossipped_secret).unwrap();
+            store.add(value).with_key(key).build().unwrap();
+            txn.commit().await.unwrap();
+            db.close();
+        }
+
+        // When I open a store based on that DB, triggering an upgrade
+        let store =
+            IndexeddbCryptoStore::open_with_store_cipher(&db_prefix, store_cipher).await.unwrap();
+
+        // Then I can read the secrets inbox
+        let secrets =
+            store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
+        assert_eq!(secrets.len(), 1);
+        assert_eq!(secrets[0].deref(), "It is a secret to everybody");
     }
 
     async fn create_v5_db(name: &str) -> std::result::Result<Database, OpenDbError> {

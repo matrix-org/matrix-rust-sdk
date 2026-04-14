@@ -7,12 +7,18 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased] - ReleaseDate
 
 ### Features
+
+- A background task monitor has been added, that can spawn background tasks and monitor their
+  execution on a separate channel. Such tasks can run forever, or they can run for one-shot jobs.
+  ([#6075](https://github.com/matrix-org/matrix-rust-sdk/pull/6075) &&
+  [#6421](https://github.com/matrix-org/matrix-rust-sdk/pull/6421))
+- Add `AcquireCrossProcessLockResult` and `AcquireCrossProcessLockFn`
+  for convenience in generalizing cross-process lock acquisition.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - Add support in the `MemoryStore`'s implementation of `EventCacheStore` for
   having duplicate events in a room, where each duplicate is in a different
   `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
   thread in that room.
-
-
 - [**breaking**] In order to support having duplicate events in the same room (in different `LinkedChunk`'s) a few
   functions were changed in `RelationalLinkedChunk`. The items in the `Iterator` returned by `RelationalLinkedChunk::items`
   now also include the `LinkedChunkId` in which the `Item` was found. Additionally, `RelationalLinkedChunk::save_item`

@@ -3,10 +3,10 @@ use std::{collections::HashMap, iter, ops::DerefMut, sync::Arc};
 use hmac::Hmac;
 use matrix_sdk_crypto::{
     backups::DecryptionError,
-    store::{types::BackupDecryptionKey, CryptoStoreError as InnerStoreError},
+    store::{CryptoStoreError as InnerStoreError, types::BackupDecryptionKey},
 };
 use pbkdf2::pbkdf2;
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use rand::{RngExt, distr::Alphanumeric, rng};
 use sha2::Sha512;
 use thiserror::Error;
 use zeroize::Zeroize;
@@ -75,11 +75,7 @@ impl BackupRecoveryKey {
     #[allow(clippy::new_without_default)]
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self {
-            inner: BackupDecryptionKey::new()
-                .expect("Can't gather enough randomness to create a recovery key"),
-            passphrase_info: None,
-        })
+        Arc::new(Self { inner: BackupDecryptionKey::new(), passphrase_info: None })
     }
 
     /// Try to create a [`BackupRecoveryKey`] from a base 64 encoded string.
@@ -97,7 +93,7 @@ impl BackupRecoveryKey {
     /// Create a new [`BackupRecoveryKey`] from the given passphrase.
     #[uniffi::constructor]
     pub fn new_from_passphrase(passphrase: String) -> Arc<Self> {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let salt: String = iter::repeat(())
             .map(|()| rng.sample(Alphanumeric))
             .map(char::from)

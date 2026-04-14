@@ -27,7 +27,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use pbkdf2::pbkdf2;
-use rand::{Rng, thread_rng};
+use rand::{Rng, rng};
 use sha2::{
     Sha256, Sha512,
     digest::{FixedOutputReset, Update},
@@ -488,18 +488,18 @@ impl EncryptedMmapDirectory {
     /// Generate a random IV.
     fn generate_iv() -> Result<[u8; IV_SIZE], IoError> {
         let mut iv = [0u8; IV_SIZE];
-        let mut rng = thread_rng();
-        rng.try_fill(&mut iv[..])
-            .map_err(|e| IoError::other(format!("error generating iv: {:?}", e)))?;
+        let mut rng = rng();
+        rng.fill_bytes(&mut iv[..]);
+
         Ok(iv)
     }
 
     /// Generate a random key.
     fn generate_key() -> Result<KeyBuffer, IoError> {
         let mut key = Zeroizing::new(vec![0u8; KEY_SIZE]);
-        let mut rng = thread_rng();
-        rng.try_fill(&mut key[..])
-            .map_err(|e| IoError::other(format!("error generating key: {:?}", e)))?;
+        let mut rng = rng();
+        rng.fill_bytes(&mut key[..]);
+
         Ok(key)
     }
 
@@ -523,10 +523,9 @@ impl EncryptedMmapDirectory {
         passphrase: &str,
         pbkdf_count: u32,
     ) -> Result<InitialKeyDerivationResult, IoError> {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mut salt = vec![0u8; SALT_SIZE];
-        rng.try_fill(&mut salt[..])
-            .map_err(|e| IoError::other(format!("error generating salt: {:?}", e)))?;
+        rng.fill_bytes(&mut salt[..]);
 
         let (key, hmac_key) = EncryptedMmapDirectory::rederive_key(passphrase, &salt, pbkdf_count)
             .map_err(|e| IoError::other(format!("error deriving key: {:?}", e)))?;

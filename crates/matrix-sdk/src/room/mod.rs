@@ -78,31 +78,33 @@ use ruma::events::{
 use ruma::{
     EventId, Int, MatrixToUri, MatrixUri, MxcUri, OwnedEventId, OwnedRoomId, OwnedServerName,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UInt, UserId,
-    api::client::{
-        config::{set_global_account_data, set_room_account_data},
-        context,
-        error::ErrorKind,
-        filter::LazyLoadOptions,
-        membership::{
-            Invite3pid, ban_user, forget_room, get_member_events,
-            invite_user::{
-                self,
-                v3::{InvitationRecipient, InviteUserId},
+    api::{
+        client::{
+            config::{set_global_account_data, set_room_account_data},
+            context,
+            filter::LazyLoadOptions,
+            membership::{
+                Invite3pid, ban_user, forget_room, get_member_events,
+                invite_user::{
+                    self,
+                    v3::{InvitationRecipient, InviteUserId},
+                },
+                kick_user, leave_room, unban_user,
             },
-            kick_user, leave_room, unban_user,
+            message::send_message_event,
+            read_marker::set_read_marker,
+            receipt::create_receipt,
+            redact::redact_event,
+            room::{get_room_event, report_content, report_room},
+            state::{get_state_event_for_key, send_state_event},
+            tag::{create_tag, delete_tag},
+            threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
+            typing::create_typing_event::{
+                self,
+                v3::{Typing, TypingInfo},
+            },
         },
-        message::send_message_event,
-        read_marker::set_read_marker,
-        receipt::create_receipt,
-        redact::redact_event,
-        room::{get_room_event, report_content, report_room},
-        state::{get_state_event_for_key, send_state_event},
-        tag::{create_tag, delete_tag},
-        threads::{get_thread_subscription, subscribe_thread, unsubscribe_thread},
-        typing::create_typing_event::{
-            self,
-            v3::{Typing, TypingInfo},
-        },
+        error::ErrorKind,
     },
     assign,
     events::{
@@ -179,7 +181,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
-    live_location_share::ObservableLiveLocation,
+    live_location_share::LiveLocationShares,
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::{
@@ -713,6 +715,17 @@ impl Room {
         &self,
     ) -> Result<impl Stream<Item = Vec<IdentityStatusChange>> + use<>> {
         IdentityStatusChanges::create_stream(self.clone()).await
+    }
+
+    /// Subscribes to active live location shares in this room.
+    ///
+    /// Returns a [`LiveLocationShares`] that holds the current state and
+    /// exposes a stream of incremental [`eyeball_im::VectorDiff`] updates via
+    /// [`LiveLocationShares::subscribe`].
+    ///
+    /// Event handlers are active for as long as the returned struct is alive.
+    pub async fn live_location_shares(&self) -> LiveLocationShares {
+        LiveLocationShares::new(self.clone()).await
     }
 
     /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
@@ -2381,13 +2394,12 @@ impl Room {
     // TODO: expose this publicly so people can pre-share a group session if
     // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all, fields(room_id = ?self.room_id(), store_generation))]
+    #[instrument(skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
         self.ensure_room_joined()?;
 
         // Take and release the lock on the store, if needs be.
-        let guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
-        tracing::Span::current().record("store_generation", guard.map(|guard| guard.generation()));
+        let _guard = self.client.encryption().spin_lock_store(Some(60000)).await?;
 
         self.client
             .locks()
@@ -4072,17 +4084,6 @@ impl Room {
                 _ => Err(http_error.into()),
             },
         }
-    }
-
-    /// Observe live location sharing events for this room.
-    ///
-    /// The returned observable will receive the newest event for each sync
-    /// response that contains an `m.beacon` event.
-    ///
-    /// Returns a stream of [`ObservableLiveLocation`] events from other users
-    /// in the room, excluding the live location events of the room's own user.
-    pub fn observe_live_location_shares(&self) -> ObservableLiveLocation {
-        ObservableLiveLocation::new(&self.client, self.room_id())
     }
 
     /// Subscribe to knock requests in this `Room`.

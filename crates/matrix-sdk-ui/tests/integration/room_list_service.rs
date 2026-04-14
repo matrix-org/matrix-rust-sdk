@@ -5,17 +5,10 @@ use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, RoomDisplayName,
-    config::RequestConfig,
-    test_utils::{
-        logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
-        set_client_session, test_client_builder,
-    },
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_base::sync::UnreadNotificationsCount;
-use matrix_sdk_test::{
-    ALICE, async_test, event_factory::EventFactory, mocks::mock_encryption_state,
-};
+use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::{
     RoomListService,
     room_list_service::{
@@ -30,19 +23,15 @@ use ruma::{
     owned_mxc_uri, room_id,
     time::{Duration, Instant},
 };
-use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::TempDir;
 use tokio::{spawn, sync::Barrier, task::yield_now, time::sleep};
-use wiremock::{
-    Mock, MockServer, ResponseTemplate,
-    matchers::{header, method, path},
-};
 
 use crate::timeline::sliding_sync::{assert_timeline_stream, timeline_event};
 
-async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService), Error> {
-    let (client, server) = logged_in_client_with_server().await;
+async fn new_room_list_service() -> Result<(Client, MatrixMockServer, RoomListService), Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let room_list = RoomListService::new(client.clone()).await?;
 
     Ok((client, server, room_list))
@@ -50,15 +39,10 @@ async fn new_room_list_service() -> Result<(Client, MockServer, RoomListService)
 
 async fn new_persistent_room_list_service(
     store_path: &std::path::Path,
-) -> Result<(MockServer, RoomListService), Error> {
-    let server = MockServer::start().await;
-    let client = test_client_builder(Some(server.uri().to_string()))
-        .request_config(RequestConfig::new().disable_retry())
-        .sqlite_store(store_path, None)
-        .build()
-        .await
-        .unwrap();
-    set_client_session(&client).await;
+) -> Result<(MatrixMockServer, RoomListService), Error> {
+    let server = MatrixMockServer::new().await;
+    let client =
+        server.client_builder().on_builder(|b| b.sqlite_store(store_path, None)).build().await;
 
     let room_list = RoomListService::new(client.clone()).await?;
 
@@ -378,6 +362,7 @@ async fn test_sync_all_states() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2349,6 +2334,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2391,6 +2377,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2415,6 +2402,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2462,6 +2450,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                     ],
                     "filters": {},
                     "timeline_limit": 1,
@@ -2486,6 +2475,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2508,6 +2498,7 @@ async fn test_room_subscription() -> Result<(), Error> {
                         ["io.element.functional_members", ""],
                         ["m.space.parent", "*"],
                         ["m.space.child", "*"],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                         ["m.room.pinned_events", ""],
                     ],
                     "timeline_limit": 20,
@@ -2631,7 +2622,7 @@ async fn test_room_timeline() -> Result<(), Error> {
         },
     };
 
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
     let room = room_list.room(room_id)?;
     let timeline = room.timeline_builder().build().await.unwrap();
@@ -2682,16 +2673,9 @@ async fn test_room_timeline() -> Result<(), Error> {
 #[async_test]
 async fn test_room_empty_timeline() {
     let (client, server, room_list) = new_room_list_service().await.unwrap();
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
-    Mock::given(method("POST"))
-        .and(path("_matrix/client/r0/createRoom"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!({ "room_id": "!example:localhost"})),
-        )
-        .mount(&server)
-        .await;
+    server.mock_create_room().ok().mount().await;
 
     let room = client.create_room(CreateRoomRequest::default()).await.unwrap();
     let room_id = room.room_id().to_owned();
@@ -2709,7 +2693,7 @@ async fn test_room_empty_timeline() {
 #[async_test]
 async fn test_room_latest_event() -> Result<(), Error> {
     let (client, server, room_list) = new_room_list_service().await?;
-    mock_encryption_state(&server, false).await;
+    server.mock_room_state_encryption().plain().mount().await;
 
     let sync = room_list.sync();
     pin_mut!(sync);
@@ -3099,6 +3083,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                             [ "io.element.functional_members", "", ],
                             [ "m.space.parent", "*", ],
                             [ "m.space.child", "*", ],
+                            ["org.matrix.msc3672.beacon_info", "*"],
                         ],
                         "timeline_limit": 1,
                     },
@@ -3196,6 +3181,7 @@ async fn test_thread_subscriptions_extension_enabled_only_if_server_advertises_i
                         [ "io.element.functional_members", "", ],
                         [ "m.space.parent", "*", ],
                         [ "m.space.child", "*", ],
+                        ["org.matrix.msc3672.beacon_info", "*"],
                     ],
                     "timeline_limit": 1,
                 },

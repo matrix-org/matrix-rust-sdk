@@ -22,7 +22,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     io::{Cursor, Read, Write},
     iter,
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -38,12 +38,17 @@ use futures_util::{
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
-    cross_process_lock::CrossProcessLockError,
+    cross_process_lock::{
+        AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError, CrossProcessLockState,
+    },
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
-        store::types::{RoomKeyBundleInfo, RoomKeyInfo},
+        store::{
+            LockableCryptoStore, SecretImportError,
+            types::{RoomKeyBundleInfo, RoomKeyInfo},
+        },
         types::{
-            SignedKey,
+            SecretsBundle, SignedKey,
             requests::{
                 OutgoingRequest, OutgoingVerificationRequest, RoomMessageRequest, ToDeviceRequest,
             },
@@ -54,17 +59,19 @@ use matrix_sdk_base::{
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
     DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedUserId, TransactionId, UserId,
-    api::client::{
+    api::{
+        client::{
+            keys::{
+                get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
+                upload_signing_keys::v3::Request as UploadSigningKeysRequest,
+            },
+            message::send_message_event,
+            to_device::send_event_to_device::v3::{
+                Request as RumaToDeviceRequest, Response as ToDeviceResponse,
+            },
+            uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
+        },
         error::{ErrorBody, StandardErrorBody},
-        keys::{
-            get_keys, upload_keys, upload_signatures::v3::Request as UploadSignaturesRequest,
-            upload_signing_keys::v3::Request as UploadSigningKeysRequest,
-        },
-        message::send_message_event,
-        to_device::send_event_to_device::v3::{
-            Request as RumaToDeviceRequest, Response as ToDeviceResponse,
-        },
-        uiaa::{AuthData, AuthType, OAuthParams, UiaaInfo},
     },
     assign,
     events::room::{
@@ -109,8 +116,8 @@ pub mod verification;
 
 pub use matrix_sdk_base::crypto::{
     CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
-    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SecretImportError,
-    SessionCreationError, SignatureError, VERSION,
+    MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SessionCreationError,
+    SignatureError, VERSION,
     olm::{
         SessionCreationError as MegolmSessionCreationError,
         SessionExportError as OlmSessionExportError,
@@ -122,6 +129,67 @@ use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::config::RequestConfig;
 pub use crate::error::RoomKeyImportError;
+
+/// Error type describing failures that can happen while exporting a
+/// [`SecretsBundle`] from a SQLite store.
+#[cfg(feature = "sqlite")]
+#[derive(Debug, thiserror::Error)]
+pub enum BundleExportError {
+    /// The SQLite store couldn't be opened.
+    #[error(transparent)]
+    OpenStoreError(#[from] matrix_sdk_sqlite::OpenStoreError),
+    /// Data from the SQLite store couldn't be exported.
+    #[error(transparent)]
+    StoreError(#[from] CryptoStoreError),
+    /// The store doesn't contain a secrets bundle or it couldn't be read from
+    /// the store.
+    #[error(transparent)]
+    SecretExport(#[from] matrix_sdk_base::crypto::store::SecretsBundleExportError),
+}
+
+/// Error type describing failures that can happen while importing a
+/// [`SecretsBundle`].
+#[derive(Debug, thiserror::Error)]
+pub enum BundleImportError {
+    /// The bundle couldn't be imported.
+    #[error(transparent)]
+    SecretImport(#[from] SecretImportError),
+    /// The cross-signed device keys couldn't been uploaded.
+    #[error(transparent)]
+    DeviceKeys(#[from] Error),
+}
+
+/// Attempt to export a [`SecretsBundle`] from a crypto store.
+///
+/// This method can be used to retrieve a [`SecretsBundle`] from an existing
+/// `matrix-sdk`-based client in order to import the [`SecretsBundle`] in
+/// another [`Client`] instance.
+///
+/// This can be useful for migration purposes or to allow existing client
+/// instances create new ones that will be fully verified.
+#[cfg(feature = "sqlite")]
+pub async fn export_secrets_bundle_from_store(
+    database_path: impl AsRef<Path>,
+    passphrase: Option<&str>,
+) -> std::result::Result<Option<(OwnedUserId, SecretsBundle)>, BundleExportError> {
+    use matrix_sdk_base::crypto::store::CryptoStore;
+
+    let store = matrix_sdk_sqlite::SqliteCryptoStore::open(database_path, passphrase).await?;
+    let account =
+        store.load_account().await.map_err(|e| BundleExportError::StoreError(e.into()))?;
+
+    if let Some(account) = account {
+        let machine = OlmMachine::with_store(&account.user_id, &account.device_id, store, None)
+            .await
+            .map_err(BundleExportError::StoreError)?;
+
+        let bundle = machine.store().export_secrets_bundle().await?;
+
+        Ok(Some((account.user_id.to_owned(), bundle)))
+    } else {
+        Ok(None)
+    }
+}
 
 /// All the data related to the encryption state.
 pub(crate) struct EncryptionData {
@@ -238,20 +306,6 @@ pub enum VerificationState {
     Verified,
     /// The device is unverified.
     Unverified,
-}
-
-/// Wraps together a `CrossProcessLockStoreGuard` and a generation number.
-#[derive(Debug)]
-pub struct CrossProcessLockStoreGuardWithGeneration {
-    _guard: CrossProcessLockGuard,
-    generation: u64,
-}
-
-impl CrossProcessLockStoreGuardWithGeneration {
-    /// Return the Crypto Store generation associated with this store lock.
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
 }
 
 /// A stateful struct remembering the cross-signing keys we need to upload.
@@ -862,9 +916,43 @@ impl Encryption {
         }
     }
 
-    pub(crate) async fn import_secrets_bundle(
+    /// This method will import all the private cross-signing keys and, if
+    /// available, the private part of a backup key and its accompanying
+    /// version into the store.
+    ///
+    /// Importing all the secrets will mark the device as verified and enable
+    /// backups if a backup key was available in the bundle.
+    ///
+    /// **Warning**: Only import this from a trusted source, i.e. if an existing
+    /// device is sharing this with a new device.
+    ///
+    /// **Warning*: Only call this method right after logging in and before the
+    /// initial sync has been started.
+    pub async fn import_secrets_bundle(
         &self,
-        bundle: &matrix_sdk_base::crypto::types::SecretsBundle,
+        bundle: &SecretsBundle,
+    ) -> Result<(), BundleImportError> {
+        self.import_secrets_bundle_impl(bundle).await?;
+
+        // Upload the device keys, this will ensure that other devices see us as a fully
+        // verified device as soon as this method returns.
+        self.ensure_device_keys_upload().await?;
+        self.wait_for_e2ee_initialization_tasks().await;
+
+        // If our initialization tasks completed before we imported the secrets bundle,
+        // backups might not have been enabled.
+        //
+        // In this case attempt to enable them again.
+        if !self.backups().are_enabled().await {
+            self.backups().maybe_resume_backups().await?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn import_secrets_bundle_impl(
+        &self,
+        bundle: &SecretsBundle,
     ) -> Result<(), SecretImportError> {
         let olm_machine = self.client.olm_machine().await;
         let olm_machine =
@@ -1268,7 +1356,7 @@ impl Encryption {
     /// if let Err(e) = client.encryption().bootstrap_cross_signing(None).await {
     ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = response.session.clone();
@@ -1431,7 +1519,7 @@ impl Encryption {
     /// if let Err(e) = client.encryption().bootstrap_cross_signing_if_needed(None).await {
     ///     if let Some(response) = e.as_uiaa_response() {
     ///         let mut password = uiaa::Password::new(
-    ///             uiaa::UserIdentifier::UserIdOrLocalpart("example".to_owned()),
+    ///             uiaa::UserIdentifier::Matrix(uiaa::MatrixUserIdentifier::new("example".to_owned())),
     ///             "wordpass".to_owned(),
     ///         );
     ///         password.session = response.session.clone();
@@ -1729,22 +1817,6 @@ impl Encryption {
             CrossProcessLockConfig::multi_process(lock_value.to_owned()),
         );
 
-        // Gently try to initialize the crypto store generation counter.
-        //
-        // If we don't get the lock immediately, then it is already acquired by another
-        // process, and we'll get to reload next time we acquire the lock.
-        {
-            let lock_result = lock.try_lock_once().await?;
-
-            if lock_result.is_ok() {
-                olm_machine
-                    .initialize_crypto_store_generation(
-                        &self.client.locks().crypto_store_generation,
-                    )
-                    .await?;
-            }
-        }
-
         self.client
             .locks()
             .cross_process_crypto_store_lock
@@ -1754,84 +1826,52 @@ impl Encryption {
         Ok(())
     }
 
-    /// Maybe reload the `OlmMachine` after acquiring the lock for the first
-    /// time.
-    ///
-    /// Returns the current generation number.
-    async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
-        let olm_machine_guard = self.client.olm_machine().await;
-        if let Some(olm_machine) = olm_machine_guard.as_ref() {
-            let (new_gen, generation_number) = olm_machine
-                .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
-                .await?;
-            // If the crypto store generation has changed,
-            if new_gen {
-                // (get rid of the reference to the current crypto store first)
-                drop(olm_machine_guard);
-                // Recreate the OlmMachine.
-                self.client.base_client().regenerate_olm(None).await?;
-            }
-            Ok(generation_number)
-        } else {
-            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
-            // been initialised by the time we get here. Ideally we'd panic, or return an
-            // error, but for now I'm just adding some logging to check if it
-            // happens, and returning the magic number 0.
-            warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
-            Ok(0)
-        }
-    }
-
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
     /// spin-waits until the lock is available.
     ///
     /// May reload the `OlmMachine`, after obtaining the lock but not on the
     /// first time.
+    ///
+    /// Returns a guard to the lock, if it was obtained.
     pub async fn spin_lock_store(
         &self,
         max_backoff: Option<u32>,
-    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
-        if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let guard = lock
-                .spin_lock(max_backoff)
-                .await
-                .map_err(|err| {
-                    Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(
-                        Arc::new(err),
-                    )))
-                })?
-                .map_err(|err| Error::CrossProcessLockError(Box::new(err.into())))?;
-
-            let generation = self.on_lock_newly_acquired().await?;
-
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration {
-                _guard: guard.into_guard(),
-                generation,
-            }))
-        } else {
-            Ok(None)
-        }
+    ) -> Result<Option<CrossProcessLockGuard>, Error> {
+        self.lock_store(async move |lock| lock.spin_lock(max_backoff).await).await
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
     /// attempts to lock it once.
     ///
+    /// May reload the `OlmMachine`, after obtaining the lock but not on the
+    /// first time.
+    ///
     /// Returns a guard to the lock, if it was obtained.
-    pub async fn try_lock_store_once(
+    pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessLockGuard>, Error> {
+        self.lock_store(CrossProcessLock::try_lock_once).await
+    }
+
+    /// If a lock was created with [`Self::enable_cross_process_store_lock`],
+    /// locks the store with the given function, `acquire`.
+    ///
+    /// Reloads the `OlmMachine` after obtaining the lock, if the lock is dirty.
+    ///
+    /// Returns a guard to the lock if it was obtained.
+    pub async fn lock_store<F: AcquireCrossProcessLockFn<LockableCryptoStore>>(
         &self,
-    ) -> Result<Option<CrossProcessLockStoreGuardWithGeneration>, Error> {
+        acquire: F,
+    ) -> Result<Option<CrossProcessLockGuard>, Error> {
+        let wrap_err = |e: CryptoStoreError| {
+            Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
+        };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            let lock_result = lock.try_lock_once().await?;
-
-            let Some(guard) = lock_result.ok() else {
-                return Ok(None);
-            };
-
-            let generation = self.on_lock_newly_acquired().await?;
-
-            Ok(Some(CrossProcessLockStoreGuardWithGeneration {
-                _guard: guard.into_guard(),
-                generation,
+            Ok(Some(match acquire(lock).await.map_err(wrap_err)?? {
+                CrossProcessLockState::Clean(guard) => guard,
+                CrossProcessLockState::Dirty(guard) => {
+                    self.client.base_client().regenerate_olm(None).await?;
+                    guard.clear_dirty();
+                    guard
+                }
             }))
         } else {
             Ok(None)
@@ -2139,7 +2179,7 @@ mod tests {
     };
 
     use crate::{
-        Client, assert_next_matches_with_timeout,
+        Client, Error, assert_next_matches_with_timeout,
         config::RequestConfig,
         encryption::{
             DuplicateOneTimeKeyErrorMessage, OAuthCrossSigningResetInfo, VerificationState,
@@ -2247,8 +2287,7 @@ mod tests {
             client1.olm_machine().await.clone().expect("must have an olm machine");
 
         // Also enable backup to check that new machine has the same backup keys.
-        let decryption_key = matrix_sdk_base::crypto::store::types::BackupDecryptionKey::new()
-            .expect("Can't create new recovery key");
+        let decryption_key = matrix_sdk_base::crypto::store::types::BackupDecryptionKey::new();
         let backup_key = decryption_key.megolm_v1_public_key();
         backup_key.set_version("1".to_owned());
         initial_olm_machine
@@ -2262,8 +2301,8 @@ mod tests {
         assert!(client1.encryption().backups().are_enabled().await);
 
         // The other client can't take the lock too.
-        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
-        assert!(acquired2.is_none());
+        let error = client2.encryption().try_lock_store_once().await.unwrap_err();
+        assert!(matches!(error, Error::CrossProcessLockError(_)));
 
         // Now have the first client release the lock,
         drop(acquired1);
@@ -2339,6 +2378,15 @@ mod tests {
         assert!(initial_olm_machine.same_as(&after_enabling_lock));
 
         {
+            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            assert!(acquired.is_some());
+        }
+
+        // Taking the lock the first time will not update the olm machine.
+        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(initial_olm_machine.same_as(&after_taking_lock_first_time));
+
+        {
             // Simulate that another client hold the lock before.
             let client2 = Client::builder()
                 .homeserver_url("http://localhost:1234")
@@ -2371,9 +2419,9 @@ mod tests {
             assert!(acquired.is_some());
         }
 
-        // Taking the lock the first time will update the olm machine.
-        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(!initial_olm_machine.same_as(&after_taking_lock_first_time));
+        // Taking the lock the second time updates the olm machine.
+        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(!after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
 
         {
             let acquired = client.encryption().try_lock_store_once().await.unwrap();
@@ -2381,8 +2429,8 @@ mod tests {
         }
 
         // Re-taking the lock doesn't update the olm machine.
-        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
+        let after_taking_lock_third_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(after_taking_lock_second_time.same_as(&after_taking_lock_third_time));
     }
 
     #[async_test]

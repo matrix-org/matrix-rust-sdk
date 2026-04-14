@@ -15,18 +15,19 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
+use matrix_sdk::{Room, deserialized_responses::TimelineEvent};
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
     events::{
-        AnyStateEventContentChange, Mentions, MessageLikeEventType, StateEventContentChange,
-        StateEventType,
+        AnyMessageLikeEventContent, AnyStateEventContentChange, Mentions, MessageLikeEventType,
+        StateEventContentChange, StateEventType,
         policy::rule::{
             room::PolicyRuleRoomEventContent, server::PolicyRuleServerEventContent,
             user::PolicyRuleUserEventContent,
         },
+        relation::Replacement,
         room::{
-            aliases::RoomAliasesEventContent,
             avatar::RoomAvatarEventContent,
             canonical_alias::RoomCanonicalAliasEventContent,
             create::RoomCreateEventContent,
@@ -36,7 +37,7 @@ use ruma::{
             history_visibility::RoomHistoryVisibilityEventContent,
             join_rules::RoomJoinRulesEventContent,
             member::{Change, RoomMemberEventContent},
-            message::MessageType,
+            message::{MessageType, RoomMessageEventContent},
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -45,6 +46,7 @@ use ruma::{
             tombstone::RoomTombstoneEventContent,
             topic::RoomTopicEventContent,
         },
+        rtc::notification::CallIntent,
         space::{child::SpaceChildEventContent, parent::SpaceParentEventContent},
         sticker::StickerEventContent,
     },
@@ -77,6 +79,7 @@ pub use self::{
     reply::{EmbeddedEvent, InReplyToDetails},
 };
 use super::ReactionsByKeyBySender;
+use crate::timeline::event_handler::{HandleAggregationKind, TimelineAction};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[allow(clippy::large_enum_variant)]
@@ -118,10 +121,92 @@ pub enum TimelineItemContent {
     CallInvite,
 
     /// An `m.rtc.notification` event
-    RtcNotification,
+    RtcNotification {
+        /// The intent of this notification.
+        call_intent: Option<CallIntent>,
+    },
 }
 
 impl TimelineItemContent {
+    /// Returns the raw Matrix event type string (e.g. `"m.room.message"`),
+    /// or `None` when the original type is not available (e.g. redacted
+    /// events).
+    pub fn event_type_str(&self) -> Option<String> {
+        match self {
+            Self::MsgLike(msg) => Some(match &msg.kind {
+                MsgLikeKind::Message(_) => MessageLikeEventType::RoomMessage.to_string(),
+                MsgLikeKind::Sticker(_) => MessageLikeEventType::Sticker.to_string(),
+                MsgLikeKind::Poll(_) => MessageLikeEventType::PollStart.to_string(),
+                MsgLikeKind::Redacted => return None,
+                MsgLikeKind::UnableToDecrypt(_) => MessageLikeEventType::RoomEncrypted.to_string(),
+                MsgLikeKind::Other(other) => other.event_type().to_string(),
+                MsgLikeKind::LiveLocation(_) => StateEventType::BeaconInfo.to_string(),
+            }),
+            Self::MembershipChange(_) | Self::ProfileChange(_) => {
+                Some(StateEventType::RoomMember.to_string())
+            }
+            Self::OtherState(state) => Some(state.content().event_type().to_string()),
+            Self::FailedToParseMessageLike { event_type, .. } => Some(event_type.to_string()),
+            Self::FailedToParseState { event_type, .. } => Some(event_type.to_string()),
+            Self::CallInvite => Some(MessageLikeEventType::CallInvite.to_string()),
+            Self::RtcNotification { .. } => Some(MessageLikeEventType::RtcNotification.to_string()),
+        }
+    }
+
+    /// Create a raw [`TimelineItemContent`] for a given [`TimelineEvent`],
+    /// without providing extra information (about thread root, replied-to
+    /// information, UTD info, and so on).
+    pub async fn from_event(room: &Room, timeline_event: TimelineEvent) -> Option<Self> {
+        let raw_event = timeline_event.into_raw();
+        let deserialized_event = raw_event.deserialize().ok()?;
+
+        match TimelineAction::from_event(
+            deserialized_event,
+            &raw_event,
+            room,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            Some(TimelineAction::AddItem { content }) => Some(content),
+
+            // Aggregated event: only edits and beacon stop are supported at the moment.
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::BeaconStop { content },
+                ..
+            }) => Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content)),
+                reactions: Default::default(),
+                thread_root: None,
+                in_reply_to: None,
+                thread_summary: None,
+            })),
+
+            Some(TimelineAction::HandleAggregation {
+                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
+                ..
+            }) => {
+                // Map the edit to a regular message.
+                match TimelineAction::from_content(
+                    AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
+                        new_content.msgtype,
+                    )),
+                    None,
+                    None,
+                    None,
+                ) {
+                    TimelineAction::AddItem { content } => Some(content),
+                    _ => None,
+                }
+            }
+
+            _ => None,
+        }
+    }
+
     pub fn as_msglike(&self) -> Option<&MsgLikeContent> {
         as_variant!(self, TimelineItemContent::MsgLike)
     }
@@ -259,7 +344,7 @@ impl TimelineItemContent {
             TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. } => "an event that couldn't be parsed",
             TimelineItemContent::CallInvite => "a call invite",
-            TimelineItemContent::RtcNotification => "a call notification",
+            TimelineItemContent::RtcNotification { .. } => "a call notification",
         }
     }
 
@@ -330,7 +415,7 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification => {
+            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification { .. } => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),
@@ -362,7 +447,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification { .. } => {
                 // No reactions for these kind of items.
                 None
             }
@@ -387,7 +472,7 @@ impl TimelineItemContent {
             | TimelineItemContent::FailedToParseMessageLike { .. }
             | TimelineItemContent::FailedToParseState { .. }
             | TimelineItemContent::CallInvite
-            | TimelineItemContent::RtcNotification => {
+            | TimelineItemContent::RtcNotification { .. } => {
                 // No reactions for these kind of items.
                 None
             }
@@ -654,9 +739,6 @@ pub enum AnyOtherStateEventContentChange {
     /// m.policy.rule.user
     PolicyRuleUser(StateEventContentChange<PolicyRuleUserEventContent>),
 
-    /// m.room.aliases
-    RoomAliases(StateEventContentChange<RoomAliasesEventContent>),
-
     /// m.room.avatar
     RoomAvatar(StateEventContentChange<RoomAvatarEventContent>),
 
@@ -722,7 +804,6 @@ impl AnyOtherStateEventContentChange {
             AnyStateEventContentChange::PolicyRuleRoom(c) => Self::PolicyRuleRoom(c),
             AnyStateEventContentChange::PolicyRuleServer(c) => Self::PolicyRuleServer(c),
             AnyStateEventContentChange::PolicyRuleUser(c) => Self::PolicyRuleUser(c),
-            AnyStateEventContentChange::RoomAliases(c) => Self::RoomAliases(c),
             AnyStateEventContentChange::RoomAvatar(c) => Self::RoomAvatar(c),
             AnyStateEventContentChange::RoomCanonicalAlias(c) => Self::RoomCanonicalAlias(c),
             AnyStateEventContentChange::RoomCreate(c) => Self::RoomCreate(c),
@@ -750,7 +831,6 @@ impl AnyOtherStateEventContentChange {
             Self::PolicyRuleRoom(c) => c.event_type(),
             Self::PolicyRuleServer(c) => c.event_type(),
             Self::PolicyRuleUser(c) => c.event_type(),
-            Self::RoomAliases(c) => c.event_type(),
             Self::RoomAvatar(c) => c.event_type(),
             Self::RoomCanonicalAlias(c) => c.event_type(),
             Self::RoomCreate(c) => c.event_type(),
@@ -781,9 +861,6 @@ impl AnyOtherStateEventContentChange {
             }
             Self::PolicyRuleUser(c) => {
                 Self::PolicyRuleUser(StateEventContentChange::Redacted(c.clone().redact(rules)))
-            }
-            Self::RoomAliases(c) => {
-                Self::RoomAliases(StateEventContentChange::Redacted(c.clone().redact(rules)))
             }
             Self::RoomAvatar(c) => {
                 Self::RoomAvatar(StateEventContentChange::Redacted(c.clone().redact(rules)))

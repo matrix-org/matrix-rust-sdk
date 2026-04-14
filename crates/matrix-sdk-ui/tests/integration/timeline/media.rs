@@ -45,7 +45,7 @@ use ruma::{
         MediaSource,
         message::{MessageType, TextMessageEventContent},
     },
-    room_id, uint,
+    mxc_uri, room_id, uint,
 };
 use serde_json::json;
 use stream_assert::assert_pending;
@@ -385,22 +385,10 @@ async fn test_send_media_with_thumbnail() -> TestResult {
     let thumbnail_data = b"hello world".to_vec();
 
     // A mock to upload the thumbnail.
-    mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://sdk.rs/thumbnail"
-        })))
-        .mock_once()
-        .mount()
-        .await;
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/thumbnail")).mock_once().mount().await;
 
     // A mock to upload the media file.
-    mock.mock_upload()
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-          "content_uri": "mxc://sdk.rs/media"
-        })))
-        .mock_once()
-        .mount()
-        .await;
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
 
     // A mock for sending the media event.
     mock.mock_room_send().ok(event_id!("$media")).mock_once().mount().await;
@@ -586,12 +574,6 @@ async fn test_send_media_with_thumbnail() -> TestResult {
             .unwrap();
         // And the thumbnail data still matches what we've sent.
         assert_eq!(retrieved_thumbnail_data, thumbnail_data);
-
-        // Since it's sent, it's inserted in the Event Cache, and reinserted as a
-        // remote event.
-        assert_let_timeout!(Some(VectorDiff::Remove { index: 0 }) = timeline_stream.next());
-        assert_let_timeout!(Some(VectorDiff::PushFront { value: item }) = timeline_stream.next());
-        assert_eq!(item.event_id().unwrap(), event_id!("$media"));
     }
 
     // That's all, folks!

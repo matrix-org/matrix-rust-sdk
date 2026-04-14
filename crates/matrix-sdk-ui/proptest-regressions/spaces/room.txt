@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8d940b96b2b3cb4751344f6382a2fef3341ce7db4617c5e7108754f690749351 # shrinks to mut v = [("!R", None), ("!a", None), ("!a", None), ("!A", None), ("!A", None), ("!A", None), ("!A", None), ("!a", None), ("!a", None), ("!A", None), ("!a", None), ("!A", Some(SpaceRoomChildState { order: None, origin_server_ts: 1970-01-01T00:00:00.000 })), ("!a", Some(SpaceRoomChildState { order: Some("A"), origin_server_ts: 1970-01-01T00:00:00.000 })), ("!A", None), ("!A", None), ("!A", None), ("!A", None), ("!A", None), ("!A", None), ("!a", None), ("!A", None), ("!A", None)]
+cc e2d881839c61088f24a3addf623bd9a4b4393be229f567cf9e49026387bbd244 # shrinks to a = ("!A", Some(SpaceRoomChildState { order: None, origin_server_ts: 1970-01-01T00:00:00.000 })), b = ("!a", Some(SpaceRoomChildState { order: Some("a"), origin_server_ts: 1970-01-01T00:00:00.000 })), c = ("!A", None)

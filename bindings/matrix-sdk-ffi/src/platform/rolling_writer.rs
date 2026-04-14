@@ -237,12 +237,11 @@ impl SizeAndDateRollingWriter {
         check_conditions: bool,
     ) -> io::Result<()> {
         // Check if rotation is needed (skip for uninitialized state)
-        if check_conditions {
-            if let Some(state) = state.as_ref() {
-                if !Self::should_rotate_by_time(config, &state.current_path) {
-                    return Ok(());
-                }
-            }
+        if check_conditions
+            && let Some(state) = state.as_ref()
+            && !Self::should_rotate_by_time(config, &state.current_path)
+        {
+            return Ok(());
         }
 
         let time_str = Self::format_rotation_timestamp(config);
@@ -312,10 +311,10 @@ impl SizeAndDateRollingWriter {
             }
 
             // Check if file is older than max age
-            if let Ok(duration) = now.duration_since(modified) {
-                if duration.as_secs() > config.max_age_seconds {
-                    let _ = fs::remove_file(path);
-                }
+            if let Ok(duration) = now.duration_since(modified)
+                && duration.as_secs() > config.max_age_seconds
+            {
+                let _ = fs::remove_file(path);
             }
         }
 
@@ -403,11 +402,7 @@ impl<'a> Write for SizeAndDateRollingWriterHandle<'a> {
 
     fn flush(&mut self) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        if let Some(s) = state.as_mut() {
-            s.current_file.flush()
-        } else {
-            Ok(())
-        }
+        if let Some(s) = state.as_mut() { s.current_file.flush() } else { Ok(()) }
     }
 }
 
@@ -658,11 +653,7 @@ mod tests {
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
-                if path.is_file() {
-                    path.file_name()?.to_str().map(|s| s.to_owned())
-                } else {
-                    None
-                }
+                if path.is_file() { path.file_name()?.to_str().map(|s| s.to_owned()) } else { None }
             })
             .collect();
 
@@ -876,10 +867,10 @@ mod tests {
             std::fs::read_dir(log_path)
                 .unwrap()
                 .filter(|entry| {
-                    if let Ok(entry) = entry {
-                        if let Some(name) = entry.file_name().to_str() {
-                            return name.starts_with("multi");
-                        }
+                    if let Ok(entry) = entry
+                        && let Some(name) = entry.file_name().to_str()
+                    {
+                        return name.starts_with("multi");
                     }
                     false
                 })

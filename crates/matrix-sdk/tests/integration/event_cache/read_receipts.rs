@@ -24,9 +24,12 @@
 //! This avoids potential race conditions where a sync could be done, but the
 //! processing by the event cache isn't, at the time we check the unread counts.
 
+use std::time::Duration;
+
 use matrix_sdk::{
-    ThreadingSupport, assert_let_timeout, event_cache::RoomEventCacheUpdate,
-    test_utils::mocks::MatrixMockServer,
+    ThreadingSupport, assert_let_timeout,
+    event_cache::RoomEventCacheUpdate,
+    test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
 };
 use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
@@ -651,4 +654,241 @@ async fn test_select_best_receipt_considers_thread_config() {
     // The message counts include all messages from the main timeline, because the
     // implicit receipt sent in a thread isn't taken into account.
     assert_eq!(room.num_unread_messages(), 2);
+}
+
+/// Test that the unread count gets updated when the sync update only contains
+/// duplicate events and a new read receipt.
+#[async_test]
+async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let own_user_id = client.user_id().unwrap();
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    // Starting with a message from Bob, and no read receipt,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello 1").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("hello 2").event_id(event_id!("$2"))),
+        )
+        .await;
+
+    // We receive the room update for the two new messages.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = room_cache_updates.recv()
+    );
+
+    // Then, provided a sync with a single duplicated message sent by somebody else,
+    // but a read receipt for the existing message $2,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello 2").event_id(event_id!("$2")))
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$2"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    // We get an update only for the read receipt.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::AddEphemeralEvents { .. }) = room_cache_updates.recv()
+    );
+
+    // The message counts are properly updated (zero new message unread after $2).
+    assert_eq!(room.num_unread_messages(), 0);
+}
+
+/// Test that the unread count computation causes a back-pagination, when it
+/// can't find an event pointed to by a read receipt.
+#[async_test]
+async fn test_compute_unread_counts_triggers_backpaginations() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let own_user_id = client.user_id().unwrap();
+
+    client.event_cache().config_mut().experimental_auto_backpagination = true;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    // Already set up the mock for /messages, as the background pagination will hit
+    // it as soon as the sync is received.
+    server
+        .mock_room_messages()
+        .match_from("prev_batch")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![
+                f.text_msg("hello 2").event_id(event_id!("$2")),
+                f.text_msg("hello 1").event_id(event_id!("$1")),
+            ])
+            .with_delay(Duration::from_millis(100)))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Starting with a gappy sync, with a room with two messages from Bob, and a
+    // receipt on Bob's first message $1, which is missing from the timeline,
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello 3").event_id(event_id!("$3")))
+                .add_timeline_event(f.text_msg("hello 4").event_id(event_id!("$4")))
+                .add_receipt(
+                    f.read_receipts()
+                        .add(
+                            event_id!("$1"),
+                            own_user_id,
+                            ReceiptType::Read,
+                            ReceiptThread::Unthreaded,
+                        )
+                        .into_event(),
+                )
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev_batch".to_owned()),
+        )
+        .await;
+
+    // (one vector diff update, one read receipt update)
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // The message counts are properly updated (two unread messages in the
+    // timeline, which are $3 and $4).
+    assert_eq!(room.num_unread_messages(), 2);
+
+    // Then, there's a background pagination happening in the room, which will fetch
+    // the missing $1 and $2.
+    assert_let_timeout!(Duration::from_millis(150), Ok(_) = room_cache_updates.recv());
+
+    // The message counts are properly updated (three messages after $1).
+    assert_eq!(room.num_unread_messages(), 3);
+}
+
+/// Test that a read receipt saved in the state store but not marked as active
+/// is selected for unread count computation.
+#[async_test]
+async fn test_read_receipt_from_store_used_as_latest_active() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    // Important test note: the read receipt must be in the state store *before* the
+    // event cache is subscribed to, so that it's not marked as active at start.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Then, subscribe the event cache.
+    client.event_cache().subscribe().unwrap();
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("ev1").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("ev2").event_id(event_id!("$2")))
+                .add_timeline_event(f.text_msg("ev3").event_id(event_id!("$3"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // Only ev3 (after the receipt) is unread.
+    assert_eq!(room.num_unread_messages(), 1);
+}
+
+/// Test that *all* the read receipts saved in the state store but not marked as
+/// active may be selected for the unread count computation.
+#[async_test]
+async fn test_all_read_receipts_from_store_used_as_latest_active() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap();
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*BOB);
+
+    // Important test note: the read receipt must be in the state store *before* the
+    // event cache is subscribed to, so that it's not marked as active at start.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(event_id!("$2"), own_user_id, ReceiptType::Read, ReceiptThread::Unthreaded)
+                    .add(
+                        event_id!("$3"),
+                        own_user_id,
+                        ReceiptType::ReadPrivate,
+                        ReceiptThread::Main,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Then, subscribe the event cache.
+    client.event_cache().subscribe().unwrap();
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+    assert!(room_cache_updates.is_empty());
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("ev1").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("ev2").event_id(event_id!("$2")))
+                .add_timeline_event(f.text_msg("ev3").event_id(event_id!("$3"))),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(_) = room_cache_updates.recv());
+
+    // No event is unread, because the private main receipt points to $3.
+    assert_eq!(room.num_unread_messages(), 0);
 }

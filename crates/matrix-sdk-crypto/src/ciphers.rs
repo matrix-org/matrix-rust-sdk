@@ -23,7 +23,7 @@ use hmac::{
     digest::{FixedOutput, MacError},
 };
 use pbkdf2::pbkdf2;
-use rand::{RngCore, thread_rng};
+use rand::{Rng, rng};
 use sha2::{Sha256, Sha512};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -247,7 +247,7 @@ impl AesHmacSha2Key {
     /// The initialization vector will be clamped and will be used to encrypt
     /// the ciphertext.
     fn generate_iv() -> [u8; IV_SIZE] {
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mut iv = [0u8; IV_SIZE];
 
         rng.fill_bytes(&mut iv);

@@ -5,18 +5,14 @@ use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::{
     Client, Room, assert_let_timeout,
-    config::SyncSettings,
-    test_utils::{
-        logged_in_client_with_server,
-        mocks::{MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate},
+    test_utils::mocks::{
+        MatrixMockServer, RoomMessagesResponseTemplate, RoomRelationsResponseTemplate,
     },
     timeout::timeout,
 };
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use matrix_sdk_common::executor::spawn;
-use matrix_sdk_test::{
-    BOB, JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
-};
+use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{RoomExt, TimelineBuilder, TimelineFocus};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, UserId, assign,
@@ -36,12 +32,7 @@ use ruma::{
 };
 use stream_assert::assert_pending;
 use tokio::time::sleep;
-use wiremock::{
-    Mock, ResponseTemplate,
-    matchers::{header, method, path_regex},
-};
-
-use crate::mock_sync;
+use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_new_pinned_events_are_not_added_on_sync() {
@@ -389,7 +380,7 @@ async fn test_max_events_to_load_is_honored() {
     let client = server.client_builder().build().await;
     let room_id = room_id!("!test:localhost");
 
-    client.event_cache().config_mut().await.max_pinned_events_to_load = 1;
+    client.event_cache().config_mut().max_pinned_events_to_load = 1;
 
     let f = EventFactory::new().room(room_id).sender(*BOB);
     let pinned_event = f
@@ -860,7 +851,8 @@ async fn test_redacted_events_are_reflected_in_sync() {
 
 #[async_test]
 async fn test_ensure_max_concurrency_is_observed() {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
     let room_id = owned_room_id!("!a_room:example.org");
 
     let pinned_event_ids: Vec<OwnedEventId> =
@@ -869,7 +861,7 @@ async fn test_ensure_max_concurrency_is_observed() {
     let max_concurrent_requests = 10;
 
     // Define the max concurrent requests allowed for the event cache.
-    client.event_cache().config_mut().await.max_pinned_events_concurrent_requests =
+    client.event_cache().config_mut().max_pinned_events_concurrent_requests =
         max_concurrent_requests;
 
     let f = EventFactory::new().room(&room_id).sender(user_id!("@example:localhost"));
@@ -881,27 +873,19 @@ async fn test_ensure_max_concurrency_is_observed() {
 
     let pinned_event =
         EventFactory::new().room(&room_id).sender(*BOB).text_msg("A message").into_raw_timeline();
-    Mock::given(method("GET"))
-        .and(path_regex(r"/_matrix/client/r0/rooms/.*/event/.*"))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(
+    server
+        .mock_room_event()
+        .ok_with_template(
             ResponseTemplate::new(200)
                 .set_delay(Duration::from_secs(60))
                 .set_body_json(pinned_event.json()),
         )
         // Verify this endpoint is only called the max concurrent amount of times.
         .expect(max_concurrent_requests as u64)
-        .mount(&server)
+        .mount()
         .await;
 
-    let mut sync_response_builder = SyncResponseBuilder::new();
-    let sync_settings = SyncSettings::new().timeout(Duration::from_millis(3000));
-    let json_response =
-        sync_response_builder.add_joined_room(joined_room_builder).build_json_sync_response();
-    mock_sync(&server, json_response, None).await;
-    let _ = client.sync_once(sync_settings.clone()).await;
-
-    let room = client.get_room(&room_id).unwrap();
+    let room = server.sync_room(&client, joined_room_builder).await;
 
     // Start loading the pinned event timeline asynchronously.
     let handle = spawn({
@@ -920,7 +904,7 @@ async fn test_ensure_max_concurrency_is_observed() {
 
     // The real check happens here, based on the `max_concurrent_requests` expected
     // value set above for the mock endpoint.
-    server.verify().await;
+    server.server().verify().await;
 }
 
 async fn mock_events_endpoint(

@@ -71,7 +71,13 @@ use super::{
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{Room, event_cache::caches::pagination::SharedPaginationStatus, room::WeakRoom};
+use crate::{
+    Room,
+    event_cache::{
+        automatic_pagination::AutomaticPagination, caches::pagination::SharedPaginationStatus,
+    },
+    room::WeakRoom,
+};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -141,6 +147,9 @@ pub struct RoomEventCacheState {
     /// An atomic count of the current number of subscriber of the
     /// [`super::RoomEventCache`].
     subscriber_count: Arc<AtomicUsize>,
+
+    /// A copy of the automatic pagination API object.
+    automatic_pagination: Option<AutomaticPagination>,
 }
 
 impl RoomEventCacheState {
@@ -301,6 +310,7 @@ impl LockedRoomEventCacheState {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
         pagination_status: SharedObservable<SharedPaginationStatus>,
+        automatic_pagination: Option<AutomaticPagination>,
     ) -> Result<Self, EventCacheError> {
         let store_guard = match store.lock().await? {
             // Lock is clean: all good!
@@ -383,6 +393,7 @@ impl LockedRoomEventCacheState {
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
             pinned_event_cache: OnceLock::new(),
+            automatic_pagination,
         }))
     }
 }
@@ -873,6 +884,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         if all_duplicates {
             // No new events and no gap (per the previous check), thus no need to change the
             // room state. We're done!
+
+            // We might have a new read receipt, though! If that's the case, handle it for
+            // unread counts tracking.
+            if let Some(new_receipt) = extract_read_receipt(ephemeral_events) {
+                self.update_read_receipts(Some(&new_receipt)).await?;
+            }
+
             return Ok((false, Vec::new()));
         }
 
@@ -893,23 +911,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
 
         // Extract a new read receipt, if available.
-        let mut receipt_event = None;
-        for raw_ephemeral in ephemeral_events {
-            match raw_ephemeral.deserialize() {
-                Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
-                    receipt_event = Some(content);
-                    break;
-                }
-
-                Ok(_) => {}
-
-                Err(err) => {
-                    error!("error when deserializing an ephemeral event from sync: {err}");
-                }
-            }
-        }
-
-        self.post_process_new_events(events, PostProcessingOrigin::Sync, receipt_event).await?;
+        let new_receipt = extract_read_receipt(ephemeral_events);
+        self.post_process_new_events(events, PostProcessingOrigin::Sync, new_receipt).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -1033,9 +1036,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        let state = &mut *self.state;
-        let user_id = &state.own_user_id;
-        let room_id = &state.room_id;
+        let user_id = &self.state.own_user_id;
+        let room_id = &self.state.room_id;
 
         let prev_read_receipts = room.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
@@ -1044,10 +1046,13 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             user_id,
             room_id,
             receipt_event,
-            &state.room_linked_chunk,
+            &self.state.room_linked_chunk,
             &mut read_receipts,
-            state.enabled_thread_support,
-        );
+            self.state.enabled_thread_support,
+            self.state.automatic_pagination.as_ref(),
+            room.client().state_store(),
+        )
+        .await;
 
         if prev_read_receipts != read_receipts {
             // The read receipt has changed! Do a little dance to update the `RoomInfo` in
@@ -1367,6 +1372,31 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     ) -> Option<EventFocusedCache> {
         get_event_focused_cache(&self.state, event_id, thread_mode)
     }
+}
+
+/// Extract a valid read receipt event from the ephemeral events, if
+/// available.
+fn extract_read_receipt(
+    ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
+) -> Option<ReceiptEventContent> {
+    let mut receipt_event = None;
+
+    for raw_ephemeral in ephemeral_events {
+        match raw_ephemeral.deserialize() {
+            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
+                receipt_event = Some(content);
+                break;
+            }
+
+            Ok(_) => {}
+
+            Err(err) => {
+                error!("error when deserializing an ephemeral event from sync: {err}");
+            }
+        }
+    }
+
+    receipt_event
 }
 
 /// Get an event-focused cache for this event and thread mode, if it exists.

@@ -16,7 +16,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-tls"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -64,9 +64,15 @@ experimental-encrypted-state-events = [
     "matrix-sdk-test?/experimental-encrypted-state-events",
 ]
 
+experimental-push-secrets = [
+    "e2e-encryption",
+    "matrix-sdk-base/experimental-push-secrets",
+    "matrix-sdk-sqlite?/experimental-push-secrets",
+    "matrix-sdk-indexeddb?/experimental-push-secrets",
+    "ruma/unstable-msc4385",
+]
+
 markdown = ["ruma/markdown"]
-native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls"]
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
 sso-login = ["local-server"]
@@ -155,13 +161,13 @@ zeroize.workspace = true
 backon = "1.6.0"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
-reqwest = { workspace = true, features = ["stream", "gzip", "http2"] }
+reqwest = { workspace = true, features = ["stream", "gzip", "http2", "rustls"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 wiremock = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
-reqwest = { workspace = true, features = ["gzip", "http2"] }
+reqwest = { workspace = true, features = ["gzip", "http2", "rustls"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [dev-dependencies]

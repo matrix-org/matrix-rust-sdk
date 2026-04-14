@@ -26,7 +26,7 @@ impl Package {
             }
             Package::FullSDK => PackageValues {
                 name: "matrix-sdk-ffi",
-                features: "bundled-sqlite,unstable-msc4274,experimental-element-recent-emojis,rustls-tls,sentry",
+                features: "bundled-sqlite,unstable-msc4274,experimental-element-recent-emojis,sentry",
             },
         }
     }

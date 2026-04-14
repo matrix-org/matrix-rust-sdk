@@ -1,4 +1,4 @@
-// Copyright 2023 The Matrix.org Foundation C.I.C.
+// Copyright 2023, 2026 The Matrix.org Foundation C.I.C.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ use ruma::{
     DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
 };
 use vodozemac::Curve25519PublicKey;
+use zeroize::Zeroizing;
 
 use super::{
     CryptoStoreError, Result,
@@ -31,7 +32,7 @@ use super::{
 #[cfg(doc)]
 use crate::olm::SenderData;
 use crate::{
-    Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, UserIdentityData,
+    Account, DeviceData, GossipRequest, SecretInfo, UserIdentityData,
     olm::{
         InboundGroupSession, OlmMessageHash, OutboundGroupSession, PrivateCrossSigningIdentity,
         SenderDataType, Session,
@@ -331,7 +332,7 @@ pub trait CryptoStore: AsyncTraitDeps {
     async fn get_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
-    ) -> Result<Vec<GossippedSecret>, Self::Error>;
+    ) -> Result<Vec<Zeroizing<String>>, Self::Error>;
 
     /// Delete all the secrets with the given [`SecretName`] we have currently
     /// stored.
@@ -609,7 +610,7 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
     async fn get_secrets_from_inbox(
         &self,
         secret_name: &SecretName,
-    ) -> Result<Vec<GossippedSecret>> {
+    ) -> Result<Vec<Zeroizing<String>>> {
         self.0.get_secrets_from_inbox(secret_name).await.map_err(Into::into)
     }
 

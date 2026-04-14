@@ -53,7 +53,10 @@ use super::{
     capabilities::{SEND_DELAYED_EVENT, UPDATE_DELAYED_EVENT},
     filter::FilterInput,
 };
-use crate::{Error, Result, widget::Filter};
+use crate::{
+    Error, Result,
+    widget::{Filter, capabilities::DOWNLOAD_FILE, machine::driver_req::DownloadFileRequest},
+};
 
 mod driver_req;
 mod from_widget;
@@ -66,7 +69,7 @@ mod to_widget;
 
 pub(crate) use self::{
     driver_req::{MatrixDriverRequestData, SendEventRequest, SendToDeviceRequest},
-    from_widget::{SendEventResponse, SendToDeviceEventResponse},
+    from_widget::{DownloadFileResponse, SendEventResponse, SendToDeviceEventResponse},
     incoming::{IncomingMessage, MatrixDriverResponse},
 };
 
@@ -381,6 +384,10 @@ impl WidgetMachine {
                 })
                 .unwrap_or_default()
             }
+            FromWidgetRequest::DownloadFile(req) => self
+                .process_download_file_request(req, raw_request)
+                .map(|a| vec![a])
+                .unwrap_or_default(),
         }
     }
 
@@ -883,6 +890,43 @@ impl WidgetMachine {
         }
 
         actions
+    }
+
+    fn process_download_file_request(
+        &mut self,
+        req: DownloadFileRequest,
+        raw_request: Raw<FromWidgetRequest>,
+    ) -> Option<Action> {
+        let CapabilitiesState::Negotiated(capabilities) = &self.capabilities else {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                "Received download file request before capabilities negotiation",
+            ));
+        };
+
+        if !capabilities.download_file {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                format!("Not allowed: missing the {DOWNLOAD_FILE} capability."),
+            ));
+        }
+
+        if !req.content_uri.is_valid() {
+            return Some(Self::send_from_widget_error_string_response(
+                raw_request,
+                "Invalid content URI",
+            ));
+        }
+
+        let (request, action) = self.send_matrix_driver_request(req)?;
+
+        request.add_response_handler(|result, _| {
+            vec![Self::send_from_widget_response(
+                raw_request,
+                result.map_err(FromWidgetErrorResponse::from_error),
+            )]
+        });
+        Some(action)
     }
 }
 

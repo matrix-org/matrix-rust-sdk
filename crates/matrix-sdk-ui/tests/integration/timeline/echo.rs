@@ -26,10 +26,8 @@ use ruma::{
     events::room::message::{MessageType, RoomMessageEventContent},
     room_id, user_id,
 };
-use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use tokio::task::yield_now;
-use wiremock::ResponseTemplate;
 
 #[async_test]
 async fn test_echo() {
@@ -80,29 +78,13 @@ async fn test_echo() {
     send_hdl.await.unwrap().unwrap();
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 5);
+    assert_eq!(timeline_updates.len(), 1);
 
     // The `EventSendState` has been updated.
     assert_let!(VectorDiff::Set { index: 1, value: sent_confirmation } = &timeline_updates[0]);
     let item = sent_confirmation.as_event().unwrap();
     assert_matches!(item.send_state(), Some(EventSendState::Sent { .. }));
     assert_eq!(item.event_id(), Some(event_id));
-
-    // The local event is removed.
-    assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 1 });
-
-    // The new event is inserted in the Event Cache: it comes as a remote event.
-    assert_let!(VectorDiff::PushFront { value: remote_event } = &timeline_updates[2]);
-    let item = remote_event.as_event().unwrap();
-    assert_let!(Some(msg) = item.content().as_message());
-    assert_let!(MessageType::Text(text) = msg.msgtype());
-    assert_eq!(text.body, "Hello, World!");
-    assert_eq!(item.event_id(), Some(event_id));
-
-    // The date divider is adjusted.
-    assert_let!(VectorDiff::PushFront { value: date_divider } = &timeline_updates[3]);
-    assert!(date_divider.is_date_divider());
-    assert_matches!(&timeline_updates[4], VectorDiff::Remove { index: 2 });
 
     assert_pending!(timeline_stream);
 
@@ -227,14 +209,10 @@ async fn test_dedup_by_event_id_late() {
 
     server
         .mock_room_send()
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({ "event_id": event_id }))
-                // Not great to use a timer for this, but it's what wiremock gives us right now.
-                // Ideally we'd wait on a channel to produce a value or sth. like that, but
-                // wiremock doesn't allow to handle multiple queries at the same time.
-                .set_delay(Duration::from_millis(500)),
-        )
+        // Not great to use a timer for this, but it's what wiremock gives us right now.
+        // Ideally we'd wait on a channel to produce a value or sth. like that, but
+        // wiremock doesn't allow to handle multiple queries at the same time.
+        .ok_with_delay(event_id, Duration::from_millis(500))
         .mount()
         .await;
 

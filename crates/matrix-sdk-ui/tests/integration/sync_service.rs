@@ -18,10 +18,7 @@ use std::{
 };
 
 use assert_matches::assert_matches;
-use matrix_sdk::{
-    assert_next_matches_with_timeout,
-    test_utils::{logged_in_client_with_server, mocks::MatrixMockServer},
-};
+use matrix_sdk::{assert_next_matches_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
 use serde_json::json;
@@ -63,7 +60,8 @@ async fn setup_mocking_sliding_sync_server(
 
 #[async_test]
 async fn test_sync_service_state() -> anyhow::Result<()> {
-    let (client, server) = logged_in_client_with_server().await;
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
 
     let encryption_pos = Arc::new(Mutex::new(0));
     let room_pos = Arc::new(Mutex::new(0));
@@ -215,11 +213,7 @@ async fn test_sync_service_offline_mode() {
     let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
     let mut states = sync_service.state();
 
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(ResponseTemplate::new(404))
-        .expect(1..)
-        .mount(mock_server.server())
-        .await;
+    mock_server.mock_sliding_sync().error_unrecognized().expect(1..).mount().await;
 
     {
         let _versions_guard = mock_server.mock_versions().error500().mount_as_scoped().await;
@@ -242,11 +236,7 @@ async fn test_sync_service_offline_mode_stopping() {
     let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
     let mut states = sync_service.state();
 
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(ResponseTemplate::new(404))
-        .expect(1..)
-        .mount(mock_server.server())
-        .await;
+    mock_server.mock_sliding_sync().error_unrecognized().expect(1..).mount().await;
     mock_server.mock_versions().error500().mount().await;
 
     sync_service.start().await;
@@ -265,10 +255,7 @@ async fn test_sync_service_offline_mode_restarting() {
     let sync_service = SyncService::builder(client).with_offline_mode().build().await.unwrap();
     let mut states = sync_service.state();
 
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(ResponseTemplate::new(404))
-        .mount(mock_server.server())
-        .await;
+    mock_server.mock_sliding_sync().error_unrecognized().expect(1..).mount().await;
     mock_server.mock_versions().error500().mount().await;
 
     sync_service.start().await;

@@ -19,12 +19,12 @@ use std::{
 };
 
 use matrix_sdk::{
+    Error,
     authentication::oauth::{
+        ClientId, ClientRegistrationData, OAuthError as SdkOAuthError,
         error::OAuthAuthorizationCodeError,
         registration::{ApplicationType, ClientMetadata, Localized, OAuthGrantType},
-        ClientId, ClientRegistrationData, OAuthError as SdkOAuthError,
     },
-    Error,
 };
 use ruma::serde::Raw;
 use url::Url;
@@ -101,6 +101,7 @@ impl SsoHandler {
         let builder =
             auth.login_with_sso_callback(url.into()).map_err(|_| SsoError::CallbackUrlInvalid)?;
         builder.await.map_err(|_| SsoError::LoginWithTokenFailed)?;
+
         Ok(())
     }
 }

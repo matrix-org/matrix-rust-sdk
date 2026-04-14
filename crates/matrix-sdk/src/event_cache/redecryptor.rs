@@ -822,7 +822,7 @@ impl Redecryptor {
 
         let task = client
             .task_monitor()
-            .spawn_background_task("event_cache::redecryptor", async {
+            .spawn_infinite_task("event_cache::redecryptor", async {
                 let request_redecryption_stream = UnboundedReceiverStream::new(receiver);
 
                 Self::listen_for_room_keys_task(
