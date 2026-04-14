@@ -113,6 +113,9 @@ All notable changes to this project will be documented in this file.
 
 ### Breaking Changes
 
+- [**breaking**] `LiveLocationShares` has been renamed to `RoomLiveLocationService`.
+  ([#6446](https://github.com/matrix-org/matrix-rust-sdk/pull/6446))
+
 - `Room::observe_live_location_shares` has been replaced by `Room::live_location_shares`.
   The new API returns a `LiveLocationShares` struct with a `subscribe()` method that provides an initial
   snapshot (`Vector<LiveLocationShare>`) and a batched stream of `VectorDiff` updates, instead of
