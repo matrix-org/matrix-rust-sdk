@@ -154,6 +154,11 @@ enum WasmFeatureSet {
     MatrixSdkIndexeddbStoresNoCrypto,
     /// Check `matrix-sdk` crate with `indexeddb` and `e2e-encryption` features
     MatrixSdkIndexeddbStores,
+    /// Check `matrix-sdk` crate with `sqlite` feature (but not
+    /// `e2e-encryption`)
+    MatrixSdkSqliteStoresNoCrypto,
+    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
+    MatrixSdkSqliteStores,
     /// Check `matrix-sdk-indexeddb` crate with all features
     IndexeddbAllFeatures,
     /// Check `matrix-sdk-indexeddb` crate with `e2e-encryption` feature
@@ -163,11 +168,6 @@ enum WasmFeatureSet {
     /// Equivalent to `indexeddb-all-features`, `indexeddb-crypto` and
     /// `indexeddb-state`
     Indexeddb,
-    /// Check `matrix-sdk` crate with `sqlite` feature (but not
-    /// `e2e-encryption`)
-    MatrixSdkSqliteStoresNoCrypto,
-    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
-    MatrixSdkSqliteStores,
     /// Check `matrix-sdk-sqlite` crate with all features
     SqliteAllFeatures,
     /// Check `matrix-sdk-sqlite` crate with `state-store` and
@@ -405,6 +405,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             "-p matrix-sdk --no-default-features --features js,indexeddb,e2e-encryption",
         ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite",
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStores,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption",
+        ),
         (WasmFeatureSet::IndexeddbAllFeatures, "-p matrix-sdk-indexeddb"),
         (
             WasmFeatureSet::IndexeddbCrypto,
@@ -413,14 +421,6 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (
             WasmFeatureSet::IndexeddbState,
             "-p matrix-sdk-indexeddb --no-default-features --features state-store",
-        ),
-        (
-            WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
-            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,rustls-tls",
-        ),
-        (
-            WasmFeatureSet::MatrixSdkSqliteStores,
-            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,rustls-tls",
         ),
         (
             WasmFeatureSet::SqliteAllFeatures,
