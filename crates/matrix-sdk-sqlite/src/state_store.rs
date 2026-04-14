@@ -2391,7 +2391,6 @@ mod tests {
     use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
-
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_store() -> Result<impl StateStore, StoreError> {
@@ -2430,7 +2429,6 @@ mod encrypted_tests {
     };
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
-
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_state_store_workspace() -> PathBuf {
@@ -2543,7 +2541,6 @@ mod migration_tests {
     };
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
-
     static NUM: AtomicU32 = AtomicU32::new(0);
     const SECRET: &str = "secret";
 

@@ -1845,7 +1845,6 @@ mod tests {
     };
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
-
     #[cfg(target_family = "wasm")]
     static NUM: AtomicU32 = AtomicU32::new(0);
 

@@ -1673,7 +1673,6 @@ mod tests {
     };
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
-
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_event_cache_store_workspace() -> PathBuf {
@@ -1854,7 +1853,6 @@ mod encrypted_tests {
     use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
-
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {
