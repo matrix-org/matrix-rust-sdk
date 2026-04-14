@@ -293,7 +293,7 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     ///
     /// * `store` - A `CryptoStore` implementation that will be used to store
-    /// the encryption keys.
+    ///   the encryption keys.
     ///
     /// * `custom_account` - A custom [`vodozemac::olm::Account`] to be used for
     ///   the identity and one-time keys of this [`OlmMachine`]. If no account
@@ -2676,9 +2676,9 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device.
     ///
     /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    ///   user's device list has been marked as stale. **Note**, this assumes that
+    ///   the requests from [`OlmMachine::outgoing_requests`] are being
+    ///   processed and sent out.
     ///
     /// Returns a `Device` if one is found and the crypto store didn't throw an
     /// error.
@@ -2714,9 +2714,9 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that the identity belongs to
     ///
     /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    ///   user's device list has been marked as stale. **Note**, this assumes that
+    ///   the requests from [`OlmMachine::outgoing_requests`] are being
+    ///   processed and sent out.
     ///
     /// Returns a [`UserIdentity`] enum if one is found and the crypto store
     /// didn't throw an error.
@@ -2737,9 +2737,9 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that the devices belong to.
     ///
     /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    ///   user's device list has been marked as stale. **Note**, this assumes that
+    ///   the requests from [`OlmMachine::outgoing_requests`] are being
+    ///   processed and sent out.
     ///
     /// # Examples
     ///
