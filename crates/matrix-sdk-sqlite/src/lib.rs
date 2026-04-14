@@ -27,6 +27,9 @@ mod event_cache_store;
 mod media_store;
 #[cfg(feature = "state-store")]
 mod state_store;
+#[cfg(test)]
+#[allow(dead_code)]
+mod test_utils;
 mod utils;
 use std::{
     cmp::max,
