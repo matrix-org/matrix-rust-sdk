@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use core::fmt;
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 use std::convert::Infallible;
 use std::{
     borrow::{Borrow, Cow},
@@ -23,7 +23,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(not(target_family = "wasm"))]
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_base::SendOutsideWasm;
@@ -363,7 +363,7 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
     }
 }
 
-#[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+#[cfg(not(target_family = "wasm"))]
 /// Map an [`InteractError`] into a [`rusqlite::Error`].
 ///
 /// An [`InteractError::Panic`] will panic. An [`InteractError::Cancelled`] will
@@ -379,7 +379,7 @@ fn map_interact_err(error: InteractError) -> rusqlite::Error {
     }
 }
 
-#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+#[cfg(target_family = "wasm")]
 /// An unreachable function to avoid having to put conditional compilation
 /// everywhere we want to use [`ConnectionWrapper::interact()`].
 ///

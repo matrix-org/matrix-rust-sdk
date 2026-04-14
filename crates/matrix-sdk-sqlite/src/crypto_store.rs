@@ -1816,11 +1816,11 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
     use std::sync::LazyLock;
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(target_family = "wasm")]
     use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
     use matrix_sdk_common::deserialized_responses::WithheldCode;
@@ -1837,7 +1837,7 @@ mod tests {
     use tokio::fs;
 
     use super::SqliteCryptoStore;
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(target_family = "wasm")]
     use crate::connection::setup_vfs;
     use crate::{
         SqliteStoreConfig,
@@ -1846,7 +1846,7 @@ mod tests {
 
     static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
 
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(target_family = "wasm")]
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     struct TestDb {
@@ -1857,7 +1857,7 @@ mod tests {
         database: SqliteCryptoStore,
     }
 
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    #[cfg(not(target_family = "wasm"))]
     async fn copy_db(db_source: &[u8]) -> TempDirWrapper {
         let db_name = super::DATABASE_NAME;
 
@@ -1870,7 +1870,7 @@ mod tests {
         tmpdir
     }
 
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(target_family = "wasm")]
     async fn copy_db(db_source: &[u8]) -> TempDirWrapper {
         let name = NUM.fetch_add(1, SeqCst).to_string();
         let tmpdir = TMP_DIR.path().join(name);
@@ -2336,11 +2336,11 @@ mod tests {
     ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        #[cfg(not(target_family = "wasm"))]
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        #[cfg(target_family = "wasm")]
         if clear_data {
             let tool = setup_vfs(&tmpdir_path).await.unwrap();
             tool.delete_db(super::DATABASE_NAME).unwrap();
@@ -2364,7 +2364,7 @@ mod encrypted_tests {
     use tokio::fs;
 
     use super::SqliteCryptoStore;
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    #[cfg(target_family = "wasm")]
     use crate::connection::setup_vfs;
     use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
@@ -2379,11 +2379,11 @@ mod encrypted_tests {
 
         let pass = passphrase.unwrap_or("default_test_password");
 
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        #[cfg(not(target_family = "wasm"))]
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
         }
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        #[cfg(target_family = "wasm")]
         if clear_data {
             let tool = setup_vfs(&tmpdir_path).await.unwrap();
             tool.delete_db(super::DATABASE_NAME).unwrap();
