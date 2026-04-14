@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Add `Client::set_avatar_url` to manually set the avatar URL of the user to a provided MXC one.
 - Fix devices on Android 11 crashing because the SDK could not be initialized using `libloading` 
   to get a reference to the JVM. Replaced `libloading` with `jvm-getter`, which works like a 
   compatibility layer. ([#6370](https://github.com/matrix-org/matrix-rust-sdk/pull/6370))
