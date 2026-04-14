@@ -479,7 +479,7 @@ dependencies = [
  "matrix-sdk-sqlite",
  "matrix-sdk-test",
  "matrix-sdk-ui",
- "rand 0.10.0",
+ "rand 0.10.1",
  "ruma",
  "serde",
  "serde_json",
@@ -1718,7 +1718,7 @@ dependencies = [
  "futures-util",
  "matrix-sdk",
  "matrix-sdk-ui",
- "rand 0.10.0",
+ "rand 0.10.1",
  "serde",
  "serde_json",
  "tokio",
@@ -1733,7 +1733,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "matrix-sdk",
- "rand 0.10.0",
+ "rand 0.10.1",
  "serde",
  "serde_json",
  "tokio",
@@ -3225,7 +3225,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "proptest",
- "rand 0.10.0",
+ "rand 0.10.1",
  "reqwest",
  "ruma",
  "rustls",
@@ -3362,7 +3362,7 @@ dependencies = [
  "matrix-sdk-test-utils",
  "pbkdf2",
  "proptest",
- "rand 0.10.0",
+ "rand 0.10.1",
  "rmp-serde",
  "ruma",
  "serde",
@@ -3398,7 +3398,7 @@ dependencies = [
  "matrix-sdk-ffi-macros",
  "matrix-sdk-sqlite",
  "pbkdf2",
- "rand 0.10.0",
+ "rand 0.10.1",
  "ruma",
  "serde",
  "serde_json",
@@ -3489,7 +3489,7 @@ dependencies = [
  "matrix-sdk-store-encryption",
  "matrix-sdk-test",
  "matrix_indexed_db_futures",
- "rand 0.10.0",
+ "rand 0.10.1",
  "rmp-serde",
  "ruma",
  "serde",
@@ -3528,7 +3528,7 @@ dependencies = [
  "matrix-sdk-test",
  "matrix-sdk-test-utils",
  "matrix-sdk-ui",
- "rand 0.10.0",
+ "rand 0.10.1",
  "reqwest",
  "serde_json",
  "similar-asserts",
@@ -3562,7 +3562,7 @@ dependencies = [
  "hmac",
  "matrix-sdk-test",
  "pbkdf2",
- "rand 0.10.0",
+ "rand 0.10.1",
  "ruma",
  "sha2",
  "tantivy",
@@ -3616,7 +3616,7 @@ dependencies = [
  "getrandom 0.4.2",
  "hmac",
  "pbkdf2",
- "rand 0.10.0",
+ "rand 0.10.1",
  "rmp-serde",
  "serde",
  "serde_json",
@@ -4514,9 +4514,9 @@ dependencies = [
 
 [[package]]
 name = "rand"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc266eb313df6c5c09c1c7b1fbe2510961e5bcd3add930c1e31f7ed9da0feff8"
+checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
 dependencies = [
  "chacha20 0.10.0",
  "getrandom 0.4.2",
