@@ -41,6 +41,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `SyncServiceBuilder::with_all_rooms_required_state()` to request
+  additional state events for `ALL_ROOMS` during sliding sync. The provided
+  entries are merged with the built-in defaults for that list, and user
+  entries override defaults with the same event type.
+- Expose `Room.account_data()`, `Room.set_account_data()`, and `Room.get_state_event()`
+  through FFI bindings, allowing non-Rust clients to read/write room-scoped account data
+  and read room state events.
 - Added the `Client::import_secrets_bundle` method.
   ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
 - [**breaking**] Remove support for `native-tls` and remove all feature

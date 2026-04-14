@@ -56,7 +56,7 @@ mod room_list;
 pub mod sorters;
 mod state;
 
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
@@ -110,6 +110,23 @@ const DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE: &[(StateEventType, &str)] 
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
 
+fn merge_required_state<'a>(
+    defaults: impl IntoIterator<Item = &'a (StateEventType, &'a str)>,
+    extra: &[(StateEventType, String)],
+) -> Vec<(StateEventType, String)> {
+    let overridden_types: HashSet<StateEventType> =
+        extra.iter().map(|(event_type, _)| event_type.clone()).collect();
+
+    let mut result = defaults
+        .into_iter()
+        .filter(|(event_type, _)| !overridden_types.contains(event_type))
+        .map(|(event_type, state_key)| (event_type.clone(), (*state_key).to_owned()))
+        .collect::<Vec<_>>();
+
+    result.extend(extra.iter().cloned());
+    result
+}
+
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
@@ -143,6 +160,19 @@ impl RoomListService {
     ///
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     pub async fn new_with_share_pos(client: Client, share_pos: bool) -> Result<Self, Error> {
+        Self::new_with_all_rooms_required_state(client, share_pos, vec![]).await
+    }
+
+    /// Like [`RoomListService::new_with_share_pos`] but with additional
+    /// required state entries that apply only to the `ALL_ROOMS` list.
+    ///
+    /// User-provided entries override built-in defaults with the same event
+    /// type. This does not affect `room_subscriptions`.
+    pub async fn new_with_all_rooms_required_state(
+        client: Client,
+        share_pos: bool,
+        all_rooms_required_state: Vec<(StateEventType, String)>,
+    ) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync("room-list")
             .map_err(Error::SlidingSync)?
@@ -203,12 +233,10 @@ impl RoomListService {
                             .add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
                     )
                     .timeline_limit(1)
-                    .required_state(
-                        DEFAULT_REQUIRED_STATE
-                            .iter()
-                            .map(|(state_event, value)| (state_event.clone(), (*value).to_owned()))
-                            .collect(),
-                    )
+                    .required_state(merge_required_state(
+                        DEFAULT_REQUIRED_STATE.iter(),
+                        &all_rooms_required_state,
+                    ))
                     .filters(Some(assign!(http::request::ListFilters::default(), {
                         // As defined in the [SlidingSync MSC](https://github.com/matrix-org/matrix-spec-proposals/blob/9450ced7fb9cf5ea9077d029b3adf36aebfa8709/proposals/3575-sync.md?plain=1#L444)
                         // If unset, both invited and joined rooms are returned. If false, no invited rooms are

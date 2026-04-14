@@ -38,6 +38,7 @@ use matrix_sdk::{
     executor::{JoinHandle, spawn},
     sleep::sleep,
 };
+use ruma::events::StateEventType;
 use thiserror::Error;
 use tokio::sync::{
     Mutex as AsyncMutex, OwnedMutexGuard,
@@ -779,11 +780,20 @@ pub struct SyncServiceBuilder {
     /// defined span, for example if there is more than one active sync
     /// service.
     parent_span: Span,
+
+    /// Additional required state entries for `lists.ALL_ROOMS`.
+    all_rooms_required_state: Vec<(StateEventType, String)>,
 }
 
 impl SyncServiceBuilder {
     fn new(client: Client) -> Self {
-        Self { client, with_offline_mode: false, with_share_pos: true, parent_span: Span::none() }
+        Self {
+            client,
+            with_offline_mode: false,
+            with_share_pos: true,
+            parent_span: Span::none(),
+            all_rooms_required_state: vec![],
+        }
     }
 
     /// Enable the "offline" mode for the [`SyncService`].
@@ -810,17 +820,44 @@ impl SyncServiceBuilder {
         self
     }
 
+    /// Request additional state entries for `lists.ALL_ROOMS.required_state`.
+    ///
+    /// User-provided entries override built-in defaults for matching event
+    /// types. This does not affect `room_subscriptions.required_state`.
+    ///
+    /// Each entry is a `(event_type, state_key)` pair following the sliding
+    /// sync `required_state` conventions, such as `""` for singleton state or
+    /// `"*"` for all state keys of a state event type.
+    pub fn with_all_rooms_required_state(
+        mut self,
+        all_rooms_required_state: Vec<(StateEventType, String)>,
+    ) -> Self {
+        self.all_rooms_required_state = all_rooms_required_state;
+        self
+    }
+
     /// Finish setting up the [`SyncService`].
     ///
     /// This creates the underlying sliding syncs, and will *not* start them in
     /// the background. The resulting [`SyncService`] must be kept alive as long
     /// as the sliding syncs are supposed to run.
     pub async fn build(self) -> Result<SyncService, Error> {
-        let Self { client, with_offline_mode, with_share_pos, parent_span } = self;
+        let Self {
+            client,
+            with_offline_mode,
+            with_share_pos,
+            parent_span,
+            all_rooms_required_state,
+        } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new_with_share_pos(client.clone(), with_share_pos).await?;
+        let room_list = RoomListService::new_with_all_rooms_required_state(
+            client.clone(),
+            with_share_pos,
+            all_rooms_required_state,
+        )
+        .await?;
 
         let encryption_sync = Arc::new(EncryptionSyncService::new(client, None).await?);
 
