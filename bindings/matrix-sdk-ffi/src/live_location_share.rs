@@ -17,7 +17,7 @@ use std::{fmt::Debug, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::live_location_share::{
-    LiveLocationShare as SdkLiveLocationShare, LiveLocationShares as SdkLiveLocationShares,
+    LiveLocationShare as SdkLiveLocationShare, RoomLiveLocationService as SdkRoomLiveLocationService,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
@@ -76,22 +76,22 @@ pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
 
 /// Tracks active live location shares in a room.
 ///
-/// Holds the SDK [`SdkLiveLocationShares`] which keeps the beacon and
+/// Holds the SDK [`SdkRoomLiveLocationService`] which keeps the beacon and
 /// beacon_info event handlers registered for as long as this object is alive.
-/// Call [`LiveLocationShares::subscribe`] to start receiving updates.
+/// Call [`RoomLiveLocationService::subscribe`] to start receiving updates.
 #[derive(uniffi::Object)]
-pub struct LiveLocationShares {
-    inner: SdkLiveLocationShares,
+pub struct RoomLiveLocationService {
+    inner: SdkRoomLiveLocationService,
 }
 
-impl LiveLocationShares {
-    pub fn new(inner: SdkLiveLocationShares) -> Self {
+impl RoomLiveLocationService {
+    pub fn new(inner: SdkRoomLiveLocationService) -> Self {
         Self { inner }
     }
 }
 
 #[matrix_sdk_ffi_macros::export]
-impl LiveLocationShares {
+impl RoomLiveLocationService {
     /// Subscribe to changes in the list of active live location shares.
     ///
     /// Immediately calls `listener` with a `Reset` update containing the
@@ -100,7 +100,7 @@ impl LiveLocationShares {
     ///
     /// Returns a [`TaskHandle`] that, when dropped, stops the listener.
     /// The event handlers remain registered for as long as this
-    /// [`LiveLocationShares`] object is alive.
+    /// [`RoomLiveLocationService`] object is alive.
     pub fn subscribe(&self, listener: Box<dyn LiveLocationShareListener>) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.subscribe();
 
