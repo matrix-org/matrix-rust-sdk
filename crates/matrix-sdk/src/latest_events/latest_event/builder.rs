@@ -19,7 +19,10 @@ use std::{
 };
 
 pub use matrix_sdk_base::latest_event::{LatestEventValue, LocalLatestEventValue};
-use matrix_sdk_base::{deserialized_responses::TimelineEvent, store::SerializableEventContent};
+use matrix_sdk_base::{
+    check_validity_of_replacement_events, deserialized_responses::TimelineEvent,
+    store::SerializableEventContent,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     events::{
@@ -33,7 +36,7 @@ use ruma::{
         },
     },
 };
-use tracing::error;
+use tracing::{debug, error};
 
 use crate::{Room, event_cache::RoomEventCache, room::Invite, send_queue::RoomSendQueueUpdate};
 
@@ -91,16 +94,35 @@ impl Builder {
                     // Stop! We found a suitable event!
                     ControlFlow::Break(()) => {
                         // Return the latest known edit of the event or the event itself if it
-                        // hasn't been replaced.
-                        // TODO: Here we pick the event, and if there's an edit for the event we
-                        // pick the edit instead.
-                        //
-                        // We should check if the edit is valid.
-                        event
-                            .event_id()
-                            .and_then(|event_id| latest_edit_for_event.get(&event_id))
-                            .cloned()
-                            .or_else(|| Some(event.clone()))
+                        // hasn't been replaced or the replacement is invalid.
+                        if let Some(event_id) = event.event_id()
+                            && let Some(edit) = latest_edit_for_event.get(&event_id)
+                        {
+                            let original = event.kind.raw();
+                            let original_encryption_info = event.kind.encryption_info();
+
+                            let replacement = edit.kind.raw();
+                            let replacement_encryption_info = event.kind.encryption_info();
+
+                            Some(
+                                match check_validity_of_replacement_events(
+                                    original,
+                                    original_encryption_info.map(|e| &(**e)),
+                                    replacement,
+                                    replacement_encryption_info.map(|e| &(**e)),
+                                ) {
+                                    Ok(_) => edit.clone(),
+                                    Err(e) => {
+                                        debug!(
+                                        "Skipping an edit of a latest event due to the replacement event being invalid: {e}"
+                                    );
+                                        event.clone()
+                                    }
+                                },
+                            )
+                        } else {
+                            Some(event.clone())
+                        }
                     }
                 }
             })

@@ -123,6 +123,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Reject invalid edits as candidates for the latest event.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 - Fix an infinite loop when loading pinned events from the storage.
   ([#6453](https://github.com/matrix-org/matrix-rust-sdk/pull/6453))
 - `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
