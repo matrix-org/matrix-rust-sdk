@@ -22,8 +22,8 @@ pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
 use matrix_sdk_base::{
-    RoomInfoNotableUpdateReasons, StateChanges, deserialized_responses::TimelineEvent,
-    store::SerializableEventContent,
+    RoomInfoNotableUpdateReasons, StateChanges, check_validity_of_replacement_events,
+    deserialized_responses::TimelineEvent, store::SerializableEventContent,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
@@ -37,7 +37,7 @@ use ruma::{
         },
     },
 };
-use tracing::{error, instrument, warn};
+use tracing::{debug, error, instrument, warn};
 
 use crate::{event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
@@ -553,7 +553,7 @@ impl LatestEventValueBuilder {
                 LocalEchoContent::Event { serialized_event: serialized_event_content, .. } => {
                     match serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if filter_any_message_like_event_content(content, None) {
+                            if filter_any_message_like_event_content(content, None, None) {
                                 let local_value = LocalLatestEventValue {
                                     timestamp: MilliSecondsSinceUnixEpoch::now(),
                                     content: serialized_event_content.clone(),
@@ -661,7 +661,7 @@ impl LatestEventValueBuilder {
                 if let Some(position) = buffer_of_values_for_local_events.position(transaction_id) {
                     match new_serialized_event_content.deserialize() {
                         Ok(content) => {
-                            if filter_any_message_like_event_content(content, None) {
+                            if filter_any_message_like_event_content(content, None, None) {
                                 buffer_of_values_for_local_events.replace_content(
                                     position,
                                     new_serialized_event_content.clone(),
@@ -933,14 +933,14 @@ impl LatestEventValuesForLocalEvents {
 }
 
 fn filter_timeline_event(
-    event: &TimelineEvent,
+    timeline_event: &TimelineEvent,
     previous_event: Option<&TimelineEvent>,
     own_user_id: Option<&UserId>,
     power_levels: Option<&RoomPowerLevels>,
 ) -> bool {
     // Cast the event into an `AnySyncTimelineEvent`. If deserializing fails, we
     // ignore the event.
-    let event = match event.raw().deserialize() {
+    let event = match timeline_event.raw().deserialize() {
         Ok(event) => event,
         Err(error) => {
             error!(
@@ -957,6 +957,7 @@ fn filter_timeline_event(
             match message_like_event.original_content() {
                 Some(any_message_like_event_content) => filter_any_message_like_event_content(
                     any_message_like_event_content,
+                    Some(timeline_event),
                     previous_event,
                 ),
 
@@ -972,10 +973,11 @@ fn filter_timeline_event(
 }
 
 fn filter_any_message_like_event_content(
-    event: AnyMessageLikeEventContent,
+    content: AnyMessageLikeEventContent,
+    new_event: Option<&TimelineEvent>,
     previous_event: Option<&TimelineEvent>,
 ) -> bool {
-    match event {
+    match content {
         AnyMessageLikeEventContent::RoomMessage(message) => {
             // Don't show incoming verification requests.
             if let MessageType::VerificationRequest(_) = message.msgtype {
@@ -984,10 +986,35 @@ fn filter_any_message_like_event_content(
 
             // Not all relations are accepted. Let's filter them.
             match &message.relates_to {
-                Some(Relation::Replacement(Replacement { event_id, .. })) => {
-                    // If the edit relates to the immediate previous event, this is an acceptable
-                    // latest event, otherwise let's ignore it.
-                    Some(event_id) == previous_event.and_then(|e| e.event_id()).as_ref()
+                Some(Relation::Replacement(Replacement { .. })) => {
+                    // If the edit is a valid replacement event for the previous latest event, it's
+                    // a valid new latest event, otherwise let's ignore it.
+                    if let Some(event) = previous_event
+                        && let Some(edit) = new_event
+                    {
+                        let original = event.kind.raw();
+                        let original_encryption_info = event.kind.encryption_info();
+
+                        let replacement = edit.kind.raw();
+                        let replacement_encryption_info = event.kind.encryption_info();
+
+                        match check_validity_of_replacement_events(
+                            original,
+                            original_encryption_info.map(|e| &(**e)),
+                            replacement,
+                            replacement_encryption_info.map(|e| &(**e)),
+                        ) {
+                            Ok(_) => true,
+                            Err(e) => {
+                                debug!(
+                                    "Skipping an edit of a latest event due to the replacement event being invalid: {e}"
+                                );
+                                false
+                            }
+                        }
+                    } else {
+                        false
+                    }
                 }
 
                 _ => true,
