@@ -124,15 +124,16 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        let mut previous = last_chunk.previous;
-        self.state.chunk.replace_with(Some(last_chunk), chunk_id_gen)?;
+        {
+            let mut current_chunk_identifier = last_chunk.identifier;
+            self.state.chunk.replace_with(Some(last_chunk), chunk_id_gen)?;
 
-        // Reload the entire chunk.
-        while let Some(previous_chunk_id) = previous {
-            let prev = self.store.load_previous_chunk(linked_chunk_id, previous_chunk_id).await?;
-            if let Some(prev_chunk) = prev {
-                previous = prev_chunk.previous;
-                self.state.chunk.insert_new_chunk_as_first(prev_chunk)?;
+            // Reload the entire chunk.
+            while let Some(previous_chunk) =
+                self.store.load_previous_chunk(linked_chunk_id, current_chunk_identifier).await?
+            {
+                current_chunk_identifier = previous_chunk.identifier;
+                self.state.chunk.insert_new_chunk_as_first(previous_chunk)?;
             }
         }
 
