@@ -140,7 +140,7 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
         self.state.chunk.store_updates().take();
 
         // Let observers know about it.
-        self.notify_subscribers(EventsOrigin::Sync);
+        self.notify_subscribers(EventsOrigin::Cache);
 
         Ok(())
     }
