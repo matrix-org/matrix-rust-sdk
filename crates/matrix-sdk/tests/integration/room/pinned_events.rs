@@ -2,6 +2,7 @@ use std::{ops::Not as _, sync::Arc};
 
 use matrix_sdk::{
     Room,
+    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
     room::IncludeRelations,
     store::StoreConfig,
     test_utils::mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
@@ -132,7 +133,7 @@ async fn test_unpin_event_is_returning_an_error() {
 }
 
 #[async_test]
-async fn test_pinned_events_are_reloaded_from_storage() {
+async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_storage() {
     let room_id = room_id!("!galette:saucisse.bzh");
     let pinned_event_id = event_id!("$pinned_event");
 
@@ -258,6 +259,80 @@ async fn test_pinned_events_are_reloaded_from_storage() {
         pinned_event_id,
         "The pinned event should have been reloaded from storage"
     );
+}
+
+#[async_test]
+async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let pinned_event_id_0 = event_id!("$pinned_event_0");
+    let pinned_event_id_1 = event_id!("$pinned_event_1");
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@alice:example.org"));
+
+    // Create the pinned events.
+    let pinned_event_0 = f.text_msg("I'm pinned!").event_id(pinned_event_id_0).into_event();
+    let pinned_event_1 = f.text_msg("I'm pinned too!").event_id(pinned_event_id_1).into_event();
+
+    // Create a client.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Create a non empty Event Cache store containing two chunks.
+    client.event_cache().subscribe().unwrap();
+    client
+        .event_cache_store()
+        .lock()
+        .await
+        .unwrap()
+        .as_clean()
+        .unwrap()
+        .handle_linked_chunk_updates(
+            LinkedChunkId::PinnedEvents(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: vec![pinned_event_0.clone()],
+                },
+                Update::NewItemsChunk {
+                    previous: Some(ChunkIdentifier::new(0)),
+                    new: ChunkIdentifier::new(1),
+                    next: None,
+                },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(1), 0),
+                    items: vec![pinned_event_1.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id)).await;
+
+    // Get the room event cache and subscribe to pinned events.
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
+    // spawns a task that calls reload_from_storage() first.
+    let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
+    let mut events = events.into();
+
+    // Wait for the background task to reload the events.
+    while let Ok(Ok(up)) = timeout(subscriber.recv(), Duration::from_millis(500)).await {
+        for diff in up.diffs {
+            diff.apply(&mut events);
+        }
+
+        if !events.is_empty() {
+            break;
+        }
+    }
+
+    // Verify the pinned event was loaded from the storage and the network.
+    assert_eq!(events.len(), 2, "Expected pinned events to be loaded from the network");
+    assert_eq!(events[0].event_id().as_deref(), Some(pinned_event_id_0));
+    assert_eq!(events[1].event_id().as_deref(), Some(pinned_event_id_1));
 }
 
 #[async_test]
