@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Add a method to check the validity of edits.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
