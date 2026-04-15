@@ -123,6 +123,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Fix an infinite loop when loading pinned events from the storage.
+  ([#6453](https://github.com/matrix-org/matrix-rust-sdk/pull/6453))
 - `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
   are now also eligible as the latest event for a room, preventing the live location sharing item
   from disappearing from the room list summary once the session ends.
