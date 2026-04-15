@@ -235,6 +235,13 @@ struct ProfileCapabilities {
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests {
     use matrix_sdk_test::async_test;
+    #[allow(deprecated)]
+    use ruma::api::{
+        MatrixVersion,
+        client::discovery::get_capabilities::v3::{
+            SetAvatarUrlCapability, SetDisplayNameCapability,
+        },
+    };
 
     use super::*;
     use crate::test_utils::mocks::MatrixMockServer;
@@ -322,5 +329,267 @@ mod tests {
         // Check the values we get are not updated without a refresh, they're loaded
         // from the cache
         assert!(capabilities.can_change_displayname().await.expect("checking capabilities failed"));
+    }
+
+    #[async_test]
+    #[allow(deprecated)]
+    async fn test_deprecated_profile_fields_capabilities() {
+        let server = MatrixMockServer::new().await;
+
+        // The user can only set the display name but not the avatar url or extended
+        // profile fields.
+        let mut capabilities = Capabilities::new();
+        capabilities.profile_fields.take();
+        capabilities.set_displayname = SetDisplayNameCapability::new(true);
+        capabilities.set_avatar_url = SetAvatarUrlCapability::new(false);
+        server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(capabilities)
+            // It should be called once by each client below.
+            .expect(2)
+            .mount()
+            .await;
+
+        // Client with Matrix 1.12 that did not support extended profile fields yet.
+        // Because there is no `m.profile_fields` capability, we rely on the legacy
+        // profile capabilities.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            !capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            !capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+
+        // Client with Matrix 1.16 that added support for extended profile fields, the
+        // deprecated profile capabilities are ignored.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+    }
+
+    #[async_test]
+    #[allow(deprecated)]
+    async fn test_extended_profile_fields_capabilities_enabled() {
+        let server = MatrixMockServer::new().await;
+
+        // The user can set any profile field.
+        // The legacy capabilities say differently, but they will be ignored.
+        let mut capabilities = Capabilities::new();
+        capabilities.profile_fields = Some(ProfileFieldsCapability::new(true));
+        capabilities.set_displayname = SetDisplayNameCapability::new(true);
+        capabilities.set_avatar_url = SetAvatarUrlCapability::new(false);
+        server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(capabilities)
+            // It should be called once by each client below.
+            .expect(2)
+            .mount()
+            .await;
+
+        // Client with Matrix 1.12 that did not support extended profile fields yet.
+        // However, because there is an `m.profile_fields` capability, we still rely on
+        // it.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+
+        // Client with Matrix 1.16 that added support for extended profile fields, only
+        // the `m.profile_fields` capability is used too.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+    }
+
+    #[async_test]
+    #[allow(deprecated)]
+    async fn test_extended_profile_fields_capabilities_disabled() {
+        let server = MatrixMockServer::new().await;
+
+        // The user cannot set any profile field.
+        // The legacy capabilities say differently, but they will be ignored.
+        let mut capabilities = Capabilities::new();
+        capabilities.profile_fields = Some(ProfileFieldsCapability::new(false));
+        capabilities.set_displayname = SetDisplayNameCapability::new(true);
+        capabilities.set_avatar_url = SetAvatarUrlCapability::new(false);
+        server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(capabilities)
+            // It should be called once by each client below.
+            .expect(2)
+            .mount()
+            .await;
+
+        // Client with Matrix 1.12 that did not support extended profile fields yet.
+        // However, because there is an `m.profile_fields` capability, we still rely on
+        // it.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            !capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            !capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            !capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+
+        // Client with Matrix 1.16 that added support for extended profile fields, only
+        // the `m.profile_fields` capability is used too.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            !capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            !capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            !capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+    }
+
+    #[async_test]
+    #[allow(deprecated)]
+    async fn test_fine_grained_extended_profile_fields_capabilities() {
+        let server = MatrixMockServer::new().await;
+
+        // The user can only set the avatar URL.
+        // The legacy capabilities say differently, but they will be ignored.
+        let mut profile_fields = ProfileFieldsCapability::new(true);
+        profile_fields.allowed = Some(vec![ProfileFieldName::AvatarUrl]);
+        let mut capabilities = Capabilities::new();
+        capabilities.profile_fields = Some(profile_fields);
+        capabilities.set_displayname = SetDisplayNameCapability::new(true);
+        capabilities.set_avatar_url = SetAvatarUrlCapability::new(false);
+        server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(capabilities)
+            // It should be called once by each client below.
+            .expect(2)
+            .mount()
+            .await;
+
+        // Client with Matrix 1.12 that did not support extended profile fields yet.
+        // However, because there is an `m.profile_fields` capability, we still rely on
+        // it.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_12]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            !capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
+
+        // Client with Matrix 1.16 that added support for extended profile fields, only
+        // the `m.profile_fields` capability is used too.
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+        let capabilities_api = client.homeserver_capabilities();
+        assert!(
+            !capabilities_api
+                .can_change_displayname()
+                .await
+                .expect("checking displayname capability failed")
+        );
+        assert!(
+            capabilities_api.can_change_avatar().await.expect("checking avatar capability failed")
+        );
+        assert!(
+            capabilities_api
+                .extended_profile_fields()
+                .await
+                .expect("checking profile fields capability failed")
+                .enabled
+        );
     }
 }
