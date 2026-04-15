@@ -17,6 +17,8 @@
 
 use std::pin::Pin;
 
+use ruma::{RoomVersionId, room_version_rules::RoomVersionRules};
+
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
@@ -27,6 +29,7 @@ pub use ruma;
 pub mod cross_process_lock;
 pub mod debug;
 pub mod deserialized_responses;
+mod edit_validation;
 pub mod executor;
 pub mod failures_cache;
 pub mod linked_chunk;
@@ -47,7 +50,7 @@ pub mod ttl_cache;
 pub mod js_tracing;
 
 pub use cross_process_lock::LEASE_DURATION_MS;
-use ruma::{RoomVersionId, room_version_rules::RoomVersionRules};
+pub use edit_validation::*;
 
 /// Alias for `Send` on non-wasm, empty trait (implemented by everything) on
 /// wasm.

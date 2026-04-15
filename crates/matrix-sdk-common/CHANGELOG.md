@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add a method to check the validity of edits.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 - A background task monitor has been added, that can spawn background tasks and monitor their
   execution on a separate channel. Such tasks can run forever, or they can run for one-shot jobs.
   ([#6075](https://github.com/matrix-org/matrix-rust-sdk/pull/6075) &&
