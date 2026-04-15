@@ -31,7 +31,7 @@ async fn get_profile(client: Client, mxid: &UserId) -> MatrixResult<UserProfile>
 
     // Start the request using matrix_sdk::Client::send
     // To avoid having to deal with auth errors, you can also use
-    // account().fetch_user_profile() which handles auth correctly
+    // account().fetch_user_profile() which handles auth correctly.
     let resp = client.send(request).await?;
 
     // Use the response and construct a UserProfile struct.
@@ -94,7 +94,6 @@ async fn main() -> anyhow::Result<()> {
             if e.as_client_api_error()
                 .is_some_and(|err| err.status_code == StatusCode::UNAUTHORIZED)
             {
-                // if is_auth_error(&e) {
                 eprintln!(
                     "Authentication error: {e}. Check if the server requires authentication for profile requests. Trying to fetch profile using the authenticated client instead..."
                 );
@@ -106,7 +105,6 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // get_profile(client, &user_id).await?;
     println!("{profile:#?}");
     Ok(())
 }
