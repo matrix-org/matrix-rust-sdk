@@ -3147,8 +3147,9 @@ mod tests {
     use std::time::Duration;
 
     use ruma::{
-        ServerName, authentication::TokenType,
+        ServerName,
         api::client::room::{Visibility, create_room},
+        authentication::TokenType,
         events::StateEventType,
         room::RoomType,
     };

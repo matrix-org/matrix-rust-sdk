@@ -37,8 +37,8 @@ use ruma::{
         client::{
             account::{
                 add_3pid, change_password, deactivate, delete_3pid, get_3pids,
-                request_openid_token,
                 request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+                request_openid_token,
             },
             config::{get_global_account_data, set_global_account_data},
             profile::{
