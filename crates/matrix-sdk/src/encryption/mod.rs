@@ -2054,8 +2054,15 @@ impl Encryption {
                 return;
             };
 
-            if !matches!(ev.membership_change(), MembershipChange::Left) || ev.sender == user_id {
-                // We can ignore non-leave events and those that we sent.
+            if matches!(
+                ev.membership_change(),
+                MembershipChange::Joined |
+                MembershipChange::Invited |
+                MembershipChange::KnockAccepted |
+                MembershipChange::InvitationAccepted |
+                MembershipChange::ProfileChanged { .. }
+            ) || ev.sender == user_id {
+                // We can ignore events that did not remove us, and those that we sent.
                 return;
             }
 
