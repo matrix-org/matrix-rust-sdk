@@ -484,6 +484,9 @@ async fn test_room_key_rotation_on_gappy_sync_v3() {
 
     // Bob leaves, but we get a gappy sync. Alice should fully reload the room
     // member list.
+    //
+    // (Note: any update to the membership, even a Join, will trigger a reload of
+    // the room member list and discard the session.)
     matrix_mock_server
         .mock_get_members()
         .ok(vec![alice_factory.member(alice_id).into_raw()])
