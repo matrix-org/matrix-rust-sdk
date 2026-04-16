@@ -6,7 +6,7 @@ use assign::assign;
 use eyeball_im::VectorDiff;
 use futures::{FutureExt, StreamExt, future, pin_mut};
 use matrix_sdk::{
-    Client, assert_decrypted_message_eq, assert_next_with_timeout,
+    Client, Room, assert_decrypted_message_eq, assert_next_with_timeout,
     deserialized_responses::TimelineEventKind,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     room::power_levels::RoomPowerLevelChanges,
@@ -38,7 +38,7 @@ use matrix_sdk_ui::{
 };
 use similar_asserts::assert_eq;
 use tempfile::tempdir;
-use tracing::{Instrument, info};
+use tracing::{Instrument, Span, info};
 
 use crate::{
     helpers::{SyncTokenAwareClient, TestClientBuilder, wait_for_room},
@@ -1146,12 +1146,66 @@ async fn test_history_share_on_invite_room_key_rotation() -> Result<()> {
         .expect("Failed to create Charlie's client");
 
     // 1. Alice creates a room with `shared` history visibility and invites Bob.
+    let (alice_room, bob_room) =
+        create_room_and_invite_bob(&alice, &bob, &alice_span, &bob_span).await?;
+
+    // 2. Bob sends M1, which Charlie should be able to read later as Alice will
+    //    send them a key bundle.
+    let (event_id_a, event_m1_session_id) = send_m1(&bob_room, &bob_span).await?;
+
+    // 3. Alice invites Charlie; Charlie joins and receives the keys for M1.
+    let charlie_room = invite_charlie_and_he_joins(
+        &alice,
+        &charlie,
+        &alice_room,
+        &event_id_a,
+        &alice_span,
+        &charlie_span,
+    )
+    .await?;
+
+    // 4. Charlie leaves the room.
+    charlie_room.leave().instrument(charlie_span.clone()).await?;
+
+    // Bob syncs to learn about Charlie's departure, which should trigger key
+    // rotation.
+    bob.sync_once().instrument(bob_span.clone()).await?;
+
+    // 5. Bob sends M2. Because key rotation should have been performed, this should
+    //    be using a fresh session that hasn't been shared with Charlie.
+    let (event_id_b, event_m2_session_id) = send_m2(&bob_room, &bob_span).await?;
+
+    assert_ne!(event_m1_session_id, event_m2_session_id, "Session was not rotated");
+
+    // 6. Charlie rejoins the room via ID.
+    charlie.sync_once().instrument(charlie_span.clone()).await?;
+    let charlie_room =
+        charlie.join_room_by_id(alice_room.room_id()).instrument(charlie_span.clone()).await?;
+
+    // 7. Charlie attempts to decrypt M2. He should not be able to, because the
+    //    session was rotated after he left the room.
+    let event_b = charlie_room.event(&event_id_b, None).instrument(charlie_span.clone()).await?;
+    assert!(
+        event_b.encryption_info().is_none(),
+        "Charlie should not be able to decrypt message M2 after rejoining"
+    );
+
+    Ok(())
+}
+
+async fn create_room_and_invite_bob(
+    alice: &SyncTokenAwareClient,
+    bob: &SyncTokenAwareClient,
+    alice_span: &Span,
+    bob_span: &Span,
+) -> Result<(Room, Room)> {
     let alice_room = alice
         .create_room(assign!(CreateRoomRequest::new(), {
             preset: Some(RoomPreset::PublicChat),
         }))
         .instrument(alice_span.clone())
         .await?;
+
     alice_room.enable_encryption().instrument(alice_span.clone()).await?;
 
     alice_room.invite_user_by_id(bob.user_id().unwrap()).instrument(alice_span.clone()).await?;
@@ -1161,8 +1215,10 @@ async fn test_history_share_on_invite_room_key_rotation() -> Result<()> {
 
     alice.sync_once().instrument(alice_span.clone()).await?;
 
-    // 2. Bob sends M1, which Charlie should be able to read later as Alice will
-    //    send them a key bundle.
+    Ok((alice_room, bob_room))
+}
+
+async fn send_m1(bob_room: &Room, bob_span: &Span) -> Result<(OwnedEventId, String)> {
     let event_id_a = bob_room
         .send(RoomMessageEventContent::text_plain("Charlie is cool!"))
         .into_future()
@@ -1173,12 +1229,24 @@ async fn test_history_share_on_invite_room_key_rotation() -> Result<()> {
 
     // Store the session ID for later comparison.
     let event_m1 = bob_room.event(&event_id_a, None).instrument(bob_span.clone()).await?;
+
     let event_m1_session_id = event_m1
         .encryption_info()
         .and_then(|info| info.session_id())
-        .expect("Bob should be able to check the session ID of event M1");
+        .expect("Bob should be able to check the session ID of event M1")
+        .to_owned();
 
-    // 3. Alice invites Charlie; Charlie joins and receives the keys for M1.
+    Ok((event_id_a, event_m1_session_id))
+}
+
+async fn invite_charlie_and_he_joins(
+    alice: &SyncTokenAwareClient,
+    charlie: &SyncTokenAwareClient,
+    alice_room: &Room,
+    event_id_a: &EventId,
+    alice_span: &Span,
+    charlie_span: &Span,
+) -> Result<Room> {
     alice.sync_once().instrument(alice_span.clone()).await?;
     alice_room.invite_user_by_id(charlie.user_id().unwrap()).instrument(alice_span.clone()).await?;
 
@@ -1197,15 +1265,10 @@ async fn test_history_share_on_invite_room_key_rotation() -> Result<()> {
         "Charlie should be able to decrypt message M1 via the key bundle"
     );
 
-    // 4. Charlie leaves the room.
-    charlie_room.leave().instrument(charlie_span.clone()).await?;
+    Ok(charlie_room)
+}
 
-    // Bob syncs to learn about Charlie's departure, which should trigger key
-    // rotation.
-    bob.sync_once().instrument(bob_span.clone()).await?;
-
-    // 5. Bob sends M2. Because key rotation should have been performed, this should
-    //    be using a fresh session that hasn't been shared with Charlie.
+async fn send_m2(bob_room: &Room, bob_span: &Span) -> Result<(OwnedEventId, String)> {
     let event_id_b = bob_room
         .send(RoomMessageEventContent::text_plain("Charlie is mean!"))
         .into_future()
@@ -1219,24 +1282,10 @@ async fn test_history_share_on_invite_room_key_rotation() -> Result<()> {
     let event_m2_session_id = event_b
         .encryption_info()
         .and_then(|info| info.session_id())
-        .expect("Bob should be able to check the session ID of event M2");
+        .expect("Bob should be able to check the session ID of event M2")
+        .to_owned();
 
-    assert_ne!(event_m1_session_id, event_m2_session_id, "Session was not rotated");
-
-    // 6. Charlie rejoins the room via ID.
-    charlie.sync_once().instrument(charlie_span.clone()).await?;
-    let charlie_room =
-        charlie.join_room_by_id(alice_room.room_id()).instrument(charlie_span.clone()).await?;
-
-    // 7. Charlie attempts to decrypt M2. He should not be able to, because the
-    //    session was rotated after he left the room.
-    let event_b = charlie_room.event(&event_id_b, None).instrument(charlie_span.clone()).await?;
-    assert!(
-        event_b.encryption_info().is_none(),
-        "Charlie should not be able to decrypt message M2 after rejoining"
-    );
-
-    Ok(())
+    Ok((event_id_b, event_m2_session_id))
 }
 
 /// A variant of the above test that verifies the room key is rotated on member
@@ -1543,7 +1592,7 @@ fn assert_received_room_key_bundle(sync_response: matrix_sdk::sync::SyncResponse
 
 /// Start the given client's sync service and attach a new span to track logs.
 async fn start_client_sync_service(
-    span: &tracing::Span,
+    span: &Span,
     client: &impl Deref<Target = Client>,
 ) -> SyncService {
     let sync_service_span = tracing::info_span!(parent: span, "sync_service");
