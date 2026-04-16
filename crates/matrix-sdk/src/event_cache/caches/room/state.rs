@@ -24,6 +24,7 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, StateChanges, apply_redaction,
+    check_validity_of_replacement_events,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
@@ -1122,12 +1123,28 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // If there's an edit to the latest event in the thread, use the latest edit
             // event id as the latest event id for the thread summary.
             if let Some(event_id) = latest_event_id.as_ref()
-                && let Some((_, edits)) = self
+                && let Some((original_event, edits)) = self
                     .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
                     .await?
-                && let Some(latest_edit) = edits.last()
             {
-                latest_event_id = latest_edit.event_id();
+                let latest_valid_edit = edits.into_iter().rfind(|edit| {
+                    let original_json = original_event.raw();
+                    let original_encryption_info = original_event.encryption_info();
+                    let replacement_json = edit.raw();
+                    let replacement_encryption_info = edit.encryption_info();
+
+                    check_validity_of_replacement_events(
+                        original_json,
+                        original_encryption_info.map(|v| &**v),
+                        replacement_json,
+                        replacement_encryption_info.map(|v| &**v),
+                    )
+                    .is_ok()
+                });
+
+                if let Some(latest_valid_edit) = latest_valid_edit {
+                    latest_event_id = latest_valid_edit.event_id();
+                }
             }
 
             self.maybe_update_thread_summary(thread_root, latest_event_id, post_processing_origin)

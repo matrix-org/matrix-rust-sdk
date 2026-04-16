@@ -12,11 +12,14 @@ use matrix_sdk::{
         assert_event_matches_msg,
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     },
+    timeout::timeout,
 };
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedEventId, OwnedRoomId, event_id,
-    events::{AnySyncTimelineEvent, Mentions},
+    events::{
+        AnySyncTimelineEvent, Mentions, room::message::RoomMessageEventContentWithoutRelation,
+    },
     push::{ConditionalPushRule, Ruleset},
     room_id,
     serde::Raw,
@@ -969,4 +972,110 @@ async fn test_redact_touches_threads() {
             assert!(new_root.thread_summary.summary().is_none());
         }
     }
+}
+
+#[async_test]
+async fn test_edits_touches_threads() {
+    // We start with a thread with some replies, then receive an edit and an invalid
+    // edit for the replies over sync. We observe that valid edits update the
+    // thread linked chunks as well as the thread summary on the thread root
+    // event. Invalid ones don't update the state.
+
+    let s = thread_subscription_test_setup().await;
+    let f = s.factory;
+
+    let event_cache = s.client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let thread_root_id = s.thread_root;
+
+    let room = s.server.sync_joined_room(&s.client, &s.room_id).await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let (thread_events, mut thread_stream) =
+        room_event_cache.subscribe_to_thread(thread_root_id.to_owned()).await.unwrap();
+
+    // Receive a thread root, and a threaded reply.
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(f.text_msg("Talking to myself.").event_id(&thread_root_id))
+                .add_timeline_event(s.events[0].clone())
+                .add_timeline_event(s.events[1].clone()),
+        )
+        .await;
+
+    wait_for_initial_events(thread_events, &mut thread_stream).await;
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // A valid edit for the first reply comes through sync.
+    let valid_edit_event_id = event_id!("$valid_edit");
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id).add_timeline_event(
+                f.text_msg("Nobody speaks English anymore.").event_id(valid_edit_event_id).edit(
+                    &room_events[2].event_id().unwrap(),
+                    RoomMessageEventContentWithoutRelation::text_plain("edited text"),
+                ),
+            ),
+        )
+        .await;
+
+    // Edits are not emitted over the thread subscriber, the timeline uses the
+    // normal room stream to handle those.
+    //
+    // So we're going to look only at the room stream and see if the thread summary
+    // gets correctly updated.
+    {
+        // The room stream receives an update.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 2);
+
+        // The edit gets appended to the stream.
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 1);
+        assert_eq!(new_events[0].event_id().as_deref(), Some(valid_edit_event_id));
+
+        // The thread summary is updated.
+        {
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[1]);
+            assert_eq!(new_root.event_id().as_ref(), Some(&thread_root_id));
+            let summary = new_root.thread_summary.summary().unwrap();
+            assert_eq!(summary.latest_reply.as_deref(), Some(valid_edit_event_id));
+            assert_eq!(summary.num_replies, 2);
+        }
+    }
+
+    // An invalid edit for the second reply comes through sync.
+    let invalid_edit_id = event_id!("$invalid_edit");
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id).add_timeline_event(
+                f.text_msg("Nobody speaks english anymore.").event_id(invalid_edit_id).edit(
+                    &room_events[2].event_id().unwrap(),
+                    RoomMessageEventContentWithoutRelation::text_plain("edited text"),
+                ),
+            ),
+        )
+        .await;
+
+    // It's a bit hard to know when the update should have been ready. This makes it
+    // hard to prove that no update happened.
+    let result = timeout(room_stream.recv(), Duration::from_secs(1)).await;
+
+    assert!(result.is_err(), "The room stream should have timed out as the edit was invnalid");
+
+    let room_events = room_event_cache.events().await.unwrap();
+    let first = room_events.first().unwrap();
+    let thread_summary = first.thread_summary.summary().unwrap();
+
+    // The latest reply should still be our valid event, not our invalid one.
+    assert_eq!(thread_summary.latest_reply.as_deref(), Some(valid_edit_event_id));
 }
