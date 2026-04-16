@@ -179,8 +179,8 @@ async fn test_most_recent_event_in_stream() {
 
     // Create the stream after syncing all beacon events — the initial snapshot is
     // loaded from the event cache and already reflects the latest beacon.
-    let live_location_shares = room.live_locations_observer().await;
-    let (mut shares, _stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (mut shares, _stream) = live_locations_observer.subscribe();
 
     assert_eq!(shares.len(), 1);
     let LiveLocationShare { user_id, last_location, beacon_info, .. } = shares.remove(0);
@@ -233,8 +233,8 @@ async fn test_observe_single_live_location_share() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.live_locations_observer().await;
-    let (initial, stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
     // Initial snapshot contains the beacon_info from state (no last_location yet).
@@ -299,8 +299,8 @@ async fn test_observing_live_location_does_not_return_non_live() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.live_locations_observer().await;
-    let (initial, stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
     // Initial is empty because beacon_info is not live.
@@ -352,8 +352,8 @@ async fn test_location_update_for_already_tracked_user() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.live_locations_observer().await;
-    let (initial, stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
     // Initial snapshot contains the beacon_info from state (no last_location yet).
@@ -438,8 +438,8 @@ async fn test_beacon_info_stop_removes_user_from_stream() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.live_locations_observer().await;
-    let (initial, stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
     // Initial snapshot contains the beacon_info from state (no last_location yet).
@@ -502,8 +502,8 @@ async fn test_multiple_users_in_stream() {
         .await;
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.live_locations_observer().await;
-    let (initial, stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, stream) = live_locations_observer.subscribe();
     pin_mut!(stream);
 
     // Initial snapshot contains both alice and bob beacon_infos from state.
@@ -614,8 +614,8 @@ async fn test_initial_load_contains_location_from_event_cache() {
     assert_let_timeout!(Ok(_) = event_cache_updates_stream.recv());
 
     let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
-    let live_location_shares = room.live_locations_observer().await;
-    let (initial, _stream) = live_location_shares.subscribe();
+    let live_locations_observer = room.live_locations_observer().await;
+    let (initial, _stream) = live_locations_observer.subscribe();
 
     // Initial snapshot should contain both beacon_info AND last_location.
     assert_eq!(initial.len(), 1);
