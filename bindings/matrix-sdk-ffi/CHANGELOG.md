@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `Room.account_data()`, `Room.set_account_data()`, and `Room.get_state_event()`
+  through FFI bindings, allowing non-Rust clients to read/write room-scoped account data
+  and read room state events.
 - Added the `Client::import_secrets_bundle` method.
   ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
 - [**breaking**] Remove support for `native-tls` and remove all feature
