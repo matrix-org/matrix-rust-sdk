@@ -3213,7 +3213,7 @@ mod tests {
         let response = ruma::api::client::account::request_openid_token::v3::Response::new(
             "open-id-token".to_owned(),
             TokenType::Bearer,
-            ServerName::parse("example.com").expect("valid server name").to_owned(),
+            ServerName::parse("example.com").expect("valid server name"),
             Duration::from_secs(3_600),
         );
 
