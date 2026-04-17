@@ -251,7 +251,7 @@ impl BaseStateStore {
         for room_info in room_infos {
             let new_room = Room::restore(
                 user_id,
-                self.inner.store().clone(),
+                self.inner.clone(),
                 room_info,
                 self.room_info_notable_update_sender.clone(),
             );
@@ -373,7 +373,7 @@ impl BaseStateStore {
             .get_or_create(room_id, || {
                 Room::new(
                     user_id,
-                    self.inner.store().clone(),
+                    self.inner.clone(),
                     room_id,
                     room_state,
                     self.room_info_notable_update_sender.clone(),
