@@ -119,15 +119,10 @@ pub struct GlobalSearchBuilder {
 }
 
 impl GlobalSearchBuilder {
-    /// Create a new global search on the given set of filtered rooms.
-    pub fn new(client: Client, query: String, room_filter: RoomStateFilter) -> Self {
-        let room_set = client.rooms_filtered(room_filter);
-        Self { query, room_set }
-    }
-
     /// Create a new global search on all the joined rooms.
-    pub fn new_joined(client: Client, query: String) -> Self {
-        Self::new(client, query, RoomStateFilter::JOINED)
+    pub fn new(client: Client, query: String) -> Self {
+        let room_set = client.rooms_filtered(RoomStateFilter::JOINED);
+        Self { query, room_set }
     }
 
     /// Keep only the DM rooms from the initial working set.
@@ -190,7 +185,7 @@ impl GlobalSearchIterator {
     /// Create a new [`GlobalSearchBuilder`] for the given client and query, on
     /// all joined rooms by default.
     pub fn builder(client: Client, query: String) -> GlobalSearchBuilder {
-        GlobalSearchBuilder::new_joined(client, query)
+        GlobalSearchBuilder::new(client, query)
     }
 
     /// Return the next batch of event IDs matching the search query across all
@@ -203,11 +198,15 @@ impl GlobalSearchIterator {
             return Ok(None);
         }
 
-        if !self.current_batch.is_empty() {
-            let high = num_results.min(self.current_batch.len());
-            return Ok(Some(self.current_batch.drain(0..high).collect()));
+        // If there was enough results from a previous room iteration, return them
+        // immediately.
+        if self.current_batch.len() >= num_results {
+            return Ok(Some(self.current_batch.drain(0..num_results).collect()));
         }
 
+        // - Search across all non-done rooms for `num_results`, and accumulate them in
+        // `Self::current_batch`.
+        // - If there are no new search results, the overall iteration has completed.
         for (room_id, room_state) in &mut self.room_state {
             if room_state.is_done {
                 continue;
@@ -217,6 +216,7 @@ impl GlobalSearchIterator {
                 room_state.room.search(&self.query, num_results, room_state.offset).await?;
 
             if room_results.is_empty() {
+                // We've exhausted results for this room, mark it as done.
                 room_state.is_done = true;
             } else {
                 // Move the start offset for the room forward.
@@ -251,7 +251,7 @@ impl GlobalSearchIterator {
         let Some(event_ids) = self.next(num_results).await? else {
             return Ok(None);
         };
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(event_ids.len());
         for (room_id, event_id) in event_ids {
             let Some(room_state) = self.room_state.get(&room_id) else {
                 continue;
