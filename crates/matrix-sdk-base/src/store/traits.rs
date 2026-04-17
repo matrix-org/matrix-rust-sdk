@@ -1456,7 +1456,6 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
 /// A wrapper around a [`StateStore`] that supports synchronizing calls to
 /// [`StateStore::save_changes`].
-#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct SaveLockedStateStore<T = Arc<DynStateStore>> {
     store: T,
@@ -1479,16 +1478,22 @@ impl From<IncorrectMutexGuardError> for StoreError {
 
 impl<T> SaveLockedStateStore<T> {
     /// Creates a new [`SaveLockedStateStore`] with the provided store.
-    #[allow(unused)]
     pub fn new(store: T) -> Self {
         Self { store, lock: Arc::new(Mutex::new(())) }
     }
 
     /// Returns a reference to the underlying [`Mutex`] used to synchronize
     /// calls to [`StateStore::save_changes`].
-    #[allow(unused)]
     pub fn lock(&self) -> &Mutex<()> {
         self.lock.as_ref()
+    }
+
+    // This function is added temporarily to allow for making incremental
+    // commits when types are being transitioned to use a [`SaveLockedStateStore`].
+    // This should be deleted once the transition is complete, as the underlying
+    // store should not be accessible outside of [`SaveLockedStateStore`].
+    pub(crate) fn store(&self) -> &T {
+        &self.store
     }
 }
 

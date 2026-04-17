@@ -94,9 +94,9 @@ pub use self::{
     },
     traits::{
         ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
-        DynStateStore, IntoStateStore, StateStore, StateStoreDataKey, StateStoreDataValue,
-        StateStoreExt, SupportedVersionsResponse, ThreadSubscriptionCatchupToken,
-        WellKnownResponse,
+        DynStateStore, IntoStateStore, SaveLockedStateStore, StateStore, StateStoreDataKey,
+        StateStoreDataValue, StateStoreExt, SupportedVersionsResponse,
+        ThreadSubscriptionCatchupToken, WellKnownResponse,
     },
 };
 
@@ -176,7 +176,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 /// `StateStore` implementation.
 #[derive(Clone)]
 pub(crate) struct BaseStateStore {
-    pub(super) inner: Arc<DynStateStore>,
+    pub(super) inner: SaveLockedStateStore,
     session_meta: Arc<OnceLock<SessionMeta>>,
     room_load_settings: Arc<RwLock<RoomLoadSettings>>,
 
@@ -189,10 +189,6 @@ pub(crate) struct BaseStateStore {
 
     /// All rooms the store knows about.
     rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
-
-    /// A lock to synchronize access to the store, such that data by the sync is
-    /// never overwritten.
-    lock: Arc<Mutex<()>>,
 
     /// Which rooms have already logged a log line about missing room info, in
     /// the context of response processors?
@@ -215,20 +211,19 @@ impl BaseStateStore {
             broadcast::channel(500);
 
         Self {
-            inner,
+            inner: SaveLockedStateStore::new(inner),
             session_meta: Default::default(),
             room_load_settings: Default::default(),
             room_info_notable_update_sender,
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
-            lock: Default::default(),
             already_logged_missing_room: Default::default(),
         }
     }
 
     /// Get access to the syncing lock.
     pub fn lock(&self) -> &Mutex<()> {
-        &self.lock
+        self.inner.lock()
     }
 
     /// Set the [`SessionMeta`] into [`BaseStateStore::session_meta`].
@@ -256,7 +251,7 @@ impl BaseStateStore {
         for room_info in room_infos {
             let new_room = Room::restore(
                 user_id,
-                self.inner.clone(),
+                self.inner.store().clone(),
                 room_info,
                 self.room_info_notable_update_sender.clone(),
             );
@@ -278,7 +273,7 @@ impl BaseStateStore {
         let mut migrated_room_infos = Vec::with_capacity(room_infos.len());
 
         for room_info in room_infos.iter_mut() {
-            if room_info.apply_migrations(self.inner.clone()).await {
+            if room_info.apply_migrations(self.inner.store().clone()).await {
                 migrated_room_infos.push(room_info.clone());
             }
         }
@@ -378,7 +373,7 @@ impl BaseStateStore {
             .get_or_create(room_id, || {
                 Room::new(
                     user_id,
-                    self.inner.clone(),
+                    self.inner.store().clone(),
                     room_id,
                     room_state,
                     self.room_info_notable_update_sender.clone(),
@@ -412,10 +407,10 @@ impl fmt::Debug for BaseStateStore {
 }
 
 impl Deref for BaseStateStore {
-    type Target = DynStateStore;
+    type Target = SaveLockedStateStore;
 
     fn deref(&self) -> &Self::Target {
-        self.inner.deref()
+        &self.inner
     }
 }
 
@@ -874,7 +869,7 @@ mod tests {
     use ruma::{owned_device_id, owned_user_id, room_id, user_id};
 
     use super::{BaseStateStore, MemoryStore, RoomLoadSettings};
-    use crate::{RoomInfo, RoomState, SessionMeta, StateChanges};
+    use crate::{RoomInfo, RoomState, SessionMeta, StateChanges, StateStore};
 
     #[async_test]
     async fn test_set_session_meta() {
