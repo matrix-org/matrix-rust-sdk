@@ -115,7 +115,7 @@ impl BaseClient {
         let mut context = processors::Context::default();
 
         let state_store = self.state_store.clone();
-        let mut ambiguity_cache = AmbiguityCache::new(state_store.inner.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(state_store.inner.store().clone());
 
         let global_account_data_processor =
             processors::account_data::global(&extensions.account_data.global);
