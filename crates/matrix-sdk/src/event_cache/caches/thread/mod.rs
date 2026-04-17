@@ -249,6 +249,7 @@ mod timed_tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
+    use futures_util::FutureExt as _;
     use matrix_sdk_base::{
         RoomState, ThreadingSupport,
         cross_process_lock::CrossProcessLockConfig,
@@ -696,5 +697,182 @@ mod timed_tests {
         // reset it to its initial form, maintaining the invariant that it
         // contains a single items chunk that's empty.
         assert_eq!(linked_chunk.num_items(), 0);
+    }
+
+    #[async_test]
+    async fn test_load_from_storage() {
+        let room_id = room_id!("!r0");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@mnt_io:matrix.org"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let thread_root = event_id!("$t0");
+        let thread_event_id_0 = event_id!("$t0_ev0");
+        let thread_event_id_1 = event_id!("$t0_ev1");
+
+        let thread_event_0 = f
+            .text_msg("hello world")
+            .event_id(thread_event_id_0)
+            .in_thread(thread_root, thread_root)
+            .into_event();
+        let thread_event_1 = f
+            .text_msg("how's it going")
+            .event_id(thread_event_id_1)
+            .in_thread(thread_root, thread_event_id_1)
+            .into_event();
+
+        // Prefill the store with some data. The room usually has all events duplicated
+        // from the threads. It's important to make the test pass when checking the
+        // generic update.
+        let updates = vec![
+            // An empty items chunk.
+            Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+            // A gap chunk.
+            Update::NewGapChunk {
+                previous: Some(ChunkIdentifier::new(0)),
+                // Chunk IDs aren't supposed to be ordered, so use a random value here.
+                new: ChunkIdentifier::new(42),
+                next: None,
+                gap: Gap { token: "gruyère".to_owned() },
+            },
+            // Another items chunk, non-empty this time.
+            Update::NewItemsChunk {
+                previous: Some(ChunkIdentifier::new(42)),
+                new: ChunkIdentifier::new(1),
+                next: None,
+            },
+            Update::PushItems {
+                at: Position::new(ChunkIdentifier::new(1), 0),
+                items: vec![thread_event_0.clone()],
+            },
+            // And another items chunk, non-empty again.
+            Update::NewItemsChunk {
+                previous: Some(ChunkIdentifier::new(1)),
+                new: ChunkIdentifier::new(2),
+                next: None,
+            },
+            Update::PushItems {
+                at: Position::new(ChunkIdentifier::new(2), 0),
+                items: vec![thread_event_1.clone()],
+            },
+        ];
+        event_cache_store
+            .handle_linked_chunk_updates(LinkedChunkId::Room(room_id), updates.clone())
+            .await
+            .unwrap();
+        event_cache_store
+            .handle_linked_chunk_updates(LinkedChunkId::Thread(room_id, thread_root), updates)
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                            .event_cache_store(event_cache_store.clone()),
+                    )
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        // Let's check whether the generic updates are received for the initialisation.
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (thread_events, mut thread_stream) =
+            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+
+        // The room **and** the thread have been loaded. Two generic updates must have
+        // been triggered.
+        for _ in 0..2 {
+            assert_matches!(
+                generic_stream.recv().await,
+                Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
+                    assert_eq!(room_id, expected_room_id);
+                }
+            );
+        }
+        assert!(generic_stream.is_empty());
+
+        // The initial events contain one event because only the last chunk is loaded by
+        // default.
+        assert_eq!(thread_events.len(), 1);
+        assert_eq!(thread_events[0].event_id().unwrap(), thread_event_id_1);
+        assert!(thread_stream.is_empty());
+
+        // The thread knows all events in the storage though, even if they aren't
+        // loaded.
+        assert!(
+            room_event_cache
+                .find_event_in_thread(thread_root.to_owned(), thread_event_id_0)
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            room_event_cache
+                .find_event_in_thread(thread_root.to_owned(), thread_event_id_1)
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // Let's paginate to load more events.
+        room_event_cache
+            .thread_pagination(thread_root.to_owned())
+            .await
+            .unwrap()
+            .run_backwards_once(20)
+            .await
+            .unwrap();
+
+        assert_matches!(
+            thread_stream.recv().await,
+            Ok(TimelineVectorDiffs { diffs, .. }) => {
+                assert_eq!(diffs.len(), 1);
+                assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+                    assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                });
+            }
+        );
+        assert!(thread_stream.is_empty());
+
+        // A generic update is triggered too.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
+        assert!(generic_stream.is_empty());
+
+        // A new update with one of these events leads to deduplication.
+        let timeline = Timeline { limited: false, prev_batch: None, events: vec![thread_event_1] };
+
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        // Just checking the generic update is correct. There is a duplicate event, so
+        // no generic changes whatsoever!
+        assert!(generic_stream.recv().now_or_never().is_none());
+
+        // The stream doesn't report these changes *yet*. Use the events vector given
+        // when subscribing, to check that the events correspond to their new
+        // positions. The duplicated item is removed (so it's not the first
+        // element anymore), and it's added to the back of the list.
+        let (thread_events, _) =
+            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+        assert_eq!(thread_events.len(), 2);
+        assert_eq!(thread_events[0].event_id().as_deref(), Some(thread_event_id_0));
+        assert_eq!(thread_events[1].event_id().as_deref(), Some(thread_event_id_1));
     }
 }
