@@ -36,7 +36,7 @@ use tracing::debug;
 
 use super::Room;
 use crate::{
-    MinimalRoomMemberEvent, StoreError,
+    MinimalRoomMemberEvent, StateStore, StoreError,
     deserialized_responses::{DisplayName, MemberEvent},
     store::{Result as StoreResult, StateStoreExt, ambiguity_map::is_display_name_ambiguous},
 };

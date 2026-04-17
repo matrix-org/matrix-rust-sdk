@@ -17,7 +17,7 @@ use ruma::events::{AnyRoomAccountDataEvent, RoomAccountDataEventType, tag::Tags}
 use serde::{Deserialize, Serialize};
 
 use super::Room;
-use crate::store::Result as StoreResult;
+use crate::{StateStore, store::Result as StoreResult};
 
 impl Room {
     /// Get the `Tags` for this room.
