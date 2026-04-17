@@ -71,7 +71,7 @@ use crate::{
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     room::call::CallIntentConsensus,
-    store::{DynStateStore, StateStoreExt},
+    store::{SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
     utils::{AnyStateEventEnum, RawStateEventWithKeys},
 };
@@ -1183,7 +1183,7 @@ impl RoomInfo {
     /// Returns `true` if migrations were applied and this `RoomInfo` needs to
     /// be persisted to the state store.
     #[instrument(skip_all, fields(room_id = ?self.room_id))]
-    pub(crate) async fn apply_migrations(&mut self, store: Arc<DynStateStore>) -> bool {
+    pub(crate) async fn apply_migrations(&mut self, store: SaveLockedStateStore) -> bool {
         let mut migrated = false;
 
         if self.data_format_version < 1 {
@@ -1388,10 +1388,10 @@ mod tests {
 
     use super::{BaseRoomInfo, LatestEventValue, RoomInfo, SyncInfo};
     use crate::{
-        RoomDisplayName, RoomHero, RoomState, StateChanges,
+        RoomDisplayName, RoomHero, RoomState, StateChanges, StateStore,
         notification_settings::RoomNotificationMode,
         room::{RoomNotableTags, RoomSummary},
-        store::{IntoStateStore, MemoryStore},
+        store::{IntoStateStore, MemoryStore, SaveLockedStateStore},
         sync::UnreadNotificationsCount,
     };
 
@@ -1489,7 +1489,7 @@ mod tests {
 
     #[async_test]
     async fn test_room_info_migration_v1() {
-        let store = MemoryStore::new().into_state_store();
+        let store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
 
         let room_info_json = json!({
             "room_id": "!gda78o:server.tld",
