@@ -636,7 +636,7 @@ impl BaseClient {
             })
             .collect();
 
-        let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.store().clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
 
         let global_account_data_processor =
             processors::account_data::global(&response.account_data.events);

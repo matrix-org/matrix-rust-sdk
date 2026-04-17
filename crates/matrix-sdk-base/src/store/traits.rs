@@ -1487,14 +1487,6 @@ impl<T> SaveLockedStateStore<T> {
     pub fn lock(&self) -> &Mutex<()> {
         self.lock.as_ref()
     }
-
-    // This function is added temporarily to allow for making incremental
-    // commits when types are being transitioned to use a [`SaveLockedStateStore`].
-    // This should be deleted once the transition is complete, as the underlying
-    // store should not be accessible outside of [`SaveLockedStateStore`].
-    pub(crate) fn store(&self) -> &T {
-        &self.store
-    }
 }
 
 impl<T: StateStore> SaveLockedStateStore<T> {
