@@ -921,6 +921,7 @@ mod timed_tests {
     #[async_test]
     async fn test_write_to_storage() {
         let room_id = room_id!("!galette:saucisse.bzh");
+        let event_id_0 = event_id!("$ev0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
         let event_cache_store = Arc::new(MemoryStore::new());
@@ -950,7 +951,7 @@ mod timed_tests {
         let timeline = Timeline {
             limited: true,
             prev_batch: Some("raclette".to_owned()),
-            events: vec![f.text_msg("hey yo").sender(*ALICE).into_event()],
+            events: vec![f.text_msg("hey yo").event_id(event_id_0).into_event()],
         };
 
         room_event_cache
@@ -986,9 +987,7 @@ mod timed_tests {
         // Then we have the stored event.
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            let deserialized = events[0].raw().deserialize().unwrap();
-            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = deserialized);
-            assert_eq!(msg.as_original().unwrap().content.body(), "hey yo");
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id_0));
         });
 
         // That's all, folks!
