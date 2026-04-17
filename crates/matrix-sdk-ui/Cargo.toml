@@ -28,8 +28,6 @@ experimental-encrypted-state-events = [
     "ruma/unstable-msc4362"
 ]
 
-experimental-search = ["matrix-sdk/experimental-search", "dep:matrix-sdk-search"]
-
 [dependencies]
 as_variant.workspace = true
 async-rx = { workspace = true, features = ["alloc"] }
@@ -51,7 +49,6 @@ itertools.workspace = true
 matrix-sdk = { workspace = true, features = ["e2e-encryption"] }
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
-matrix-sdk-search = { workspace = true, optional = true }
 mime.workspace = true
 pin-project-lite.workspace = true
 ruma = { workspace = true, features = ["html", "unstable-msc3381"] }

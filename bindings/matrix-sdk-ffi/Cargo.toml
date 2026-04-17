@@ -56,11 +56,12 @@ matrix-sdk = { workspace = true, features = [
     "socks",
     "uniffi",
     "federation-api",
+    "experimental-search"
 ] }
 matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 matrix-sdk-ffi-macros.workspace = true
-matrix-sdk-ui = { workspace = true, features = ["uniffi", "experimental-search"] }
+matrix-sdk-ui = { workspace = true, features = ["uniffi"] }
 mime = { version = "0.3.17", default-features = false }
 ruma = { workspace = true, features = [
     "html",
