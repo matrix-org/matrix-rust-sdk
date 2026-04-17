@@ -80,26 +80,40 @@ impl ThreadEventCache {
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
-        let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender);
+        let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
-        Ok(Self {
+        let state = LockedThreadEventCacheState::new(
+            room_id.clone(),
+            thread_id.clone(),
+            own_user_id,
+            store,
+            update_sender.clone(),
+            linked_chunk_update_sender,
+        )
+        .await?;
+
+        let timeline_is_not_empty =
+            state.read().await?.thread_linked_chunk().revents().next().is_some();
+
+        let cache = Self {
             inner: Arc::new(ThreadEventCacheInner {
                 room_id: room_id.clone(),
-                thread_id: thread_id.clone(),
+                thread_id,
                 weak_room,
-                state: LockedThreadEventCacheState::new(
-                    room_id,
-                    thread_id,
-                    own_user_id,
-                    store,
-                    update_sender.clone(),
-                    linked_chunk_update_sender,
-                )
-                .await?,
+                state,
                 pagination_batch_token_notifier: Notify::new(),
                 update_sender,
             }),
-        })
+        };
+
+        // If at least one event has been loaded, it means there is a timeline. Let's
+        // emit a generic update.
+        if timeline_is_not_empty {
+            let _ = generic_update_sender
+                .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
+        }
+
+        Ok(cache)
     }
 
     /// Subscribe to live events from this thread.

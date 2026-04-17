@@ -23,10 +23,8 @@ use matrix_sdk_base::{
 use ruma::{OwnedRoomId, RoomId};
 use tokio::sync::{broadcast::Sender, mpsc};
 
-use super::{EventCacheError, EventsOrigin, Result};
-use crate::{
-    client::WeakClient, event_cache::automatic_pagination::AutomaticPagination, room::WeakRoom,
-};
+use super::{EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination};
+use crate::{client::WeakClient, room::WeakRoom};
 
 pub mod event_focused;
 pub mod event_linked_chunk;
