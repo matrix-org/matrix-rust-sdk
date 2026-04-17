@@ -165,6 +165,19 @@ impl RoomEventCache {
         state.subscribe_to_pinned_events(room).await
     }
 
+    /// Find an event `event_id` in thread `thread_root`.
+    #[cfg(test)]
+    pub(super) async fn find_event_in_thread(
+        &self,
+        thread_root: OwnedEventId,
+        event_id: &EventId,
+    ) -> Result<Option<(super::EventLocation, Event)>> {
+        let mut state = self.inner.state.write().await?;
+
+        let thread_cache = state.get_or_reload_thread(thread_root).await?;
+        thread_cache.find_event(event_id).await
+    }
+
     /// Create or get an event-focused timeline cache for this room.
     ///
     /// This creates a timeline centered around a specific event (e.g., for
@@ -1096,8 +1109,8 @@ mod timed_tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
+        let ev1 = f.text_msg("hello world").event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1166,7 +1179,7 @@ mod timed_tests {
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        // The rooms knows about all cached events.
+        // The room knows about all cached events.
         {
             assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
             assert!(room_event_cache.find_event(event_id2).await.unwrap().is_some());

@@ -369,7 +369,14 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
-    async fn find_event(&self, event_id: &EventId) -> Result<Option<(EventLocation, Event)>> {
+    /// Find a single event in this thread.
+    ///
+    /// It starts by looking into loaded events in `EventLinkedChunk` before
+    /// looking inside the storage.
+    pub(super) async fn find_event(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Option<(EventLocation, Event)>> {
         // There are supposedly fewer events loaded in memory than in the store. Let's
         // start by looking up in the `EventLinkedChunk`.
         for (position, event) in self.thread_linked_chunk.revents() {
