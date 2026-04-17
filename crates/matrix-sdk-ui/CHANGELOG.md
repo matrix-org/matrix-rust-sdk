@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Fix a possible panic in `RoomList::entries_with_dynamic_adapters`.
+  ([#6459](https://github.com/matrix-org/matrix-rust-sdk/pull/6459))
 - Keep stopped `beacon_info` live location sessions visible in
   `Room::latest_event()`, so room summaries still show the last live location
   sharing session after it ends.
