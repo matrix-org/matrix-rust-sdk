@@ -1065,8 +1065,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self,
         root_event_id: OwnedEventId,
     ) -> Result<&mut ThreadEventCache, EventCacheError> {
-        // TODO: when there's persistent storage, try to lazily reload from disk, if
-        // missing from memory.
         let RoomEventCacheState {
             room_id,
             weak_room,
