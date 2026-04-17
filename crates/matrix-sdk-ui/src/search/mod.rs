@@ -16,7 +16,8 @@
 //! low-level search API provided by the `search` module, such as streams for
 //! paginating search results and builders for configuring search queries.
 
-use imbl::HashSet;
+use std::collections::HashSet;
+
 use matrix_sdk::{Client, Room, deserialized_responses::TimelineEvent};
 use matrix_sdk_base::RoomStateFilter;
 use matrix_sdk_search::error::IndexError;
@@ -97,13 +98,11 @@ struct GlobalSearchRoomState {
     /// The current start offset in the search results for this room, or `None`
     /// if we haven't called the iterator for this room yet.
     offset: Option<usize>,
-    /// Whether we have exhausted the search results for this specific room.
-    is_done: bool,
 }
 
 impl GlobalSearchRoomState {
     fn new(room: Room) -> Self {
-        Self { room, offset: None, is_done: false }
+        Self { room, offset: None }
     }
 }
 
@@ -156,7 +155,6 @@ impl GlobalSearchBuilder {
             room_state: Vec::from_iter(
                 self.room_set.into_iter().map(|room| GlobalSearchRoomState::new(room)),
             ),
-            is_done: false,
             current_batch: Vec::new(),
         }
     }
@@ -169,11 +167,12 @@ pub struct GlobalSearchIterator {
     /// The search query, directly forwarded to the search API.
     query: String,
 
-    /// The state for each room in the working set, indexed by room ID.
+    /// The state for each room in the working list, that may still have
+    /// results.
+    ///
+    /// This list is bound to shrink as we exhaust search results for each room,
+    /// until it's empty and the overall iteration is done.
     room_state: Vec<GlobalSearchRoomState>,
-
-    /// Whether we have exhausted the search results for *all* rooms.
-    is_done: bool,
 
     /// A buffer for the current batch of results across all rooms, so that we
     /// can return results in a more interleaved way instead of exhausting
@@ -194,7 +193,7 @@ impl GlobalSearchIterator {
         &mut self,
         num_results: usize,
     ) -> Result<Option<Vec<(OwnedRoomId, OwnedEventId)>>, SearchError> {
-        if self.is_done {
+        if self.room_state.is_empty() {
             return Ok(None);
         }
 
@@ -204,20 +203,17 @@ impl GlobalSearchIterator {
             return Ok(Some(self.current_batch.drain(0..num_results).collect()));
         }
 
-        // - Search across all non-done rooms for `num_results`, and accumulate them in
-        // `Self::current_batch`.
-        // - If there are no new search results, the overall iteration has completed.
-        for room_state in &mut self.room_state {
-            if room_state.is_done {
-                continue;
-            }
+        let mut to_remove = HashSet::new();
 
+        // Search across all non-done rooms for `num_results`, and accumulate them in
+        // `Self::current_batch`.
+        for room_state in &mut self.room_state {
             let room_results =
                 room_state.room.search(&self.query, num_results, room_state.offset).await?;
 
             if room_results.is_empty() {
-                // We've exhausted results for this room, mark it as done.
-                room_state.is_done = true;
+                // We've exhausted results for this room, mark it for removal.
+                to_remove.insert(room_state.room.room_id().to_owned());
             } else {
                 // Move the start offset for the room forward.
                 room_state.offset = Some(room_state.offset.unwrap_or(0) + room_results.len());
@@ -236,11 +232,16 @@ impl GlobalSearchIterator {
             }
         }
 
+        // Delete rooms for which we've exhausted search results from the working list.
+        for room_id in to_remove {
+            self.room_state.retain(|room_state| room_state.room.room_id() != &room_id);
+        }
+
         if !self.current_batch.is_empty() {
             let high = num_results.min(self.current_batch.len());
             Ok(Some(self.current_batch.drain(0..high).collect()))
         } else {
-            self.is_done = true;
+            debug_assert!(self.room_state.is_empty());
             Ok(None)
         }
     }
