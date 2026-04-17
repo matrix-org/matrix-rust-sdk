@@ -16,8 +16,6 @@
 //! low-level search API provided by the `search` module, such as streams for
 //! paginating search results and builders for configuring search queries.
 
-use std::collections::HashMap;
-
 use imbl::HashSet;
 use matrix_sdk::{Client, Room, deserialized_responses::TimelineEvent};
 use matrix_sdk_base::RoomStateFilter;
@@ -112,6 +110,7 @@ impl GlobalSearchRoomState {
 /// A builder for a [`GlobalSearchIterator`] that allows to configure the
 /// initial working set of rooms to search in.
 pub struct GlobalSearchBuilder {
+    client: Client,
     /// The search query, directly forwarded to the search API.
     query: String,
     /// The working set of rooms to search in.
@@ -122,7 +121,7 @@ impl GlobalSearchBuilder {
     /// Create a new global search on all the joined rooms.
     pub fn new(client: Client, query: String) -> Self {
         let room_set = client.rooms_filtered(RoomStateFilter::JOINED);
-        Self { query, room_set }
+        Self { client, query, room_set }
     }
 
     /// Keep only the DM rooms from the initial working set.
@@ -152,11 +151,10 @@ impl GlobalSearchBuilder {
     /// Build the [`GlobalSearchIterator`] from this builder.
     pub fn build(self) -> GlobalSearchIterator {
         GlobalSearchIterator {
+            client: self.client,
             query: self.query,
-            room_state: HashMap::from_iter(
-                self.room_set
-                    .into_iter()
-                    .map(|room| (room.room_id().to_owned(), GlobalSearchRoomState::new(room))),
+            room_state: Vec::from_iter(
+                self.room_set.into_iter().map(|room| GlobalSearchRoomState::new(room)),
             ),
             is_done: false,
             current_batch: Vec::new(),
@@ -166,11 +164,13 @@ impl GlobalSearchBuilder {
 
 /// An async iterator for a search query across multiple rooms.
 pub struct GlobalSearchIterator {
+    client: Client,
+
     /// The search query, directly forwarded to the search API.
     query: String,
 
     /// The state for each room in the working set, indexed by room ID.
-    room_state: HashMap<OwnedRoomId, GlobalSearchRoomState>,
+    room_state: Vec<GlobalSearchRoomState>,
 
     /// Whether we have exhausted the search results for *all* rooms.
     is_done: bool,
@@ -207,7 +207,7 @@ impl GlobalSearchIterator {
         // - Search across all non-done rooms for `num_results`, and accumulate them in
         // `Self::current_batch`.
         // - If there are no new search results, the overall iteration has completed.
-        for (room_id, room_state) in &mut self.room_state {
+        for room_state in &mut self.room_state {
             if room_state.is_done {
                 continue;
             }
@@ -223,8 +223,11 @@ impl GlobalSearchIterator {
                 room_state.offset = Some(room_state.offset.unwrap_or(0) + room_results.len());
 
                 // Append the search results to the current batch.
-                self.current_batch
-                    .extend(room_results.into_iter().map(|event_id| (room_id.clone(), event_id)));
+                self.current_batch.extend(
+                    room_results
+                        .into_iter()
+                        .map(|event_id| (room_state.room.room_id().to_owned(), event_id)),
+                );
 
                 if self.current_batch.len() >= num_results {
                     // We have enough events to return now.
@@ -253,10 +256,10 @@ impl GlobalSearchIterator {
         };
         let mut results = Vec::with_capacity(event_ids.len());
         for (room_id, event_id) in event_ids {
-            let Some(room_state) = self.room_state.get(&room_id) else {
+            let Some(room) = self.client.get_room(&room_id) else {
                 continue;
             };
-            results.push((room_id, room_state.room.load_or_fetch_event(&event_id, None).await?));
+            results.push((room_id, room.load_or_fetch_event(&event_id, None).await?));
         }
         Ok(Some(results))
     }
