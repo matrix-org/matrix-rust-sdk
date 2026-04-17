@@ -57,7 +57,7 @@ jobs:
           echo "cachekey-${{ matrix.cachekey-id }}=xtask-${{ matrix.cachekey-id }}-${{ hashFiles('Cargo.toml', 'xtask/**') }}" >> $GITHUB_OUTPUT
 
       - name: Check xtask cache
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         id: xtask-cache
         with:
           path: target/debug/xtask
@@ -68,7 +68,9 @@ jobs:
 
       - name: Install Rust stable toolchain
         if: steps.xtask-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
 
       - name: Build
         if: steps.xtask-cache.outputs.cache-hit != 'true'

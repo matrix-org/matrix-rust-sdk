@@ -112,7 +112,9 @@ jobs:
           sudo rm -rf /var/lib/apt/lists/*
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: stable
 
       # Cargo config can screw with caching and is only used for alias config
       # and extra lints, which we don't care about here
@@ -120,7 +122,7 @@ jobs:
         run: rm .cargo/config.toml
 
       - name: Load cache
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           prefix-key: "coverage"
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -131,7 +133,7 @@ jobs:
           tool: nextest,cargo-llvm-cov
 
       - name: Get xtask
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5
+        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: target/debug/xtask
           key: "${{ needs.xtask.outputs.cachekey-linux }}"
@@ -169,7 +171,7 @@ jobs:
       # The actual upload to Codecov is executed by a different workflow `upload_coverage.yml`.
       # The reason for this split is because `on.pull_request` workflows don't have access to secrets.
       - name: Store coverage report in artifacts
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: codecov_report
           path: |
