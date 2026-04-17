@@ -51,6 +51,24 @@ pub enum SearchError {
     EventLoadError(#[from] crate::Error),
 }
 
+impl Room {
+    /// Search for messages in this room matching the given query, returning an
+    /// iterator over the results.
+    pub fn search_messages(
+        &self,
+        query: String,
+        num_results_per_batch: usize,
+    ) -> RoomSearchIterator {
+        RoomSearchIterator {
+            room: self.clone(),
+            query,
+            offset: None,
+            is_done: false,
+            num_results_per_batch,
+        }
+    }
+}
+
 /// An async iterator for a search query in a single room.
 #[derive(Debug)]
 pub struct RoomSearchIterator {
@@ -73,11 +91,6 @@ pub struct RoomSearchIterator {
 }
 
 impl RoomSearchIterator {
-    /// Create a new search iterator for the given room and query.
-    pub fn new(room: Room, query: String, num_results_per_batch: usize) -> Self {
-        Self { room, query, offset: None, is_done: false, num_results_per_batch }
-    }
-
     /// Return the next batch of event IDs matching the search query, or `None`
     /// if there are no more results.
     pub async fn next(&mut self) -> Result<Option<Vec<OwnedEventId>>, IndexError> {
@@ -116,6 +129,7 @@ impl RoomSearchIterator {
 struct GlobalSearchRoomState {
     /// The room for which we're storing state.
     room: Room,
+
     /// The current start offset in the search results for this room, or `None`
     /// if we haven't called the iterator for this room yet.
     offset: Option<usize>,
@@ -187,6 +201,18 @@ impl GlobalSearchBuilder {
     }
 }
 
+impl Client {
+    /// Search across all rooms for events with the given query, returning a
+    /// builder for an iterator over the results.
+    pub fn search_messages(
+        &self,
+        query: String,
+        num_results_per_batch: usize,
+    ) -> GlobalSearchBuilder {
+        GlobalSearchBuilder::new(self.clone(), query, num_results_per_batch)
+    }
+}
+
 /// An async iterator for a search query across multiple rooms.
 #[derive(Debug)]
 pub struct GlobalSearchIterator {
@@ -213,16 +239,6 @@ pub struct GlobalSearchIterator {
 }
 
 impl GlobalSearchIterator {
-    /// Create a new [`GlobalSearchBuilder`] for the given client and query, on
-    /// all joined rooms by default.
-    pub fn builder(
-        client: Client,
-        query: String,
-        num_results_per_batch: usize,
-    ) -> GlobalSearchBuilder {
-        GlobalSearchBuilder::new(client, query, num_results_per_batch)
-    }
-
     /// Return the next batch of event IDs matching the search query across all
     /// rooms, or `None` if there are no more results.
     pub async fn next(&mut self) -> Result<Option<Vec<(OwnedRoomId, OwnedEventId)>>, SearchError> {
@@ -307,11 +323,7 @@ mod tests {
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{event_id, room_id, user_id};
 
-    use crate::{
-        message_search::{GlobalSearchIterator, RoomSearchIterator},
-        sleep::sleep,
-        test_utils::mocks::MatrixMockServer,
-    };
+    use crate::{sleep::sleep, test_utils::mocks::MatrixMockServer};
 
     #[async_test]
     async fn test_room_message_search() {
@@ -341,8 +353,7 @@ mod tests {
 
         // Search for a missing keyword.
         {
-            let mut room_search =
-                RoomSearchIterator::new(room.clone(), "search query".to_owned(), 5);
+            let mut room_search = room.search_messages("search query".to_owned(), 5);
 
             // Searching for an event that's non-existing should succeed.
             let maybe_results = room_search.next().await.unwrap();
@@ -356,7 +367,7 @@ mod tests {
 
         // Search for an existing keyword, by event id.
         {
-            let mut room_search = RoomSearchIterator::new(room.clone(), "world".to_owned(), 5);
+            let mut room_search = room.search_messages("world".to_owned(), 5);
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
@@ -372,7 +383,7 @@ mod tests {
 
         // Search for an existing keyword, by events.
         {
-            let mut room_search = RoomSearchIterator::new(room.clone(), "world".to_owned(), 5);
+            let mut room_search = room.search_messages("world".to_owned(), 5);
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
@@ -425,8 +436,7 @@ mod tests {
 
         // Search for a missing keyword.
         {
-            let mut search =
-                GlobalSearchIterator::builder(client.clone(), "search query".to_owned(), 5).build();
+            let mut search = client.search_messages("search query".to_owned(), 5).build();
 
             // Searching for an event that's non-existing should succeed.
             let maybe_results = search.next().await.unwrap();
@@ -440,8 +450,7 @@ mod tests {
 
         // Search for an existing keyword, by event id.
         {
-            let mut search =
-                GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5).build();
+            let mut search = client.search_messages("world".to_owned(), 5).build();
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
@@ -460,8 +469,7 @@ mod tests {
 
         // Search for an existing keyword, by event.
         {
-            let mut search =
-                GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5).build();
+            let mut search = client.search_messages("world".to_owned(), 5).build();
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
@@ -527,7 +535,8 @@ mod tests {
 
         // Search for an existing keyword, by event id, only in DMs.
         {
-            let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5)
+            let mut search = client
+                .search_messages("world".to_owned(), 5)
                 .only_dm_rooms()
                 .await
                 .unwrap()
@@ -545,11 +554,8 @@ mod tests {
 
         // Search for an existing keyword, by event, only in groups.
         {
-            let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5)
-                .no_dms()
-                .await
-                .unwrap()
-                .build();
+            let mut search =
+                client.search_messages("world".to_owned(), 5).no_dms().await.unwrap().build();
 
             let maybe_results = search.next_events().await.unwrap();
             let results = maybe_results.unwrap();

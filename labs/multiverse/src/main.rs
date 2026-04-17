@@ -34,7 +34,6 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, locks::Mutex
 use matrix_sdk_ui::{
     Timeline as SdkTimeline,
     room_list_service::{self, State, filters::new_filter_non_left},
-    search::{GlobalSearchIterator, RoomSearchIterator},
     sync_service::SyncService,
     timeline::{RoomExt as _, TimelineFocus, TimelineItem},
 };
@@ -744,16 +743,12 @@ impl App {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if *is_global {
-                                            let mut search = GlobalSearchIterator::builder(
-                                                self.client.clone(),
-                                                query,
-                                            )
-                                            .build();
+                                            let mut search =
+                                                self.client.search_messages(query, 5).build();
 
                                             let mut all_results = HashMap::new();
                                             loop {
-                                                let Ok(results) = search.next_events(5).await
-                                                else {
+                                                let Ok(results) = search.next_events().await else {
                                                     continue;
                                                 };
                                                 let Some(results) = results else {
@@ -780,11 +775,11 @@ impl App {
                                                 view.get_text().zip(self.room_view.room())
                                             {
                                                 let mut room_search =
-                                                    RoomSearchIterator::new(room, query);
+                                                    room.search_messages(query, 5);
 
                                                 let mut all_results = Vec::new();
                                                 while let Some(results) =
-                                                    room_search.next_events(5).await?
+                                                    room_search.next_events().await?
                                                 {
                                                     all_results.extend(results);
                                                 }
