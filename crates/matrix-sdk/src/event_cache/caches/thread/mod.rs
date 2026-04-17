@@ -208,6 +208,7 @@ mod timed_tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use eyeball_im::VectorDiff;
     use matrix_sdk_base::{
         RoomState, ThreadingSupport,
@@ -218,7 +219,11 @@ mod timed_tests {
         sync::{JoinedRoomUpdate, Timeline},
     };
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{
+        event_id,
+        events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
+        room_id, user_id,
+    };
 
     use super::super::{
         super::RoomEventCacheGenericUpdate, TimelineVectorDiffs, room::RoomEventCacheUpdate,
@@ -336,6 +341,104 @@ mod timed_tests {
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_0));
+        });
+
+        // That's all, folks!
+        assert!(chunks.next().is_none());
+    }
+
+    #[async_test]
+    async fn test_write_to_storage_strips_bundled_relations() {
+        let sender = user_id!("@mnt_io:matrix.org");
+        let room_id = room_id!("!r0");
+        let thread_root = event_id!("$t0_ev0");
+        let thread_event_id_0 = event_id!("$t0_ev1");
+
+        let f = EventFactory::new().room(room_id).sender(sender);
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                            .event_cache_store(event_cache_store.clone()),
+                    )
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Propagate an update for a message with bundled relations.
+        let timeline = Timeline {
+            limited: false,
+            prev_batch: None,
+            events: vec![
+                f.text_msg("s 'up")
+                    .event_id(thread_event_id_0)
+                    .with_bundled_edit(f.text_msg("Hello, Kind Sir").sender(sender))
+                    .in_thread(thread_root, thread_root)
+                    .into_event(),
+            ],
+        };
+
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
+            .await
+            .unwrap();
+
+        // Just checking the generic update is correct.
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
+        assert!(generic_stream.is_empty());
+
+        // The in-memory linked chunk keeps the bundled relation.
+        {
+            let events = room_event_cache.events().await.unwrap();
+
+            assert_eq!(events.len(), 1);
+
+            let event = events[0].raw().deserialize().unwrap();
+            assert_eq!(event.event_id(), thread_event_id_0);
+            assert_let!(
+                AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) =
+                    event
+            );
+            assert!(msg.as_original().unwrap().unsigned.relations.replace.is_some());
+        }
+
+        // The one in storage does not.
+        let linked_chunk = from_all_chunks::<3, _, _>(
+            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(linked_chunk.chunks().count(), 1);
+
+        let mut chunks = linked_chunk.chunks();
+        assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
+            assert_eq!(events.len(), 1);
+
+            let event = events[0].raw().deserialize().unwrap();
+            assert_eq!(event.event_id(), thread_event_id_0);
+
+            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = event);
+            assert!(msg.as_original().unwrap().unsigned.relations.replace.is_none());
         });
 
         // That's all, folks!
