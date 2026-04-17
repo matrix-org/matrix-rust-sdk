@@ -1238,7 +1238,7 @@ impl Client {
         Ok(display_name)
     }
 
-    pub async fn get_openid_token(&self) -> Result<OpenIdToken, ClientError> {
+    pub async fn request_openid_token(&self) -> Result<OpenIdToken, ClientError> {
         Ok(self.inner.account().request_openid_token().await?.into())
     }
 

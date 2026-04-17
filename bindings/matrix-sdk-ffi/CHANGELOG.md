@@ -44,7 +44,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Added the `Client.getOpenidToken()` method.
+- Added the `Client.request_openid_token()` method.
   ([#6458](https://github.com/matrix-org/matrix-rust-sdk/pull/6458))
 - Added the `Client::import_secrets_bundle` method.
   ([#6212](https://github.com/matrix-org/matrix-rust-sdk/pull/6212))
