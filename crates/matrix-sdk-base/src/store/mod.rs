@@ -273,7 +273,7 @@ impl BaseStateStore {
         let mut migrated_room_infos = Vec::with_capacity(room_infos.len());
 
         for room_info in room_infos.iter_mut() {
-            if room_info.apply_migrations(self.inner.store().clone()).await {
+            if room_info.apply_migrations(self.inner.clone()).await {
                 migrated_room_infos.push(room_info.clone());
             }
         }
