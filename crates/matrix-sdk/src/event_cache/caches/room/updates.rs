@@ -132,6 +132,11 @@ impl RoomEventCacheUpdateSender {
         }
     }
 
+    /// Get the generic update sender.
+    pub(super) fn generic_update_sender(&self) -> &Sender<RoomEventCacheGenericUpdate> {
+        &self.generic_sender
+    }
+
     /// Create a new [`Receiver`] of [`RoomEventCacheUpdate`].
     pub(super) fn new_room_receiver(&self) -> Receiver<RoomEventCacheUpdate> {
         self.room_sender.subscribe()

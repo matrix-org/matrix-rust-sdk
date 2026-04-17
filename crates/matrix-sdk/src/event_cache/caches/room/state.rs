@@ -1070,6 +1070,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             weak_room,
             own_user_id,
             store,
+            update_sender,
             linked_chunk_update_sender,
             threads,
             ..
@@ -1083,6 +1084,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
                     own_user_id.clone(),
                     weak_room.clone(),
                     store.clone(),
+                    update_sender.generic_update_sender().clone(),
                     linked_chunk_update_sender.clone(),
                 )
                 .await?;

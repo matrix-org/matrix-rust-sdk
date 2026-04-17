@@ -37,7 +37,7 @@ use super::{
         EventLocation, TimelineVectorDiffs,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
         lock,
-        room::RoomEventCacheLinkedChunkUpdate,
+        room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
     },
     ThreadEventCacheUpdateSender,
 };
@@ -201,9 +201,10 @@ impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
         let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         if !diffs.is_empty() {
-            self.state
-                .update_sender
-                .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+            self.state.update_sender.send(
+                TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.to_owned() }),
+            );
         }
 
         Ok(())

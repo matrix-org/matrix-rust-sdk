@@ -31,14 +31,13 @@ use super::{
         },
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+            SharedPaginationStatus,
         },
+        room::RoomEventCacheGenericUpdate,
     },
     ThreadEventCacheInner,
 };
-use crate::{
-    event_cache::caches::pagination::SharedPaginationStatus,
-    room::{IncludeRelations, RelationsOptions},
-};
+use crate::room::{IncludeRelations, RelationsOptions};
 
 /// Intermediate type because the `ThreadEventCache` state doesn't provide all
 /// the feature for the moment.
@@ -261,10 +260,10 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         reached_start: bool,
     ) -> BackPaginationOutcome {
         if !timeline_event_diffs.is_empty() {
-            self.cache.update_sender.send(TimelineVectorDiffs {
-                diffs: timeline_event_diffs,
-                origin: EventsOrigin::Cache,
-            });
+            self.cache.update_sender.send(
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
+                Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
+            );
         }
 
         BackPaginationOutcome {
@@ -383,10 +382,13 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
-            self.cache.update_sender.send(TimelineVectorDiffs {
-                diffs: timeline_event_diffs,
-                origin: EventsOrigin::Pagination,
-            });
+            self.cache.update_sender.send(
+                TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Pagination,
+                },
+                Some(RoomEventCacheGenericUpdate { room_id: state.state.room_id.clone() }),
+            );
         }
 
         Ok(Some(BackPaginationOutcome { reached_start, events }))
