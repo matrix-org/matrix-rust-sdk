@@ -56,34 +56,38 @@ pub enum SearchError {
 pub struct RoomSearchIterator {
     /// The room in which the search is performed.
     room: Room,
+
     /// The search query, directly forwarded to the search API.
     query: String,
+
     /// The current start offset in the search results, or `None` if we haven't
     /// called the iterator yet.
     offset: Option<usize>,
+
     /// Whether we have exhausted the search results.
     is_done: bool,
+
+    /// Number of results to return (at most) per batch when calling
+    /// [`Self::next()`].
+    num_results_per_batch: usize,
 }
 
 impl RoomSearchIterator {
     /// Create a new search iterator for the given room and query.
-    pub fn new(room: Room, query: String) -> Self {
-        Self { room, query, offset: None, is_done: false }
+    pub fn new(room: Room, query: String, num_results_per_batch: usize) -> Self {
+        Self { room, query, offset: None, is_done: false, num_results_per_batch }
     }
 
     /// Return the next batch of event IDs matching the search query, or `None`
     /// if there are no more results.
-    pub async fn next(
-        &mut self,
-        num_results: usize,
-    ) -> Result<Option<Vec<OwnedEventId>>, IndexError> {
+    pub async fn next(&mut self) -> Result<Option<Vec<OwnedEventId>>, IndexError> {
         if self.is_done {
             return Ok(None);
         }
 
         // TODO: use the client/server API search endpoint for public rooms, as those
         // may require lots of time for indexing all events.
-        let result = self.room.search(&self.query, num_results, self.offset).await?;
+        let result = self.room.search(&self.query, self.num_results_per_batch, self.offset).await?;
 
         if result.is_empty() {
             self.is_done = true;
@@ -96,11 +100,8 @@ impl RoomSearchIterator {
 
     /// Returns [`TimelineEvent`]s instead of event IDs, by loading the events
     /// from the store or from network.
-    pub async fn next_events(
-        &mut self,
-        num_results: usize,
-    ) -> Result<Option<Vec<TimelineEvent>>, SearchError> {
-        let Some(event_ids) = self.next(num_results).await? else {
+    pub async fn next_events(&mut self) -> Result<Option<Vec<TimelineEvent>>, SearchError> {
+        let Some(event_ids) = self.next().await? else {
             return Ok(None);
         };
         let mut results = Vec::new();
@@ -131,17 +132,23 @@ impl GlobalSearchRoomState {
 #[derive(Debug)]
 pub struct GlobalSearchBuilder {
     client: Client,
+
     /// The search query, directly forwarded to the search API.
     query: String,
+
+    /// Number of results to return (at most) per batch when calling
+    /// [`GlobalSearchIterator::next()`].
+    num_results_per_batch: usize,
+
     /// The working set of rooms to search in.
     room_set: Vec<Room>,
 }
 
 impl GlobalSearchBuilder {
     /// Create a new global search on all the joined rooms.
-    pub fn new(client: Client, query: String) -> Self {
+    fn new(client: Client, query: String, num_results_per_batch: usize) -> Self {
         let room_set = client.rooms_filtered(RoomStateFilter::JOINED);
-        Self { client, query, room_set }
+        Self { client, query, room_set, num_results_per_batch }
     }
 
     /// Keep only the DM rooms from the initial working set.
@@ -175,6 +182,7 @@ impl GlobalSearchBuilder {
             query: self.query,
             room_state: Vec::from_iter(self.room_set.into_iter().map(GlobalSearchRoomState::new)),
             current_batch: Vec::new(),
+            num_results_per_batch: self.num_results_per_batch,
         }
     }
 }
@@ -198,29 +206,34 @@ pub struct GlobalSearchIterator {
     /// can return results in a more interleaved way instead of exhausting
     /// one room at a time.
     current_batch: Vec<(OwnedRoomId, OwnedEventId)>,
+
+    /// Number of results to return (at most) per batch when calling
+    /// [`Self::next()`].
+    num_results_per_batch: usize,
 }
 
 impl GlobalSearchIterator {
     /// Create a new [`GlobalSearchBuilder`] for the given client and query, on
     /// all joined rooms by default.
-    pub fn builder(client: Client, query: String) -> GlobalSearchBuilder {
-        GlobalSearchBuilder::new(client, query)
+    pub fn builder(
+        client: Client,
+        query: String,
+        num_results_per_batch: usize,
+    ) -> GlobalSearchBuilder {
+        GlobalSearchBuilder::new(client, query, num_results_per_batch)
     }
 
     /// Return the next batch of event IDs matching the search query across all
     /// rooms, or `None` if there are no more results.
-    pub async fn next(
-        &mut self,
-        num_results: usize,
-    ) -> Result<Option<Vec<(OwnedRoomId, OwnedEventId)>>, SearchError> {
+    pub async fn next(&mut self) -> Result<Option<Vec<(OwnedRoomId, OwnedEventId)>>, SearchError> {
         if self.room_state.is_empty() {
             return Ok(None);
         }
 
         // If there was enough results from a previous room iteration, return them
         // immediately.
-        if self.current_batch.len() >= num_results {
-            return Ok(Some(self.current_batch.drain(0..num_results).collect()));
+        if self.current_batch.len() >= self.num_results_per_batch {
+            return Ok(Some(self.current_batch.drain(0..self.num_results_per_batch).collect()));
         }
 
         let mut to_remove = HashSet::new();
@@ -228,8 +241,10 @@ impl GlobalSearchIterator {
         // Search across all non-done rooms for `num_results`, and accumulate them in
         // `Self::current_batch`.
         for room_state in &mut self.room_state {
-            let room_results =
-                room_state.room.search(&self.query, num_results, room_state.offset).await?;
+            let room_results = room_state
+                .room
+                .search(&self.query, self.num_results_per_batch, room_state.offset)
+                .await?;
 
             if room_results.is_empty() {
                 // We've exhausted results for this room, mark it for removal.
@@ -245,7 +260,7 @@ impl GlobalSearchIterator {
                         .map(|event_id| (room_state.room.room_id().to_owned(), event_id)),
                 );
 
-                if self.current_batch.len() >= num_results {
+                if self.current_batch.len() >= self.num_results_per_batch {
                     // We have enough events to return now.
                     break;
                 }
@@ -254,11 +269,11 @@ impl GlobalSearchIterator {
 
         // Delete rooms for which we've exhausted search results from the working list.
         for room_id in to_remove {
-            self.room_state.retain(|room_state| room_state.room.room_id() != &room_id);
+            self.room_state.retain(|room_state| room_state.room.room_id() != room_id);
         }
 
         if !self.current_batch.is_empty() {
-            let high = num_results.min(self.current_batch.len());
+            let high = self.num_results_per_batch.min(self.current_batch.len());
             Ok(Some(self.current_batch.drain(0..high).collect()))
         } else {
             debug_assert!(self.room_state.is_empty());
@@ -270,9 +285,8 @@ impl GlobalSearchIterator {
     /// from the store or from network.
     pub async fn next_events(
         &mut self,
-        num_results: usize,
     ) -> Result<Option<Vec<(OwnedRoomId, TimelineEvent)>>, SearchError> {
-        let Some(event_ids) = self.next(num_results).await? else {
+        let Some(event_ids) = self.next().await? else {
             return Ok(None);
         };
         let mut results = Vec::with_capacity(event_ids.len());
@@ -327,47 +341,48 @@ mod tests {
 
         // Search for a missing keyword.
         {
-            let mut room_search = RoomSearchIterator::new(room.clone(), "search query".to_owned());
+            let mut room_search =
+                RoomSearchIterator::new(room.clone(), "search query".to_owned(), 5);
 
             // Searching for an event that's non-existing should succeed.
-            let maybe_results = room_search.next(5).await.unwrap();
+            let maybe_results = room_search.next().await.unwrap();
             assert!(maybe_results.is_none());
 
             // Calling the iterator after it's exhausted should still return `None` and not
             // error or return more results.
-            let maybe_results = room_search.next(5).await.unwrap();
+            let maybe_results = room_search.next().await.unwrap();
             assert!(maybe_results.is_none());
         }
 
         // Search for an existing keyword, by event id.
         {
-            let mut room_search = RoomSearchIterator::new(room.clone(), "world".to_owned());
+            let mut room_search = RoomSearchIterator::new(room.clone(), "world".to_owned(), 5);
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
-            let maybe_results = room_search.next(5).await.unwrap();
+            let maybe_results = room_search.next().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(&results[0], event_id,);
 
             // And no more results after that.
-            let maybe_results = room_search.next(5).await.unwrap();
+            let maybe_results = room_search.next().await.unwrap();
             assert!(maybe_results.is_none());
         }
 
         // Search for an existing keyword, by events.
         {
-            let mut room_search = RoomSearchIterator::new(room.clone(), "world".to_owned());
+            let mut room_search = RoomSearchIterator::new(room.clone(), "world".to_owned(), 5);
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
-            let maybe_results = room_search.next_events(5).await.unwrap();
+            let maybe_results = room_search.next_events().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].event_id().as_deref().unwrap(), event_id,);
 
             // And no more results after that.
-            let maybe_results = room_search.next_events(5).await.unwrap();
+            let maybe_results = room_search.next_events().await.unwrap();
             assert!(maybe_results.is_none());
         }
     }
@@ -411,26 +426,26 @@ mod tests {
         // Search for a missing keyword.
         {
             let mut search =
-                GlobalSearchIterator::builder(client.clone(), "search query".to_owned()).build();
+                GlobalSearchIterator::builder(client.clone(), "search query".to_owned(), 5).build();
 
             // Searching for an event that's non-existing should succeed.
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             assert!(maybe_results.is_none());
 
             // Calling the iterator after it's exhausted should still return `None` and not
             // error or return more results.
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             assert!(maybe_results.is_none());
         }
 
         // Search for an existing keyword, by event id.
         {
             let mut search =
-                GlobalSearchIterator::builder(client.clone(), "world".to_owned()).build();
+                GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5).build();
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 2);
             // Search results order is not guaranteed, so we check that both expected
@@ -439,18 +454,18 @@ mod tests {
             assert!(results.contains(&(room_id2.to_owned(), result_event_id2.to_owned())));
 
             // And no more results after that.
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             assert!(maybe_results.is_none());
         }
 
         // Search for an existing keyword, by event.
         {
             let mut search =
-                GlobalSearchIterator::builder(client.clone(), "world".to_owned()).build();
+                GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5).build();
 
             // Searching for a keyword that matches an existing event should return the
             // event ID.
-            let maybe_results = search.next_events(5).await.unwrap();
+            let maybe_results = search.next_events().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 2);
             // Search results order is not guaranteed, so we check that both expected
@@ -463,7 +478,7 @@ mod tests {
             }));
 
             // And no more results after that.
-            let maybe_results = search.next_events(5).await.unwrap();
+            let maybe_results = search.next_events().await.unwrap();
             assert!(maybe_results.is_none());
         }
     }
@@ -512,38 +527,38 @@ mod tests {
 
         // Search for an existing keyword, by event id, only in DMs.
         {
-            let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned())
+            let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5)
                 .only_dm_rooms()
                 .await
                 .unwrap()
                 .build();
 
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(&results[0], &(room_id1.to_owned(), result_event_id1.to_owned()));
 
             // And no more results after that.
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             assert!(maybe_results.is_none());
         }
 
         // Search for an existing keyword, by event, only in groups.
         {
-            let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned())
+            let mut search = GlobalSearchIterator::builder(client.clone(), "world".to_owned(), 5)
                 .no_dms()
                 .await
                 .unwrap()
                 .build();
 
-            let maybe_results = search.next_events(5).await.unwrap();
+            let maybe_results = search.next_events().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].0, room_id2);
             assert_eq!(results[0].1.event_id().as_deref().unwrap(), result_event_id2);
 
             // And no more results after that.
-            let maybe_results = search.next(5).await.unwrap();
+            let maybe_results = search.next().await.unwrap();
             assert!(maybe_results.is_none());
         }
     }
