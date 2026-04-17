@@ -22,7 +22,7 @@ use tracing::{error, instrument, trace};
 
 use super::Context;
 use crate::{
-    Result,
+    Result, StateStore,
     store::{BaseStateStore, StateStoreExt as _},
 };
 

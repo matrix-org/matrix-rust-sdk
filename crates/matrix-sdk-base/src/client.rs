@@ -55,7 +55,7 @@ use tracing::{Level, debug, enabled, info, instrument, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    RoomStateFilter, SessionMeta,
+    RoomStateFilter, SessionMeta, StateStore,
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
@@ -636,7 +636,7 @@ impl BaseClient {
             })
             .collect();
 
-        let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
+        let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.store().clone());
 
         let global_account_data_processor =
             processors::account_data::global(&response.account_data.events);
