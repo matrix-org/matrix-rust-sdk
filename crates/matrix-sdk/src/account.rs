@@ -38,6 +38,7 @@ use ruma::{
             account::{
                 add_3pid, change_password, deactivate, delete_3pid, get_3pids,
                 request_3pid_management_token_via_email, request_3pid_management_token_via_msisdn,
+                request_openid_token,
             },
             config::{get_global_account_data, set_global_account_data},
             profile::{
@@ -152,6 +153,16 @@ impl Account {
         self.client.send(request).await?;
 
         Ok(())
+    }
+
+    /// Request an OpenID token for the current account.
+    pub async fn request_openid_token(&self) -> Result<request_openid_token::v3::Response> {
+        let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
+
+        self.client
+            .send(request_openid_token::v3::Request::new(user_id.to_owned()))
+            .await
+            .map_err(|error| Error::Http(Box::new(error)))
     }
 
     /// Get the MXC URI of the account's avatar, if set.
