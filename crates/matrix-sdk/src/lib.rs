@@ -64,7 +64,7 @@ pub mod sync;
 pub mod widget;
 
 #[cfg(feature = "experimental-search")]
-mod message_search;;
+pub mod message_search;
 
 pub use account::Account;
 pub use authentication::{AuthApi, AuthSession, SessionTokens};

@@ -12,14 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::deserialized_responses::TimelineEvent;
-use matrix_sdk_ui::{
-    search::{
+use matrix_sdk::{
+    deserialized_responses::TimelineEvent,
+    message_search::{
         GlobalSearchIterator as SdkGlobalSearchIterator,
         RoomSearchIterator as SdkRoomSearchIterator, SearchError as SdkSearchError,
     },
-    timeline::TimelineDetails,
 };
+use matrix_sdk_ui::timeline::TimelineDetails;
 use tokio::sync::Mutex;
 
 use crate::{
