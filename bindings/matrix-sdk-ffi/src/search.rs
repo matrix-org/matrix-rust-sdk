@@ -155,12 +155,6 @@ impl Client {
 }
 
 #[derive(uniffi::Record)]
-pub struct BasicGlobalSearchResult {
-    room_id: String,
-    event_id: String,
-}
-
-#[derive(uniffi::Record)]
 pub struct GlobalSearchResult {
     room_id: String,
     result: RoomSearchResult,
