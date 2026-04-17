@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add new high-level search helpers in `matrix_sdk_ui::search` to perform searches for messages in
+  a room or across all rooms.
+  ([#6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Latest Event does not emit an update when it computes the same value as the
   previous Latest Event.
   ([#6396](https://github.com/matrix-org/matrix-rust-sdk/pull/6396))

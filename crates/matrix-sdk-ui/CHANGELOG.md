@@ -38,9 +38,6 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Add new high-level search helpers in `matrix_sdk_ui::search` to perform searches for messages in
-  a room or across all rooms.
-  ([6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - [**breaking**] Add the `suggested` field to the `SpaceRoom` struct,
   which indicates whether a space's admins have marked that sub-space/room
   as a "suggested" one to join. ([6417](https://github.com/matrix-org/matrix-rust-sdk/pull/6417))
