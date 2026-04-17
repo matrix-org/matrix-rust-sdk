@@ -58,14 +58,9 @@ use matrix_sdk_common::{
     executor::{JoinHandle, spawn},
     timeout::timeout,
 };
-#[cfg(feature = "experimental-search")]
-use matrix_sdk_search::error::IndexError;
-#[cfg(feature = "experimental-search")]
-#[cfg(doc)]
-use matrix_sdk_search::index::RoomIndex;
 use mime::Mime;
 use reply::Reply;
-#[cfg(any(feature = "experimental-search", feature = "e2e-encryption"))]
+#[cfg(feature = "e2e-encryption")]
 use ruma::events::AnySyncMessageLikeEvent;
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::AnySyncStateEvent;
@@ -4283,19 +4278,6 @@ impl Room {
         }
 
         relations
-    }
-
-    /// Search this room's [`RoomIndex`] for query and return at most
-    /// max_number_of_results results.
-    #[cfg(feature = "experimental-search")]
-    pub async fn search(
-        &self,
-        query: &str,
-        max_number_of_results: usize,
-        pagination_offset: Option<usize>,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
-        let mut search_index_guard = self.client.search_index().lock().await;
-        search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
 
     /// Subscribe to a given thread in this room.
