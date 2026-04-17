@@ -49,10 +49,13 @@ impl From<SdkSearchError> for SearchError {
 
 #[matrix_sdk_ffi_macros::export]
 impl Room {
-    pub fn search(&self, query: String) -> RoomSearchIterator {
+    /// Search for messages in this room matching the given query, returning an
+    /// iterator over the results that yields `num_results_per_batch` results at
+    /// a time.
+    pub fn search_messages(&self, query: String, num_results_per_batch: u32) -> RoomSearchIterator {
         RoomSearchIterator {
             sdk_room: self.inner.clone(),
-            inner: Mutex::new(SdkRoomSearchIterator::new(self.inner.clone(), query)),
+            inner: Mutex::new(self.inner.search_messages(query, num_results_per_batch as usize)),
         }
     }
 }
@@ -68,7 +71,7 @@ impl RoomSearchIterator {
     /// Return a list of events for the next batch of search results, or `None`
     /// if there are no more results.
     pub async fn next_events(&self) -> Result<Option<Vec<RoomSearchResult>>, SearchError> {
-        let Some(events) = self.inner.lock().await.next_events(20).await? else {
+        let Some(events) = self.inner.lock().await.next_events().await? else {
             return Ok(None);
         };
 
@@ -132,13 +135,14 @@ pub enum SearchRoomFilter {
 impl Client {
     /// Search across all all rooms for the given query, returning an iterator
     /// over the results.
-    pub async fn search(
+    pub async fn search_messages(
         &self,
         query: String,
         filter: SearchRoomFilter,
+        num_results_per_batch: u32,
     ) -> Result<GlobalSearchIterator, ClientError> {
         let sdk_client = (*self.inner).clone();
-        let mut search = SdkGlobalSearchIterator::builder(sdk_client.clone(), query);
+        let mut search = sdk_client.search_messages(query, num_results_per_batch as usize);
 
         match filter {
             SearchRoomFilter::Rooms => {}
@@ -172,11 +176,8 @@ pub struct GlobalSearchIterator {
 impl GlobalSearchIterator {
     /// Return a list of events for the next batch of search results, or `None`
     /// if there are no more results.
-    pub async fn next_events(
-        &self,
-        num_results: u64,
-    ) -> Result<Option<Vec<GlobalSearchResult>>, SearchError> {
-        let Some(events) = self.inner.lock().await.next_events(num_results as usize).await? else {
+    pub async fn next_events(&self) -> Result<Option<Vec<GlobalSearchResult>>, SearchError> {
+        let Some(events) = self.inner.lock().await.next_events().await? else {
             return Ok(None);
         };
 
