@@ -31,7 +31,9 @@ use tracing::{error, trace};
 pub(super) use self::state::LockedThreadEventCacheState;
 use self::{pagination::ThreadPagination, updates::ThreadEventCacheUpdateSender};
 use super::{
-    super::Result, EventsOrigin, TimelineVectorDiffs, room::RoomEventCacheLinkedChunkUpdate,
+    super::Result,
+    EventsOrigin, TimelineVectorDiffs,
+    room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
 };
 use crate::room::WeakRoom;
 
@@ -42,6 +44,9 @@ pub(super) struct ThreadEventCache {
 
 /// The (non-cloneable) details of the `RoomEventCache`.
 struct ThreadEventCacheInner {
+    /// The room ID.
+    room_id: OwnedRoomId,
+
     /// The thread root ID.
     thread_id: OwnedEventId,
 
@@ -72,12 +77,14 @@ impl ThreadEventCache {
         own_user_id: OwnedUserId,
         weak_room: WeakRoom,
         store: EventCacheStoreLock,
+        generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
-        let update_sender = ThreadEventCacheUpdateSender::new();
+        let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender);
 
         Ok(Self {
             inner: Arc::new(ThreadEventCacheInner {
+                room_id: room_id.clone(),
                 thread_id: thread_id.clone(),
                 weak_room,
                 state: LockedThreadEventCacheState::new(
@@ -113,15 +120,17 @@ impl ThreadEventCache {
         ThreadPagination::new(self.inner.clone())
     }
 
-    /// Clear a thread, after a gappy sync for instance.
+    /// Clear a thread.
     pub async fn clear(&mut self) -> Result<()> {
         let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
 
         if !updates_as_vector_diffs.is_empty() {
-            self.inner.update_sender.send(TimelineVectorDiffs {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            });
+            self.inner.update_sender.send(
+                TimelineVectorDiffs { diffs: updates_as_vector_diffs, origin: EventsOrigin::Cache },
+                // This function is part of the `RoomEventCache` flow. The generic update is
+                // handled by it.
+                None,
+            );
         }
 
         Ok(())
@@ -150,10 +159,12 @@ impl ThreadEventCache {
         }
 
         if !timeline_event_diffs.is_empty() {
-            self.inner.update_sender.send(TimelineVectorDiffs {
-                diffs: timeline_event_diffs,
-                origin: EventsOrigin::Sync,
-            });
+            self.inner.update_sender.send(
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
+                // This function is part of the `RoomEventCache` flow. The generic update is
+                // handled by it.
+                None,
+            );
         }
 
         Ok(())
@@ -180,10 +191,12 @@ impl ThreadEventCache {
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
-            self.inner.update_sender.send(TimelineVectorDiffs {
-                diffs: timeline_event_diffs,
-                origin: EventsOrigin::Sync,
-            });
+            self.inner.update_sender.send(
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
+                // This function is part of the `RoomEventCache` flow. The generic update is
+                // handled by it.
+                None,
+            );
         }
 
         Ok(())
