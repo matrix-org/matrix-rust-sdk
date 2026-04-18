@@ -119,8 +119,20 @@ impl Room {
         if !std::ptr::eq(MutexGuard::mutex(guard), self.store.lock()) {
             return Err(IncorrectMutexGuardError);
         }
-        let (info, reasons) = f(self.clone_info());
-        self.set_room_info(info, reasons);
+
+        let (info, mut reasons) = f(self.clone_info());
+        self.info.set(info);
+
+        if reasons.is_empty() {
+            // TODO: remove this block!
+            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
+            // removed.
+            reasons = RoomInfoNotableUpdateReasons::NONE;
+        }
+        let _ = self
+            .room_info_notable_update_sender
+            .send(RoomInfoNotableUpdate { room_id: self.room_id.clone(), reasons });
+
         Ok(())
     }
 
@@ -151,33 +163,8 @@ impl Room {
         let mut changes = StateChanges::default();
         changes.add_room(info.clone());
         self.store.save_changes_with_guard(guard, &changes).await?;
-        self.set_room_info(info, reasons);
+        self.update_room_info_with_store_guard(guard, |_| (info, reasons))?;
         Ok(())
-    }
-
-    /// Update the summary with given RoomInfo.
-    fn set_room_info(
-        &self,
-        room_info: RoomInfo,
-        room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
-    ) {
-        self.info.set(room_info);
-
-        if !room_info_notable_update_reasons.is_empty() {
-            // Ignore error if no receiver exists.
-            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
-                room_id: self.room_id.clone(),
-                reasons: room_info_notable_update_reasons,
-            });
-        } else {
-            // TODO: remove this block!
-            // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
-            // removed.
-            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
-                room_id: self.room_id.clone(),
-                reasons: RoomInfoNotableUpdateReasons::NONE,
-            });
-        }
     }
 }
 
