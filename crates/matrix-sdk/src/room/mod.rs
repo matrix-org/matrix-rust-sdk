@@ -41,7 +41,7 @@ use matrix_sdk_base::crypto::{
 pub use matrix_sdk_base::store::StoredThreadSubscription;
 use matrix_sdk_base::{
     ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
-    StateChanges, StateStoreDataKey, StateStoreDataValue,
+    StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
@@ -1101,18 +1101,14 @@ impl Room {
                     Err(err) => return Err(err.into()),
                 };
 
-                let _state_store_lock = self.client.base_client().state_store_lock().lock().await;
-
                 // Persist the event and the fact that we requested it from the server in
                 // `RoomInfo`.
-                let mut room_info = self.clone_info();
-                room_info.mark_encryption_state_synced();
-                room_info.set_encryption_event(response);
-                let mut changes = StateChanges::default();
-                changes.add_room(room_info.clone());
-
-                self.client.state_store().save_changes(&changes).await?;
-                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+                self.update_and_save_room_info(|mut room_info| {
+                    room_info.mark_encryption_state_synced();
+                    room_info.set_encryption_event(response);
+                    (room_info, RoomInfoNotableUpdateReasons::empty())
+                })
+                .await?;
 
                 Ok(())
             })
@@ -2266,7 +2262,7 @@ impl Room {
             )
             .await;
 
-            let _state_store_lock = self.client.base_client().state_store_lock().lock().await;
+            let store_guard = self.client.base_client().state_store_lock().lock().await;
 
             // If encryption was enabled, return.
             #[cfg(not(feature = "experimental-encrypted-state-events"))]
@@ -2294,13 +2290,11 @@ impl Room {
             // assuming it's sync'd and correct (and not encrypted).
             debug!("still not marked as encrypted, marking encryption state as missing");
 
-            let mut room_info = self.clone_info();
-            room_info.mark_encryption_state_missing();
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-
-            self.client.state_store().save_changes(&changes).await?;
-            self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+            self.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_encryption_state_missing();
+                (info, RoomInfoNotableUpdateReasons::empty())
+            })
+            .await?;
         }
 
         Ok(())
