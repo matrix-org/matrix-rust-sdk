@@ -58,6 +58,7 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::MutexGuard;
 use tracing::{field::debug, info, instrument, warn};
 
 use super::{
@@ -65,13 +66,13 @@ use super::{
     RoomHero, RoomNotableTags, RoomState, RoomSummary,
 };
 use crate::{
-    MinimalStateEvent,
+    MinimalStateEvent, StateChanges, StoreError,
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     room::call::CallIntentConsensus,
-    store::{SaveLockedStateStore, StateStoreExt},
+    store::{IncorrectMutexGuardError, SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
     utils::{AnyStateEventEnum, RawStateEventWithKeys},
 };
@@ -88,6 +89,70 @@ impl Room {
     /// Clone the inner `RoomInfo`.
     pub fn clone_info(&self) -> RoomInfo {
         self.info.get()
+    }
+
+    /// Update [`RoomInfo`] with the given function `F`. Updates are atomic as
+    /// this function acquires the lock of the underlying store before updating
+    /// the [`RoomInfo`].
+    pub async fn update_room_info<F>(&self, f: F)
+    where
+        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
+    {
+        self.update_room_info_with_store_guard(&self.store.lock().lock().await, f)
+            .expect("should have correct mutex!")
+    }
+
+    /// Same as [`Self::update_room_info`], but allows the caller to provide a
+    /// guard for the lock of the underlying store in case it has already been
+    /// acquired.
+    ///
+    /// This function returns an [`IncorrectMutexGuardError`] if the provided
+    /// guard is not associated with the lock of the underlying store.
+    pub fn update_room_info_with_store_guard<F>(
+        &self,
+        guard: &MutexGuard<'_, ()>,
+        f: F,
+    ) -> Result<(), IncorrectMutexGuardError>
+    where
+        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
+    {
+        if !std::ptr::eq(MutexGuard::mutex(guard), self.store.lock()) {
+            return Err(IncorrectMutexGuardError);
+        }
+        let (info, reasons) = f(self.clone_info());
+        self.set_room_info(info, reasons);
+        Ok(())
+    }
+
+    /// Same as [`Self::update_room_info`] but also saves the changes to the
+    /// underlying store.
+    pub async fn update_and_save_room_info<F>(&self, f: F) -> Result<(), StoreError>
+    where
+        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
+    {
+        self.update_and_save_room_info_with_store_guard(&self.store.lock().lock().await, f).await
+    }
+
+    /// Same as [`Self::update_and_save_room_info`], but allows the caller to
+    /// provide a guard for the lock of the underlying store in case it has
+    /// already been acquired.
+    ///
+    /// This function returns an [`IncorrectMutexGuardError`] if the provided
+    /// guard is not associated with the lock of the underlying store.
+    pub async fn update_and_save_room_info_with_store_guard<F>(
+        &self,
+        guard: &MutexGuard<'_, ()>,
+        f: F,
+    ) -> Result<(), StoreError>
+    where
+        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
+    {
+        let (info, reasons) = f(self.clone_info());
+        let mut changes = StateChanges::default();
+        changes.add_room(info.clone());
+        self.store.save_changes_with_guard(guard, &changes).await?;
+        self.set_room_info(info, reasons);
+        Ok(())
     }
 
     /// Update the summary with given RoomInfo.
