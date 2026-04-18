@@ -1389,7 +1389,7 @@ mod tests {
         // `room_0` always has a `LatestEventValue::None` as its the default value.
         let mut room_info_1 = room_0.clone_info();
         room_info_1.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
-        room_1.set_room_info(room_info_1, Default::default());
+        room_1.update_room_info(|_| (room_info_1, Default::default())).await;
 
         let weak_client = WeakClient::from_client(&client);
 

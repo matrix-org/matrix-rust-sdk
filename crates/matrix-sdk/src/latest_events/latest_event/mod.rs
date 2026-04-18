@@ -21,7 +21,7 @@ use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
     LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue,
 };
-use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState, StateChanges};
+use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
 use tracing::{error, info, instrument, trace, warn};
 
@@ -246,26 +246,15 @@ impl LatestEvent {
             warn!(room_id = ?self.weak_room.room_id(), "Cannot store the latest event value because the room cannot be accessed");
             return;
         };
-
-        let client = room.client();
-
-        // Take the state store lock.
-        let _state_store_lock = client.base_client().state_store_lock().lock().await;
-
-        // Compute a new `RoomInfo`.
-        let mut room_info = room.clone_info();
-        room_info.set_latest_event(new_value);
-
-        let mut state_changes = StateChanges::default();
-        state_changes.add_room(room_info.clone());
-
-        // Update the `RoomInfo` in the state store.
-        if let Err(error) = client.state_store().save_changes(&state_changes).await {
+        let result = room
+            .update_and_save_room_info(|mut info| {
+                info.set_latest_event(new_value);
+                (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
+            })
+            .await;
+        if let Err(error) = result {
             error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
         }
-
-        // Update the `RoomInfo` of the room.
-        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
     }
 }
 
@@ -386,9 +375,11 @@ mod tests_latest_event {
 
         // Set the `RoomInfo`.
         {
-            let mut room_info = room.clone_info();
-            room_info.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
-            room.set_room_info(room_info, Default::default());
+            room.update_room_info(|mut info| {
+                info.set_latest_event(LatestEventValue::LocalIsSending(local_room_message("foo")));
+                (info, Default::default())
+            })
+            .await;
         }
 
         // Second time. We get `LocalIsSending` from `RoomInfo`.

@@ -33,7 +33,7 @@ pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result
     let _timer = timer!(tracing::Level::TRACE, "_method");
 
     save_changes(&context, state_store, None).await?;
-    broadcast_room_info_notable_updates(&context, state_store);
+    broadcast_room_info_notable_updates(&context, state_store).await;
 
     Ok(())
 }
@@ -56,7 +56,7 @@ pub async fn save_and_apply(
 
     save_changes(&context, state_store, sync_token).await?;
     apply_changes(&context, ignore_user_list_changes, previous_ignored_user_list);
-    broadcast_room_info_notable_updates(&context, state_store);
+    broadcast_room_info_notable_updates(&context, state_store).await;
 
     trace!("applied changes");
 
@@ -118,13 +118,12 @@ fn apply_changes(
     }
 }
 
-fn broadcast_room_info_notable_updates(context: &Context, state_store: &BaseStateStore) {
+async fn broadcast_room_info_notable_updates(context: &Context, state_store: &BaseStateStore) {
     for (room_id, room_info) in &context.state_changes.room_infos {
         if let Some(room) = state_store.room(room_id) {
             let room_info_notable_update_reasons =
                 context.room_info_notable_updates.get(room_id).copied().unwrap_or_default();
-
-            room.set_room_info(room_info.clone(), room_info_notable_update_reasons)
+            room.update_room_info(|_| (room_info.clone(), room_info_notable_update_reasons)).await;
         }
     }
 }

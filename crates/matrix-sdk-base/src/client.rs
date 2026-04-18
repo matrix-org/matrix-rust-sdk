@@ -393,24 +393,22 @@ impl BaseClient {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Knocked);
 
         if room.state() != RoomState::Knocked {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_knocked();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
+            let store_guard = self.state_store.lock().lock().await;
 
             // We are no longer joined to the room, so the invite acceptance details are no
             // longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
-                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+                olm_machine.store().clear_room_pending_key_bundle(room_id).await?
             }
 
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-            self.state_store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_as_knocked();
+                info.mark_state_partially_synced();
+                info.mark_members_missing(); // the own member event changed
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            })
+            .await?;
         }
 
         Ok(room)
@@ -465,13 +463,7 @@ impl BaseClient {
         // If the state isn't `RoomState::Joined` then this means that we knew about
         // this room before. Let's modify the existing state now.
         if room.state() != RoomState::Joined {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            let mut room_info = room.clone_info();
-
-            room_info.mark_as_joined();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
+            let store_guard = self.state_store_lock().lock().await;
 
             #[cfg(feature = "e2e-encryption")]
             {
@@ -499,12 +491,13 @@ impl BaseClient {
                 let _ = inviter;
             }
 
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-
-            self.state_store.save_changes(&changes).await?; // Update the store
-
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_as_joined();
+                info.mark_state_partially_synced();
+                info.mark_members_missing(); // the own member event changed
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            })
+            .await?;
         }
 
         Ok(room)
@@ -517,24 +510,22 @@ impl BaseClient {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Left);
 
         if room.state() != RoomState::Left {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_left();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
+            let store_guard = self.state_store.lock().lock().await;
 
             // We are no longer joined to the room, so the invite acceptance details are no
             // longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
-                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+                olm_machine.store().clear_room_pending_key_bundle(room_id).await?
             }
 
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-            self.state_store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_as_left();
+                info.mark_state_partially_synced();
+                info.mark_members_missing(); // the own member event changed
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            })
+            .await?;
         }
 
         Ok(())

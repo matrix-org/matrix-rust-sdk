@@ -156,7 +156,7 @@ impl Room {
     }
 
     /// Update the summary with given RoomInfo.
-    pub fn set_room_info(
+    fn set_room_info(
         &self,
         room_info: RoomInfo,
         room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
