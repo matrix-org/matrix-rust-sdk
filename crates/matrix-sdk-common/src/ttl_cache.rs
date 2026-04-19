@@ -140,8 +140,8 @@ pub struct TtlValue<T> {
     /// which means that the data is always expired. This allows to be
     /// compatible with data that was persisted before deciding to add an
     /// expiration time.
-    #[serde(default)]
-    last_fetch_ts: f64,
+    #[serde(default = "default_timestamp")]
+    last_fetch_ts: Option<f64>,
 }
 
 impl<T> TtlValue<T> {
@@ -152,12 +152,47 @@ impl<T> TtlValue<T> {
 
     /// Construct a new `TtlValue` with the given data.
     pub fn new(data: T) -> Self {
-        Self { data, last_fetch_ts: now_timestamp_ms() }
+        Self { data, last_fetch_ts: Some(now_timestamp_ms()) }
+    }
+
+    /// Construct a new `TtlValue` with the given data that never expires.
+    pub fn without_expiry(data: T) -> Self {
+        Self { data, last_fetch_ts: None }
+    }
+
+    /// Converts from `&TtlValue<T>` to `TtlValue<&T>`.
+    pub fn as_ref(&self) -> TtlValue<&T> {
+        TtlValue { data: &self.data, last_fetch_ts: self.last_fetch_ts }
+    }
+
+    /// Transform the data of this `TtlValue` with the given function.
+    pub fn map<U, F>(self, f: F) -> TtlValue<U>
+    where
+        F: FnOnce(T) -> U,
+    {
+        TtlValue { data: f(self.data), last_fetch_ts: self.last_fetch_ts }
     }
 
     /// Whether this value has expired.
     pub fn has_expired(&self) -> bool {
-        now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD
+        self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= Self::STALE_THRESHOLD)
+    }
+
+    /// Mark this value has expired.
+    pub fn expire(&mut self) {
+        // We assume that the system time is always correct and we are far from the UNIX
+        // epoch so a timestamp of 0 should always be expired.
+        self.last_fetch_ts = Some(0.0)
+    }
+
+    /// Get a reference to the data of this value.
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    /// Get the data of this value.
+    pub fn into_data_unchecked(self) -> T {
+        self.data
     }
 
     /// Get the data of this value if it hasn't expired.
@@ -173,6 +208,14 @@ fn now_timestamp_ms() -> f64 {
         .expect("System clock was before 1970.")
         .as_secs_f64()
         * 1000.0
+}
+
+/// The default timestamp if it is missing during deserialization.
+///
+/// We expect that value that was serialized always has an expiry time, so the
+/// default is `Some(0.0)`.
+fn default_timestamp() -> Option<f64> {
+    Some(0.0)
 }
 
 #[cfg(test)]
@@ -204,12 +247,16 @@ mod tests {
         // Definitely stale.
         let ttl_value = TtlValue {
             data: (),
-            last_fetch_ts: now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD - 1.0,
+            last_fetch_ts: Some(now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD - 1.0),
         };
         assert!(ttl_value.has_expired());
 
         // Definitely not stale.
         let ttl_value = TtlValue::new(());
+        assert!(!ttl_value.has_expired());
+
+        // Cannot be stale.
+        let ttl_value = TtlValue::without_expiry(());
         assert!(!ttl_value.has_expired());
     }
 
@@ -223,7 +270,7 @@ mod tests {
         let data = Data { foo: "bar".to_owned() };
 
         // With timestamp.
-        let ttl_value = TtlValue { data: data.clone(), last_fetch_ts: 1000.0 };
+        let ttl_value = TtlValue { data: data.clone(), last_fetch_ts: Some(1000.0) };
         let json = json!({
             "foo": "bar",
             "last_fetch_ts": 1000.0,
@@ -232,7 +279,7 @@ mod tests {
 
         let deserialized = serde_json::from_value::<TtlValue<Data>>(json).unwrap();
         assert_eq!(deserialized.data, data);
-        assert!(deserialized.last_fetch_ts - ttl_value.last_fetch_ts < 0.0001);
+        assert!(deserialized.last_fetch_ts.unwrap() - ttl_value.last_fetch_ts.unwrap() < 0.0001);
 
         // Without timestamp the value is always expired in theory.
         let json = json!({
@@ -240,6 +287,6 @@ mod tests {
         });
         let deserialized = serde_json::from_value::<TtlValue<Data>>(json).unwrap();
         assert_eq!(deserialized.data, data);
-        assert!(deserialized.last_fetch_ts - 0.0 < 0.0001);
+        assert!(deserialized.last_fetch_ts.unwrap() - 0.0 < 0.0001);
     }
 }

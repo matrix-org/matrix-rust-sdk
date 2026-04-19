@@ -28,7 +28,7 @@ use homeserver_config::*;
 use matrix_sdk_base::crypto::DecryptionSettings;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
-use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
+use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig, ttl_cache::TtlValue};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
@@ -606,7 +606,10 @@ impl ClientBuilder {
         let send_queue = Arc::new(SendQueueData::new(true));
 
         let supported_versions = match self.server_versions {
-            Some(versions) => Cached(SupportedVersions { versions, features: Default::default() }),
+            Some(versions) => Cached(TtlValue::without_expiry(SupportedVersions {
+                versions,
+                features: Default::default(),
+            })),
             None => NotSet,
         };
         let well_known = match well_known {

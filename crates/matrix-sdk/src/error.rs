@@ -106,6 +106,10 @@ pub enum HttpError {
     #[error(transparent)]
     RefreshToken(RefreshTokenError),
 
+    /// Error while fetching the versions supported by the homeserver.
+    #[error(transparent)]
+    SupportedVersions(Arc<HttpError>),
+
     /// Error creating the TLS verifier.
     #[cfg(target_os = "android")]
     #[error(transparent)]
