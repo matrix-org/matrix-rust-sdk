@@ -36,14 +36,14 @@ use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
-    store::{
-        DynStateStore, RoomLoadSettings, SupportedVersionsResponse, TtlStoreValue,
-        WellKnownResponse,
-    },
+    store::{DynStateStore, RoomLoadSettings, SupportedVersionsResponse, WellKnownResponse},
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl_cache::TtlCache};
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig,
+    ttl_cache::{TtlCache, TtlValue},
+};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -2133,7 +2133,7 @@ impl Client {
                 .state_store()
                 .set_kv_data(
                     StateStoreDataKey::SupportedVersions,
-                    StateStoreDataValue::SupportedVersions(TtlStoreValue::new(
+                    StateStoreDataValue::SupportedVersions(TtlValue::new(
                         supported_versions.clone(),
                     )),
                 )
@@ -2356,7 +2356,7 @@ impl Client {
             .state_store()
             .set_kv_data(
                 StateStoreDataKey::WellKnown,
-                StateStoreDataValue::WellKnown(TtlStoreValue::new(well_known.clone())),
+                StateStoreDataValue::WellKnown(TtlValue::new(well_known.clone())),
             )
             .await
         {

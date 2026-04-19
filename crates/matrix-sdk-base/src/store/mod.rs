@@ -95,7 +95,7 @@ pub use self::{
     traits::{
         ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
         DynStateStore, IntoStateStore, StateStore, StateStoreDataKey, StateStoreDataValue,
-        StateStoreExt, SupportedVersionsResponse, ThreadSubscriptionCatchupToken, TtlStoreValue,
+        StateStoreExt, SupportedVersionsResponse, ThreadSubscriptionCatchupToken,
         WellKnownResponse,
     },
 };
