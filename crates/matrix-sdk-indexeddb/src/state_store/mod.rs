@@ -34,9 +34,10 @@ use matrix_sdk_base::{
         ChildTransactionId, ComposerDraft, DependentQueuedRequest, DependentQueuedRequestKind,
         QueuedRequest, QueuedRequestKind, RoomLoadSettings, SentRequestKey,
         SerializableEventContent, StateChanges, StateStore, StoreError, StoredThreadSubscription,
-        SupportedVersionsResponse, ThreadSubscriptionStatus, TtlStoreValue, WellKnownResponse,
+        SupportedVersionsResponse, ThreadSubscriptionStatus, WellKnownResponse,
         compare_thread_subscription_bump_stamps,
     },
+    ttl_cache::TtlValue,
 };
 use matrix_sdk_store_encryption::{Error as EncryptionError, StoreCipher};
 use ruma::{
@@ -633,11 +634,11 @@ impl_state_store!({
                 .transpose()?
                 .map(StateStoreDataValue::SyncToken),
             StateStoreDataKey::SupportedVersions => value
-                .map(|f| self.deserialize_value::<TtlStoreValue<SupportedVersionsResponse>>(&f))
+                .map(|f| self.deserialize_value::<TtlValue<SupportedVersionsResponse>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::SupportedVersions),
             StateStoreDataKey::WellKnown => value
-                .map(|f| self.deserialize_value::<TtlStoreValue<Option<WellKnownResponse>>>(&f))
+                .map(|f| self.deserialize_value::<TtlValue<Option<WellKnownResponse>>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::WellKnown),
             StateStoreDataKey::Filter(_) => value

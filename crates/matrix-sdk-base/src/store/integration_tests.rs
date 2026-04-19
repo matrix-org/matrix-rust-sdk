@@ -8,6 +8,7 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
+use matrix_sdk_common::ttl_cache::TtlValue;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,
@@ -46,7 +47,7 @@ use serde_json::json;
 
 use super::{
     DependentQueuedRequestKind, DisplayName, DynStateStore, RoomLoadSettings,
-    SupportedVersionsResponse, TtlStoreValue, WellKnownResponse, send_queue::SentRequestKey,
+    SupportedVersionsResponse, WellKnownResponse, send_queue::SentRequestKey,
 };
 use crate::{
     RoomInfo, RoomMemberships, RoomState, StateChanges, StateStoreDataKey, StateStoreDataValue,
@@ -531,7 +532,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.set_kv_data(
             StateStoreDataKey::SupportedVersions,
-            StateStoreDataValue::SupportedVersions(TtlStoreValue::new(supported_versions.clone())),
+            StateStoreDataValue::SupportedVersions(TtlValue::new(supported_versions.clone())),
         )
         .await?;
 
@@ -563,7 +564,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.set_kv_data(
             StateStoreDataKey::WellKnown,
-            StateStoreDataValue::WellKnown(TtlStoreValue::new(Some(well_known.clone()))),
+            StateStoreDataValue::WellKnown(TtlValue::new(Some(well_known.clone()))),
         )
         .await?;
 
@@ -579,7 +580,7 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         self.set_kv_data(
             StateStoreDataKey::WellKnown,
-            StateStoreDataValue::WellKnown(TtlStoreValue::new(None)),
+            StateStoreDataValue::WellKnown(TtlValue::new(None)),
         )
         .await?;
 

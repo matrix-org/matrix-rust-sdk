@@ -17,7 +17,8 @@
 
 use std::{borrow::Borrow, collections::HashMap, hash::Hash, time::Duration};
 
-use ruma::time::Instant;
+use ruma::time::{Instant, SystemTime};
+use serde::{Deserialize, Serialize};
 
 // One day is the default lifetime.
 const DEFAULT_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
@@ -123,10 +124,63 @@ impl<K: Eq + Hash, V: Clone> Default for TtlCache<K, V> {
     }
 }
 
+/// A value that expires after some time.
+///
+/// This value is (de)serializable so it can be persisted in a store.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtlValue<T> {
+    /// The data of the item.
+    #[serde(flatten)]
+    data: T,
+
+    /// Last time we fetched this data from the server, in milliseconds since
+    /// UNIX epoch.
+    ///
+    /// When this field is missing during deserialization, it defaults to `0.0`,
+    /// which means that the data is always expired. This allows to be
+    /// compatible with data that was persisted before deciding to add an
+    /// expiration time.
+    #[serde(default)]
+    last_fetch_ts: f64,
+}
+
+impl<T> TtlValue<T> {
+    /// The number of milliseconds after which the data is considered stale.
+    ///
+    /// This matches 7 days.
+    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24) as _;
+
+    /// Construct a new `TtlValue` with the given data.
+    pub fn new(data: T) -> Self {
+        Self { data, last_fetch_ts: now_timestamp_ms() }
+    }
+
+    /// Whether this value has expired.
+    pub fn has_expired(&self) -> bool {
+        now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD
+    }
+
+    /// Get the data of this value if it hasn't expired.
+    pub fn into_data(self) -> Option<T> {
+        (!self.has_expired()).then_some(self.data)
+    }
+}
+
+/// Get the current timestamp as the number of milliseconds since Unix Epoch.
+fn now_timestamp_ms() -> f64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .expect("System clock was before 1970.")
+        .as_secs_f64()
+        * 1000.0
+}
+
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
+    use serde_json::json;
 
-    use super::TtlCache;
+    use super::{TtlCache, TtlValue, now_timestamp_ms};
 
     #[test]
     fn test_ttl_cache_insertion() {
@@ -143,5 +197,49 @@ mod tests {
 
         assert!(!cache.contains("A"));
         assert!(cache.get("A").is_none(), "The item should have been removed from the cache");
+    }
+
+    #[test]
+    fn test_ttl_value_expiry() {
+        // Definitely stale.
+        let ttl_value = TtlValue {
+            data: (),
+            last_fetch_ts: now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD - 1.0,
+        };
+        assert!(ttl_value.has_expired());
+
+        // Definitely not stale.
+        let ttl_value = TtlValue::new(());
+        assert!(!ttl_value.has_expired());
+    }
+
+    #[test]
+    fn test_ttl_value_serialize_roundtrip() {
+        #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+        struct Data {
+            foo: String,
+        }
+
+        let data = Data { foo: "bar".to_owned() };
+
+        // With timestamp.
+        let ttl_value = TtlValue { data: data.clone(), last_fetch_ts: 1000.0 };
+        let json = json!({
+            "foo": "bar",
+            "last_fetch_ts": 1000.0,
+        });
+        assert_eq!(serde_json::to_value(&ttl_value).unwrap(), json);
+
+        let deserialized = serde_json::from_value::<TtlValue<Data>>(json).unwrap();
+        assert_eq!(deserialized.data, data);
+        assert!(deserialized.last_fetch_ts - ttl_value.last_fetch_ts < 0.0001);
+
+        // Without timestamp the value is always expired in theory.
+        let json = json!({
+            "foo": "bar",
+        });
+        let deserialized = serde_json::from_value::<TtlValue<Data>>(json).unwrap();
+        assert_eq!(deserialized.data, data);
+        assert!(deserialized.last_fetch_ts - 0.0 < 0.0001);
     }
 }

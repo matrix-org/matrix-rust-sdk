@@ -22,7 +22,7 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::AsyncTraitDeps;
+use matrix_sdk_common::{AsyncTraitDeps, ttl_cache::TtlValue};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
@@ -44,7 +44,6 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
     },
     serde::Raw,
-    time::SystemTime,
 };
 use serde::{Deserialize, Serialize};
 
@@ -1044,37 +1043,6 @@ where
     }
 }
 
-/// A TTL value in the store whose data can only be accessed before it expires.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TtlStoreValue<T> {
-    /// The data of the item.
-    #[serde(flatten)]
-    data: T,
-
-    /// Last time we fetched this data from the server, in milliseconds since
-    /// epoch.
-    last_fetch_ts: f64,
-}
-
-impl<T> TtlStoreValue<T> {
-    /// The number of milliseconds after which the data is considered stale.
-    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24 * 7) as _; // seven days
-
-    /// Construct a new `TtlStoreValue` with the given data.
-    pub fn new(data: T) -> Self {
-        Self { data, last_fetch_ts: now_timestamp_ms() }
-    }
-
-    /// Get the data of this value, if it hasn't expired.
-    pub fn into_data(self) -> Option<T> {
-        if now_timestamp_ms() - self.last_fetch_ts >= Self::STALE_THRESHOLD {
-            None
-        } else {
-            Some(self.data)
-        }
-    }
-}
-
 /// Serialisable representation of get_supported_versions::Response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SupportedVersionsResponse {
@@ -1123,15 +1091,6 @@ impl From<discover_homeserver::Response> for WellKnownResponse {
     }
 }
 
-/// Get the current timestamp as the number of milliseconds since Unix Epoch.
-fn now_timestamp_ms() -> f64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("System clock was before 1970.")
-        .as_secs_f64()
-        * 1000.0
-}
-
 /// A value for key-value data that should be persisted into the store.
 #[derive(Debug, Clone)]
 pub enum StateStoreDataValue {
@@ -1139,10 +1098,10 @@ pub enum StateStoreDataValue {
     SyncToken(String),
 
     /// The supported versions of the server.
-    SupportedVersions(TtlStoreValue<SupportedVersionsResponse>),
+    SupportedVersions(TtlValue<SupportedVersionsResponse>),
 
     /// The well-known information of the server.
-    WellKnown(TtlStoreValue<Option<WellKnownResponse>>),
+    WellKnown(TtlValue<Option<WellKnownResponse>>),
 
     /// A filter with the given ID.
     Filter(String),
@@ -1358,12 +1317,12 @@ impl StateStoreDataValue {
     }
 
     /// Get this value if it is the supported versions metadata.
-    pub fn into_supported_versions(self) -> Option<TtlStoreValue<SupportedVersionsResponse>> {
+    pub fn into_supported_versions(self) -> Option<TtlValue<SupportedVersionsResponse>> {
         as_variant!(self, Self::SupportedVersions)
     }
 
     /// Get this value if it is the well-known metadata.
-    pub fn into_well_known(self) -> Option<TtlStoreValue<Option<WellKnownResponse>>> {
+    pub fn into_well_known(self) -> Option<TtlValue<Option<WellKnownResponse>>> {
         as_variant!(self, Self::WellKnown)
     }
 
@@ -1509,48 +1468,4 @@ pub fn compare_thread_subscription_bump_stamps(
     }
 
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::{SupportedVersionsResponse, TtlStoreValue, now_timestamp_ms};
-
-    #[test]
-    fn test_stale_ttl_store_value() {
-        // Definitely stale.
-        let ttl_value = TtlStoreValue {
-            data: (),
-            last_fetch_ts: now_timestamp_ms() - TtlStoreValue::<()>::STALE_THRESHOLD - 1.0,
-        };
-        assert!(ttl_value.into_data().is_none());
-
-        // Definitely not stale.
-        let ttl_value = TtlStoreValue::new(());
-        assert!(ttl_value.into_data().is_some());
-    }
-
-    #[test]
-    fn test_stale_ttl_store_value_serialize_roundtrip() {
-        let server_info = SupportedVersionsResponse {
-            versions: vec!["1.2".to_owned(), "1.3".to_owned(), "1.4".to_owned()],
-            unstable_features: [("org.matrix.msc3916.stable".to_owned(), true)].into(),
-        };
-        let ttl_value = TtlStoreValue { data: server_info.clone(), last_fetch_ts: 1000.0 };
-        let json = json!({
-            "versions": ["1.2", "1.3", "1.4"],
-            "unstable_features": {
-                "org.matrix.msc3916.stable": true,
-            },
-            "last_fetch_ts": 1000.0,
-        });
-
-        assert_eq!(serde_json::to_value(&ttl_value).unwrap(), json);
-
-        let deserialized =
-            serde_json::from_value::<TtlStoreValue<SupportedVersionsResponse>>(json).unwrap();
-        assert_eq!(deserialized.data, server_info);
-        assert!(deserialized.last_fetch_ts - ttl_value.last_fetch_ts < 0.0001);
-    }
 }

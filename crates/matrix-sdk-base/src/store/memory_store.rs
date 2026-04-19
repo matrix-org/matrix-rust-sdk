@@ -20,7 +20,7 @@ use std::{
 
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK};
+use matrix_sdk_common::{ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, ttl_cache::TtlValue};
 use ruma::{
     CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri,
     OwnedRoomId, OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
@@ -41,7 +41,7 @@ use tracing::{debug, instrument, warn};
 use super::{
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
     RoomLoadSettings, StateChanges, StateStore, StoreError, SupportedVersionsResponse,
-    TtlStoreValue, WellKnownResponse,
+    WellKnownResponse,
     send_queue::{ChildTransactionId, QueuedRequest, SentRequestKey},
     traits::ComposerDraft,
 };
@@ -61,8 +61,8 @@ struct MemoryStoreInner {
     composer_drafts: HashMap<(OwnedRoomId, Option<OwnedEventId>), ComposerDraft>,
     user_avatar_url: HashMap<OwnedUserId, OwnedMxcUri>,
     sync_token: Option<String>,
-    supported_versions: Option<TtlStoreValue<SupportedVersionsResponse>>,
-    well_known: Option<TtlStoreValue<Option<WellKnownResponse>>>,
+    supported_versions: Option<TtlValue<SupportedVersionsResponse>>,
+    well_known: Option<TtlValue<Option<WellKnownResponse>>>,
     filters: HashMap<String, String>,
     utd_hook_manager_data: Option<GrowableBloom>,
     one_time_key_uploaded_error: bool,
