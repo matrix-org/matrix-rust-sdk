@@ -42,6 +42,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{
     cross_process_lock::CrossProcessLockConfig,
+    executor::spawn,
     ttl_cache::{TtlCache, TtlValue},
 };
 #[cfg(feature = "e2e-encryption")]
@@ -86,7 +87,7 @@ use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 use url::Url;
 
 use self::{
-    caches::{CachedValue, ClientCaches},
+    caches::{Cache, CachedValue, ClientCaches},
     futures::SendRequest,
 };
 use crate::{
@@ -390,7 +391,7 @@ impl ClientInner {
         sliding_sync_version: SlidingSyncVersion,
         http_client: HttpClient,
         base_client: BaseClient,
-        supported_versions: CachedValue<SupportedVersions>,
+        supported_versions: CachedValue<TtlValue<SupportedVersions>>,
         well_known: CachedValue<Option<WellKnownResponse>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
@@ -403,7 +404,7 @@ impl ClientInner {
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
-            supported_versions: supported_versions.into(),
+            supported_versions: Cache::with_value(supported_versions),
             well_known: well_known.into(),
             server_metadata: Mutex::new(TtlCache::new()),
         };
@@ -2100,59 +2101,17 @@ impl Client {
     ///
     /// If `failsafe` is true, this will try to minimize side effects to avoid
     /// possible deadlocks.
-    async fn load_or_fetch_supported_versions(
+    async fn fetch_supported_versions(
         &self,
         failsafe: bool,
     ) -> HttpResult<SupportedVersionsResponse> {
-        match self.state_store().get_kv_data(StateStoreDataKey::SupportedVersions).await {
-            Ok(Some(stored)) => {
-                if let Some(supported_versions) =
-                    stored.into_supported_versions().and_then(|value| value.into_data())
-                {
-                    return Ok(supported_versions);
-                }
-            }
-            Ok(None) => {
-                // fallthrough: cache is empty
-            }
-            Err(err) => {
-                warn!("error when loading cached supported versions: {err}");
-                // fallthrough to network.
-            }
-        }
-
         let server_versions = self.fetch_server_versions_inner(failsafe, None).await?;
         let supported_versions = SupportedVersionsResponse {
             versions: server_versions.versions,
             unstable_features: server_versions.unstable_features,
         };
 
-        // Only attempt to cache the result in storage if the request was authenticated.
-        if self.auth_ctx().has_valid_access_token()
-            && let Err(err) = self
-                .state_store()
-                .set_kv_data(
-                    StateStoreDataKey::SupportedVersions,
-                    StateStoreDataValue::SupportedVersions(TtlValue::new(
-                        supported_versions.clone(),
-                    )),
-                )
-                .await
-        {
-            warn!("error when caching supported versions: {err}");
-        }
-
         Ok(supported_versions)
-    }
-
-    pub(crate) async fn get_cached_supported_versions(&self) -> Option<SupportedVersions> {
-        let supported_versions = &self.inner.caches.supported_versions;
-
-        if let CachedValue::Cached(val) = &*supported_versions.read().await {
-            Some(val.clone())
-        } else {
-            None
-        }
     }
 
     /// Get the Matrix versions and features supported by the homeserver by
@@ -2195,30 +2154,87 @@ impl Client {
         &self,
         failsafe: bool,
     ) -> HttpResult<SupportedVersions> {
+        match self.supported_versions_cached_inner(failsafe).await {
+            Ok(Some(value)) => {
+                return Ok(value);
+            }
+            Ok(None) => {
+                // The cache is empty, make a request.
+            }
+            Err(error) => {
+                warn!("error when loading cached supported versions: {error}");
+                // Fallthrough to make a request.
+            }
+        }
+
+        self.refresh_supported_versions_cache(failsafe).await
+    }
+
+    /// Refresh the Matrix versions and features supported by the homeserver in
+    /// the cache.
+    ///
+    /// If `failsafe` is true, this will try to minimize side effects to avoid
+    /// possible deadlocks.
+    async fn refresh_supported_versions_cache(
+        &self,
+        failsafe: bool,
+    ) -> HttpResult<SupportedVersions> {
         let cached_supported_versions = &self.inner.caches.supported_versions;
-        if let CachedValue::Cached(val) = &*cached_supported_versions.read().await {
-            return Ok(val.clone());
-        }
 
-        let mut guarded_supported_versions = cached_supported_versions.write().await;
-        if let CachedValue::Cached(val) = &*guarded_supported_versions {
-            return Ok(val.clone());
-        }
+        let mut supported_versions_guard = match cached_supported_versions.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = cached_supported_versions.refresh_lock.lock().await;
 
-        let supported = self.load_or_fetch_supported_versions(failsafe).await?;
+                if let Err(error) = guard.as_ref() {
+                    // There was an error in the previous refresh, return it.
+                    return Err(HttpError::SupportedVersions(error.clone()));
+                }
 
-        // Fill both unstable features and server versions at once.
-        let mut supported_versions = supported.supported_versions();
-        if supported_versions.versions.is_empty() {
-            supported_versions.versions = [MatrixVersion::V1_0].into();
-        }
+                // Reuse the data if it was cached and it hasn't expired.
+                if let CachedValue::Cached(value) = cached_supported_versions.value()
+                    && !value.has_expired()
+                {
+                    return Ok(value.into_data_unchecked());
+                }
+
+                // The data wasn't cached or has expired, we need to make another request.
+                guard
+            }
+        };
+
+        let response = match self.fetch_supported_versions(failsafe).await {
+            Ok(response) => {
+                *supported_versions_guard = Ok(());
+                TtlValue::new(response)
+            }
+            Err(error) => {
+                let error = Arc::new(error);
+                *supported_versions_guard = Err(error.clone());
+                return Err(HttpError::SupportedVersions(error));
+            }
+        };
+
+        let supported_versions = response.as_ref().map(|response| response.supported_versions());
 
         // Only cache the result if the request was authenticated.
         if self.auth_ctx().has_valid_access_token() {
-            *guarded_supported_versions = CachedValue::Cached(supported_versions.clone());
+            if let Err(err) = self
+                .state_store()
+                .set_kv_data(
+                    StateStoreDataKey::SupportedVersions,
+                    StateStoreDataValue::SupportedVersions(response),
+                )
+                .await
+            {
+                warn!("error when caching supported versions: {err}");
+            }
+
+            cached_supported_versions.set_value(supported_versions.clone());
         }
 
-        Ok(supported_versions)
+        Ok(supported_versions.into_data_unchecked())
     }
 
     /// Get the Matrix versions and features supported by the homeserver by
@@ -2226,8 +2242,11 @@ impl Client {
     ///
     /// For a version of this function that fetches the supported versions and
     /// features from the homeserver if the [`SupportedVersions`] aren't
-    /// found in the cache, take a look at the [`Client::server_versions()`]
+    /// found in the cache, take a look at the [`Client::supported_versions()`]
     /// method.
+    ///
+    /// If the data in the cache has expired, this will trigger a background
+    /// task to refresh it.
     ///
     /// # Examples
     ///
@@ -2255,21 +2274,47 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn supported_versions_cached(&self) -> Result<Option<SupportedVersions>, StoreError> {
-        if let Some(cached) = self.get_cached_supported_versions().await {
-            Ok(Some(cached))
-        } else if let Some(stored) =
-            self.state_store().get_kv_data(StateStoreDataKey::SupportedVersions).await?
+        self.supported_versions_cached_inner(false).await
+    }
+
+    async fn supported_versions_cached_inner(
+        &self,
+        failsafe: bool,
+    ) -> Result<Option<SupportedVersions>, StoreError> {
+        let supported_versions_cache = &self.inner.caches.supported_versions;
+
+        let value = if let CachedValue::Cached(cached) = supported_versions_cache.value() {
+            cached
+        } else if let Some(stored) = self
+            .state_store()
+            .get_kv_data(StateStoreDataKey::SupportedVersions)
+            .await?
+            .and_then(|value| value.into_supported_versions())
         {
-            if let Some(supported) =
-                stored.into_supported_versions().and_then(|value| value.into_data())
-            {
-                Ok(Some(supported.supported_versions()))
-            } else {
-                Ok(None)
-            }
+            let stored = stored.map(|response| response.supported_versions());
+
+            // Copy the data from the store in the in-memory cache.
+            supported_versions_cache.set_value(stored.clone());
+
+            stored
         } else {
-            Ok(None)
+            return Ok(None);
+        };
+
+        // Spawn a task to refresh the cache if it has expired and we have a valid
+        // access token.
+        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+            debug!("spawning task to refresh supported versions cache");
+
+            let client = self.clone();
+            spawn(async move {
+                if let Err(error) = client.refresh_supported_versions_cache(failsafe).await {
+                    warn!("failed to refresh supported versions cache: {error}");
+                }
+            });
         }
+
+        Ok(Some(value.into_data_unchecked()))
     }
 
     /// Get the Matrix versions supported by the homeserver by fetching them
@@ -2323,8 +2368,8 @@ impl Client {
     /// stale entry in the cache. This functions makes it possible to force
     /// reset it.
     pub async fn reset_supported_versions(&self) -> Result<()> {
-        // Empty the in-memory caches.
-        self.inner.caches.supported_versions.write().await.take();
+        // Empty the in-memory cache.
+        self.inner.caches.supported_versions.reset();
 
         // Empty the store cache.
         Ok(self.state_store().remove_kv_data(StateStoreDataKey::SupportedVersions).await?)
@@ -3072,7 +3117,7 @@ impl Client {
                     .base_client
                     .clone_with_in_memory_state_store(cross_process_lock_config.clone(), false)
                     .await?,
-                self.inner.caches.supported_versions.read().await.clone(),
+                self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.read().await.clone(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
@@ -3413,6 +3458,7 @@ pub(crate) mod tests {
     use matrix_sdk_base::{
         RoomState,
         store::{MemoryStore, StoreConfig},
+        ttl_cache::TtlValue,
     };
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
@@ -3449,7 +3495,7 @@ pub(crate) mod tests {
     use super::Client;
     use crate::{
         Error, TransmissionProgress,
-        client::{WeakClient, futures::SendMediaUploadRequest},
+        client::{WeakClient, caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
         media::MediaError,
@@ -3837,6 +3883,7 @@ pub(crate) mod tests {
                 .unwrap()
                 .contains(&FeatureFlag::from("org.matrix.e2e_cross_signing"))
         );
+
         let supported = client.supported_versions().await.unwrap();
         assert!(supported.versions.contains(&MatrixVersion::V1_0));
         assert!(supported.features.contains(&FeatureFlag::from("org.matrix.e2e_cross_signing")));
@@ -3848,15 +3895,29 @@ pub(crate) mod tests {
 
         drop(versions_mock);
 
-        // Now, reset the cache, and observe the endpoints being called again once.
+        // Now, reset the cache, and observe the endpoint being called again once.
         client.reset_supported_versions().await.unwrap();
 
-        server.mock_versions().ok().expect(1).named("second versions mock").mount().await;
+        server.mock_versions().ok().expect(2).named("second versions mock").mount().await;
 
         // Hits network again.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
         // Hits in-memory cache again.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
+        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
+
+        // Force an expiry of the data.
+        let supported_versions = client.supported_versions_cached().await.unwrap().unwrap();
+        let mut ttl_value = TtlValue::new(supported_versions);
+        ttl_value.expire();
+        client.inner.caches.supported_versions.set_value(ttl_value);
+
+        // Call the method to trigger a cache refresh background task.
+        client.supported_versions_cached().await.unwrap().unwrap();
+
+        // We wait for the task to finish, the endpoint should have been called again.
+        sleep(Duration::from_secs(1)).await;
+        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
     }
 
     #[async_test]

@@ -27,7 +27,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
-        SupportedVersions,
+        MatrixVersion, SupportedVersions,
         client::discovery::{
             discover_homeserver::{
                 self, HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
@@ -1060,7 +1060,16 @@ impl SupportedVersionsResponse {
     /// Note: Matrix versions and features that Ruma cannot parse, or does not
     /// know about, are discarded.
     pub fn supported_versions(&self) -> SupportedVersions {
-        SupportedVersions::from_parts(&self.versions, &self.unstable_features)
+        let mut supported_versions =
+            SupportedVersions::from_parts(&self.versions, &self.unstable_features);
+
+        // We need at least one supported version to be able to make requests, so we
+        // default to Matrix 1.0.
+        if supported_versions.versions.is_empty() {
+            supported_versions.versions.insert(MatrixVersion::V1_0);
+        }
+
+        supported_versions
     }
 }
 

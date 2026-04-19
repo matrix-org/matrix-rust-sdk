@@ -38,7 +38,7 @@ use ruma::api::{
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{debug, error, field::debug, instrument, trace};
 
-use crate::{HttpResult, client::caches::CachedValue, config::RequestConfig, error::HttpError};
+use crate::{HttpResult, config::RequestConfig, error::HttpError};
 
 #[cfg(not(target_family = "wasm"))]
 mod native;
@@ -320,13 +320,9 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
         // to avoid possible deadlocks.
 
         if !client.auth_ctx().has_valid_access_token() {
-            // Get the value in the cache without waiting. If the lock is not available, we
-            // are in the middle of refreshing the cache so waiting for it would result in a
-            // deadlock.
-            if let Ok(CachedValue::Cached(versions)) =
-                client.inner.caches.supported_versions.try_read().as_deref()
-            {
-                return Ok(Cow::Owned(versions.clone()));
+            // Try to get the value in the cache.
+            if let Ok(Some(versions)) = client.supported_versions_cached().await {
+                return Ok(Cow::Owned(versions));
             }
 
             // The request will skip auth so we might not get all the supported features, so
@@ -335,9 +331,9 @@ impl SupportedPathBuilder for path_builder::VersionHistory {
 
             Ok(Cow::Owned(response.as_supported_versions()))
         } else if skip_auth {
-            let cached_versions = client.get_cached_supported_versions().await;
+            let cached_versions = client.supported_versions_cached().await;
 
-            let versions = if let Some(versions) = cached_versions {
+            let versions = if let Ok(Some(versions)) = cached_versions {
                 versions
             } else {
                 // If we're skipping auth we might not get all the supported features, so just
