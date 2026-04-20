@@ -959,4 +959,304 @@ mod timed_tests {
             .unwrap();
         assert!(raw_chunks.is_empty());
     }
+
+    #[async_test]
+    async fn test_reload_when_dirty() {
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let room_id = room_id!("!raclette:patate.ch");
+
+        // The storage shared by the two clients.
+        let event_cache_store = MemoryStore::new();
+
+        // Client for the process 0.
+        let client_p0 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("process #0"))
+                            .event_cache_store(event_cache_store.clone()),
+                    )
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        // Client for the process 1.
+        let client_p1 = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("process #1"))
+                            .event_cache_store(event_cache_store),
+                    )
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        let event_factory = EventFactory::new().room(room_id).sender(user_id);
+
+        let thread_root = event_id!("$t0");
+        let thread_event_id_0 = event_id!("$t0_ev0");
+        let thread_event_id_1 = event_id!("$t0_ev1");
+
+        let thread_event_0 = event_factory
+            .text_msg("comté")
+            .event_id(thread_event_id_0)
+            .in_thread(thread_root, thread_root)
+            .into_event();
+        let thread_event_1 = event_factory
+            .text_msg("morbier")
+            .event_id(thread_event_id_1)
+            .in_thread(thread_root, thread_event_id_0)
+            .into_event();
+
+        // Add events to the storage (shared by the two clients!).
+        client_p0
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("[p0] Could not acquire the event cache lock")
+            .as_clean()
+            .expect("[p0] Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Thread(room_id, thread_root),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![thread_event_0],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![thread_event_1],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Subscribe the event caches, and create the room.
+        let (room_event_cache_p0, room_event_cache_p1) = {
+            let event_cache_p0 = client_p0.event_cache();
+            event_cache_p0.subscribe().unwrap();
+
+            let event_cache_p1 = client_p1.event_cache();
+            event_cache_p1.subscribe().unwrap();
+
+            client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
+            client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+            let (room_event_cache_p0, _drop_handles) =
+                client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
+            let (room_event_cache_p1, _drop_handles) =
+                client_p1.get_room(room_id).unwrap().event_cache().await.unwrap();
+
+            (room_event_cache_p0, room_event_cache_p1)
+        };
+
+        // Okay. We are ready for the test!
+        //
+        // First off, let's check `room_event_cache_p0` has access to the first event
+        // loaded in-memory, then do a pagination, and see more events.
+        let mut updates_stream_p0 = {
+            let room_event_cache = &room_event_cache_p0;
+
+            let (initial_updates, mut updates_stream) =
+                room_event_cache_p0.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+
+            // Initial updates contain `thread_event_id_1` only.
+            assert_eq!(initial_updates.len(), 1);
+            assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+            assert!(updates_stream.is_empty());
+
+            // Load one more event with a backpagination.
+            room_event_cache
+                .thread_pagination(thread_root.to_owned())
+                .await
+                .unwrap()
+                .run_backwards_once(1)
+                .await
+                .unwrap();
+
+            // A new update for `ev_id_0` must be present.
+            assert_matches!(
+                updates_stream.recv().await.unwrap(),
+                TimelineVectorDiffs { diffs, .. } => {
+                    assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                    assert_matches!(
+                        &diffs[0],
+                        VectorDiff::Insert { index: 0, value: event } => {
+                            assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                        }
+                    );
+                }
+            );
+
+            updates_stream
+        };
+
+        // Second, let's check `room_event_cache_p1` has the same accesses.
+        let mut updates_stream_p1 = {
+            let room_event_cache = &room_event_cache_p1;
+            let (initial_updates, mut updates_stream) =
+                room_event_cache_p1.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+
+            // Initial updates contain `thread_event_id_1` only.
+            assert_eq!(initial_updates.len(), 1);
+            assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+            assert!(updates_stream.is_empty());
+
+            // Load one more event with a backpagination.
+            room_event_cache
+                .thread_pagination(thread_root.to_owned())
+                .await
+                .unwrap()
+                .run_backwards_once(1)
+                .await
+                .unwrap();
+
+            // A new update for `thread_event_id_0` must be present.
+            assert_matches!(
+                updates_stream.recv().await.unwrap(),
+                TimelineVectorDiffs { diffs, .. } => {
+                    assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                    assert_matches!(
+                        &diffs[0],
+                        VectorDiff::Insert { index: 0, value: event } => {
+                            assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                        }
+                    );
+                }
+            );
+
+            updates_stream
+        };
+
+        // Do this a couple times, for the fun.
+        for _ in 0..3 {
+            // Third, because `room_event_cache_p1` has locked the store, the lock
+            // is dirty for `room_event_cache_p0`, so it will shrink to its last
+            // chunk for the thread!
+            {
+                let room_event_cache = &room_event_cache_p0;
+                let updates_stream = &mut updates_stream_p0;
+
+                // `thread_event_id_1` must be loaded in memory, just like before.
+                // However, `thread_event_id_0` must NOT be loaded in memory. It WAS loaded, but
+                // the state has been reloaded to its last chunk.
+                let (initial_updates, _) =
+                    room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+
+                assert_eq!(initial_updates.len(), 1);
+                assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    TimelineVectorDiffs { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_1));
+                            }
+                        );
+                    }
+                );
+
+                // Load one more event with a backpagination.
+                room_event_cache
+                    .thread_pagination(thread_root.to_owned())
+                    .await
+                    .unwrap()
+                    .run_backwards_once(1)
+                    .await
+                    .unwrap();
+
+                // `thread_event_id_0` must now be loaded in memory.
+                // The pagination can be observed via the updates.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    TimelineVectorDiffs { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                            }
+                        );
+                    }
+                );
+            }
+
+            // Fourth, because `room_event_cache_p0` has locked the store again, the lock
+            // is dirty for `room_event_cache_p1` too!, so it will shrink to its last
+            // chunk for the thread!
+            {
+                let room_event_cache = &room_event_cache_p1;
+                let updates_stream = &mut updates_stream_p1;
+
+                // `thread_event_id_1` must be loaded in memory, just like before.
+                // However, `thread_event_id_0` must NOT be loaded in memory. It WAS loaded, but
+                // the state has shrunk to its last chunk.
+                let (initial_updates, _) =
+                    room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+
+                assert_eq!(initial_updates.len(), 1);
+                assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+
+                // The reload can be observed via the updates too.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    TimelineVectorDiffs { diffs, .. } => {
+                        assert_eq!(diffs.len(), 2, "{diffs:#?}");
+                        assert_matches!(&diffs[0], VectorDiff::Clear);
+                        assert_matches!(
+                            &diffs[1],
+                            VectorDiff::Append { values: events } => {
+                                assert_eq!(events.len(), 1);
+                                assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_1));
+                            }
+                        );
+                    }
+                );
+
+                // Load one more event with a backpagination.
+                room_event_cache
+                    .thread_pagination(thread_root.to_owned())
+                    .await
+                    .unwrap()
+                    .run_backwards_once(1)
+                    .await
+                    .unwrap();
+
+                // `thread_event_id_0` must now be loaded in memory.
+                // The pagination can be observed via the updates.
+                assert_matches!(
+                    updates_stream.recv().await.unwrap(),
+                    TimelineVectorDiffs { diffs, .. } => {
+                        assert_eq!(diffs.len(), 1, "{diffs:#?}");
+                        assert_matches!(
+                            &diffs[0],
+                            VectorDiff::Insert { index: 0, value: event } => {
+                                assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                            }
+                        );
+                    }
+                );
+            }
+        }
+    }
 }
