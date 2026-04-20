@@ -2069,6 +2069,9 @@ impl Client {
     ///
     /// This is an experimental feature, and might cause performance issues on
     /// large accounts. Use with caution.
+    ///
+    /// This must be called after creating a client, but before subscribing to
+    /// the event cache (so, before spawning a sync service or a timeline).
     pub fn enable_automatic_backpagination(&self) {
         self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
     }
