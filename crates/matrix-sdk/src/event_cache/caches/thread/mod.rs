@@ -875,4 +875,79 @@ mod timed_tests {
         assert_eq!(thread_events[0].event_id().as_deref(), Some(thread_event_id_0));
         assert_eq!(thread_events[1].event_id().as_deref(), Some(thread_event_id_1));
     }
+
+    #[async_test]
+    async fn test_load_from_storage_resilient_to_failure() {
+        let room_id = room_id!("!r0");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@mnt_io:matrix.org"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let thread_root = event_id!("$t0");
+        let thread_event_id_0 = event_id!("$t0_ev0");
+
+        let thread_event_0 = f
+            .text_msg("hello world")
+            .event_id(thread_event_id_0)
+            .in_thread(thread_root, thread_root)
+            .into_event();
+
+        // Prefill the store with invalid data: two chunks that form a cycle.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Thread(room_id, thread_root),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![thread_event_0],
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: Some(ChunkIdentifier::new(0)),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder
+                    .store_config(
+                        StoreConfig::new(CrossProcessLockConfig::multi_process("holder"))
+                            .event_cache_store(event_cache_store.clone()),
+                    )
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (thread_events, _) =
+            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+
+        // Because the persisted content was invalid, the thread store is reset:
+        // there are no events in the cache.
+        assert!(thread_events.is_empty());
+
+        // Storage doesn't contain anything. It would also be valid that it contains a
+        // single initial empty items chunk.
+        let raw_chunks = event_cache_store
+            .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
+            .await
+            .unwrap();
+        assert!(raw_chunks.is_empty());
+    }
 }
