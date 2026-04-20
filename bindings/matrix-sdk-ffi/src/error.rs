@@ -29,7 +29,6 @@ use ruma::{
     MilliSecondsSinceUnixEpoch,
     api::error::{ErrorBody, ErrorKind as RumaApiErrorKind, RetryAfter, StandardErrorBody},
 };
-use tracing::error;
 use uniffi::UnexpectedUniFFICallbackError;
 
 use crate::{room_list::RoomListError, timeline::FocusEventError};
@@ -44,7 +43,6 @@ pub enum ClientError {
 
 impl ClientError {
     pub(crate) fn from_str<E: Display>(error: E, details: Option<String>) -> Self {
-        error!("{error}");
         Self::Generic { msg: error.to_string(), details }
     }
 
