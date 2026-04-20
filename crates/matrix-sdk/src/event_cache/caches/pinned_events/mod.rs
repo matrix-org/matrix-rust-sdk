@@ -41,7 +41,10 @@ use super::{
     room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
-    Room, client::WeakClient, config::RequestConfig, event_cache::TimelineVectorDiffs,
+    Room,
+    client::WeakClient,
+    config::RequestConfig,
+    event_cache::{TimelineVectorDiffs, persistence::load_linked_chunk_metadata},
     room::WeakRoom,
 };
 
@@ -123,6 +126,12 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
 
             return Ok(());
         };
+
+        let linked_chunk_metadata =
+            load_linked_chunk_metadata(&self.store, linked_chunk_id).await?;
+
+        // Reload the metadata first.
+        self.state.chunk = EventLinkedChunk::with_initial_linked_chunk(None, linked_chunk_metadata);
 
         {
             let mut current_chunk_identifier = last_chunk.identifier;
