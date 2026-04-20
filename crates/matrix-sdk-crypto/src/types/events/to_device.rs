@@ -520,7 +520,7 @@ mod tests {
 
         assert_serialization_roundtrip!(
             // `m.room_key
-            crate::types::events::room_key::tests::json => RoomKey,
+            crate::types::events::room_key::tests::json_stable => RoomKey,
 
             // `m.forwarded_room_key`
             forwarded_room_key_event => ForwardedRoomKey,
@@ -570,7 +570,7 @@ mod tests {
 
         assert_serialization_roundtrip!(
             // `m.room_key
-            crate::types::events::room_key::tests::json => RoomKey,
+            crate::types::events::room_key::tests::json_stable => RoomKey,
 
             // `m.forwarded_room_key`
             forwarded_room_key_event => ForwardedRoomKey,
