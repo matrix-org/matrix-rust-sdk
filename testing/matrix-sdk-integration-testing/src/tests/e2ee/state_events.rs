@@ -99,10 +99,7 @@ async fn test_e2ee_state_events() -> Result<()> {
     assert_eq!(bob_response.to_device.len(), 1);
     let to_device_event = &bob_response.to_device[0];
     assert_let!(ProcessedToDeviceEvent::Decrypted { raw, .. } = to_device_event);
-    assert_eq!(
-        raw.get_field::<String>("type").unwrap().unwrap(),
-        "io.element.msc4268.room_key_bundle"
-    );
+    assert_eq!(raw.get_field::<String>("type").unwrap().unwrap(), "m.room_key_bundle");
 
     bob.get_room(alice_room.room_id()).expect("Bob should have received the invite");
 

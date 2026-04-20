@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Change to the stable identifiers for `m.room_key_bundle` and
+  `m.history_not_shared`. We still support reading the unstable identifiers.
+  ([#6467](https://github.com/matrix-org/matrix-rust-sdk/pull/6467))
 - Add support for MSC4385.
   ([#6164](https://github.com/matrix-org/matrix-rust-sdk/pull/6164))
   - Add new method `OlmMachine::push_secret_to_verified_devices`.

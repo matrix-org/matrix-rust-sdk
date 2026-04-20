@@ -28,7 +28,7 @@ expression: bundle
   "withheld": [
     {
       "algorithm": "[algorithm]",
-      "code": "io.element.msc4268.history_not_shared",
+      "code": "m.history_not_shared",
       "from_device": "BOB",
       "reason": "The sender disabled sharing encrypted history.",
       "room_id": "!room1:localhost",

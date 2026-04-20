@@ -1249,7 +1249,7 @@ pub enum WithheldCode {
     /// that the session was not marked as "shared_history".
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-    #[ruma_enum(rename = "io.element.msc4268.history_not_shared", alias = "m.history_not_shared")]
+    #[ruma_enum(rename = "m.history_not_shared", alias = "io.element.msc4268.history_not_shared")]
     HistoryNotShared,
 
     #[doc(hidden)]
