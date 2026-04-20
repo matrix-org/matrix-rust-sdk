@@ -14,6 +14,58 @@
 
 //! Messages search facilities and high-level helpers to perform searches across
 //! one or multiple rooms, with pagination support.
+//!
+//! # Examples
+//!
+//! ## Searching within a single room
+//!
+//! Use [`Room::search_messages`] to obtain a [`RoomSearchIterator`] and call
+//! [`RoomSearchIterator::next`] to paginate through event IDs, or
+//! [`RoomSearchIterator::next_events`] to load the full [`TimelineEvent`]s.
+//!
+//! ```no_run
+//! # use matrix_sdk::Room;
+//! # async fn example(room: Room) -> anyhow::Result<()> {
+//! let mut iter = room.search_messages("hello world".to_owned(), 10);
+//!
+//! while let Some(event_ids) = iter.next().await? {
+//!     for event_id in event_ids {
+//!         println!("Found event: {event_id}");
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Searching across all joined rooms
+//!
+//! Use [`Client::search_messages`] to create a [`GlobalSearchBuilder`].
+//! Optionally restrict the working set to DM rooms (or non-DM rooms) before
+//! calling [`GlobalSearchBuilder::build`] to get a [`GlobalSearchIterator`].
+//! Use [`GlobalSearchIterator::next_events`] to load full [`TimelineEvent`]s
+//! instead of plain event IDs.
+//!
+//! ```no_run
+//! # use matrix_sdk::Client;
+//! # async fn example(client: Client) -> anyhow::Result<()> {
+//! // Search only in DM rooms.
+//! let mut iter = client
+//!     .search_messages("hello world".to_owned(), 10)
+//!     .only_dm_rooms()
+//!     .await?
+//!     .build();
+//!
+//! while let Some(results) = iter.next_events().await? {
+//!     for (room_id, event) in results {
+//!         println!(
+//!             "Found event in room {room_id} with timestamp: {:?}",
+//!             event.timestamp
+//!         );
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
 
 use std::collections::HashSet;
 
