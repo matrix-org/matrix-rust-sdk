@@ -33,6 +33,7 @@ use self::{pagination::ThreadPagination, updates::ThreadEventCacheUpdateSender};
 use super::{
     super::Result,
     EventsOrigin, TimelineVectorDiffs,
+    lock::Reload as _,
     room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
 };
 use crate::room::WeakRoom;
@@ -227,6 +228,14 @@ impl ThreadEventCache {
             .revents()
             .next()
             .and_then(|(_position, event)| event.event_id()))
+    }
+
+    /// Force to reload the thread.
+    //
+    // TODO(@hywan): Temporary fix. All the states must be in a single struct behind
+    // the cross-process lock instead of being dispatched in each cache.
+    pub(super) async fn reload(&self) -> Result<()> {
+        self.inner.state.write().await?.reload().await
     }
 
     /// Find a single event in this thread.
