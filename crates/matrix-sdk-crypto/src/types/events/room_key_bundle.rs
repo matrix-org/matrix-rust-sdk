@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types for `io.element.msc4268.room_key_bundle` to-device events, per
-//! [MSC4268].
+//! Types for `m.room_key_bundle` to-device events, per [MSC4268].
 //!
 //! [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 
@@ -22,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use super::EventType;
 
-/// The `io.element.msc4268.room_key_bundle` event content. See [MSC4268].
+/// The `m.room_key_bundle` event content. See [MSC4268].
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -34,6 +33,11 @@ pub struct RoomKeyBundleContent {
     pub file: EncryptedFile,
 }
 
+impl RoomKeyBundleContent {
+    /// The unstable event type for MSC4268 m.room_key_bundle
+    pub const UNSTABLE_EVENT_TYPE: &'static str = "io.element.msc4268.room_key_bundle";
+}
+
 impl EventType for RoomKeyBundleContent {
-    const EVENT_TYPE: &'static str = "io.element.msc4268.room_key_bundle";
+    const EVENT_TYPE: &'static str = "m.room_key_bundle";
 }

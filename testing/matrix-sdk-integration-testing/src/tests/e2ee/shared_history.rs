@@ -1648,9 +1648,9 @@ fn assert_received_room_key_bundle(sync_response: matrix_sdk::sync::SyncResponse
         "Expected the to-device event to be decrypted"
     );
     assert_eq!(
-        "io.element.msc4268.room_key_bundle",
+        "m.room_key_bundle",
         raw.get_field::<String>("type").unwrap().unwrap(),
-        "Expected the event type to be 'io.element.msc4268.room_key_bundle'"
+        "Expected the event type to be 'm.room_key_bundle'"
     );
 }
 

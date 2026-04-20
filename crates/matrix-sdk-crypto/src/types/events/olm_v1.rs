@@ -83,7 +83,7 @@ impl DecryptedForwardedRoomKeyEvent {
 /// `m.olm.v1.curve25519-aes-sha2` algorithm
 pub type DecryptedSecretSendEvent = DecryptedOlmV1Event<SecretSendContent>;
 
-/// An `io.element.msc4268.room_key_bundle` to-device event which has
+/// An `m.room_key_bundle` to-device event which has
 /// been decrypted using using the `m.olm.v1.curve25519-aes-sha2` algorithm
 pub type DecryptedRoomKeyBundleEvent = DecryptedOlmV1Event<RoomKeyBundleContent>;
 
@@ -104,7 +104,7 @@ pub enum AnyDecryptedOlmEvent {
     SecretSend(DecryptedSecretSendEvent),
     /// The `m.dummy` decrypted to-device event.
     Dummy(DecryptedDummyEvent),
-    /// The `io.element.msc4268.room_key_bundle` decrypted to-device event.
+    /// The `m.room_key_bundle` decrypted to-device event.
     RoomKeyBundle(DecryptedRoomKeyBundleEvent),
     /// The `io.element.msc4385.secret.push` decrypted to-device event.
     #[cfg(feature = "experimental-push-secrets")]
@@ -352,7 +352,7 @@ impl<'de> Deserialize<'de> for AnyDecryptedOlmEvent {
             }
             SecretSendContent::EVENT_TYPE => AnyDecryptedOlmEvent::SecretSend(from_str(json)?),
             DummyEventContent::EVENT_TYPE => AnyDecryptedOlmEvent::Dummy(from_str(json)?),
-            RoomKeyBundleContent::EVENT_TYPE => {
+            RoomKeyBundleContent::EVENT_TYPE | RoomKeyBundleContent::UNSTABLE_EVENT_TYPE => {
                 AnyDecryptedOlmEvent::RoomKeyBundle(from_str(json)?)
             }
             #[cfg(feature = "experimental-push-secrets")]
@@ -479,7 +479,7 @@ mod tests {
         })
     }
 
-    fn room_key_bundle_event_unstable() -> Value {
+    fn room_key_bundle_event(stable: bool) -> Value {
         json!({
             "sender": "@u:s.co",
             "recipient": "@x:s.co",
@@ -508,8 +508,16 @@ mod tests {
                     "hashes": {}
                 }
             },
-            "type": "io.element.msc4268.room_key_bundle"
+            "type": if stable { "m.room_key_bundle" } else { "io.element.msc4268.room_key_bundle" }
         })
+    }
+
+    fn room_key_bundle_event_stable() -> Value {
+        room_key_bundle_event(true)
+    }
+
+    fn room_key_bundle_event_unstable() -> Value {
+        room_key_bundle_event(false)
     }
 
     /// Return the JSON for creating sender device keys, and the matching
@@ -624,6 +632,9 @@ mod tests {
             dummy_event => Dummy,
 
             // `m.room_key_bundle`
+            room_key_bundle_event_stable => RoomKeyBundle,
+
+            // `m.io.element.msc4268.room_key_bundle`
             room_key_bundle_event_unstable => RoomKeyBundle,
         );
 
@@ -693,7 +704,7 @@ mod tests {
 
         let event = DecryptedRoomKeyBundleEvent::new(sender, recipient, key, None, content);
 
-        assert_eq!(serde_json::to_value(&event).unwrap(), room_key_bundle_event_unstable());
+        assert_eq!(serde_json::to_value(&event).unwrap(), room_key_bundle_event_stable());
     }
 
     #[test]

@@ -960,8 +960,7 @@ impl OlmMachine {
         }
     }
 
-    /// Handle a received, decrypted, `io.element.msc4268.room_key_bundle`
-    /// to-device event.
+    /// Handle a received, decrypted, `m.room_key_bundle` to-device event.
     #[instrument()]
     async fn receive_room_key_bundle_data(
         &self,
