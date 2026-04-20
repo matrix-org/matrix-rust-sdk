@@ -368,7 +368,11 @@ mod tests {
 
     use assert_matches::assert_matches;
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{KeyId, device_id, owned_user_id};
+    use ruma::{
+        KeyId, OwnedMxcUri, device_id,
+        events::room::{EncryptedFile, V2EncryptedFileInfo},
+        owned_room_id, owned_user_id, user_id,
+    };
     use serde_json::{Value, json};
     use similar_asserts::assert_eq;
     use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature};
@@ -376,7 +380,10 @@ mod tests {
     use super::AnyDecryptedOlmEvent;
     use crate::types::{
         DeviceKey, DeviceKeys, EventEncryptionAlgorithm, Signatures,
-        events::olm_v1::DecryptedRoomKeyEvent,
+        events::{
+            olm_v1::{DecryptedRoomKeyBundleEvent, DecryptedRoomKeyEvent},
+            room_key_bundle::RoomKeyBundleContent,
+        },
     };
 
     const ED25519_KEY: &str = "aOfOnlaeMb5GW1TxkZ8pXnblkGMgAvps+lAukrdYaZk";
@@ -469,6 +476,39 @@ mod tests {
                 "secret": "ThisIsASecretDon'tTellAnyone"
             },
             "type": "m.secret.send"
+        })
+    }
+
+    fn room_key_bundle_event_unstable() -> Value {
+        json!({
+            "sender": "@u:s.co",
+            "recipient": "@x:s.co",
+            "keys": {
+                "ed25519": "ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE"
+            },
+            "recipient_keys": {
+                "ed25519": "ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE"
+            },
+            "content": {
+                "room_id": "!r:s.co",
+                "file": {
+                    "url": "test",
+                    "v": "v2",
+                    "key": {
+                        "kty": "oct",
+                        "key_ops": [
+                            "decrypt",
+                            "encrypt"
+                        ],
+                        "alg": "A256CTR",
+                        "k": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "ext": true
+                    },
+                    "iv": "AAAAAAAAAAAAAAAAAAAAAA",
+                    "hashes": {}
+                }
+            },
+            "type": "io.element.msc4268.room_key_bundle"
         })
     }
 
@@ -582,6 +622,9 @@ mod tests {
 
             // `m.dummy`
             dummy_event => Dummy,
+
+            // `m.room_key_bundle`
+            room_key_bundle_event_unstable => RoomKeyBundle,
         );
 
         Ok(())
@@ -628,6 +671,29 @@ mod tests {
         with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
             assert_json_snapshot!(event);
         });
+    }
+
+    #[test]
+    fn serialize_room_key_bundle() {
+        let room_id = owned_room_id!("!r:s.co");
+        let sender = user_id!("@u:s.co");
+        let recipient = user_id!("@x:s.co");
+
+        let key =
+            Ed25519PublicKey::from_base64("ee3Ek+J2LkkPmjGPGLhMxiKnhiX//xcqaVL4RP6EypE").unwrap();
+
+        let content = RoomKeyBundleContent {
+            room_id,
+            file: EncryptedFile::new(
+                OwnedMxcUri::from("test"),
+                V2EncryptedFileInfo::encode([0; 32], [0; 16]).into(),
+                Default::default(),
+            ),
+        };
+
+        let event = DecryptedRoomKeyBundleEvent::new(sender, recipient, key, None, content);
+
+        assert_eq!(serde_json::to_value(&event).unwrap(), room_key_bundle_event_unstable());
     }
 
     #[test]
