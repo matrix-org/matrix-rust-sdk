@@ -413,6 +413,16 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
     async fn reload(&mut self) -> Result<(), EventCacheError> {
         self.shrink_to_last_chunk().await?;
 
+        // Reload the threads.
+        for thread_event_cache in self.threads.values_mut() {
+            thread_event_cache.reload().await?;
+        }
+
+        // Reload the pinned-events.
+        if let Some(pinned_event_cache) = self.pinned_event_cache.get_mut() {
+            pinned_event_cache.reload().await?;
+        }
+
         let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
         // Notify observers about the update.
