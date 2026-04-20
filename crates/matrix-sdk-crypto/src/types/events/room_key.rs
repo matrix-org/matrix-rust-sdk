@@ -124,7 +124,7 @@ pub struct MegolmV1AesSha2Content {
     /// [MSC3061].
     ///
     /// [MSC3061]: https://github.com/matrix-org/matrix-spec-proposals/pull/3061
-    #[serde(default, rename = "org.matrix.msc3061.shared_history")]
+    #[serde(default, rename = "m.shared_history", alias = "org.matrix.msc3061.shared_history")]
     pub shared_history: bool,
     /// Any other, custom and non-specced fields of the content.
     #[serde(flatten)]
@@ -229,14 +229,22 @@ pub(super) mod tests {
     use super::RoomKeyEvent;
     use crate::types::events::room_key::RoomKeyContent;
 
-    pub fn json() -> Value {
+    pub fn json_stable() -> Value {
+        json(true)
+    }
+
+    pub fn json_unstable() -> Value {
+        json(false)
+    }
+
+    pub fn json(stable: bool) -> Value {
         json!({
             "sender": "@alice:example.org",
             "content": {
                 "m.custom": "something custom",
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "room_id": "!Cuyf34gef24t:localhost",
-                "org.matrix.msc3061.shared_history": false,
+                if stable { "m.shared_history" } else { "org.matrix.msc3061.shared_history" }: false,
                 "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
                 "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
                                 SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
@@ -252,13 +260,23 @@ pub(super) mod tests {
     }
 
     #[test]
-    fn deserialization() -> Result<(), serde_json::Error> {
-        let json = json();
+    fn deserialization_stable() -> Result<(), serde_json::Error> {
+        let json = json_stable();
         let event: RoomKeyEvent = serde_json::from_value(json.clone())?;
 
         assert_matches!(event.content, RoomKeyContent::MegolmV1AesSha2(_));
         let serialized = serde_json::to_value(event)?;
         assert_eq!(json, serialized);
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialization_unstable() -> Result<(), serde_json::Error> {
+        let json = json_unstable();
+        let event: RoomKeyEvent = serde_json::from_value(json)?;
+
+        assert_matches!(event.content, RoomKeyContent::MegolmV1AesSha2(_));
 
         Ok(())
     }

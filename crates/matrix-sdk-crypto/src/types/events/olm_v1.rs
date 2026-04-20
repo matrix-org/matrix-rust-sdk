@@ -721,7 +721,7 @@ mod tests {
             "content": {
                 "algorithm": "m.megolm.v1.aes-sha2",
                 "room_id": "!Cuyf34gef24t:localhost",
-                "org.matrix.msc3061.shared_history": true,
+                "m.shared_history": true,
                 "session_id": "ZFD6+OmV7fVCsJ7Gap8UnORH8EnmiAkes8FAvQuCw/I",
                 "session_key": "AgAAAADNp1EbxXYOGmJtyX4AkD1bvJvAUyPkbIaKxtnGKjv\
                             SQ3E/4mnuqdM4vsmNzpO1EeWzz1rDkUpYhYE9kP7sJhgLXi\
