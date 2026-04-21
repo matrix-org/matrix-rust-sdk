@@ -51,6 +51,16 @@
 //! }
 //! ```
 
+#[cfg(test)]
+use matrix_sdk::{Client, test_utils::mocks::MatrixMockServer};
+#[cfg(test)]
+use matrix_sdk_test::JoinedRoomBuilder;
+#[cfg(test)]
+use ruma::RoomId;
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
+
+use super::RoomListItem;
+
 mod all;
 mod any;
 mod category;
@@ -68,31 +78,24 @@ mod not;
 mod space;
 mod unread;
 
-pub use all::new_filter as new_filter_all;
-pub use any::new_filter as new_filter_any;
-pub use category::{RoomCategory, new_filter as new_filter_category};
-pub use deduplicate_versions::new_filter as new_filter_deduplicate_versions;
-pub use favourite::new_filter as new_filter_favourite;
-pub use fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name;
-pub use identifiers::new_filter as new_filter_identifiers;
-pub use invite::new_filter as new_filter_invite;
-pub use joined::new_filter as new_filter_joined;
-pub use low_priority::new_filter as new_filter_low_priority;
-#[cfg(test)]
-use matrix_sdk::{Client, test_utils::mocks::MatrixMockServer};
-#[cfg(test)]
-use matrix_sdk_test::JoinedRoomBuilder;
-pub use non_left::new_filter as new_filter_non_left;
-pub use none::new_filter as new_filter_none;
-pub use normalized_match_room_name::new_filter as new_filter_normalized_match_room_name;
-pub use not::new_filter as new_filter_not;
-#[cfg(test)]
-use ruma::RoomId;
-pub use space::new_filter as new_filter_space;
-use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
-pub use unread::new_filter as new_filter_unread;
-
-use super::RoomListItem;
+pub use self::{
+    all::new_filter as new_filter_all,
+    any::new_filter as new_filter_any,
+    category::{RoomCategory, new_filter as new_filter_category},
+    deduplicate_versions::new_filter as new_filter_deduplicate_versions,
+    favourite::new_filter as new_filter_favourite,
+    fuzzy_match_room_name::new_filter as new_filter_fuzzy_match_room_name,
+    identifiers::new_filter as new_filter_identifiers,
+    invite::new_filter as new_filter_invite,
+    joined::new_filter as new_filter_joined,
+    low_priority::new_filter as new_filter_low_priority,
+    non_left::new_filter as new_filter_non_left,
+    none::new_filter as new_filter_none,
+    normalized_match_room_name::new_filter as new_filter_normalized_match_room_name,
+    not::new_filter as new_filter_not,
+    space::new_filter as new_filter_space,
+    unread::new_filter as new_filter_unread,
+};
 
 /// A trait “alias” that represents a _filter_.
 ///

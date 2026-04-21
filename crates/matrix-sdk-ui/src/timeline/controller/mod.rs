@@ -23,8 +23,6 @@ use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
 use imbl::Vector;
-#[cfg(test)]
-use matrix_sdk::Result;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
