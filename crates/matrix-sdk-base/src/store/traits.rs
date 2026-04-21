@@ -2421,3 +2421,96 @@ pub fn compare_thread_subscription_bump_stamps(
 
     true
 }
+
+#[cfg(test)]
+mod tests {
+    mod save_locked_state_store {
+        use std::time::Duration;
+
+        use assert_matches::assert_matches;
+        use futures_util::future::{self, Either};
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        use gloo_timers::future::sleep;
+        use matrix_sdk_common::executor::spawn;
+        use matrix_sdk_test::async_test;
+        use tokio::sync::Mutex;
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        use tokio::time::sleep;
+
+        use crate::{
+            StateChanges, StateStore,
+            store::{IntoStateStore, MemoryStore, Result, SaveLockedStateStore},
+        };
+
+        async fn get_store() -> Result<impl StateStore> {
+            Ok(SaveLockedStateStore::new(MemoryStore::new()))
+        }
+
+        statestore_integration_tests!();
+
+        #[async_test]
+        async fn test_state_store_only_accepts_guard_for_underlying_mutex() {
+            let state_store = SaveLockedStateStore::new(MemoryStore::new());
+            let state_changes = StateChanges::default();
+            state_store
+                .save_changes_with_guard(&state_store.lock().lock().await, &state_changes)
+                .await
+                .expect("state store accepts guard for underlying mutex");
+
+            let mutex = Mutex::new(());
+            state_store
+                .save_changes_with_guard(&mutex.lock().await, &state_changes)
+                .await
+                .expect_err("state store does not accept guard for unknown mutex");
+        }
+
+        #[derive(Debug)]
+        struct Elapsed;
+
+        async fn timeout<F: Future + Unpin>(
+            duration: Duration,
+            f: F,
+        ) -> Result<F::Output, Elapsed> {
+            #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+            {
+                match future::select(sleep(duration), f).await {
+                    Either::Left(_) => return Err(Elapsed),
+                    Either::Right((output, _)) => Ok(output),
+                }
+            }
+            #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+            {
+                tokio::time::timeout(duration, f).await.map_err(|_| Elapsed)
+            }
+        }
+
+        #[async_test]
+        async fn test_state_store_waits_to_acquire_lock_before_saving_changes() {
+            let state_store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
+
+            // Acquire lock and hold it for 5 seconds
+            let lock_task = spawn({
+                let state_store = state_store.clone();
+                async move {
+                    let lock = state_store.lock();
+                    let _guard = lock.lock().await;
+                    sleep(Duration::from_secs(5)).await;
+                }
+            });
+
+            // Try to save changes to the state store while the lock is held by another task
+            let save_task =
+                spawn(async move { state_store.save_changes(&StateChanges::default()).await });
+
+            // Ensure that the second task does not progress until the first task has
+            // completed and therefore release the save lock
+            assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
+                timeout(Duration::from_millis(100), save_task)
+                    .await
+                    .expect("task completes before timeout")
+                    .expect("task completes successfully")
+                    .expect("task saves changes");
+            });
+        }
+    }
+}
