@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Support the stable `m.key_backup` prefix for MSC4287: Sharing key backup
+  preference between clients.
+  ([#6410](https://github.com/matrix-org/matrix-rust-sdk/pull/6410))
 - Add new high-level search helpers in `matrix_sdk_ui::search` to perform searches for messages in
   a room or across all rooms.
   ([#6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
