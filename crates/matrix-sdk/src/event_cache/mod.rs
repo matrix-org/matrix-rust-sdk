@@ -48,7 +48,7 @@ use tokio::sync::{
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
-use tracing::{error, instrument, trace};
+use tracing::{error, trace};
 
 use crate::{
     Client,
@@ -603,7 +603,7 @@ impl EventCacheInner {
     }
 
     /// Handles a single set of room updates at once.
-    #[instrument(skip(self, updates))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, updates)))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
         // First, take the lock that indicates we're processing updates, to avoid
         // handling multiple updates concurrently.

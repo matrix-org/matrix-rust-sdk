@@ -18,7 +18,7 @@ use ruma::{
     events::{GlobalAccountDataEventType, ignored_user_list::IgnoredUserListEvent},
     serde::Raw,
 };
-use tracing::{error, instrument, trace};
+use tracing::{error, trace};
 
 use super::Context;
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
 
 /// Save the [`StateChanges`] from the [`Context`] inside the [`BaseStateStore`]
 /// only! The changes aren't applied on the in-memory rooms.
-#[instrument(skip_all)]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
 pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "_method");
 
@@ -40,7 +40,7 @@ pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result
 
 /// Save the [`StateChanges`] from the [`Context`] inside the
 /// [`BaseStateStore`], and apply them on the in-memory rooms.
-#[instrument(skip_all)]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
 pub async fn save_and_apply(
     context: Context,
     state_store: &BaseStateStore,

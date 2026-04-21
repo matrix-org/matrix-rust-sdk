@@ -152,7 +152,7 @@ use ruma::{
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 use tokio::{join, sync::broadcast};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use self::futures::{SendAttachment, SendMessageLikeEvent, SendRawMessageLikeEvent};
 pub use self::{
@@ -258,7 +258,7 @@ impl PushContext {
     /// Compute the push rules for a given event, with extra logging to help
     /// debugging.
     #[doc(hidden)]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn traced_for_event<T>(&self, event: &Raw<T>) -> Vec<Action> {
         let rules = self
             .push_rules
@@ -402,7 +402,7 @@ impl Room {
     ///
     /// Only invited and joined rooms can be left.
     #[doc(alias = "reject_invitation")]
-    #[instrument(skip_all, fields(room_id = ?self.inner.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?self.inner.room_id())))]
     async fn leave_impl(&self) -> (Result<()>, &Room) {
         let state = self.state();
         if state == RoomState::Left {
@@ -606,7 +606,7 @@ impl Room {
     /// assert!(room.messages(options).await.is_ok());
     /// # };
     /// ```
-    #[instrument(skip_all, fields(room_id = ?self.inner.room_id(), ?options))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?self.inner.room_id(), ?options)))]
     pub async fn messages(&self, options: MessagesOptions) -> Result<Messages> {
         let room_id = self.inner.room_id();
         let request = options.into_request(room_id);
@@ -1964,7 +1964,7 @@ impl Room {
     /// * `user_id` - The user to ban with `UserId`.
     ///
     /// * `reason` - The reason for banning this user.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn ban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             ban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
@@ -1981,7 +1981,7 @@ impl Room {
     /// * `user_id` - The user to unban with `UserId`.
     ///
     /// * `reason` - The reason for unbanning this user.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn unban_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             unban_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
@@ -1999,7 +1999,7 @@ impl Room {
     ///   room.
     ///
     /// * `reason` - Optional reason why the room member is being kicked out.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn kick_user(&self, user_id: &UserId, reason: Option<&str>) -> Result<()> {
         let request = assign!(
             kick_user::v3::Request::new(self.room_id().to_owned(), user_id.to_owned()),
@@ -2014,7 +2014,7 @@ impl Room {
     /// # Arguments
     ///
     /// * `user_id` - The `UserId` of the user to invite to the room.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn invite_user_by_id(&self, user_id: &UserId) -> Result<()> {
         #[cfg(feature = "e2e-encryption")]
         if self.client.inner.enable_share_history_on_invite {
@@ -2038,7 +2038,7 @@ impl Room {
     /// # Arguments
     ///
     /// * `invite_id` - A third party id of a user to invite to the room.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn invite_user_by_3pid(&self, invite_id: Invite3pid) -> Result<()> {
         let recipient = InvitationRecipient::ThirdPartyId(invite_id);
         let request = invite_user::v3::Request::new(self.room_id().to_owned(), recipient);
@@ -2116,7 +2116,7 @@ impl Room {
         Ok(())
     }
 
-    #[instrument(name = "typing_notice", skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(name = "typing_notice", skip(self)))]
     async fn send_typing_notice(&self, typing: bool) -> Result<()> {
         let typing = if typing {
             self.client
@@ -2158,7 +2158,7 @@ impl Room {
     ///   [`ReceiptType::FullyRead`][create_receipt::v3::ReceiptType::FullyRead].
     ///
     /// * `event_id` - The `EventId` of the event to set the receipt on.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: create_receipt::v3::ReceiptType,
@@ -2204,7 +2204,7 @@ impl Room {
     /// * `receipts` - The `Receipts` to send.
     ///
     /// If `receipts` is empty, this is a no-op.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn send_multiple_receipts(&self, receipts: Receipts) -> Result<()> {
         if receipts.is_empty() {
             return Ok(());
@@ -2337,7 +2337,7 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn enable_encryption(&self) -> Result<()> {
         self.enable_encryption_inner(false).await
     }
@@ -2374,7 +2374,7 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     #[cfg(feature = "experimental-encrypted-state-events")]
     pub async fn enable_encryption_with_state_event_encryption(&self) -> Result<()> {
         self.enable_encryption_inner(true).await
@@ -2389,7 +2389,7 @@ impl Room {
     // TODO: expose this publicly so people can pre-share a group session if
     // e.g. a user starts to type a message for a room.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all, fields(room_id = ?self.room_id()))]
+    #[cfg_attr(feature = "instrument", skip_all, fields(room_id = ?self.room_id()))]
     async fn preshare_room_key(&self) -> Result<()> {
         self.ensure_room_joined()?;
 
@@ -2433,7 +2433,7 @@ impl Room {
     ///
     /// Panics if the client isn't logged in.
     #[cfg(feature = "e2e-encryption")]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn share_room_key(&self) -> Result<()> {
         self.ensure_room_joined()?;
 
@@ -2455,7 +2455,7 @@ impl Room {
     /// Warning: This waits until a sync happens and does not return if no sync
     /// is happening. It can also return early when the room is not a joined
     /// room anymore.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn sync_up(&self) {
         while !self.is_synced() && self.state() == RoomState::Joined {
             let wait_for_beat = self.client.inner.sync_beat.listen();
@@ -2614,7 +2614,7 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, is_room_encrypted, event_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(event_type, room_id = ?self.room_id(), transaction_id, is_room_encrypted, event_id)))]
     pub fn send_raw<'a>(
         &'a self,
         event_type: &'a str,
@@ -2672,7 +2672,7 @@ impl Room {
     ///
     /// [`upload()`]: crate::Media::upload
     /// [`send()`]: Self::send
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn send_attachment<'a>(
         &'a self,
         filename: impl Into<String>,
@@ -2710,7 +2710,7 @@ impl Room {
     ///
     /// * `store_in_cache` - A boolean defining whether the uploaded media will
     ///   be stored in the cache immediately after a successful upload.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(super) async fn prepare_and_send_attachment<'a>(
         &'a self,
         filename: String,
@@ -3052,7 +3052,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     #[cfg(not(feature = "experimental-encrypted-state-events"))]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn send_state_event(
         &self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
@@ -3111,7 +3111,7 @@ impl Room {
     ///
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/encrypted-state/proposals/4362-encrypted-state.md
     #[cfg(feature = "experimental-encrypted-state-events")]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn send_state_event<'a>(
         &'a self,
         content: impl StateEventContent<StateKey = EmptyStateKey>,
@@ -3274,7 +3274,7 @@ impl Room {
     /// # anyhow::Ok(()) };
     /// ```
     #[cfg(not(feature = "experimental-encrypted-state-events"))]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn send_state_event_raw(
         &self,
         event_type: &str,
@@ -3335,7 +3335,7 @@ impl Room {
     ///
     /// [msc4362]: https://github.com/matrix-org/matrix-spec-proposals/pull/4362
     #[cfg(feature = "experimental-encrypted-state-events")]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn send_state_event_raw<'a>(
         &'a self,
         event_type: &'a str,
@@ -3379,7 +3379,7 @@ impl Room {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn redact(
         &self,
         event_id: &EventId,
@@ -3654,7 +3654,7 @@ impl Room {
     /// Retrieves a [`PushContext`] that can be used to compute the push actions
     /// for events, with a choice to include thread subscriptions or not,
     /// based on the extra `with_threads_subscriptions` parameter.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub(crate) async fn push_context_internal(
         &self,
         with_threads_subscriptions: bool,
@@ -4301,7 +4301,7 @@ impl Room {
     /// - An `Ok` result if the subscription was successful, or if the server
     ///   skipped an automatic subscription (as the user unsubscribed from the
     ///   thread after the event causing the automatic subscription).
-    #[instrument(skip(self), fields(room_id = %self.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = %self.room_id())))]
     pub async fn subscribe_thread(
         &self,
         thread_root: OwnedEventId,
@@ -4388,7 +4388,7 @@ impl Room {
     /// - An `Ok` result if the unsubscription was successful, or the thread was
     ///   already unsubscribed.
     /// - A 404 error if the event isn't known, or isn't a thread root.
-    #[instrument(skip(self), fields(room_id = %self.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = %self.room_id())))]
     pub async fn unsubscribe_thread(&self, thread_root: OwnedEventId) -> Result<()> {
         self.client
             .send(unsubscribe_thread::unstable::Request::new(
@@ -4431,7 +4431,7 @@ impl Room {
     ///   event couldn't be found, or the event isn't a thread.
     /// - An error if the request fails for any other reason, such as a network
     ///   error.
-    #[instrument(skip(self), fields(room_id = %self.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = %self.room_id())))]
     pub async fn fetch_thread_subscription(
         &self,
         thread_root: OwnedEventId,

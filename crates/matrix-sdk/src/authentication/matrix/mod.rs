@@ -37,7 +37,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{debug, error, info, instrument};
+use tracing::{debug, error, info};
 
 use crate::{
     Client, Error, RefreshTokenError, Result,
@@ -600,7 +600,7 @@ impl MatrixAuth {
     /// client.matrix_auth().register(request).await;
     /// # };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn register(&self, request: register::v3::Request) -> Result<register::v3::Response> {
         let homeserver = self.client.homeserver();
         info!("Registering to {homeserver}");
@@ -718,7 +718,7 @@ impl MatrixAuth {
     ///
     /// [`login`]: #method.login
     /// [`LoginBuilder::send()`]: crate::authentication::matrix::LoginBuilder::send
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn restore_session(
         &self,
         session: MatrixSession,

@@ -47,7 +47,7 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, warn};
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
 
@@ -208,13 +208,13 @@ impl SqliteCryptoStore {
     }
 
     /// Acquire a connection for executing read operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         Ok(self.pool.get().await?)
     }
 
     /// Acquire a connection for executing write operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(crate) async fn write(&self) -> OwnedMutexGuard<SqliteAsyncConn> {
         self.write_connection.clone().lock_owned().await
     }
@@ -1310,7 +1310,7 @@ impl CryptoStore for SqliteCryptoStore {
         if sessions.is_empty() { Ok(None) } else { Ok(Some(sessions)) }
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn get_inbound_group_session(
         &self,
         room_id: &RoomId,
@@ -1755,7 +1755,7 @@ impl CryptoStore for SqliteCryptoStore {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,

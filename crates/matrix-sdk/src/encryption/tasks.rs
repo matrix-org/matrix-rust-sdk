@@ -28,7 +28,7 @@ use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryp
 use ruma::serde::JsonCastable;
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw};
 use tokio::sync::{Mutex, mpsc};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
     Client, Room,
@@ -568,7 +568,7 @@ impl BundleReceiverTask {
     /// other hand, it is **not** possible for a race to mean that we end up
     /// processing the bundle zero times: we can be sure that at least one
     /// thread will process it.
-    #[instrument(skip(room), fields(room_id = %room.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(room), fields(room_id = %room.room_id())))]
     async fn handle_bundle(room: &Room, bundle_info: &RoomKeyBundleInfo) {
         if shared_room_history::should_accept_key_bundle(room, bundle_info).await {
             info!(room_id = %room.room_id(), "Accepting a late key bundle.");

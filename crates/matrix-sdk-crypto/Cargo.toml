@@ -44,6 +44,9 @@ testing = ["matrix-sdk-test"]
 # https://github.com/matrix-org/matrix-spec-proposals/pull/4385
 experimental-push-secrets = []
 
+# tokio-rs/tracing instrumentation
+instrument = ["matrix-sdk-common/instrument"]
+
 [dependencies]
 aes = { version = "0.8.4", default-features = false }
 aquamarine.workspace = true

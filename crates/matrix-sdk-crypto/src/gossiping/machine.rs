@@ -40,7 +40,7 @@ use ruma::{
         RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
     },
 };
-use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
+use tracing::{Span, debug, field::debug, info, trace, warn};
 use vodozemac::Curve25519PublicKey;
 
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
@@ -1054,7 +1054,10 @@ impl GossipMachine {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(sender_key, sender = ?event.sender, request_id = ?event.content.request_id, secret_name))]
+    #[cfg_attr(
+        feature = "instrument",
+        tracing::instrument(skip_all, fields(sender_key, sender = ?event.sender, request_id = ?event.content.request_id, secret_name)))
+    ]
     pub async fn receive_secret_event(
         &self,
         cache: &StoreCache,

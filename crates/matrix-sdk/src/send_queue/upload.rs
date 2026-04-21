@@ -46,7 +46,7 @@ use ruma::{
         },
     },
 };
-use tracing::{Span, debug, error, instrument, trace, warn};
+use tracing::{Span, debug, error, trace, warn};
 
 use super::{QueueStorage, QueueThumbnailInfo, RoomSendQueue, RoomSendQueueError};
 use crate::{
@@ -195,7 +195,7 @@ impl RoomSendQueue {
     /// and can be retrieved at any time, by calling
     /// [`Media::get_media_content()`] with the `MediaSource` that can be found
     /// in the local or remote echo, and using a `MediaFormat::File`.
-    #[instrument(skip_all, fields(event_txn))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(event_txn)))]
     pub async fn send_attachment(
         &self,
         filename: impl Into<String>,
@@ -301,7 +301,7 @@ impl RoomSendQueue {
     /// [`Media::get_media_content()`] with the `MediaSource` that can be found
     /// in the local or remote echo, and using a `MediaFormat::File`.
     #[cfg(feature = "unstable-msc4274")]
-    #[instrument(skip_all, fields(event_txn))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(event_txn)))]
     pub async fn send_gallery(
         &self,
         gallery: GalleryConfig,
@@ -684,7 +684,7 @@ impl QueueStorage {
     /// uploaded. In this case, the media event has also been removed from
     /// the send queue. If it returns false, then the uploads already
     /// happened, and the event sending *may* have started.
-    #[instrument(skip(self, handles))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, handles)))]
     pub(super) async fn abort_upload(
         &self,
         event_txn: &TransactionId,
@@ -803,7 +803,7 @@ impl QueueStorage {
         Ok(true)
     }
 
-    #[instrument(skip(self, caption, formatted_caption))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, caption, formatted_caption)))]
     pub(super) async fn edit_media_caption(
         &self,
         txn: &TransactionId,

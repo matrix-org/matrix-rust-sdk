@@ -33,7 +33,7 @@ use ruma::{
     TransactionId, api::client::backup::RoomKeyBackup, serde::Raw,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 use crate::{
     CryptoStoreError, Device, RoomKeyImportResult, SignatureError,
@@ -404,7 +404,7 @@ impl BackupMachine {
     ///
     /// This will remove any pending backup request, remove the backup key and
     /// reset the backup state of each room key we have.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn disable_backup(&self) -> Result<(), CryptoStoreError> {
         debug!("Disabling key backup and resetting backup state for room keys");
 

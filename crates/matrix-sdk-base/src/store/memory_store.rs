@@ -36,7 +36,7 @@ use ruma::{
     serde::Raw,
     time::Instant,
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, warn};
 
 use super::{
     DependentQueuedRequest, DependentQueuedRequestKind, QueuedRequestKind, Result, RoomInfo,
@@ -322,7 +322,7 @@ impl StateStore for MemoryStore {
         Ok(())
     }
 
-    #[instrument(skip(self, changes))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, changes)))]
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let now = Instant::now();
 
@@ -655,7 +655,7 @@ impl StateStore for MemoryStore {
             .collect())
     }
 
-    #[instrument(skip(self, memberships))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, memberships)))]
     async fn get_user_ids(
         &self,
         room_id: &RoomId,

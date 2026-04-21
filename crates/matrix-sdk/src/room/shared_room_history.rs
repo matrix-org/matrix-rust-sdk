@@ -27,7 +27,7 @@ use ruma::{
     api::error::ErrorKind,
     events::room::{MediaSource, history_visibility::HistoryVisibility},
 };
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
 
 use crate::{Error, Result, Room};
 
@@ -35,7 +35,7 @@ use crate::{Error, Result, Room};
 /// as per [MSC4268].
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-#[instrument(skip(room), fields(room_id = ?room.room_id()))]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip(room), fields(room_id = ?room.room_id())))]
 pub(super) async fn share_room_history(room: &Room, user_id: OwnedUserId) -> Result<()> {
     let client = &room.client;
 
@@ -213,7 +213,7 @@ pub(crate) fn should_process_room_pending_key_bundle_details(
 ///   sent the room key bundle.
 ///
 /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
-#[instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender))]
+#[cfg_attr(feature = "instrument", tracing::instrument(skip(room), fields(room_id = ?room.room_id(), bundle_sender)))]
 pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Result<()> {
     // TODO: retry this if it gets interrupted or it fails.
     // TODO: do this in the background.

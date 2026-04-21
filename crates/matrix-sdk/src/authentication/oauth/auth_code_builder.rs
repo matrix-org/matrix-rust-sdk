@@ -20,7 +20,7 @@ use oauth2::{
 use ruma::{
     OwnedDeviceId, UserId, api::client::discovery::get_authorization_server_metadata::v1::Prompt,
 };
-use tracing::{info, instrument};
+use tracing::info;
 use url::Url;
 
 use super::{ClientRegistrationData, OAuth, OAuthError};
@@ -114,7 +114,10 @@ impl OAuthAuthCodeUrlBuilder {
     ///
     /// Returns an error if the client registration was not restored, or if a
     /// request fails.
-    #[instrument(target = "matrix_sdk::client", skip_all)]
+    #[cfg_attr(
+        feature = "instrument",
+        tracing::instrument(target = "matrix_sdk::client", skip_all)
+    )]
     pub async fn build(self) -> Result<OAuthAuthorizationData, OAuthError> {
         let Self { oauth, registration_data, scopes, device_id, redirect_uri, prompt, login_hint } =
             self;

@@ -231,7 +231,7 @@ impl Recovery {
     ///
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn enable(&self) -> Enable<'_> {
         Enable::new(self)
     }
@@ -257,7 +257,7 @@ impl Recovery {
     ///
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn enable_backup(&self) -> Result<()> {
         if !self.client.encryption().backups().fetch_exists_on_server().await? {
             self.mark_backup_as_enabled().await?;
@@ -298,7 +298,7 @@ impl Recovery {
     ///
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn disable(&self) -> Result<()> {
         self.client.encryption().backups().disable().await?;
 
@@ -353,7 +353,7 @@ impl Recovery {
     ///     recovery.reset_key().with_passphrase("my passphrase").await;
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn reset_key(&self) -> Reset<'_> {
         // TODO: Should this only be possible if we're in the RecoveryState::Enabled
         // state? Otherwise we'll create a new secret store but won't be able to
@@ -380,7 +380,7 @@ impl Recovery {
     ///     .await?;
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn recover_and_reset<'a>(&'a self, old_key: &'a str) -> RecoverAndReset<'a> {
         RecoverAndReset::new(self, old_key)
     }
@@ -483,7 +483,7 @@ impl Recovery {
     /// assert_eq!(recovery.state(), RecoveryState::Enabled);
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn recover(&self, recovery_key: &str) -> Result<()> {
         let store =
             self.client.encryption().secret_storage().open_secret_store(recovery_key).await?;
@@ -695,12 +695,12 @@ impl Recovery {
         }
     }
 
-    #[instrument]
+    #[cfg_attr(feature = "instrument", tracing::instrument)]
     async fn secret_send_event_handler(_: ToDeviceSecretSendEvent, client: Client) {
         client.encryption().recovery().update_recovery_state_no_fail().await;
     }
 
-    #[instrument]
+    #[cfg_attr(feature = "instrument", tracing::instrument)]
     async fn default_key_event_handler(_: SecretStorageDefaultKeyEvent, client: Client) {
         client.encryption().recovery().update_recovery_state_no_fail().await;
     }
@@ -745,7 +745,7 @@ impl Recovery {
         }
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(crate) async fn update_state_after_keys_query(&self, response: &get_keys::v3::Response) {
         if let Some(user_id) = self.client.user_id()
             && response.master_keys.contains_key(user_id)

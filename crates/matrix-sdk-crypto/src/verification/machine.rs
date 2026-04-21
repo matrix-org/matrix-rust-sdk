@@ -26,7 +26,7 @@ use ruma::{
     uint,
 };
 use tokio::sync::Mutex;
-use tracing::{Span, debug, info, instrument, trace, warn};
+use tracing::{Span, debug, info, trace, warn};
 
 use super::{
     FlowId, Verification, VerificationResult, VerificationStore,
@@ -300,7 +300,7 @@ impl VerificationMachine {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(flow_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(flow_id)))]
     pub async fn receive_any_event(
         &self,
         event: impl Into<AnyEvent<'_>>,

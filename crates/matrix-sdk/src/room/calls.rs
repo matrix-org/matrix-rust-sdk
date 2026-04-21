@@ -23,7 +23,6 @@ use ruma::{
 };
 use thiserror::Error;
 use tokio::sync::broadcast;
-use tracing::instrument;
 
 use crate::{Room, event_handler::EventHandlerDropGuard, room::EventSource};
 
@@ -52,7 +51,7 @@ impl Room {
     ///
     /// The event can then be sent with [`Room::send`] or a
     /// [`crate::send_queue::RoomSendQueue`].
-    #[instrument(skip(self), fields(room = %self.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room = %self.room_id())))]
     pub async fn make_decline_call_event(
         &self,
         notification_event_id: &EventId,

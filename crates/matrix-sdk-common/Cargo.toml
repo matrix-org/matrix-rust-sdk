@@ -28,6 +28,9 @@ test-send-sync = []
 # https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
 experimental-encrypted-state-events = []
 
+# tokio-rs/tracing instrumentation
+instrument = []
+
 [dependencies]
 eyeball-im.workspace = true
 futures-core.workspace = true

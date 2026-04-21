@@ -36,7 +36,7 @@ use tokio::sync::{
     Mutex, OwnedMutexGuard,
     mpsc::{Receiver, Sender, channel},
 };
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, trace, warn};
 
 use crate::{Client, Result, client::WeakClient};
 
@@ -82,7 +82,7 @@ impl GuardedStoreAccess {
     /// Saves the tokens in the database.
     ///
     /// Returns whether the list of tokens is empty or not.
-    #[instrument(skip_all, fields(num_tokens = tokens.len()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(num_tokens = tokens.len())))]
     async fn save_catchup_tokens(
         &self,
         tokens: Vec<ThreadSubscriptionCatchupToken>,
@@ -187,7 +187,7 @@ impl ThreadSubscriptionCatchup {
 
     /// Store the new subscriptions changes, received via the sync response or
     /// from the msc4308 companion endpoint.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(crate) async fn sync_subscriptions(
         &self,
         subscribed: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, ThreadSubscription>>,
@@ -266,7 +266,7 @@ impl ThreadSubscriptionCatchup {
     /// relevant information.
     ///
     /// [MSC4308]: https://github.com/matrix-org/matrix-spec-proposals/pull/4308
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn thread_subscriptions_catchup_task(this: Arc<Self>, mut ping_receiver: Receiver<()>) {
         loop {
             // Load the current catchup token.

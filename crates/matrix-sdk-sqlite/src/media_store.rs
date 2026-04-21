@@ -35,7 +35,7 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use tracing::{debug, instrument};
+use tracing::debug;
 
 use crate::{
     OpenStoreError, Secret, SqliteStoreConfig,
@@ -109,7 +109,7 @@ impl SqliteMediaStore {
     }
 
     /// Open the SQLite-based media store with the config open config.
-    #[instrument(skip(config), fields(path = ?config.path))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(config), fields(path = ?config.path)))]
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         debug!(?config);
 
@@ -158,7 +158,7 @@ impl SqliteMediaStore {
     }
 
     // Acquire a connection for executing read operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         let connection = self.pool.get().await?;
 
@@ -172,7 +172,7 @@ impl SqliteMediaStore {
     }
 
     // Acquire a connection for executing write operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
         let connection = self.write_connection.clone().lock_owned().await;
 
@@ -229,7 +229,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 impl MediaStore for SqliteMediaStore {
     type Error = Error;
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
@@ -286,7 +286,7 @@ impl MediaStore for SqliteMediaStore {
         self.media_service.add_media_content(self, request, content, ignore_policy).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn replace_media_key(
         &self,
         from: &MediaRequestParameters,
@@ -310,14 +310,14 @@ impl MediaStore for SqliteMediaStore {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn get_media_content(&self, request: &MediaRequestParameters) -> Result<Option<Vec<u8>>> {
         let _timer = timer!("method");
 
         self.media_service.get_media_content(self, request).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn remove_media_content(&self, request: &MediaRequestParameters) -> Result<()> {
         let _timer = timer!("method");
 
@@ -330,7 +330,7 @@ impl MediaStore for SqliteMediaStore {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn get_media_content_for_uri(
         &self,
         uri: &MxcUri,
@@ -340,7 +340,7 @@ impl MediaStore for SqliteMediaStore {
         self.media_service.get_media_content_for_uri(self, uri).await
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<()> {
         let _timer = timer!("method");
 
@@ -352,7 +352,7 @@ impl MediaStore for SqliteMediaStore {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn set_media_retention_policy(
         &self,
         policy: MediaRetentionPolicy,
@@ -362,14 +362,14 @@ impl MediaStore for SqliteMediaStore {
         self.media_service.set_media_retention_policy(self, policy).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     fn media_retention_policy(&self) -> MediaRetentionPolicy {
         let _timer = timer!("method");
 
         self.media_service.media_retention_policy()
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn set_ignore_media_retention_policy(
         &self,
         request: &MediaRequestParameters,
@@ -380,7 +380,7 @@ impl MediaStore for SqliteMediaStore {
         self.media_service.set_ignore_media_retention_policy(self, request, ignore_policy).await
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn clean(&self) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 

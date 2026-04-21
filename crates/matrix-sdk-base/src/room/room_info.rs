@@ -58,7 +58,7 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
-use tracing::{field::debug, info, instrument, warn};
+use tracing::{field::debug, info, warn};
 
 use super::{
     AccountDataSource, EncryptionState, Room, RoomCreateWithCreatorEventContent, RoomDisplayName,
@@ -798,7 +798,7 @@ impl RoomInfo {
     }
 
     /// Handle the given redaction.
-    #[instrument(skip_all, fields(redacts))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(redacts)))]
     pub fn handle_redaction(
         &mut self,
         event: &SyncRoomRedactionEvent,
@@ -1182,7 +1182,7 @@ impl RoomInfo {
     ///
     /// Returns `true` if migrations were applied and this `RoomInfo` needs to
     /// be persisted to the state store.
-    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?self.room_id)))]
     pub(crate) async fn apply_migrations(&mut self, store: Arc<DynStateStore>) -> bool {
         let mut migrated = false;
 

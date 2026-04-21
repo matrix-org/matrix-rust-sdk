@@ -41,7 +41,7 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, error, trace};
 
 use crate::{
     OpenStoreError, Secret, SqliteStoreConfig,
@@ -117,7 +117,7 @@ impl SqliteEventCacheStore {
     }
 
     /// Open the SQLite-based event cache store with the config open config.
-    #[instrument(skip(config), fields(path = ?config.path))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(config), fields(path = ?config.path)))]
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         debug!(?config);
 
@@ -161,7 +161,7 @@ impl SqliteEventCacheStore {
     }
 
     /// Acquire a connection for executing read operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         let connection = self.pool.get().await?;
 
@@ -175,7 +175,7 @@ impl SqliteEventCacheStore {
     }
 
     /// Acquire a connection for executing write operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
         let connection = self.write_connection.clone().lock_owned().await;
 
@@ -512,7 +512,7 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,
@@ -558,7 +558,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(generation)
     }
 
-    #[instrument(skip(self, updates))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, updates)))]
     async fn handle_linked_chunk_updates(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -905,7 +905,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_all_chunks(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -949,7 +949,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(result)
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_all_chunks_metadata(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1047,7 +1047,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_last_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1142,7 +1142,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn load_previous_chunk(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1196,7 +1196,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
@@ -1213,7 +1213,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
-    #[instrument(skip(self, events))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, events)))]
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1295,7 +1295,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self, event_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, event_id)))]
     async fn find_event(
         &self,
         room_id: &RoomId,
@@ -1327,7 +1327,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self, event_id, filters))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, event_id, filters)))]
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
@@ -1360,7 +1360,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn get_room_events(
         &self,
         room_id: &RoomId,
@@ -1414,7 +1414,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    #[instrument(skip(self, event))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, event)))]
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 

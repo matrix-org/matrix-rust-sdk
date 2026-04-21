@@ -29,6 +29,8 @@ experimental-encrypted-state-events = [
 experimental-push-secrets = [
     "matrix-sdk-crypto?/experimental-push-secrets"
 ]
+# tokio-rs/tracing instrumentation
+instrument = ["matrix-sdk-base?/instrument", "matrix-sdk-crypto?/instrument"]
 
 [dependencies]
 async-trait.workspace = true

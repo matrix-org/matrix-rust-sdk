@@ -62,7 +62,7 @@ use pin_project_lite::pin_project;
 use ruma::{OwnedRoomId, events::BooleanType, push::Action, serde::Raw};
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::value::RawValue as RawJsonValue;
-use tracing::{debug, error, field::debug, instrument, warn};
+use tracing::{debug, error, field::debug, warn};
 
 use self::maps::EventHandlerMaps;
 use crate::{Client, Room};
@@ -497,7 +497,7 @@ impl Client {
         Ok(())
     }
 
-    #[instrument(skip_all, fields(?event_kind, ?event_type, room_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(?event_kind, ?event_type, room_id)))]
     async fn call_event_handlers(
         &self,
         room: Option<&Room>,

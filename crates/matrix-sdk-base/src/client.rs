@@ -50,7 +50,7 @@ use ruma::{
 use tokio::sync::{Mutex, broadcast};
 #[cfg(feature = "e2e-encryption")]
 use tokio::sync::{RwLock, RwLockReadGuard};
-use tracing::{Level, debug, enabled, info, instrument, warn};
+use tracing::{Level, debug, enabled, info, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
@@ -553,7 +553,7 @@ impl BaseClient {
     /// # Arguments
     ///
     /// * `response` - The response that we received after a successful sync.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn receive_sync_response(
         &self,
         response: api::sync::sync_events::v3::Response,
@@ -816,7 +816,7 @@ impl BaseClient {
     /// * `room_id` - The room id this response belongs to.
     ///
     /// * `response` - The raw response that was received from the server.
-    #[instrument(skip_all, fields(?room_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(?room_id)))]
     pub async fn receive_all_members(
         &self,
         room_id: &RoomId,

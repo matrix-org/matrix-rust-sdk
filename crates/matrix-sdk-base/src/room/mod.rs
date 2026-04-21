@@ -65,7 +65,7 @@ pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
 use tokio::sync::broadcast;
 pub use tombstone::{PredecessorRoom, SuccessorRoom};
-use tracing::{info, instrument, warn};
+use tracing::{info, warn};
 
 use crate::{
     Error,
@@ -271,7 +271,7 @@ impl Room {
     /// Is this room considered a direct message.
     ///
     /// Async because it can read room info from storage.
-    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?self.room_id)))]
     pub async fn is_direct(&self) -> StoreResult<bool> {
         match self.state() {
             RoomState::Joined | RoomState::Left | RoomState::Banned => {

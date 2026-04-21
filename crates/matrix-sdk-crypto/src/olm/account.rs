@@ -569,7 +569,7 @@ impl Account {
     ///
     /// Generally `Some` means that keys should be uploaded, while `None` means
     /// that keys should not be uploaded.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn generate_one_time_keys_if_needed(&mut self) -> Option<u64> {
         // Only generate one-time keys if there aren't any, otherwise the caller
         // might have failed to upload them the last time this method was
@@ -1221,7 +1221,7 @@ impl Account {
         .await
     }
 
-    #[instrument(skip_all, fields(sender, sender_key = ?content.sender_key))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(sender, sender_key = ?content.sender_key)))]
     async fn decrypt_olm_v1(
         &mut self,
         store: &Store,
@@ -1245,7 +1245,7 @@ impl Account {
         }
     }
 
-    #[instrument(skip_all, fields(algorithm = ?event.content.algorithm()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(algorithm = ?event.content.algorithm())))]
     pub(crate) async fn decrypt_to_device_event(
         &mut self,
         store: &Store,
@@ -1415,7 +1415,10 @@ impl Account {
 
     /// Decrypt an Olm message, creating a new Olm session if necessary, and
     /// parse the result.
-    #[instrument(skip(self, store), fields(session, session_id))]
+    #[cfg_attr(
+        feature = "instrument",
+        tracing::instrument(skip(self, store), fields(session, session_id))
+    )]
     async fn decrypt_and_parse_olm_message(
         &mut self,
         store: &Store,

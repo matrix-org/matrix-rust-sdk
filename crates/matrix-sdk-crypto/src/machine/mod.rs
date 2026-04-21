@@ -293,7 +293,7 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device that owns this machine.
     ///
     /// * `store` - A `CryptoStore` implementation that will be used to store
-    /// the encryption keys.
+    ///   the encryption keys.
     ///
     /// * `custom_account` - A custom [`vodozemac::olm::Account`] to be used for
     ///   the identity and one-time keys of this [`OlmMachine`]. If no account
@@ -304,7 +304,10 @@ impl OlmMachine {
     ///   user/device IDs, e.g., to use the identity key as the device ID.
     ///
     /// [`CryptoStore`]: crate::store::CryptoStore
-    #[instrument(skip(store, custom_account), fields(ed25519_key, curve25519_key))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(skip(store, custom_account), fields(ed25519_key, curve25519_key))
+    )]
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
@@ -789,7 +792,7 @@ impl OlmMachine {
     /// this method between sync requests.
     ///
     /// [`mark_request_as_sent`]: #method.mark_request_as_sent
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn get_missing_sessions(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -939,7 +942,7 @@ impl OlmMachine {
     }
 
     /// Create a group session from a room key and add it to our crypto store.
-    #[instrument(skip_all, fields(algorithm = ?event.content.algorithm()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(algorithm = ?event.content.algorithm())))]
     async fn add_room_key(
         &self,
         sender_key: Curve25519PublicKey,
@@ -962,7 +965,7 @@ impl OlmMachine {
 
     /// Handle a received, decrypted, `io.element.msc4268.room_key_bundle`
     /// to-device event.
-    #[instrument()]
+    #[cfg_attr(feature = "instrument", tracing::instrument())]
     async fn receive_room_key_bundle_data(
         &self,
         sender_key: Curve25519PublicKey,
@@ -1529,7 +1532,10 @@ impl OlmMachine {
     ///
     /// If we can identify that this to-device event came from a dehydrated
     /// device, this method does not process it, and returns `None`.
-    #[instrument(skip_all, fields(sender, event_type, message_id))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(skip_all, fields(sender, event_type, message_id))
+    )]
     async fn receive_to_device_event(
         &self,
         transaction: &mut StoreTransaction,
@@ -1724,7 +1730,7 @@ impl OlmMachine {
     /// # Returns
     ///
     /// A tuple of (decrypted to-device events, updated room keys).
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn receive_sync_changes(
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
@@ -2276,7 +2282,7 @@ impl OlmMachine {
         self.decrypt_room_event_inner(event, room_id, true, decryption_settings).await
     }
 
-    #[instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, message_index, sender_key))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(name = "decrypt_room_event", skip_all, fields(?room_id, event_id, origin_server_ts, sender, algorithm, session_id, message_index, sender_key)))]
     async fn decrypt_room_event_inner(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -2558,7 +2564,10 @@ impl OlmMachine {
     ///
     /// * `event` - The event to get information for.
     /// * `room_id` - The ID of the room where the event was sent to.
-    #[instrument(skip(self, event), fields(event_id, sender, session_id))]
+    #[cfg_attr(
+        feature = "instrument",
+        instrument(skip(self, event), fields(event_id, sender, session_id))
+    )]
     pub async fn get_room_event_encryption_info(
         &self,
         event: &Raw<EncryptedEvent>,
@@ -2667,9 +2676,9 @@ impl OlmMachine {
     /// * `device_id` - The unique id of the device.
     ///
     /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    ///   user's device list has been marked as stale. **Note**, this assumes that
+    ///   the requests from [`OlmMachine::outgoing_requests`] are being
+    ///   processed and sent out.
     ///
     /// Returns a `Device` if one is found and the crypto store didn't throw an
     /// error.
@@ -2687,7 +2696,7 @@ impl OlmMachine {
     /// println!("{:?}", device);
     /// # });
     /// ```
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn get_device(
         &self,
         user_id: &UserId,
@@ -2705,13 +2714,13 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that the identity belongs to
     ///
     /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    ///   user's device list has been marked as stale. **Note**, this assumes that
+    ///   the requests from [`OlmMachine::outgoing_requests`] are being
+    ///   processed and sent out.
     ///
     /// Returns a [`UserIdentity`] enum if one is found and the crypto store
     /// didn't throw an error.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn get_identity(
         &self,
         user_id: &UserId,
@@ -2728,9 +2737,9 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that the devices belong to.
     ///
     /// * `timeout` - The amount of time we should wait before returning if the
-    /// user's device list has been marked as stale. **Note**, this assumes that
-    /// the requests from [`OlmMachine::outgoing_requests`] are being
-    /// processed and sent out.
+    ///   user's device list has been marked as stale. **Note**, this assumes that
+    ///   the requests from [`OlmMachine::outgoing_requests`] are being
+    ///   processed and sent out.
     ///
     /// # Examples
     ///
@@ -2747,7 +2756,7 @@ impl OlmMachine {
     /// }
     /// # });
     /// ```
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn get_user_devices(
         &self,
         user_id: &UserId,

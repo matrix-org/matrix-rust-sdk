@@ -41,7 +41,7 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use tracing::{debug, instrument, warn};
+use tracing::{debug, warn};
 
 use crate::{
     OpenStoreError, Secret, SqliteStoreConfig,
@@ -534,13 +534,13 @@ impl SqliteStateStore {
     }
 
     /// Acquire a connection for executing read operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn read(&self) -> Result<SqliteAsyncConn> {
         Ok(self.pool.get().await?)
     }
 
     /// Acquire a connection for executing write operations.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn write(&self) -> OwnedMutexGuard<SqliteAsyncConn> {
         self.write_connection.clone().lock_owned().await
     }

@@ -27,7 +27,7 @@ use ruma::{
     UserId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
 };
 use tokio::sync::Mutex;
-use tracing::{Level, debug, enabled, info, instrument, trace, warn};
+use tracing::{Level, debug, enabled, info, trace, warn};
 
 use crate::{
     CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
@@ -667,7 +667,7 @@ impl IdentityManager {
     ///   verification status of updated identity.
     /// * `key_set_info` - The identity info as returned by the `/keys/query`
     ///   response.
-    #[instrument(skip_all, fields(user_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(user_id)))]
     async fn update_or_create_identity(
         &self,
         response: &KeysQueryResponse,
@@ -1027,7 +1027,7 @@ impl IdentityManager {
     /// pending, reloads the device list and returns `Some(user_id,
     /// device_list)`. If no request was pending, returns `None`.
     #[allow(clippy::type_complexity)]
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn get_updated_keys_for_user<'a>(
         &self,
         timeout_duration: Duration,
@@ -1086,7 +1086,7 @@ impl IdentityManager {
 
     /// Given a device, look for [`InboundGroupSession`]s whose sender data is
     /// in the given state, and update it.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     async fn update_sender_data_for_sessions_for_device(
         &self,
         device: &DeviceData,
@@ -1124,7 +1124,7 @@ impl IdentityManager {
 
     /// Update the sender data on the given inbound group session, using the
     /// given device data.
-    #[instrument(skip(self, device, session), fields(session_id = session.session_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, device, session), fields(session_id = session.session_id())))]
     async fn update_sender_data_for_session(
         &self,
         session: &mut InboundGroupSession,

@@ -43,7 +43,7 @@ pub(crate) use share_strategy::split_devices_for_share_strategy;
 pub(crate) use share_strategy::{
     CollectRecipientsResult, withheld_code_for_device_for_share_strategy,
 };
-use tracing::{Instrument, debug, error, info, instrument, trace, warn};
+use tracing::{Instrument, debug, error, info, trace, warn};
 
 #[cfg(feature = "experimental-encrypted-state-events")]
 use crate::types::events::room::encrypted::RoomEncryptedEventContent;
@@ -386,7 +386,7 @@ impl GroupSessionManager {
     /// Returns information indicating whether the session needs to be rotated
     /// and the list of users/devices that should receive or not the session
     /// (with withheld reason).
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn collect_session_recipients(
         &self,
         users: impl Iterator<Item = &UserId>,
@@ -678,7 +678,10 @@ impl GroupSessionManager {
     ///
     /// `encryption_settings` - The settings that should be used for
     /// the room key.
-    #[instrument(skip(self, users, encryption_settings), fields(session_id))]
+    #[cfg_attr(
+        feature = "instrument",
+        tracing::instrument(skip(self, users, encryption_settings), fields(session_id))
+    )]
     pub async fn share_room_key(
         &self,
         room_id: &RoomId,
@@ -821,7 +824,7 @@ impl GroupSessionManager {
     /// [`CollectStrategy::ErrorOnVerifiedUserProblem`] are "unsafe" in this
     /// respect,and are treated the same as
     /// [`CollectStrategy::IdentityBasedStrategy`].
-    #[instrument(skip(self, bundle_data))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, bundle_data)))]
     pub async fn share_room_key_bundle_data(
         &self,
         user_id: &UserId,

@@ -1388,7 +1388,7 @@ impl Client {
     /// # Panics
     ///
     /// Panics if a session was already restored or logged in.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn restore_session(&self, session: impl Into<AuthSession>) -> Result<()> {
         self.restore_session_with(session, RoomLoadSettings::default()).await
     }
@@ -1403,7 +1403,7 @@ impl Client {
     /// # Panics
     ///
     /// Panics if a session was already restored or logged in.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn restore_session_with(
         &self,
         session: impl Into<AuthSession>,
@@ -1506,7 +1506,7 @@ impl Client {
     ///
     /// let response = client.sync_once(sync_settings).await.unwrap();
     /// # };
-    #[instrument(skip(self, definition))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, definition)))]
     pub async fn get_or_upload_filter(
         &self,
         filter_name: &str,
@@ -1616,7 +1616,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `room_id` - The `RoomId` of the room to be joined.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn join_room_by_id(&self, room_id: &RoomId) -> Result<Room> {
         // See who invited us to this room, if anyone. Note we have to do this before
         // making the `/join` request, otherwise we could race against the sync.
@@ -2655,7 +2655,7 @@ impl Client {
     /// [`get_or_upload_filter()`]: #method.get_or_upload_filter
     /// [long polling]: #long-polling
     /// [filtered]: #filtering-events
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn sync_once(
         &self,
         sync_settings: crate::config::SyncSettings,
@@ -2823,7 +2823,7 @@ impl Client {
     ///     .await;
     /// };
     /// ```
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn sync_with_callback<C>(
         &self,
         sync_settings: crate::config::SyncSettings,
@@ -2903,7 +2903,7 @@ impl Client {
     ///     .await;
     /// };
     /// ```
-    #[instrument(skip(self, callback))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, callback)))]
     pub async fn sync_with_result_callback<C>(
         &self,
         sync_settings: crate::config::SyncSettings,
@@ -2968,7 +2968,7 @@ impl Client {
     /// # anyhow::Ok(()) };
     /// ```
     #[allow(unknown_lints, clippy::let_with_type_underscore)] // triggered by instrument macro
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn sync_stream(
         &self,
         mut sync_settings: crate::config::SyncSettings,

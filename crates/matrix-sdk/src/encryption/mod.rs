@@ -85,7 +85,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -535,7 +535,7 @@ impl Client {
     /// # Panics
     ///
     /// Panics if no key query needs to be done.
-    #[instrument(skip(self, device_keys))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, device_keys)))]
     pub(crate) async fn keys_query(
         &self,
         request_id: &TransactionId,
@@ -669,7 +669,7 @@ impl Client {
     ///
     /// Panics if the client isn't logged in, or if no encryption keys need to
     /// be uploaded.
-    #[instrument(skip(self, request))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, request)))]
     pub(crate) async fn keys_upload(
         &self,
         request_id: &TransactionId,
@@ -826,7 +826,7 @@ impl Client {
         Ok(())
     }
 
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(crate) async fn send_outgoing_requests(&self) -> Result<()> {
         const MAX_CONCURRENT_REQUESTS: usize = 20;
 

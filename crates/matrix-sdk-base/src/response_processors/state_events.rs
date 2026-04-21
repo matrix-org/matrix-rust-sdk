@@ -38,7 +38,6 @@ pub mod sync {
             AnySyncStateEvent, AnySyncTimelineEvent, StateEventType, room::member::MembershipState,
         },
     };
-    use tracing::instrument;
 
     use super::{super::profiles, Context, Raw};
     #[cfg(feature = "experimental-encrypted-state-events")]
@@ -88,7 +87,7 @@ pub mod sync {
     ///
     /// The `new_users` mutable reference allows to collect the new users for
     /// this room.
-    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?room_info.room_id)))]
     pub async fn dispatch<U>(
         context: &mut Context,
         raw_events: Vec<RawStateEventWithKeys<AnySyncStateEvent>>,
@@ -268,7 +267,6 @@ pub mod stripped {
         events::{AnyStrippedStateEvent, StateEventType},
         push::Action,
     };
-    use tracing::instrument;
 
     use super::{
         super::{notification, timeline},
@@ -304,7 +302,7 @@ pub mod stripped {
     /// * `room` - The [`Room`] to modify.
     /// * `room_info` - The current room's info.
     /// * `notifications` - Notifications to post for the current room.
-    #[instrument(skip_all, fields(room_id = ?room_info.room_id))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(room_id = ?room_info.room_id)))]
     pub(crate) async fn dispatch_invite_or_knock(
         context: &mut Context,
         raw_events: Vec<RawStateEventWithKeys<AnyStrippedStateEvent>>,

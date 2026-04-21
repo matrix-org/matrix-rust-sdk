@@ -30,7 +30,6 @@ use ruma::{
     },
 };
 use thiserror::Error;
-use tracing::instrument;
 
 use super::EventSource;
 use crate::Room;
@@ -115,7 +114,7 @@ impl Room {
     ///
     /// The event can then be sent with [`Room::send`] or a
     /// [`crate::send_queue::RoomSendQueue`].
-    #[instrument(skip(self, new_content), fields(room = %self.room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, new_content), fields(room = %self.room_id())))]
     pub async fn make_edit_event(
         &self,
         event_id: &EventId,

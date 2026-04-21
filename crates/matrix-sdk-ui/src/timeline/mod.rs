@@ -56,7 +56,7 @@ use ruma::{
 };
 use subscriber::TimelineWithDropHandle;
 use thiserror::Error;
-use tracing::{instrument, trace, warn};
+use tracing::trace;
 
 use self::{
     algorithms::rfind_event_by_id, controller::TimelineController, futures::SendAttachment,
@@ -327,7 +327,7 @@ impl Timeline {
     /// # Arguments
     ///
     /// * `content` - The content of the message event.
-    #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, content), fields(room_id = ?self.room().room_id())))]
     pub async fn send(&self, mut content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
         // If this is a room event we're sending in a threaded timeline, we add the
         // thread relation ourselves.
@@ -395,7 +395,7 @@ impl Timeline {
     /// * `content` - The content of the reply.
     ///
     /// * `in_reply_to` - The ID of the event to reply to.
-    #[instrument(skip(self, content))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, content)))]
     pub async fn send_reply(
         &self,
         content: RoomMessageEventContentWithoutRelation,
@@ -466,7 +466,7 @@ impl Timeline {
     ///
     /// Only supports events for which [`EventTimelineItem::is_editable()`]
     /// returns `true`.
-    #[instrument(skip(self, new_content))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, new_content)))]
     pub async fn edit(
         &self,
         item_id: &TimelineEventItemId,
@@ -582,7 +582,7 @@ impl Timeline {
     ///   the attachment like a thumbnail, its size, duration etc.
     ///
     /// [`Media::get_media_content()`]: matrix_sdk::Media::get_media_content
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn send_attachment(
         &self,
         source: impl Into<AttachmentSource>,
@@ -609,7 +609,7 @@ impl Timeline {
     ///
     /// [`Media::get_media_content()`]: matrix_sdk::Media::get_media_content
     #[cfg(feature = "unstable-msc4274")]
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub fn send_gallery(&self, gallery: GalleryConfig) -> SendGallery<'_> {
         SendGallery::new(self, gallery)
     }
@@ -659,7 +659,7 @@ impl Timeline {
     /// Returns an error if the identifier doesn't match any event with a remote
     /// echo in the timeline, or if the event is removed from the timeline
     /// before all requests are handled.
-    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = ?self.room().room_id())))]
     pub async fn fetch_details_for_event(&self, event_id: &EventId) -> Result<(), Error> {
         self.controller.fetch_in_reply_to_details(event_id).await
     }
@@ -671,7 +671,7 @@ impl Timeline {
     ///
     /// If fetching the members fails, any affected timeline items will have
     /// the `sender_profile` set to [`TimelineDetails::Error`].
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn fetch_members(&self) {
         self.controller.set_sender_profiles_pending().await;
         match self.room().sync_members().await {
@@ -689,7 +689,7 @@ impl Timeline {
     /// Contrary to [`Room::load_user_receipt()`] that only keeps track of read
     /// receipts received from the homeserver, this keeps also track of implicit
     /// read receipts in this timeline, i.e. when a room member sends an event.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn latest_user_read_receipt(
         &self,
         user_id: &UserId,
@@ -704,7 +704,7 @@ impl Timeline {
     /// the position of the read receipt in the timeline even if the event it
     /// applies to is not visible in the timeline, unless the event is unknown
     /// by this timeline.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn latest_user_read_receipt_timeline_event_id(
         &self,
         user_id: &UserId,
@@ -730,7 +730,7 @@ impl Timeline {
     /// focus mode and `hide_threaded_events` flag.
     ///
     /// Returns a boolean indicating if it sent the receipt or not.
-    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = ?self.room().room_id())))]
     pub async fn send_single_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -764,7 +764,7 @@ impl Timeline {
     /// requests.
     ///
     /// This also unsets the unread marker of the room if necessary.
-    #[instrument(skip(self))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self)))]
     pub async fn send_multiple_receipts(&self, mut receipts: Receipts) -> Result<()> {
         if let Some(fully_read) = &receipts.fully_read
             && !self
@@ -832,7 +832,7 @@ impl Timeline {
     /// # Returns
     ///
     /// A boolean indicating if the receipt was sent or not.
-    #[instrument(skip(self), fields(room_id = ?self.room().room_id()))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self), fields(room_id = ?self.room().room_id())))]
     pub async fn mark_as_read(&self, receipt_type: ReceiptType) -> Result<bool> {
         if let Some(event_id) = self.controller.latest_event_id().await {
             self.send_single_receipt(receipt_type, event_id).await

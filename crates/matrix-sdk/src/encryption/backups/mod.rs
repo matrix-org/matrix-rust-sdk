@@ -52,7 +52,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
-use tracing::{Span, error, info, instrument, trace, warn};
+use tracing::{Span, error, info, trace, warn};
 
 pub mod futures;
 pub(crate) mod types;
@@ -209,7 +209,7 @@ impl Backups {
     /// assert_eq!(backups.state(), BackupState::Unknown);
     /// # anyhow::Ok(()) };
     /// ```
-    #[instrument(skip_all, fields(version))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all, fields(version)))]
     pub async fn disable(&self) -> Result<(), Error> {
         let _guard = self.client.locks().backup_modify_lock.lock().await;
 
@@ -683,7 +683,7 @@ impl Backups {
         ret
     }
 
-    #[instrument(skip(self, olm_machine, request))]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip(self, olm_machine, request)))]
     async fn send_backup_request(
         &self,
         olm_machine: &OlmMachine,
@@ -801,7 +801,7 @@ impl Backups {
     ///
     /// Returns true if backups were just enabled or were already enabled,
     /// otherwise false.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(crate) async fn maybe_enable_backups(
         &self,
         maybe_recovery_key: &str,
@@ -992,7 +992,7 @@ impl Backups {
 
     /// Listen for `m.secret.send` to-device messages and check the secret inbox
     /// if we do receive one.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub(crate) async fn secret_send_event_handler(_: ToDeviceSecretSendEvent, client: Client) {
         let olm_machine = client.olm_machine().await;
 

@@ -35,7 +35,7 @@ use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, trace};
 
 /// Unit type representing a permit to *use* an [`EncryptionSyncService`].
 ///
@@ -122,7 +122,7 @@ impl EncryptionSyncService {
     /// Note: the [`EncryptionSyncPermit`] parameter ensures that there's at
     /// most one encryption sync running at any time. See its documentation
     /// for more details.
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     pub async fn run_fixed_iterations(
         self,
         num_iterations: u8,
@@ -257,7 +257,7 @@ impl EncryptionSyncService {
 
     /// Helper function for `sync`. Take the cross-process store lock, and call
     /// `sync.next()`
-    #[instrument(skip_all)]
+    #[cfg_attr(feature = "instrument", tracing::instrument(skip_all))]
     async fn next_sync_with_lock<Item>(
         &self,
         sync: &mut Pin<&mut impl Stream<Item = Item>>,
