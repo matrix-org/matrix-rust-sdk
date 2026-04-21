@@ -2,18 +2,23 @@ use std::{ops::Not as _, time::Duration};
 
 use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
+use eyeball::Subscriber;
+use futures::FutureExt as _;
 use matrix_sdk::{
-    RoomState,
+    Room, RoomState, assert_let_timeout,
     encryption::{BackupDownloadStrategy, EncryptionSettings, recovery::RecoveryState},
     event_cache::RoomEventCacheUpdate,
     latest_events::LatestEventValue,
     room::{MessagesOptions, edit::EditedContent::RoomMessage},
     ruma::{
+        EventId,
         api::client::room::create_room::v3::{Request as CreateRoomRequest, RoomPreset},
         assign, event_id,
         events::{
             self, AnyRoomAccountDataEventContent, AnySyncStateEvent, AnySyncTimelineEvent,
             Mentions, RoomAccountDataEventContent,
+            reaction::ReactionEventContent,
+            relation::Annotation,
             room::message::{
                 OriginalSyncRoomMessageEvent, RoomMessageEventContent,
                 RoomMessageEventContentWithoutRelation,
@@ -25,9 +30,9 @@ use matrix_sdk::{
     test_utils::assert_event_matches_msg,
 };
 use matrix_sdk_test::TestResult;
-use matrix_sdk_ui::sync_service::SyncService;
+use matrix_sdk_ui::{sync_service::SyncService, timeline::TimelineBuilder};
 use tokio::{spawn, time::sleep};
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use crate::helpers::{TestClientBuilder, wait_for_room};
 
@@ -462,6 +467,191 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // TODO: Either the original or the edit should count, but not both, as they
     // will often result in a single consolidated item in the UI (#6282).
     assert_eq!(room2.num_unread_notifications(), 2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_latest_event_few_rooms() -> Result<()> {
+    // Test plan:
+    // - Create a user
+    // - Create two rooms
+    //  - one room with a message;
+    //  - one room with a message and a reaction to it.
+    // - Create another client for that same user, and sync.
+    // - Check that each room has their own latest event.
+
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    bob.event_cache().subscribe()?;
+
+    // Spawn sync for bob.
+    let bob_sync_service = SyncService::builder(bob.clone()).build().await?;
+    bob_sync_service.start().await;
+
+    // Bob creates two rooms.
+    let room1 = bob
+        .create_room(assign!(CreateRoomRequest::new(), {
+                preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    let room2 = bob
+        .create_room(assign!(CreateRoomRequest::new(), {
+                preset: Some(RoomPreset::PrivateChat)
+        }))
+        .await?;
+
+    while bob.rooms().len() < 2 {
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    // Subscribe to the latest events for both rooms.
+    let mut room1_sub = bob
+        .latest_events()
+        .await
+        .listen_and_subscribe_to_room(room1.room_id())
+        .await?
+        .expect("room 1 exists");
+
+    let mut room2_sub = bob
+        .latest_events()
+        .await
+        .listen_and_subscribe_to_room(room2.room_id())
+        .await?
+        .expect("room 2 exists");
+
+    // Send messages in both rooms, and a reaction in the second one.
+    let room1_msg_event_id =
+        room1.send(RoomMessageEventContent::text_plain("Hello room 1!")).await?.response.event_id;
+
+    let room2_msg_event_id =
+        room2.send(RoomMessageEventContent::text_plain("Hello room 2!")).await?.response.event_id;
+
+    let reaction_event_id = room2
+        .send(ReactionEventContent::new(Annotation::new(
+            room2_msg_event_id.clone(),
+            "👋".to_owned(),
+        )))
+        .await?
+        .response
+        .event_id;
+
+    warn!(%room2_msg_event_id, %reaction_event_id, "Sent messages and reaction, waiting for them to be processed…");
+
+    // Wait for both latest events to be updated.
+    async fn assert_latest_event_is_remote_event(
+        room: &Room,
+        room_sub: &mut Subscriber<LatestEventValue, eyeball::AsyncLock>,
+        event_id: &EventId,
+    ) {
+        debug!(room_id = %room.room_id(), %event_id, "Checking if the latest event is the expected one…");
+
+        let mut run_loop = true;
+        if let LatestEventValue::Remote(e) = room.latest_event()
+            && e.event_id().unwrap() == event_id
+        {
+            run_loop = false;
+        }
+
+        if run_loop {
+            loop {
+                assert_let_timeout!(Duration::from_secs(5), Some(latest_event) = room_sub.next());
+                if matches!(latest_event, LatestEventValue::Remote(event) if event.event_id().as_deref() == Some(event_id))
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    debug!("Running check for first client, room1");
+    assert_latest_event_is_remote_event(&room1, &mut room1_sub, &room1_msg_event_id).await;
+    debug!("Running check for first client, room2");
+    assert_latest_event_is_remote_event(&room2, &mut room2_sub, &room2_msg_event_id).await;
+
+    sleep(Duration::from_secs(1)).await;
+    while let Some(Some(up)) = room2_sub.next().now_or_never() {
+        assert_let!(LatestEventValue::Remote(event) = up);
+        assert_eq!(event.event_id().as_ref(), Some(&room2_msg_event_id));
+    }
+
+    bob_sync_service.stop().await;
+
+    // Relog Bob on another device.
+    let bob_user_id = bob.user_id().unwrap().to_owned();
+    let bob2 = TestClientBuilder::with_exact_username(bob_user_id.localpart().to_owned())
+        .use_sqlite()
+        .build()
+        .await?;
+
+    bob2.event_cache().subscribe()?;
+
+    let bob2_sync_service = SyncService::builder(bob2.clone()).build().await?;
+    bob2_sync_service.start().await;
+
+    // Wait for the rooms to be loaded.
+    while bob2.rooms().len() < 2 {
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    let mut room1_sub = bob2
+        .latest_events()
+        .await
+        .listen_and_subscribe_to_room(room1.room_id())
+        .await?
+        .expect("room 1 exists");
+
+    let mut room2_sub = bob2
+        .latest_events()
+        .await
+        .listen_and_subscribe_to_room(room2.room_id())
+        .await?
+        .expect("room 2 exists");
+
+    let room1 = bob2.get_room(room1.room_id()).unwrap();
+    let room2 = bob2.get_room(room2.room_id()).unwrap();
+
+    debug!("Running check for second client, room1");
+    assert_latest_event_is_remote_event(&room1, &mut room1_sub, &room1_msg_event_id).await;
+
+    // Test passes if we uncomment this line, since more events will be fetched from
+    // the server and there will be a latest event update.
+    //room2.event_cache().await?.0.pagination().run_backwards_until(100).await?;
+
+    warn!("Subscribing to rooms on second client…");
+    bob2_sync_service
+        .room_list_service()
+        .subscribe_to_rooms(&[room1.room_id(), room2.room_id()])
+        .await;
+
+    // Wait for a bit, for a sync response to be returned.
+    sleep(Duration::from_secs(3)).await;
+
+    warn!("Rendering timeline.");
+    let timeline = TimelineBuilder::new(&room2).build().await?;
+    let items = timeline.items().await;
+    // Basically render all items
+    for item in items {
+        let Some(ev_item) = item.as_event() else { continue };
+        let Some(event_id) = ev_item.event_id() else { continue };
+        match ev_item.content() {
+            matrix_sdk_ui::timeline::TimelineItemContent::MsgLike(msglikecontent) => {
+                match &msglikecontent.kind {
+                    matrix_sdk_ui::timeline::MsgLikeKind::Message(msg) => {
+                        debug!(%event_id, "event: {}", msg.body());
+                    }
+                    _ => unreachable!(),
+                }
+            }
+            _ => debug!(%event_id, "event: non-msglike"),
+        }
+    }
+    drop(timeline);
+    warn!("Done rendering timeline.");
+
+    debug!("Running check for second client, room2");
+    assert_latest_event_is_remote_event(&room2, &mut room2_sub, &room2_msg_event_id).await;
 
     Ok(())
 }
