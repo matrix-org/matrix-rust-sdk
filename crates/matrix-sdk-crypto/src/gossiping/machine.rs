@@ -1211,6 +1211,8 @@ impl GossipMachine {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "experimental-push-secrets")]
+    use std::ops::Deref;
     use std::sync::Arc;
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -2367,7 +2369,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let decryption_key = crate::store::types::BackupDecryptionKey::new().unwrap();
+        let decryption_key = crate::store::types::BackupDecryptionKey::new();
         alice_machine
             .backup_machine()
             .save_decryption_key(Some(decryption_key.clone()), None)
