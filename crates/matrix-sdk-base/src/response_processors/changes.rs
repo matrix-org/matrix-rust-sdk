@@ -18,22 +18,27 @@ use ruma::{
     events::{GlobalAccountDataEventType, ignored_user_list::IgnoredUserListEvent},
     serde::Raw,
 };
+use tokio::sync::MutexGuard;
 use tracing::{error, instrument, trace};
 
 use super::Context;
 use crate::{
-    Result, StateStore,
+    Result, StoreError,
     store::{BaseStateStore, StateStoreExt as _},
 };
 
 /// Save the [`StateChanges`] from the [`Context`] inside the [`BaseStateStore`]
 /// only! The changes aren't applied on the in-memory rooms.
 #[instrument(skip_all)]
-pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result<()> {
+pub async fn save_only(
+    context: Context,
+    state_store: &BaseStateStore,
+    state_store_guard: &MutexGuard<'_, ()>,
+) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "_method");
 
-    save_changes(&context, state_store, None).await?;
-    broadcast_room_info_notable_updates(&context, state_store).await;
+    save_changes(&context, state_store, state_store_guard, None).await?;
+    broadcast_room_info_notable_updates(&context, state_store, state_store_guard)?;
 
     Ok(())
 }
@@ -44,6 +49,7 @@ pub async fn save_only(context: Context, state_store: &BaseStateStore) -> Result
 pub async fn save_and_apply(
     context: Context,
     state_store: &BaseStateStore,
+    state_store_guard: &MutexGuard<'_, ()>,
     ignore_user_list_changes: &SharedObservable<Vec<String>>,
     sync_token: Option<String>,
 ) -> Result<()> {
@@ -54,9 +60,9 @@ pub async fn save_and_apply(
     let previous_ignored_user_list =
         state_store.get_account_data_event_static().await.ok().flatten();
 
-    save_changes(&context, state_store, sync_token).await?;
+    save_changes(&context, state_store, state_store_guard, sync_token).await?;
     apply_changes(&context, ignore_user_list_changes, previous_ignored_user_list);
-    broadcast_room_info_notable_updates(&context, state_store).await;
+    broadcast_room_info_notable_updates(&context, state_store, state_store_guard)?;
 
     trace!("applied changes");
 
@@ -66,9 +72,10 @@ pub async fn save_and_apply(
 async fn save_changes(
     context: &Context,
     state_store: &BaseStateStore,
+    state_store_guard: &MutexGuard<'_, ()>,
     sync_token: Option<String>,
 ) -> Result<()> {
-    state_store.save_changes(&context.state_changes).await?;
+    state_store.save_changes_with_guard(state_store_guard, &context.state_changes).await?;
 
     if let Some(sync_token) = sync_token {
         *state_store.sync_token.write().await = Some(sync_token);
@@ -118,12 +125,20 @@ fn apply_changes(
     }
 }
 
-async fn broadcast_room_info_notable_updates(context: &Context, state_store: &BaseStateStore) {
+fn broadcast_room_info_notable_updates(
+    context: &Context,
+    state_store: &BaseStateStore,
+    state_store_guard: &MutexGuard<'_, ()>,
+) -> Result<()> {
     for (room_id, room_info) in &context.state_changes.room_infos {
         if let Some(room) = state_store.room(room_id) {
             let room_info_notable_update_reasons =
                 context.room_info_notable_updates.get(room_id).copied().unwrap_or_default();
-            room.update_room_info(|_| (room_info.clone(), room_info_notable_update_reasons)).await;
+            room.update_room_info_with_store_guard(state_store_guard, |_| {
+                (room_info.clone(), room_info_notable_update_reasons)
+            })
+            .map_err(StoreError::from)?;
         }
     }
+    Ok(())
 }
