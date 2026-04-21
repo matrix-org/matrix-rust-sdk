@@ -43,7 +43,7 @@ use matrix_sdk_base::{
     task_monitor::BackgroundTaskHandle,
     timer,
 };
-use ruma::{EventId, OwnedRoomId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
     Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
@@ -63,6 +63,7 @@ mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
+mod states;
 mod tasks;
 
 #[cfg(feature = "e2e-encryption")]
@@ -73,7 +74,7 @@ pub use self::{
     automatic_pagination::AutomaticPagination,
     caches::{
         TimelineVectorDiffs,
-        event_focused::{EventFocusThreadMode, EventFocusedCache},
+        event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
         pagination::{BackPaginationOutcome, PaginationStatus},
         pinned_events::PinnedEventsCache,
         room::{
@@ -94,12 +95,44 @@ pub enum EventCacheError {
     )]
     NotSubscribedYet,
 
-    /// Room is not found.
-    #[error("Room `{room_id}` is not found.")]
+    /// Room cache is not found.
+    #[error("Room cache `{room_id}` is not found.")]
     RoomNotFound {
-        /// The ID of the room not being found.
+        /// The room ID.
         room_id: OwnedRoomId,
     },
+
+    /// Thread cache is not found.
+    #[error("Thread cache `{thread_id}` of room `{room_id}` is not found.")]
+    ThreadNotFound {
+        /// The room ID of the thread.
+        room_id: OwnedRoomId,
+
+        /// The thread root event ID.
+        thread_id: OwnedEventId,
+    },
+
+    /// Pinned-events cache are not found.
+    #[error("Pinned-events cache for room `{room_id}` are not found.")]
+    PinnedEventsNotFound {
+        /// The room ID of the pinned-events.
+        room_id: OwnedRoomId,
+    },
+
+    /// Event-focused cache is not found.
+    #[error("Event-focused cache `{event_focused_id:?}` of room `{room_id}` is not found.")]
+    EventFocusedNotFound {
+        /// The room ID of the thread.
+        room_id: OwnedRoomId,
+
+        /// The thread root event ID.
+        event_focused_id: EventFocusedCacheKey,
+    },
+
+    /// A new cache was inserted at an occupied place, i.e. where an existing
+    /// cache state was present.
+    #[error("The state of a cache is not found")]
+    CacheStateAlreadyExists,
 
     /// An error has been observed while back- or forward- paginating.
     #[error(transparent)]
