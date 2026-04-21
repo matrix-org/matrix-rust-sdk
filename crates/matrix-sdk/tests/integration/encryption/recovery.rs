@@ -226,6 +226,26 @@ async fn enable(
 ) {
     let recovery = client.encryption().recovery();
 
+    let key_backup_content = Arc::new(Mutex::new(None));
+
+    let _quard = Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.key_backup")))
+        .and(header("authorization", "Bearer 1234"))
+        .and({
+            let key_backup_content = key_backup_content.clone();
+            move |request: &wiremock::Request| {
+                let content: Value = request.body_json().expect("The body should be a JSON body");
+
+                *key_backup_content.lock().unwrap() = Some(content);
+
+                true
+            }
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount_as_scoped(server)
+        .await;
+
     let backup_disabled_content = Arc::new(Mutex::new(None));
 
     let _quard = Mock::given(method("PUT"))
@@ -494,6 +514,26 @@ async fn test_backups_enabling() {
         .await;
 
     Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.key_backup")))
+        .and(header("authorization", "Bearer 1234"))
+        .and(|request: &wiremock::Request| {
+            #[derive(Deserialize)]
+            struct Enabled {
+                enabled: bool,
+            }
+
+            let content: Enabled = request.body_json().expect("The body should be a JSON body");
+
+            assert!(content.enabled, "The backup support should be marked as enabled.");
+
+            true
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
         .and(path(format!(
             "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
         )))
@@ -609,6 +649,26 @@ async fn test_recovery_disabling() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
         .named("m.secret_storage.default_key deletion")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.key_backup")))
+        .and(header("authorization", "Bearer 1234"))
+        .and(|request: &wiremock::Request| {
+            #[derive(Deserialize)]
+            struct Enabled {
+                enabled: bool,
+            }
+
+            let content: Enabled = request.body_json().expect("The body should be a JSON body");
+
+            assert!(!content.enabled, "The backup support should be marked as disabled.");
+
+            true
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
         .mount(&server)
         .await;
 
@@ -908,6 +968,15 @@ async fn test_reset_identity() {
 
     // Re-enable backups
     Mock::given(method("PUT"))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.key_backup")))
+        .and(header("authorization", "Bearer 1234"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .named("m.key_backup PUT")
+        .mount(&server)
+        .await;
+
+    Mock::given(method("PUT"))
         .and(path(format!(
             "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
         )))
@@ -919,18 +988,14 @@ async fn test_reset_identity() {
         .await;
 
     Mock::given(method("GET"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
+        .and(path(format!("_matrix/client/r0/user/{user_id}/account_data/m.key_backup")))
         .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            json!({"type": "m.org.matrix.custom.backup_disabled",
-            "content": {
-              "disabled": false
-            }}),
-        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"type": "m.key_backup",
+        "content": {
+          "enabled": true
+        }})))
         .expect(1)
-        .named("m.org.matrix.custom.backup_disabled GET")
+        .named("m.key_backup GET")
         .mount(&server)
         .await;
 
