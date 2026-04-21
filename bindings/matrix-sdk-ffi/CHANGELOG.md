@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Enable `experimental-push-secrets` feature by default. 
+  ([#6473](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Add new high-level search helpers `RoomSearchIterator` and `GlobalSearchIterator` to perform
   searches for messages in a room or across all rooms.
   ([6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
