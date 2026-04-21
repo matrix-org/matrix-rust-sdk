@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `ffi::NotificationRoomInfo::service_members` so clients can use the list of service
+  members to calculate if a room is a DM from the notification info.
+  ([#6474](https://github.com/matrix-org/matrix-rust-sdk/pull/6474))
 - Enable `experimental-push-secrets` feature by default. 
   ([#6473](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Add new high-level search helpers `RoomSearchIterator` and `GlobalSearchIterator` to perform

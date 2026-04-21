@@ -2174,6 +2174,12 @@ async fn notification_handler(
         topic: room.topic(),
         join_rule: room.join_rule().map(TryInto::try_into).transpose().ok().flatten(),
         joined_members_count: room.joined_members_count(),
+        service_members: room
+            .service_members()
+            .unwrap_or_default()
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
         is_encrypted: Some(room.encryption_state().is_encrypted()),
         is_direct,
         is_space: room.is_space(),
