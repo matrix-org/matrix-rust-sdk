@@ -42,7 +42,6 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{
     cross_process_lock::CrossProcessLockConfig,
-    executor::spawn,
     ttl_cache::{TtlCache, TtlValue},
 };
 #[cfg(feature = "e2e-encryption")]
@@ -2307,7 +2306,7 @@ impl Client {
             debug!("spawning task to refresh supported versions cache");
 
             let client = self.clone();
-            spawn(async move {
+            self.task_monitor().spawn_finite_task("refresh supported versions cache", async move {
                 if let Err(error) = client.refresh_supported_versions_cache(failsafe).await {
                     warn!("failed to refresh supported versions cache: {error}");
                 }
