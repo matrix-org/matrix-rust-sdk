@@ -212,7 +212,7 @@ fn now_timestamp_ms() -> f64 {
 
 /// The default timestamp if it is missing during deserialization.
 ///
-/// We expect that value that was serialized always has an expiry time, so the
+/// We expect that a value that was serialized always has an expiry time, so the
 /// default is `Some(0.0)`.
 fn default_timestamp() -> Option<f64> {
     Some(0.0)
