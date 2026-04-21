@@ -25,8 +25,6 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-#[cfg(test)]
-use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
@@ -745,6 +743,8 @@ impl Account {
     /// of MSC3814.
     #[cfg(test)]
     pub(crate) fn legacy_dehydrate(&self, pickle_key: &[u8; 32]) -> Raw<DehydratedDeviceData> {
+        use ruma::api::client::dehydrated_device::DehydratedDeviceV1;
+
         let pickle_key = expand_legacy_pickle_key(pickle_key, &self.device_id);
         let device_pickle = self
             .inner
