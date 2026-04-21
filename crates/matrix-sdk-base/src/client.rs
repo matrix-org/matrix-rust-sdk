@@ -744,17 +744,14 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
-        {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            processors::changes::save_and_apply(
-                context,
-                &self.state_store,
-                &self.ignore_user_list_changes,
-                Some(response.next_batch.clone()),
-            )
-            .await?;
-        }
+        processors::changes::save_and_apply(
+            context,
+            &self.state_store,
+            &self.state_store_lock().lock().await,
+            &self.ignore_user_list_changes,
+            Some(response.next_batch.clone()),
+        )
+        .await?;
 
         let mut context = Context::default();
 
@@ -768,11 +765,12 @@ impl BaseClient {
         .await;
 
         // Save the new display name updates if any.
-        {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            processors::changes::save_only(context, &self.state_store).await?;
-        }
+        processors::changes::save_only(
+            context,
+            &self.state_store,
+            &self.state_store_lock().lock().await,
+        )
+        .await?;
 
         for (room_id, member_ids) in updated_members_in_room {
             if let Some(room) = self.get_room(&room_id) {
@@ -894,7 +892,7 @@ impl BaseClient {
         context.state_changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
         {
-            let _state_store_lock = self.state_store_lock().lock().await;
+            let state_store_guard = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
@@ -903,6 +901,7 @@ impl BaseClient {
             processors::changes::save_and_apply(
                 context,
                 &self.state_store,
+                &state_store_guard,
                 &self.ignore_user_list_changes,
                 None,
             )
