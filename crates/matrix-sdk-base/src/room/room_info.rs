@@ -1420,9 +1420,13 @@ impl Default for RoomInfoNotableUpdateReasons {
 
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, sync::Arc};
+    use std::{str::FromStr, sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
+    use futures_util::future::{self, Either};
+    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+    use gloo_timers::future::sleep;
+    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         assign,
@@ -1437,13 +1441,17 @@ mod tests {
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
+    use tokio::sync::Mutex;
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    use tokio::time::sleep;
 
     use super::{BaseRoomInfo, LatestEventValue, RoomInfo, SyncInfo};
     use crate::{
-        RoomDisplayName, RoomHero, RoomState, StateChanges, StateStore,
+        Room, RoomDisplayName, RoomHero, RoomInfoNotableUpdateReasons, RoomState, StateChanges,
+        StateStore,
         notification_settings::RoomNotificationMode,
         room::{RoomNotableTags, RoomSummary},
-        store::{IntoStateStore, MemoryStore, SaveLockedStateStore},
+        store::{IntoStateStore, MemoryStore, RoomLoadSettings, SaveLockedStateStore},
         sync::UnreadNotificationsCount,
     };
 
@@ -1812,5 +1820,220 @@ mod tests {
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());
+    }
+
+    fn make_room_and_state_store(room_state: RoomState) -> (Room, SaveLockedStateStore) {
+        let state_store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
+        let user_id = user_id!("@user:localhost");
+        let room_id = room_id!("!room:localhost");
+        let (sender, _) = tokio::sync::broadcast::channel(1);
+        let room = Room::new(user_id, state_store.clone(), room_id, room_state, sender);
+        (room, state_store)
+    }
+
+    #[async_test]
+    async fn test_update_room_info_only_updates_in_memory_room_info() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        let before = room.clone_info();
+        assert_eq!(before.state(), RoomState::Joined);
+        room.update_room_info(|mut info| {
+            info.mark_as_banned();
+            (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+        })
+        .await;
+        let after = room.clone_info();
+        assert_eq!(after.state(), RoomState::Banned);
+
+        let infos = state_store
+            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
+            .await
+            .expect("get room info");
+        assert!(infos.is_empty());
+    }
+
+    #[async_test]
+    async fn test_update_room_info_with_store_guard_only_updates_in_memory_room_info() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        let before = room.clone_info();
+        assert_eq!(before.state(), RoomState::Joined);
+        room.update_room_info_with_store_guard(&state_store.lock().lock().await, |mut info| {
+            info.mark_as_banned();
+            (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+        })
+        .expect("update room info");
+        let after = room.clone_info();
+        assert_eq!(after.state(), RoomState::Banned);
+
+        let infos = state_store
+            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
+            .await
+            .expect("get room info");
+        assert!(infos.is_empty());
+    }
+
+    #[async_test]
+    async fn test_update_room_info_only_accepts_guard_for_underlying_mutex() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        room.update_room_info_with_store_guard(&state_store.lock().lock().await, |info| {
+            (info, RoomInfoNotableUpdateReasons::NONE)
+        })
+        .expect("room accepts guard for underlying mutex");
+
+        let mutex = Mutex::new(());
+        room.update_room_info_with_store_guard(&mutex.lock().await, |info| {
+            (info, RoomInfoNotableUpdateReasons::NONE)
+        })
+        .expect_err("room does not accept guard for unknown mutex");
+    }
+
+    #[async_test]
+    async fn test_update_and_save_room_info_updates_room_info_in_memory_and_store() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        let before = room.clone_info();
+        assert_eq!(before.state(), RoomState::Joined);
+        room.update_and_save_room_info(|mut info| {
+            info.mark_as_banned();
+            (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+        })
+        .await
+        .expect("update and save room info");
+        let after = room.clone_info();
+        assert_eq!(after.state(), RoomState::Banned);
+
+        let infos = state_store
+            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
+            .await
+            .expect("get room info");
+        assert_eq!(infos.len(), 1);
+        assert_matches!(infos.first(), Some(info) => {
+            info.state() == RoomState::Banned
+        });
+    }
+
+    #[async_test]
+    async fn test_update_and_save_room_info_with_store_guard_updates_room_info_in_memory_and_store()
+    {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        let before = room.clone_info();
+        assert_eq!(before.state(), RoomState::Joined);
+        room.update_and_save_room_info_with_store_guard(
+            &state_store.lock().lock().await,
+            |mut info| {
+                info.mark_as_banned();
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            },
+        )
+        .await
+        .expect("update and save room info");
+        let after = room.clone_info();
+        assert_eq!(after.state(), RoomState::Banned);
+
+        let infos = state_store
+            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
+            .await
+            .expect("get room info");
+        assert_eq!(infos.len(), 1);
+        assert_matches!(infos.first(), Some(info) => {
+            info.state() == RoomState::Banned
+        });
+    }
+
+    #[async_test]
+    async fn test_update_and_save_room_info_only_accepts_guard_for_underlying_mutex() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        room.update_and_save_room_info_with_store_guard(&state_store.lock().lock().await, |info| {
+            (info, RoomInfoNotableUpdateReasons::NONE)
+        })
+        .await
+        .expect("room accepts guard for underlying mutex");
+
+        let mutex = Mutex::new(());
+        room.update_and_save_room_info_with_store_guard(&mutex.lock().await, |info| {
+            (info, RoomInfoNotableUpdateReasons::NONE)
+        })
+        .await
+        .expect_err("room does not accept guard for unknown mutex");
+    }
+
+    #[derive(Debug)]
+    struct Elapsed;
+
+    async fn timeout<F: Future + Unpin>(duration: Duration, f: F) -> Result<F::Output, Elapsed> {
+        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
+        {
+            match future::select(sleep(duration), f).await {
+                Either::Left(_) => return Err(Elapsed),
+                Either::Right((output, _)) => Ok(output),
+            }
+        }
+        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+        {
+            tokio::time::timeout(duration, f).await.map_err(|_| Elapsed)
+        }
+    }
+
+    #[async_test]
+    async fn test_update_room_info_waits_to_acquire_lock_before_updating_room_info() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        // Acquire lock and hold it for 5 seconds
+        let lock_task = spawn({
+            let state_store = state_store.clone();
+            async move {
+                let lock = state_store.lock();
+                let _guard = lock.lock().await;
+                sleep(Duration::from_secs(5)).await;
+            }
+        });
+
+        // Try to update room info while the lock is held by another task
+        let save_task = spawn(async move {
+            room.update_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
+        });
+
+        // Ensure that the second task does not progress until the first task has
+        // completed and, therefore, releases the save lock
+        assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
+            timeout(Duration::from_millis(100), save_task)
+                .await
+                .expect("task completes before timeout")
+                .expect("task completes successfully")
+        });
+    }
+
+    #[async_test]
+    async fn test_update_and_save_room_info_waits_to_acquire_lock_before_updating_room_info() {
+        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
+
+        // Acquire lock and hold it for 5 seconds
+        let lock_task = spawn({
+            let state_store = state_store.clone();
+            async move {
+                let lock = state_store.lock();
+                let _guard = lock.lock().await;
+                sleep(Duration::from_secs(5)).await;
+            }
+        });
+
+        // Try to update room info while the lock is held by another task
+        let save_task = spawn(async move {
+            room.update_and_save_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
+        });
+
+        // Ensure that the second task does not progress until the first task has
+        // completed and, therefore, releases the save lock
+        assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
+            timeout(Duration::from_millis(100), save_task)
+                .await
+                .expect("task completes before timeout")
+                .expect("task completes successfully")
+                .expect("update and save room info");
+        });
     }
 }
