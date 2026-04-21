@@ -770,21 +770,18 @@ impl App {
                                                     })
                                                     .collect(),
                                             );
-                                        } else {
-                                            if let Some((query, room)) =
-                                                view.get_text().zip(self.room_view.room())
-                                            {
-                                                let mut room_search =
-                                                    room.search_messages(query, 5);
+                                        } else if let Some((query, room)) =
+                                            view.get_text().zip(self.room_view.room())
+                                        {
+                                            let mut room_search = room.search_messages(query, 5);
 
-                                                let mut all_results = Vec::new();
-                                                while let Some(results) =
-                                                    room_search.next_events().await?
-                                                {
-                                                    all_results.extend(results);
-                                                }
-                                                view.set_results(vec![(None, all_results)]);
+                                            let mut all_results = Vec::new();
+                                            while let Some(results) =
+                                                room_search.next_events().await?
+                                            {
+                                                all_results.extend(results);
                                             }
+                                            view.set_results(vec![(None, all_results)]);
                                         }
                                     }
                                 }
