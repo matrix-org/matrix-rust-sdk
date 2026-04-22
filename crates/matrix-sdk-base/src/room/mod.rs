@@ -26,10 +26,7 @@ mod state;
 mod tags;
 mod tombstone;
 
-use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub use call::CallIntentConsensus;
 pub use create::*;
@@ -68,11 +65,11 @@ pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
-    Error,
+    Error, StateStore,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
-    store::{DynStateStore, Result as StoreResult, StateStoreExt},
+    store::{Result as StoreResult, SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
 };
 
@@ -94,7 +91,7 @@ pub struct Room {
     pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
 
     /// A clone of the state store.
-    pub(super) store: Arc<DynStateStore>,
+    pub(super) store: SaveLockedStateStore,
 
     /// A map for ids of room membership events in the knocking state linked to
     /// the user id of the user affected by the member event, that the current
@@ -109,7 +106,7 @@ pub struct Room {
 impl Room {
     pub(crate) fn new(
         own_user_id: &UserId,
-        store: Arc<DynStateStore>,
+        store: SaveLockedStateStore,
         room_id: &RoomId,
         room_state: RoomState,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
@@ -120,7 +117,7 @@ impl Room {
 
     pub(crate) fn restore(
         own_user_id: &UserId,
-        store: Arc<DynStateStore>,
+        store: SaveLockedStateStore,
         room_info: RoomInfo,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {

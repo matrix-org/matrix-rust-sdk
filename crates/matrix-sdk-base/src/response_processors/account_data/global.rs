@@ -28,7 +28,7 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::super::Context;
-use crate::{RoomInfo, StateChanges, store::BaseStateStore};
+use crate::{RoomInfo, StateChanges, StateStore, store::BaseStateStore};
 
 /// Create the [`Global`] account data processor.
 pub fn global(events: &[Raw<AnyGlobalAccountDataEvent>]) -> Global {

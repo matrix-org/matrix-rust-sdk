@@ -18,7 +18,7 @@ use matrix_sdk_common::timer;
 use matrix_sdk_crypto::OlmMachine;
 use ruma::{OwnedUserId, RoomId};
 
-use crate::{EncryptionState, Result, RoomMemberships, store::BaseStateStore};
+use crate::{EncryptionState, Result, RoomMemberships, StateStore, store::BaseStateStore};
 
 /// Update tracked users, if the room is encrypted.
 pub async fn update(

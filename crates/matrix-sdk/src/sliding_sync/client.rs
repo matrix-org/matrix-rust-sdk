@@ -13,6 +13,7 @@ use ruma::{
     },
     events::GlobalAccountDataEventType,
 };
+use tokio::sync::MutexGuard;
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
@@ -142,8 +143,14 @@ impl Client {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<SyncResponse> {
-        let response =
-            self.base_client().process_sliding_sync(response, requested_required_states).await?;
+        let response = self
+            .base_client()
+            .process_sliding_sync(
+                response,
+                requested_required_states,
+                &self.base_client().state_store_lock().lock().await,
+            )
+            .await?;
 
         tracing::debug!("done processing on base_client");
         self.call_sync_response_handlers(&response).await?;
@@ -170,7 +177,11 @@ impl SlidingSyncResponseProcessor {
     }
 
     #[cfg(feature = "e2e-encryption")]
-    pub async fn handle_encryption(&mut self, extensions: &response::Extensions) -> Result<()> {
+    pub async fn handle_encryption(
+        &mut self,
+        extensions: &response::Extensions,
+        state_store_guard: &MutexGuard<'_, ()>,
+    ) -> Result<()> {
         // This is an internal API misuse if this is triggered (calling
         // `handle_room_response` before this function), so panic is fine.
         assert!(self.response.is_none());
@@ -178,7 +189,11 @@ impl SlidingSyncResponseProcessor {
         self.to_device_events = if let Some(to_device_events) = self
             .client
             .base_client()
-            .process_sliding_sync_e2ee(extensions.to_device.as_ref(), &extensions.e2ee)
+            .process_sliding_sync_e2ee(
+                extensions.to_device.as_ref(),
+                &extensions.e2ee,
+                state_store_guard,
+            )
             .await?
         {
             // Some new keys might have been received, so trigger a backup if needed.
@@ -196,6 +211,7 @@ impl SlidingSyncResponseProcessor {
         &mut self,
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
+        state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<()> {
         subscribe_to_room_latest_events(&self.client, response.rooms.keys()).await;
 
@@ -209,10 +225,11 @@ impl SlidingSyncResponseProcessor {
         let mut sync_response = self
             .client
             .base_client()
-            .process_sliding_sync(response, requested_required_states)
+            .process_sliding_sync(response, requested_required_states, state_store_guard)
             .await?;
 
-        handle_receipts_extension(&self.client, response, &mut sync_response).await?;
+        handle_receipts_extension(&self.client, response, &mut sync_response, state_store_guard)
+            .await?;
 
         update_in_memory_caches(&self.client, &previously_joined_rooms, &sync_response).await;
 
@@ -319,6 +336,7 @@ async fn handle_receipts_extension(
     client: &Client,
     response: &http::Response,
     sync_response: &mut SyncResponse,
+    state_store_guard: &MutexGuard<'_, ()>,
 ) -> Result<()> {
     let _timer = timer!(tracing::Level::TRACE, "handle_receipts_extension");
 
@@ -337,7 +355,7 @@ async fn handle_receipts_extension(
     let futures = room_ids.into_iter().map(|room_id| async {
         let receipt_event = client
             .base_client()
-            .process_sliding_sync_receipts_extension_for_room(&room_id, response)
+            .process_sliding_sync_receipts_extension_for_room(&room_id, response, state_store_guard)
             .await?;
 
         Result::<_, crate::Error>::Ok(Some((room_id, receipt_event)))
@@ -684,10 +702,17 @@ mod tests {
         response.rooms.insert(room_id.to_owned(), room);
 
         let mut processor = SlidingSyncResponseProcessor::new(client.clone());
-        processor
-            .handle_room_response(&response, &RequestedRequiredStates::default())
-            .await
-            .expect("Failed to process sync");
+        {
+            let state_store_guard = client.base_client().state_store_lock().lock().await;
+            processor
+                .handle_room_response(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &state_store_guard,
+                )
+                .await
+                .expect("Failed to process sync");
+        }
         processor.process_and_take_response().await.expect("Failed to finish processing sync");
 
         // Then room info notable updates are received.
@@ -722,10 +747,17 @@ mod tests {
         response.rooms.insert(room_id.to_owned(), room);
 
         let mut processor = SlidingSyncResponseProcessor::new(client.clone());
-        processor
-            .handle_room_response(&response, &RequestedRequiredStates::default())
-            .await
-            .expect("Failed to process sync");
+        {
+            let state_store_guard = client.base_client().state_store_lock().lock().await;
+            processor
+                .handle_room_response(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &state_store_guard,
+                )
+                .await
+                .expect("Failed to process sync");
+        }
         processor.process_and_take_response().await.expect("Failed to finish processing sync");
 
         // Then room info notable updates are received.

@@ -17,7 +17,7 @@ use ruma::events::{AnyRoomAccountDataEvent, RoomAccountDataEventType, tag::Tags}
 use serde::{Deserialize, Serialize};
 
 use super::Room;
-use crate::store::Result as StoreResult;
+use crate::{StateStore, store::Result as StoreResult};
 
 impl Room {
     /// Get the `Tags` for this room.
@@ -143,6 +143,7 @@ mod tests {
         processors::changes::save_and_apply(
             context.clone(),
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )
@@ -171,6 +172,7 @@ mod tests {
         processors::changes::save_and_apply(
             context,
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )
@@ -239,6 +241,7 @@ mod tests {
         processors::changes::save_and_apply(
             context.clone(),
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )
@@ -267,6 +270,7 @@ mod tests {
         processors::changes::save_and_apply(
             context,
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )

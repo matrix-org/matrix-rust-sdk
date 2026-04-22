@@ -94,7 +94,10 @@ mod tests {
         super::{Room, RoomState},
         CallIntentConsensus,
     };
-    use crate::{store::MemoryStore, utils::RawStateEventWithKeys};
+    use crate::{
+        store::{MemoryStore, SaveLockedStateStore},
+        utils::RawStateEventWithKeys,
+    };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
         let store = Arc::new(MemoryStore::new());
@@ -102,7 +105,10 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
-        (store.clone(), Room::new(user_id, store, room_id, room_type, sender))
+        (
+            store.clone(),
+            Room::new(user_id, SaveLockedStateStore::new(store), room_id, room_type, sender),
+        )
     }
 
     fn timestamp(minutes_ago: u32) -> MilliSecondsSinceUnixEpoch {
