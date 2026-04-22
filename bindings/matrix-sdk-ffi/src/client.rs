@@ -1491,6 +1491,15 @@ impl Client {
         Ok(dm)
     }
 
+    pub fn get_dm_rooms(&self, user_id: String) -> Result<Vec<Arc<Room>>, ClientError> {
+        let user_id = UserId::parse(user_id)?;
+        let sdk_rooms = self.inner.get_dm_rooms(&user_id);
+        let dms = sdk_rooms
+            .map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
+            .collect();
+        Ok(dms)
+    }
+
     pub async fn search_users(
         &self,
         search_term: String,
