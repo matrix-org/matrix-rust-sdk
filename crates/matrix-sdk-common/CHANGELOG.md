@@ -48,6 +48,10 @@ All notable changes to this project will be documented in this file.
   ([#6057](https://github.com/matrix-org/matrix-rust-sdk/pull/6057))
 - Fix `TimelineEvent::from_bundled_latest_event` sometimes removing the `session_id` of UTDs. This broken event could later be saved to the event cache and become an unresolvable UTD. ([#5970](https://github.com/matrix-org/matrix-rust-sdk/pull/5970)).
 
+### Refactor
+
+- [**breaking**] Remove `ttl_cache::TtlCache` because it is now unused.
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
