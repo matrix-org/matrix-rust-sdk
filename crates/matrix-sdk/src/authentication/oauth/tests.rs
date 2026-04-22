@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use matrix_sdk_base::store::RoomLoadSettings;
+use matrix_sdk_base::{sleep::sleep, store::RoomLoadSettings, ttl_cache::TtlValue};
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
@@ -20,6 +22,7 @@ use crate::{
         AuthorizationValidationData, ClientRegistrationData, OAuthAuthorizationCodeError,
         error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
     },
+    client::caches::CachedValue,
     test_utils::{
         client::{
             MockClientBuilder, mock_prev_session_tokens_with_refresh,
@@ -678,21 +681,36 @@ async fn test_server_metadata_cache() {
     let server = MatrixMockServer::new().await;
 
     let oauth_server = server.oauth();
-    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+    oauth_server.mock_server_metadata().ok().expect(2).mount().await;
 
     let client = server.client_builder().logged_in_with_oauth().build().await;
     let oauth = client.oauth();
 
     // The cache should not contain the entry.
-    assert!(!client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::NotSet);
 
     oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
 
     // Check that the server metadata has been inserted into the cache.
-    assert!(client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(_));
 
     // Another call doesn't make another request for the metadata.
-    oauth.cached_server_metadata().await.expect("We should be able to fetch the server_metadata");
+    let metadata = oauth
+        .cached_server_metadata()
+        .await
+        .expect("We should be able to fetch the server_metadata");
+
+    // Force an expiry of the cached data.
+    let mut ttl_value = TtlValue::new(metadata);
+    ttl_value.expire();
+    client.inner.caches.server_metadata.set_value(ttl_value);
+
+    // Call the method to trigger a cache refresh background task.
+    oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
+
+    // We wait for the task to finish, the endpoint should have been called again.
+    sleep(Duration::from_secs(1)).await;
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(value) if !value.has_expired());
 }
 
 #[async_test]

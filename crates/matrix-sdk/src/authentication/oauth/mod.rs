@@ -174,7 +174,7 @@ use error::{
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
-use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
+use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings, ttl_cache::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use oauth2::{
@@ -225,7 +225,9 @@ use self::{
 };
 use super::{AuthData, SessionTokens};
 use crate::{
-    Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn,
+    Client, HttpError, RefreshTokenError, Result,
+    client::{SessionChange, caches::CachedValue},
+    executor::spawn,
     utils::UrlOrQuery,
 };
 
@@ -434,6 +436,9 @@ impl OAuth {
     /// [`OAuth::server_metadata()`], and cache the response before returning
     /// it.
     ///
+    /// The cache can be forced to be refreshed by calling
+    /// [`OAuth::server_metadata()`] instead.
+    ///
     /// In most cases during the authentication process, it is better to always
     /// fetch the metadata from the server. This is provided for convenience for
     /// cases where the client doesn't want to incur the extra time necessary to
@@ -444,19 +449,45 @@ impl OAuth {
     pub async fn cached_server_metadata(
         &self,
     ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
-        const CACHE_KEY: &str = "SERVER_METADATA";
+        let server_metadata_cache = &self.client.inner.caches.server_metadata;
 
-        let mut cache = self.client.inner.caches.server_metadata.lock().await;
+        if let CachedValue::Cached(metadata) = server_metadata_cache.value() {
+            if metadata.has_expired() {
+                debug!("spawning task to refresh OAuth 2.0 server metadata cache");
 
-        let metadata = if let Some(metadata) = cache.get(CACHE_KEY) {
-            metadata
-        } else {
-            let server_metadata = self.server_metadata().await?;
-            cache.insert(CACHE_KEY.to_owned(), server_metadata.clone());
-            server_metadata
+                let oauth = self.clone();
+                self.client.task_monitor().spawn_finite_task(
+                    "refresh OAuth 2.0 server metadata cache",
+                    async move {
+                        if let Err(error) = oauth.server_metadata().await {
+                            warn!("failed to refresh OAuth 2.0 server metadata cache: {error}");
+                        }
+                    },
+                );
+            }
+
+            return Ok(metadata.into_data());
+        }
+
+        let _server_metadata_guard = match server_metadata_cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = server_metadata_cache.refresh_lock.lock().await;
+
+                // Reuse the data if it was cached and it hasn't expired.
+                if let CachedValue::Cached(value) = server_metadata_cache.value()
+                    && !value.has_expired()
+                {
+                    return Ok(value.into_data());
+                }
+
+                // The data wasn't cached or has expired, we need to make another request.
+                guard
+            }
         };
 
-        Ok(metadata)
+        self.server_metadata().await
     }
 
     /// Fetch the OAuth 2.0 authorization server metadata of the homeserver.
@@ -496,6 +527,10 @@ impl OAuth {
         } else {
             metadata.validate_urls()?;
         }
+
+        // Always refresh the cache when we got a new value to possibly avoid extra
+        // calls in cached_server_metadata.
+        self.client.inner.caches.server_metadata.set_value(TtlValue::new(metadata.clone()));
 
         Ok(metadata)
     }

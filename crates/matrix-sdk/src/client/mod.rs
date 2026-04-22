@@ -40,10 +40,7 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{
-    cross_process_lock::CrossProcessLockConfig,
-    ttl_cache::{TtlCache, TtlValue},
-};
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl_cache::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -405,7 +402,7 @@ impl ClientInner {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
             well_known: Cache::with_value(well_known),
-            server_metadata: Mutex::new(TtlCache::new()),
+            server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
         };
 

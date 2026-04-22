@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use matrix_sdk_base::{store::WellKnownResponse, ttl_cache::TtlCache};
+use matrix_sdk_base::store::WellKnownResponse;
 use matrix_sdk_common::{locks::Mutex, ttl_cache::TtlValue};
 use ruma::api::{
     SupportedVersions,
@@ -39,7 +39,8 @@ pub(crate) struct ClientCaches {
     pub(crate) supported_versions: Cache<SupportedVersions>,
     /// Well-known information.
     pub(super) well_known: Cache<Option<WellKnownResponse>>,
-    pub(crate) server_metadata: AsyncMutex<TtlCache<String, AuthorizationServerMetadata>>,
+    /// OAuth 2.0 server metadata.
+    pub(crate) server_metadata: Cache<AuthorizationServerMetadata>,
     /// Homeserver capabilities.
     pub(crate) homeserver_capabilities: Cache<Capabilities>,
 }
