@@ -613,7 +613,7 @@ impl ClientBuilder {
             None => NotSet,
         };
         let well_known = match well_known {
-            Some(well_known) => Cached(Some(well_known.into())),
+            Some(well_known) => Cached(TtlValue::new(Some(well_known.into()))),
             None => NotSet,
         };
 

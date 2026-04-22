@@ -20,7 +20,7 @@ use ruma::api::{
     SupportedVersions,
     client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
 };
-use tokio::sync::{Mutex as AsyncMutex, RwLock};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::HttpError;
 
@@ -35,7 +35,7 @@ pub(crate) struct ClientCaches {
     /// - The versions fetched from an *authenticated* request to the server.
     pub(crate) supported_versions: Cache<SupportedVersions>,
     /// Well-known information.
-    pub(super) well_known: RwLock<CachedValue<Option<WellKnownResponse>>>,
+    pub(super) well_known: Cache<Option<WellKnownResponse>>,
     pub(crate) server_metadata: AsyncMutex<TtlCache<String, AuthorizationServerMetadata>>,
 }
 
