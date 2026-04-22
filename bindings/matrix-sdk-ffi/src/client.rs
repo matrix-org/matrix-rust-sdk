@@ -2191,6 +2191,8 @@ async fn notification_handler(
             .iter()
             .map(ToString::to_string)
             .collect(),
+        active_service_members_count: room.active_service_members().await.unwrap_or_default().len()
+            as u64,
         is_encrypted: Some(room.encryption_state().is_encrypted()),
         is_direct,
         is_space: room.is_space(),
