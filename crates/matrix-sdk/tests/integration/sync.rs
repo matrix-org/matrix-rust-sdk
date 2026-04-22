@@ -1,8 +1,15 @@
+use std::collections::BTreeSet;
+
 use assert_matches2::assert_matches;
 use matrix_sdk::{
-    deserialized_responses::RawSyncOrStrippedState, test_utils::mocks::MatrixMockServer,
+    deserialized_responses::RawSyncOrStrippedState,
+    test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
 };
-use matrix_sdk_test::{InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, async_test};
+use matrix_sdk_base::RoomMemberships;
+use matrix_sdk_test::{
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, async_test,
+    event_factory::EventFactory,
+};
 use ruma::{
     EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, RoomVersionId, event_id,
     events::{
@@ -22,10 +29,11 @@ use ruma::{
             topic::RoomTopicEventContent,
         },
     },
-    mxc_uri,
+    mxc_uri, owned_user_id,
     room::JoinRule,
     room_alias_id, room_id,
     serde::Raw,
+    user_id,
 };
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
@@ -2373,4 +2381,124 @@ async fn test_receive_stripped_room_topic_event_via_sync() {
     // The room info is not set and the invalid state event is not in the store.
     assert_eq!(room.topic(), None);
     assert_matches!(room.get_state_event_static::<RoomTopicEventContent>().await, Ok(None));
+}
+
+#[async_test]
+async fn test_active_service_members() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let service_member_id_1 = owned_user_id!("@service_1:localhost");
+    let service_member_id_2 = owned_user_id!("@service_2:localhost");
+
+    let room_id = room_id!("!room:localhost");
+    let service_members_event = EventFactory::new()
+        .room(room_id)
+        .sender(user_id)
+        .member_hints(BTreeSet::from_iter(vec![
+            service_member_id_1.clone(),
+            service_member_id_2.clone(),
+        ]))
+        .into_raw_sync_state();
+    let own_member_event =
+        EventFactory::new().room(room_id).member(user_id).display_name("Me").into_raw_sync_state();
+
+    // We start with just the room and our own member event, no service events
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(own_member_event)
+                    .add_state_event(service_members_event),
+            ),
+        )
+        .await;
+
+    // We check the active human and service members: no service members and a
+    // single human member
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 1);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+    assert!(room.active_service_members().await.unwrap().is_empty());
+
+    // Now another user joined the room
+    let human_user = EventFactory::new()
+        .room(room_id)
+        .member(user_id!("@human:localhost"))
+        .display_name("Human")
+        .into_raw_sync_state();
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).add_state_event(human_user)),
+        )
+        .await;
+
+    // We check the active human and service members: no service members and 2 human
+    // members
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 2);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+    assert!(room.active_service_members().await.unwrap().is_empty());
+
+    // Now one of the service members in the member hints joined the room
+    let service_member_1 =
+        EventFactory::new().room(room_id).member(&service_member_id_1).into_raw_sync_state();
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id).add_state_event(service_member_1),
+            ),
+        )
+        .await;
+
+    // We check the active human and service members: 1 service member and 2 human
+    // members
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 3);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+    assert_eq!(room.active_service_members().await.unwrap().len(), 1);
+
+    // And a second one joins too
+    let service_member_2 =
+        EventFactory::new().room(room_id).member(&service_member_id_2).into_raw_sync_state();
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id).add_state_event(service_member_2),
+            ),
+        )
+        .await;
+
+    // We check the active human and service members: 2 service member and 2 human
+    // members The active service members match the member hints
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 4);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+    assert_eq!(room.active_service_members().await.unwrap().len(), 2);
+
+    // And now the 2nd service member leaves the room
+    let service_member_2_left = EventFactory::new()
+        .room(room_id)
+        .member(&service_member_id_2)
+        .leave()
+        .into_raw_sync_state();
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id).add_state_event(service_member_2_left),
+            ),
+        )
+        .await;
+
+    // We check the active human and service members: 1 service member and 2 human
+    // members again
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 3);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+    assert_eq!(room.active_service_members().await.unwrap().len(), 1);
 }

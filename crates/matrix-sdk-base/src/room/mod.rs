@@ -55,6 +55,7 @@ use ruma::{
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
+            member::MembershipState,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource},
         },
     },
@@ -508,6 +509,29 @@ impl Room {
     /// Returns the current pinned event ids for this room.
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.info.read().pinned_event_ids()
+    }
+
+    /// Returns the list of service members that are either in a joined or
+    /// invited state in this room, checking the service member list against the
+    /// locally available room members.
+    pub async fn active_service_members(&self) -> Option<Vec<RoomMember>> {
+        if let Some(service_members) = self.service_members() {
+            let mut found = Vec::new();
+            for user_id in service_members {
+                if let Some(member) = self.get_member(&user_id).await.ok().flatten() {
+                    // We only care about active members (joined or invited)
+                    if matches!(
+                        member.membership(),
+                        MembershipState::Join | MembershipState::Invite
+                    ) {
+                        found.push(member);
+                    }
+                }
+            }
+            Some(found)
+        } else {
+            None
+        }
     }
 }
 
