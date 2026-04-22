@@ -2391,7 +2391,7 @@ impl Client {
             .await?
             .and_then(|value| value.into_well_known())
         {
-            // Copy the data from the store in the in-memory cache.
+            // Copy the data from the store into the in-memory cache.
             well_known_cache.set_value(stored.clone());
 
             stored
