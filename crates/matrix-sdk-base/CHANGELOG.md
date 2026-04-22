@@ -33,6 +33,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires 
+  `StateStore::save_changes` to acquire state store lock and replaces `Room::set_room_info` 
+  with an atomic version, `Room::update_room_info`, which is also synchronized by
+  the state store lock.
+  ([#6478](https://github.com/matrix-org/matrix-rust-sdk/pull/6478))
 - Add `RoomMember::is_service_member` that automatically checks the room info and retrieves this info. 
   ([#6536](https://github.com/matrix-org/matrix-rust-sdk/pull/6536))
 - [**breaking**] Add `DmRoomDefinition` enum, allowing clients to specify what a DM 
