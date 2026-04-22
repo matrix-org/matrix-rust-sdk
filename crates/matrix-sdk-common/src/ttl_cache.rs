@@ -147,7 +147,7 @@ pub struct TtlValue<T> {
 impl<T> TtlValue<T> {
     /// The number of milliseconds after which the data is considered stale.
     ///
-    /// This matches 7 days.
+    /// This matches 1 day.
     pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24) as _;
 
     /// Construct a new `TtlValue` with the given data.
