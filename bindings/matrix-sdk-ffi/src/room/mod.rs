@@ -53,7 +53,10 @@ use crate::{
     TaskHandle,
     chunk_iterator::ChunkIterator,
     client::{JoinRule, RoomVisibility},
-    error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
+    error::{
+        ClientError, LiveLocationError, MediaInfoError, NotYetImplemented, QueueWedgeError,
+        RoomError,
+    },
     event::TimelineEvent,
     identity_status_change::IdentityStatusChange,
     live_location_share::LiveLocationShares,
@@ -1084,17 +1087,14 @@ impl Room {
     }
 
     /// Stop the current users live location share in the room.
-    pub async fn stop_live_location_share(&self) -> Result<(), ClientError> {
-        self.inner.stop_live_location_share().await.expect("Unable to stop live location share");
+    pub async fn stop_live_location_share(&self) -> Result<(), LiveLocationError> {
+        self.inner.stop_live_location_share().await?;
         Ok(())
     }
 
     /// Send the current users live location beacon in the room.
-    pub async fn send_live_location(&self, geo_uri: String) -> Result<(), ClientError> {
-        self.inner
-            .send_location_beacon(geo_uri)
-            .await
-            .expect("Unable to send live location beacon");
+    pub async fn send_live_location(&self, geo_uri: String) -> Result<(), LiveLocationError> {
+        self.inner.send_location_beacon(geo_uri).await?;
         Ok(())
     }
 
