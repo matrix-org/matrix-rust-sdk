@@ -2195,7 +2195,7 @@ impl Client {
                 if let CachedValue::Cached(value) = cached_supported_versions.value()
                     && !value.has_expired()
                 {
-                    return Ok(value.into_data_unchecked());
+                    return Ok(value.into_data());
                 }
 
                 // The data wasn't cached or has expired, we need to make another request.
@@ -2233,7 +2233,7 @@ impl Client {
             cached_supported_versions.set_value(supported_versions.clone());
         }
 
-        Ok(supported_versions.into_data_unchecked())
+        Ok(supported_versions.into_data())
     }
 
     /// Get the Matrix versions and features supported by the homeserver by
@@ -2313,7 +2313,7 @@ impl Client {
             });
         }
 
-        Ok(Some(value.into_data_unchecked()))
+        Ok(Some(value.into_data()))
     }
 
     /// Get the Matrix versions supported by the homeserver by fetching them
@@ -2409,7 +2409,7 @@ impl Client {
             });
         }
 
-        Ok(CachedValue::Cached(value.into_data_unchecked()))
+        Ok(CachedValue::Cached(value.into_data()))
     }
 
     /// Refresh the well-known file of the homeserver in the cache.
@@ -2429,7 +2429,7 @@ impl Client {
                 if let CachedValue::Cached(value) = well_known_cache.value()
                     && !value.has_expired()
                 {
-                    return value.into_data_unchecked();
+                    return value.into_data();
                 }
 
                 // The data wasn't cached or has expired, we need to make another request.
@@ -2452,7 +2452,7 @@ impl Client {
 
         well_known_cache.set_value(well_known.clone());
 
-        well_known.into_data_unchecked()
+        well_known.into_data()
     }
 
     /// Get the well-known file of the homeserver by fetching it from the server

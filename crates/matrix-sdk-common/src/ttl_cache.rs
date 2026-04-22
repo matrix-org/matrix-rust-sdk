@@ -191,13 +191,8 @@ impl<T> TtlValue<T> {
     }
 
     /// Get the data of this value.
-    pub fn into_data_unchecked(self) -> T {
+    pub fn into_data(self) -> T {
         self.data
-    }
-
-    /// Get the data of this value if it hasn't expired.
-    pub fn into_data(self) -> Option<T> {
-        (!self.has_expired()).then_some(self.data)
     }
 }
 
