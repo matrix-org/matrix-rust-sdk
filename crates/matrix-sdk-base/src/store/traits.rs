@@ -1465,7 +1465,6 @@ pub struct SaveLockedStateStore<T = Arc<DynStateStore>> {
 /// An error type that represents a scenario where a [`MutexGuard`] provided to
 /// a function does not reference the underlying [`Mutex`] in the enclosing
 /// [`SaveLockedStateStore`].
-#[allow(unused)]
 #[derive(Debug, Error)]
 #[error("a mutex guard was provided, but it does not reference the correct mutex")]
 pub struct IncorrectMutexGuardError;
@@ -1494,7 +1493,6 @@ impl<T: StateStore> SaveLockedStateStore<T> {
     /// has already acquired the underlying [`Mutex`]. Returns an error if
     /// the [`MutexGuard`] provided does not reference the underlying
     /// [`Mutex`].
-    #[allow(unused)]
     pub async fn save_changes_with_guard(
         &self,
         guard: &MutexGuard<'_, ()>,
