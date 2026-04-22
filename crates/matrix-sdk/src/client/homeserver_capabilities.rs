@@ -1,4 +1,6 @@
-use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue};
+use std::sync::Arc;
+
+use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError, ttl_cache::TtlValue};
 use ruma::{
     api::{
         Metadata,
@@ -15,9 +17,9 @@ use ruma::{
     },
     profile::ProfileFieldName,
 };
-use tracing::warn;
+use tracing::{debug, warn};
 
-use crate::{Client, HttpResult};
+use crate::{Client, HttpError, HttpResult, client::caches::CachedValue};
 
 /// Helper to check what [`Capabilities`] are supported by the homeserver.
 ///
@@ -135,6 +137,47 @@ impl HomeserverCapabilities {
         Ok(capabilities.forget_forced_upon_leave.enabled)
     }
 
+    /// Gets the supported [`Capabilities`] from the local cache.
+    async fn homeserver_capabilities_cached(&self) -> Result<Option<Capabilities>, StoreError> {
+        let capabilities_cache = &self.client.inner.caches.homeserver_capabilities;
+
+        let value = if let CachedValue::Cached(cached) = capabilities_cache.value() {
+            cached
+        } else if let Some(stored) = self
+            .client
+            .state_store()
+            .get_kv_data(StateStoreDataKey::HomeserverCapabilities)
+            .await?
+            .and_then(|value| value.into_homeserver_capabilities())
+        {
+            // Copy the data from the store in the in-memory cache.
+            capabilities_cache.set_value(stored.clone());
+
+            stored
+        } else {
+            return Ok(None);
+        };
+
+        // Spawn a task to refresh the cache if it has expired.
+        if value.has_expired() {
+            debug!("spawning task to refresh homeserver capabilities cache");
+
+            let homeserver_capabilities = self.clone();
+            self.client.task_monitor().spawn_finite_task(
+                "refresh homeserver capabilities cache",
+                async move {
+                    if let Err(error) =
+                        homeserver_capabilities.get_and_cache_remote_capabilities().await
+                    {
+                        warn!("failed to refresh homeserver capabilities cache: {error}");
+                    }
+                },
+            );
+        }
+
+        Ok(Some(value.into_data()))
+    }
+
     /// Gets the supported [`Capabilities`] either from the local cache or from
     /// the homeserver using the `/capabilities` endpoint if the data is not
     /// cached.
@@ -142,12 +185,9 @@ impl HomeserverCapabilities {
     /// To ensure you get updated values, you should call [`Self::refresh`]
     /// instead.
     async fn load_or_fetch_homeserver_capabilities(&self) -> crate::Result<Capabilities> {
-        match self.client.state_store().get_kv_data(StateStoreDataKey::HomeserverCapabilities).await
-        {
-            Ok(Some(stored)) => {
-                if let Some(capabilities) = stored.into_homeserver_capabilities() {
-                    return Ok(capabilities);
-                }
+        match self.homeserver_capabilities_cached().await {
+            Ok(Some(capabilities)) => {
+                return Ok(capabilities);
             }
             Ok(None) => {
                 // fallthrough: cache is empty
@@ -163,21 +203,58 @@ impl HomeserverCapabilities {
 
     /// Gets and caches the capabilities of the homeserver.
     async fn get_and_cache_remote_capabilities(&self) -> HttpResult<Capabilities> {
-        let res = self.client.send(get_capabilities::v3::Request::new()).await?;
+        let capabilities_cache = &self.client.inner.caches.homeserver_capabilities;
+
+        let mut capabilities_guard = match capabilities_cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = capabilities_cache.refresh_lock.lock().await;
+
+                if let Err(error) = guard.as_ref() {
+                    // There was an error in the previous refresh, return it.
+                    return Err(HttpError::Cached(error.clone()));
+                }
+
+                // Reuse the data if it was cached and it hasn't expired.
+                if let CachedValue::Cached(value) = capabilities_cache.value()
+                    && !value.has_expired()
+                {
+                    return Ok(value.into_data());
+                }
+
+                // The data wasn't cached or has expired, we need to make another request.
+                guard
+            }
+        };
+
+        let capabilities = match self.client.send(get_capabilities::v3::Request::new()).await {
+            Ok(response) => {
+                *capabilities_guard = Ok(());
+                TtlValue::new(response.capabilities)
+            }
+            Err(error) => {
+                let error = Arc::new(error);
+                *capabilities_guard = Err(error.clone());
+                return Err(HttpError::Cached(error));
+            }
+        };
 
         if let Err(err) = self
             .client
             .state_store()
             .set_kv_data(
                 StateStoreDataKey::HomeserverCapabilities,
-                StateStoreDataValue::HomeserverCapabilities(res.capabilities.clone()),
+                StateStoreDataValue::HomeserverCapabilities(capabilities.clone()),
             )
             .await
         {
             warn!("error when caching homeserver capabilities: {err}");
         }
 
-        Ok(res.capabilities)
+        capabilities_cache.set_value(capabilities.clone());
+
+        Ok(capabilities.into_data())
     }
 
     /// Gets or computes the supported [`ProfileCapabilities`].
@@ -234,6 +311,10 @@ struct ProfileCapabilities {
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests {
+    use std::time::Duration;
+
+    use assert_matches::assert_matches;
+    use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::async_test;
     #[allow(deprecated)]
     use ruma::api::{
@@ -321,14 +402,27 @@ mod tests {
         server
             .mock_get_homeserver_capabilities()
             .ok_with_capabilities(expected_capabilities)
-            // Ensure it's not called, since we'd be using the cached values instead
-            .never()
+            .expect(1)
             .mount()
             .await;
 
         // Check the values we get are not updated without a refresh, they're loaded
         // from the cache
         assert!(capabilities.can_change_displayname().await.expect("checking capabilities failed"));
+
+        // Force an expiry of the data.
+        let capabilities_data =
+            capabilities.homeserver_capabilities_cached().await.unwrap().unwrap();
+        let mut ttl_value = TtlValue::new(capabilities_data);
+        ttl_value.expire();
+        client.inner.caches.homeserver_capabilities.set_value(ttl_value);
+
+        // Call a method to trigger a cache refresh background task.
+        capabilities.homeserver_capabilities_cached().await.unwrap().unwrap();
+
+        // We wait for the task to finish, the endpoint should have been called again.
+        sleep(Duration::from_secs(1)).await;
+        assert_matches!(client.inner.caches.homeserver_capabilities.value(), CachedValue::Cached(value) if !value.has_expired());
     }
 
     #[async_test]

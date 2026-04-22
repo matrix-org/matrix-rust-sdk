@@ -674,7 +674,7 @@ impl_state_store!({
                 .transpose()?
                 .map(StateStoreDataValue::ThreadSubscriptionsCatchupTokens),
             StateStoreDataKey::HomeserverCapabilities => value
-                .map(|f| self.deserialize_value::<Capabilities>(&f))
+                .map(|f| self.deserialize_value::<TtlValue<Capabilities>>(&f))
                 .transpose()?
                 .map(StateStoreDataValue::HomeserverCapabilities),
         };

@@ -18,7 +18,10 @@ use matrix_sdk_base::{store::WellKnownResponse, ttl_cache::TtlCache};
 use matrix_sdk_common::{locks::Mutex, ttl_cache::TtlValue};
 use ruma::api::{
     SupportedVersions,
-    client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
+    client::discovery::{
+        get_authorization_server_metadata::v1::AuthorizationServerMetadata,
+        get_capabilities::v3::Capabilities,
+    },
 };
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -37,6 +40,8 @@ pub(crate) struct ClientCaches {
     /// Well-known information.
     pub(super) well_known: Cache<Option<WellKnownResponse>>,
     pub(crate) server_metadata: AsyncMutex<TtlCache<String, AuthorizationServerMetadata>>,
+    /// Homeserver capabilities.
+    pub(crate) homeserver_capabilities: Cache<Capabilities>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion
@@ -74,6 +79,11 @@ pub(crate) struct Cache<Value> {
 }
 
 impl<Value> Cache<Value> {
+    /// Construct a new empty `Cache`.
+    pub(crate) fn new() -> Self {
+        Self::with_value(CachedValue::NotSet)
+    }
+
     /// Construct a new `Cache` with the given value.
     pub(crate) fn with_value(value: CachedValue<TtlValue<Value>>) -> Self {
         Self { value: Mutex::new(value), refresh_lock: AsyncMutex::new(Ok(())) }
