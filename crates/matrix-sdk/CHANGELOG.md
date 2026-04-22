@@ -8,6 +8,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires 
+  `StateStore::save_changes` to acquire state store lock and replaces `Room::set_room_info` 
+  with an atomic version, `Room::update_room_info`, which is also synchronized by
+  the state store lock.
+  ([#6478](https://github.com/matrix-org/matrix-rust-sdk/pull/6478))
 - Support the stable `m.key_backup` prefix for MSC4287: Sharing key backup
   preference between clients.
   ([#6410](https://github.com/matrix-org/matrix-rust-sdk/pull/6410))
