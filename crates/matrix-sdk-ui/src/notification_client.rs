@@ -941,6 +941,7 @@ pub struct NotificationItem {
     pub joined_members_count: u64,
     /// Number of service members in the room.
     pub service_members: Vec<String>,
+    pub active_service_members_count: u64,
     /// Is the room a space?
     pub is_space: bool,
 
@@ -1032,6 +1033,9 @@ impl NotificationItem {
             .map(ToString::to_string)
             .collect_vec();
 
+        let active_service_members_count =
+            room.active_service_members().await.unwrap_or_default().len() as u64;
+
         let item = NotificationItem {
             event,
             raw_event,
@@ -1051,6 +1055,7 @@ impl NotificationItem {
                 .ok(),
             joined_members_count: room.joined_members_count(),
             service_members,
+            active_service_members_count,
             is_space: room.is_space(),
             is_noisy,
             has_mention,

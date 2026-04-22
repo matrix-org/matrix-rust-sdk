@@ -87,6 +87,7 @@ pub struct RoomInfo {
     active_members_count: u64,
     invited_members_count: u64,
     joined_members_count: u64,
+    active_service_members_count: u64,
     service_members: Vec<String>,
     highlight_count: u64,
     notification_count: u64,
@@ -145,6 +146,9 @@ impl RoomInfo {
             .ok()
             .map(|p| RoomPowerLevels::new(p, room.own_user_id().to_owned()));
 
+        let active_service_members_count =
+            room.active_service_members().await.unwrap_or_default().len() as u64;
+
         Ok(Self {
             id: room.room_id().to_string(),
             encryption_state: room.encryption_state(),
@@ -180,6 +184,7 @@ impl RoomInfo {
             active_members_count: room.active_members_count(),
             invited_members_count: room.invited_members_count(),
             joined_members_count: room.joined_members_count(),
+            active_service_members_count,
             service_members: room
                 .service_members()
                 .iter()
