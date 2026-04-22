@@ -204,6 +204,7 @@ pub struct TimelineVectorDiffs {
 }
 
 /// An enum representing where an event has been found.
+#[derive(Debug)]
 pub(super) enum EventLocation {
     /// Event lives in memory (and likely in the store!).
     Memory(Position),

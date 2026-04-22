@@ -57,7 +57,7 @@ use super::{
     super::{
         super::{
             EventCacheError,
-            deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+            deduplicator::{DeduplicationOutcome, ReplaceableDuplicate, filter_duplicate_events},
             persistence::send_updates_to_store,
         },
         EventLocation, TimelineVectorDiffs,
@@ -151,6 +151,10 @@ pub struct RoomEventCacheState {
 
     /// A copy of the automatic pagination API object.
     automatic_pagination: Option<AutomaticPagination>,
+
+    /// Event IDs sent by the user in the current session, and not remote-echoed
+    /// yet.
+    send_queue_event_ids: HashSet<OwnedEventId>,
 }
 
 impl RoomEventCacheState {
@@ -395,6 +399,7 @@ impl LockedRoomEventCacheState {
             subscriber_count: Default::default(),
             pinned_event_cache: OnceLock::new(),
             automatic_pagination,
+            send_queue_event_ids: HashSet::new(),
         }))
     }
 }
@@ -573,6 +578,12 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self.state.waited_for_initial_prev_token
     }
 
+    /// Mark event ID that were inserted by the send queue during the current
+    /// session.
+    pub fn mark_event_as_sent_from_send_queue(&mut self, event_id: OwnedEventId) {
+        self.state.send_queue_event_ids.insert(event_id);
+    }
+
     /// Find a single event in this room.
     ///
     /// It starts by looking into loaded events in `EventLinkedChunk` before
@@ -721,6 +732,25 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         self.propagate_changes().await
     }
 
+    /// Apply in-place replacements of duplicate events, given their position.
+    pub(super) async fn apply_in_place_replacements(
+        &mut self,
+        replacements: Vec<ReplaceableDuplicate>,
+    ) -> Result<Vec<Event>, EventCacheError> {
+        let mut replaced_events = Vec::with_capacity(replacements.len());
+
+        for replacement in replacements {
+            // Replace the event in the store or in the in-memory linked chunk.
+            self.replace_event_at(replacement.location, replacement.event.clone()).await?;
+
+            self.state.send_queue_event_ids.remove(&replacement.event_id);
+
+            replaced_events.push(replacement.event);
+        }
+
+        Ok(replaced_events)
+    }
+
     async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
         let updates = self.state.room_linked_chunk.store_updates().take();
 
@@ -775,6 +805,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
     async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
         self.state.room_linked_chunk.reset();
+        self.state.send_queue_event_ids.clear();
 
         // No need to update the thread summaries: the room events are
         // gone because of the reset of `room_linked_chunk`.
@@ -816,14 +847,16 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         let DeduplicationOutcome {
             all_events: events,
-            in_memory_duplicated_event_ids,
-            in_store_duplicated_event_ids,
+            mut in_memory_duplicated_event_ids,
+            mut in_store_duplicated_event_ids,
+            in_place_replacements,
             non_empty_all_duplicates: all_duplicates,
         } = filter_duplicate_events(
             &self.state.own_user_id,
             &self.store,
             LinkedChunkId::Room(&self.state.room_id),
             &self.state.room_linked_chunk,
+            &self.state.send_queue_event_ids,
             timeline.events,
         )
         .await?;
@@ -848,7 +881,24 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         let has_new_gap = prev_batch.is_some();
 
-        if has_new_gap {
+        let (replacement_event_ids, replaced_events) = if has_new_gap {
+            // If we have a gap, we can't just replace events! The new timeline contains a
+            // gap *then* the events; if we only replaced the events, then the
+            // replaced events would be *before* the gap, and end up in the
+            // wrong order.
+            //
+            // Revert the in-place replacements to a removal of the duplicated events.
+            for re in in_place_replacements {
+                match re.location {
+                    EventLocation::Memory(position) => {
+                        in_memory_duplicated_event_ids.push((re.event_id, position));
+                    }
+                    EventLocation::Store => {
+                        in_store_duplicated_event_ids.push((re.event_id, re.position));
+                    }
+                }
+            }
+
             // Sad time: there's a gap, somewhere, in the timeline, and there's at least one
             // non-duplicated event. We don't know which threads might have gappy, so we
             // must invalidate them all :(
@@ -880,19 +930,42 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
                     self.replace_event_at(location, target_event).await?;
                 }
             }
-        }
+
+            (Default::default(), Default::default())
+        } else {
+            // We don't have a gap, so it's safe to apply the in-place replacements \o/
+            let replacement_event_ids = in_place_replacements
+                .iter()
+                .map(|replacement| replacement.event_id.clone())
+                .collect::<HashSet<_>>();
+
+            // This applies the replacements in memory and in storage, and flush updates to
+            // storage.
+            let replaced_events = self.apply_in_place_replacements(in_place_replacements).await?;
+
+            (replacement_event_ids, replaced_events)
+        };
 
         if all_duplicates {
             // No new events and no gap (per the previous check), thus no need to change the
-            // room state. We're done!
+            // room state. We're done, except that we may still have replaced a local echo.
+            let new_receipt = extract_read_receipt(ephemeral_events);
 
-            // We might have a new read receipt, though! If that's the case, handle it for
-            // unread counts tracking.
-            if let Some(new_receipt) = extract_read_receipt(ephemeral_events) {
-                self.update_read_receipts(Some(&new_receipt)).await?;
+            if replaced_events.is_empty() {
+                if let Some(new_receipt) = new_receipt {
+                    self.update_read_receipts(Some(&new_receipt)).await?;
+                }
+                return Ok((false, Vec::new()));
             }
 
-            return Ok((false, Vec::new()));
+            // If we've replaced at least one local echo, we still need to post-process it
+            // properly.
+            self.post_process_new_events(replaced_events, PostProcessingOrigin::Sync, new_receipt)
+                .await?;
+
+            let timeline_event_diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
+
+            return Ok((false, timeline_event_diffs));
         }
 
         // If we've never waited for an initial previous-batch token, and we've now
@@ -907,9 +980,19 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // events, because we are pushing all _new_ `events` at the back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
-        self.state
-            .room_linked_chunk
-            .push_live_events(prev_batch.map(|prev_token| Gap { token: prev_token }), &events);
+        // Only push live events that haven't replaced earlier.
+        let events_to_push = events
+            .iter()
+            .filter(|event| {
+                event.event_id().is_none_or(|event_id| !replacement_event_ids.contains(&event_id))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        self.state.room_linked_chunk.push_live_events(
+            prev_batch.map(|prev_token| Gap { token: prev_token }),
+            &events_to_push,
+        );
 
         // Extract a new read receipt, if available.
         let new_receipt = extract_read_receipt(ephemeral_events);
