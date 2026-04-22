@@ -106,9 +106,12 @@ pub enum HttpError {
     #[error(transparent)]
     RefreshToken(RefreshTokenError),
 
-    /// Error while fetching the versions supported by the homeserver.
+    /// Error while fetching data that is cached.
+    ///
+    /// This variant is present for convenience because cached data wraps
+    /// [`HttpError`] into an [`Arc`] to be able to clone it.
     #[error(transparent)]
-    SupportedVersions(Arc<HttpError>),
+    Cached(Arc<HttpError>),
 
     /// Error creating the TLS verifier.
     #[cfg(target_os = "android")]

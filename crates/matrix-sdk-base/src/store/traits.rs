@@ -1145,7 +1145,7 @@ pub enum StateStoreDataValue {
     ThreadSubscriptionsCatchupTokens(Vec<ThreadSubscriptionCatchupToken>),
 
     /// The capabilities the homeserver supports or disables.
-    HomeserverCapabilities(Capabilities),
+    HomeserverCapabilities(TtlValue<Capabilities>),
 }
 
 /// Tokens to use when catching up on thread subscriptions.
@@ -1350,7 +1350,7 @@ impl StateStoreDataValue {
 
     /// Get this value if it is the data for the capabilities the homeserver
     /// supports or disables.
-    pub fn into_homeserver_capabilities(self) -> Option<Capabilities> {
+    pub fn into_homeserver_capabilities(self) -> Option<TtlValue<Capabilities>> {
         as_variant!(self, Self::HomeserverCapabilities)
     }
 }

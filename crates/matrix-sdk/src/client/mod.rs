@@ -406,6 +406,7 @@ impl ClientInner {
             supported_versions: Cache::with_value(supported_versions),
             well_known: Cache::with_value(well_known),
             server_metadata: Mutex::new(TtlCache::new()),
+            homeserver_capabilities: Cache::new(),
         };
 
         let client = Self {
@@ -2188,7 +2189,7 @@ impl Client {
 
                 if let Err(error) = guard.as_ref() {
                     // There was an error in the previous refresh, return it.
-                    return Err(HttpError::SupportedVersions(error.clone()));
+                    return Err(HttpError::Cached(error.clone()));
                 }
 
                 // Reuse the data if it was cached and it hasn't expired.
@@ -2211,7 +2212,7 @@ impl Client {
             Err(error) => {
                 let error = Arc::new(error);
                 *supported_versions_guard = Err(error.clone());
-                return Err(HttpError::SupportedVersions(error));
+                return Err(HttpError::Cached(error));
             }
         };
 

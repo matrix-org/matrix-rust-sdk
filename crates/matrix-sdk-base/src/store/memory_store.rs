@@ -93,7 +93,7 @@ struct MemoryStoreInner {
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
-    homeserver_capabilities: Option<Capabilities>,
+    homeserver_capabilities: Option<TtlValue<Capabilities>>,
 }
 
 /// In-memory, non-persistent implementation of the `StateStore`.
