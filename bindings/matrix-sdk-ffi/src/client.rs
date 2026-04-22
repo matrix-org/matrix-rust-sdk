@@ -1483,6 +1483,7 @@ impl Client {
         Ok(room)
     }
 
+    /// Get the first existing DM room with the given user, if any.
     pub fn get_dm_room(&self, user_id: String) -> Result<Option<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let sdk_room = self.inner.get_dm_room(&user_id);
@@ -1491,6 +1492,7 @@ impl Client {
         Ok(dm)
     }
 
+    /// Get an iterator with the existing DM rooms for the given user.
     pub fn get_dm_rooms(&self, user_id: String) -> Result<Vec<Arc<Room>>, ClientError> {
         let user_id = UserId::parse(user_id)?;
         let sdk_rooms = self.inner.get_dm_rooms(&user_id);

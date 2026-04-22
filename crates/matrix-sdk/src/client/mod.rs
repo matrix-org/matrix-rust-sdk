@@ -1796,7 +1796,7 @@ impl Client {
         self.get_dm_rooms(user_id).next()
     }
 
-    /// Get an iterator with the existing DM rooms with the given user.
+    /// Get an iterator with the existing DM rooms for the given user.
     pub fn get_dm_rooms(&self, user_id: &UserId) -> impl Iterator<Item = Room> {
         let rooms = self.joined_rooms();
 

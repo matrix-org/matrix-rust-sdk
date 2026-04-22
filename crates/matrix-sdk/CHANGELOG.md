@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::get_dm_rooms` function to get an iterator with the DMs for the provided user id. 
+  ([#6487](https://github.com/matrix-org/matrix-rust-sdk/pull/6487))
 - Support the stable `m.key_backup` prefix for MSC4287: Sharing key backup
   preference between clients.
   ([#6410](https://github.com/matrix-org/matrix-rust-sdk/pull/6410))

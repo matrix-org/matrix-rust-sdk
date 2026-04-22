@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Client::get_dm_rooms` function to get a list with the DMs for the provided user id.
+  ([#6487](https://github.com/matrix-org/matrix-rust-sdk/pull/6487))
 - Expose `ffi::NotificationRoomInfo::service_members` so clients can use the list of service
   members to calculate if a room is a DM from the notification info.
   ([#6474](https://github.com/matrix-org/matrix-rust-sdk/pull/6474))
