@@ -636,31 +636,31 @@ impl From<ReqwestError> for Error {
 /// Errors that can happen when interacting with the beacon API.
 #[derive(Debug, Error)]
 pub enum BeaconError {
-    // A network error occurred.
+    /// A network error occurred.
     #[error("Network error: {0}")]
     Network(#[from] HttpError),
 
-    // The beacon information is not found.
+    /// The beacon information is not found.
     #[error("Existing beacon information not found.")]
     NotFound,
 
-    // The redacted event is not an error, but it's not useful for the client.
+    /// The redacted event is not an error, but it's not useful for the client.
     #[error("Beacon event is redacted and cannot be processed.")]
     Redacted,
 
-    // The client must join the room to access the beacon information.
+    /// The client must join the room to access the beacon information.
     #[error("Must join the room to access beacon information.")]
     Stripped,
 
-    // The beacon event could not be deserialized.
+    /// The beacon event could not be deserialized.
     #[error("Deserialization error: {0}")]
     Deserialization(#[from] serde_json::Error),
 
-    // The beacon event is expired.
+    /// The beacon event is expired.
     #[error("The beacon event has expired.")]
     NotLive,
 
-    // Allow for other errors to be wrapped.
+    /// Allow for other errors to be wrapped.
     #[error("Other error: {0}")]
     Other(Box<Error>),
 }

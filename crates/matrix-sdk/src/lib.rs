@@ -76,8 +76,8 @@ pub use client::{
     sanitize_server_name,
 };
 pub use error::{
-    Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError, Result,
-    RumaApiError,
+    BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
+    Result, RumaApiError,
 };
 pub use http_client::TransmissionProgress;
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
