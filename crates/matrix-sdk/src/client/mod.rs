@@ -1791,18 +1791,23 @@ impl Client {
         self.create_room(request).await
     }
 
-    /// Get the existing DM room with the given user, if any.
+    /// Get the first existing DM room with the given user, if any.
     pub fn get_dm_room(&self, user_id: &UserId) -> Option<Room> {
+        self.get_dm_rooms(user_id).next()
+    }
+
+    /// Get an iterator with the existing DM rooms with the given user.
+    pub fn get_dm_rooms(&self, user_id: &UserId) -> impl Iterator<Item = Room> {
         let rooms = self.joined_rooms();
 
         // Find the room we share with the `user_id` and only with `user_id`
-        let room = rooms.into_iter().find(|r| {
+        let rooms = rooms.into_iter().filter(move |r| {
             let targets = r.direct_targets();
             targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
         });
 
-        trace!(?user_id, ?room, "Found DM room with user");
-        room
+        trace!(?user_id, ?rooms, "Found DM rooms with user");
+        rooms
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
