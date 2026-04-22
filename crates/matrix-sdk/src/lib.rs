@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![recursion_limit="256"]
+#![recursion_limit = "256"]
 #![doc = include_str!("../README.md")]
 #![warn(missing_debug_implementations, missing_docs)]
 #![cfg_attr(target_family = "wasm", allow(clippy::arc_with_non_send_sync))]
