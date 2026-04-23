@@ -158,6 +158,9 @@ All notable changes to this project will be documented in this file.
 - Add `RoomInfo::active_room_call_consensus_intent` method to get the call intent for the current call,
   based on what members are advertising.
   ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
+- Add a list of `declined_by: Vec<String>` to the `TimelineItemContent::RtcNotification`, this will contain the list
+  of users that have declined the call.
+  ([#6494](https://github.com/matrix-org/matrix-rust-sdk/pull/6494))
 
 ### Refactor
 
