@@ -89,14 +89,14 @@ pub type Connection = Object;
 /// [`Manager`][managed::Manager] for creating and recycling SQLite
 /// [`Connection`]s.
 #[derive(Debug)]
-pub(crate) struct Manager {
+pub struct Manager {
     pub(crate) database_path: PathBuf,
 }
 
 impl Manager {
     /// Creates a new [`Manager`] for a database.
     #[must_use]
-    pub(crate) fn new(database_path: PathBuf) -> Self {
+    pub fn new(database_path: PathBuf) -> Self {
         Self { database_path }
     }
 }
