@@ -161,8 +161,11 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] `LiveLocationShares` has been renamed to `LiveLocationsObserver` and
+  `Room::live_location_shares` to `Room::live_locations_observer`.
+  ([#6446](https://github.com/matrix-org/matrix-rust-sdk/pull/6446))
 - [**breaking**] `Room::observe_live_location_shares` has been replaced by
-  `Room::live_location_shares`. Call [`LiveLocationShares::subscribe`] on it to
+  `Room::live_locations_observer`. Call [`LiveLocationsObserver::subscribe`] on it to
   receive an initial snapshot and a stream of incremental updates.The stream is seeded from the event cache
   on creation and includes the own user's shares (previously excluded). `LiveLocationShare.is_live`
   has been removed; instead `ts` (start timestamp) and `timeout` (duration in milliseconds) are now

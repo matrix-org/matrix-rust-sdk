@@ -16,8 +16,8 @@ use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
-use matrix_sdk::live_location_share::{
-    LiveLocationShare as SdkLiveLocationShare, LiveLocationShares as SdkLiveLocationShares,
+use matrix_sdk::live_locations_observer::{
+    LiveLocationShare as SdkLiveLocationShare, LiveLocationsObserver as SdkLiveLocationsObserver,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
@@ -68,7 +68,7 @@ pub enum LiveLocationShareUpdate {
 
 /// Listener for live location share updates.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+pub trait LiveLocationsListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     /// Called with a batch of [`LiveLocationShareUpdate`]s whenever the list
     /// of active shares changes.
     fn on_update(&self, updates: Vec<LiveLocationShareUpdate>);
@@ -76,22 +76,22 @@ pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
 
 /// Tracks active live location shares in a room.
 ///
-/// Holds the SDK [`SdkLiveLocationShares`] which keeps the beacon and
+/// Holds the SDK [`SdkLiveLocationsObserver`] which keeps the beacon and
 /// beacon_info event handlers registered for as long as this object is alive.
-/// Call [`LiveLocationShares::subscribe`] to start receiving updates.
+/// Call [`LiveLocationsObserver::subscribe`] to start receiving updates.
 #[derive(uniffi::Object)]
-pub struct LiveLocationShares {
-    inner: SdkLiveLocationShares,
+pub struct LiveLocationsObserver {
+    inner: SdkLiveLocationsObserver,
 }
 
-impl LiveLocationShares {
-    pub fn new(inner: SdkLiveLocationShares) -> Self {
+impl LiveLocationsObserver {
+    pub fn new(inner: SdkLiveLocationsObserver) -> Self {
         Self { inner }
     }
 }
 
 #[matrix_sdk_ffi_macros::export]
-impl LiveLocationShares {
+impl LiveLocationsObserver {
     /// Subscribe to changes in the list of active live location shares.
     ///
     /// Immediately calls `listener` with a `Reset` update containing the
@@ -100,8 +100,8 @@ impl LiveLocationShares {
     ///
     /// Returns a [`TaskHandle`] that, when dropped, stops the listener.
     /// The event handlers remain registered for as long as this
-    /// [`LiveLocationShares`] object is alive.
-    pub fn subscribe(&self, listener: Box<dyn LiveLocationShareListener>) -> Arc<TaskHandle> {
+    /// [`LiveLocationsObserver`] object is alive.
+    pub fn subscribe(&self, listener: Box<dyn LiveLocationsListener>) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.subscribe();
 
         if !initial_values.is_empty() {

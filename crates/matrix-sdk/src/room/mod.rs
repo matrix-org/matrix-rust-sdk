@@ -176,7 +176,7 @@ use crate::{
     error::{BeaconError, WrongRoomState},
     event_cache::{self, EventCacheDropHandles, RoomEventCache},
     event_handler::{EventHandler, EventHandlerDropGuard, EventHandlerHandle, SyncEvent},
-    live_location_share::LiveLocationShares,
+    live_locations_observer::LiveLocationsObserver,
     media::{MediaFormat, MediaRequestParameters},
     notification_settings::{IsEncrypted, IsOneToOne, RoomNotificationMode},
     room::{
@@ -714,13 +714,13 @@ impl Room {
 
     /// Subscribes to active live location shares in this room.
     ///
-    /// Returns a [`LiveLocationShares`] that holds the current state and
+    /// Returns a [`LiveLocationsObserver`] that holds the current state and
     /// exposes a stream of incremental [`eyeball_im::VectorDiff`] updates via
-    /// [`LiveLocationShares::subscribe`].
+    /// [`LiveLocationsObserver::subscribe`].
     ///
     /// Event handlers are active for as long as the returned struct is alive.
-    pub async fn live_location_shares(&self) -> LiveLocationShares {
-        LiveLocationShares::new(self.clone()).await
+    pub async fn live_locations_observer(&self) -> LiveLocationsObserver {
+        LiveLocationsObserver::new(self.clone()).await
     }
 
     /// Returns a wrapping `TimelineEvent` for the input `AnyTimelineEvent`,
