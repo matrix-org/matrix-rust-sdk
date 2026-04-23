@@ -154,6 +154,12 @@ pub(crate) enum AggregationKind {
     ///
     /// Unlike [`BeaconUpdate`], a beacon stop is not reversible.
     BeaconStop { content: BeaconInfoEventContent },
+
+    /// An m.rtc.decline event for an m.rtc.notification event
+    CallDeclined {
+        /// Sender of the decline.
+        sender: OwnedUserId,
+    },
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -208,6 +214,27 @@ fn live_location_state_from_item<'a>(
     } else {
         Err(AggregationError::InvalidType {
             expected: "a live location".to_owned(),
+            actual: event.content().debug_string().to_owned(),
+        })
+    }
+}
+
+/// Gets the mutable list of users that did decline this notification event.
+fn rtc_notification_declinations_from_item<'a>(
+    event: &'a mut Cow<'_, EventTimelineItem>,
+) -> Result<&'a mut Vec<OwnedUserId>, AggregationError> {
+    if event.content().is_rtc_notification() {
+        // It was an RtcNotification! Now return the declinations as mutable.
+        let declinations = event
+            .to_mut()
+            .content_mut()
+            .as_rtc_notification_mut()
+            .expect("it was an rtc notification just above");
+
+        Ok(declinations)
+    } else {
+        Err(AggregationError::InvalidType {
+            expected: "an rtc notification".to_owned(),
             actual: event.content().debug_string().to_owned(),
         })
     }
@@ -335,6 +362,20 @@ impl Aggregation {
                 }
                 Err(err) => ApplyAggregationResult::Error(err),
             },
+
+            AggregationKind::CallDeclined { sender } => {
+                match rtc_notification_declinations_from_item(event) {
+                    Ok(declinations) => {
+                        if declinations.contains(sender) {
+                            ApplyAggregationResult::LeftItemIntact
+                        } else {
+                            declinations.push(sender.clone());
+                            ApplyAggregationResult::UpdatedItem
+                        }
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
         }
     }
 
@@ -429,6 +470,21 @@ impl Aggregation {
             AggregationKind::BeaconStop { .. } => {
                 // Stopping a live location share is not reversible.
                 ApplyAggregationResult::Error(AggregationError::CantUndoBeaconStop)
+            }
+
+            AggregationKind::CallDeclined { sender } => {
+                match rtc_notification_declinations_from_item(event) {
+                    Ok(declinations) => {
+                        let before = declinations.len();
+                        declinations.retain(|s| s != sender);
+                        if declinations.len() < before {
+                            ApplyAggregationResult::UpdatedItem
+                        } else {
+                            ApplyAggregationResult::LeftItemIntact
+                        }
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
             }
         }
     }
@@ -739,7 +795,8 @@ impl Aggregations {
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
                 | AggregationKind::BeaconUpdate { .. }
-                | AggregationKind::BeaconStop { .. } => {
+                | AggregationKind::BeaconStop { .. }
+                | AggregationKind::CallDeclined { .. } => {
                     // Nothing particular to do.
                 }
 
