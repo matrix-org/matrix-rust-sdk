@@ -40,7 +40,7 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
-            Content::RtcNotification { call_intent, declinations } => {
+            Content::RtcNotification { call_intent, declined_by: declinations } => {
                 TimelineItemContent::RtcNotification {
                     call_intent: call_intent.map(|s| s.to_string()),
                     declined_by: declinations.iter().map(|u| u.to_string()).collect(),
