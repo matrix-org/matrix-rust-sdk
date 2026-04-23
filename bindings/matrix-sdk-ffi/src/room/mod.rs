@@ -1081,9 +1081,12 @@ impl Room {
     }
 
     /// Start the current users live location share in the room.
-    pub async fn start_live_location_share(&self, duration_millis: u64) -> Result<(), ClientError> {
-        self.inner.start_live_location_share(duration_millis, None).await?;
-        Ok(())
+    pub async fn start_live_location_share(
+        &self,
+        duration_millis: u64,
+    ) -> Result<String, ClientError> {
+        let response = self.inner.start_live_location_share(duration_millis, None).await?;
+        Ok(response.event_id.into())
     }
 
     /// Stop the current users live location share in the room.
