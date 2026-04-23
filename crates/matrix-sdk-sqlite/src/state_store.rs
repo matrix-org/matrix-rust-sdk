@@ -2952,3 +2952,230 @@ mod migration_tests {
         });
     }
 }
+
+#[cfg(test)]
+mod pause_resume_tests {
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+
+    use matrix_sdk_base::StateStore;
+    use matrix_sdk_test::async_test;
+    use tempfile::{TempDir, tempdir};
+
+    use super::SqliteStateStore;
+
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static NUM: AtomicU32 = AtomicU32::new(0);
+
+    async fn new_store() -> SqliteStateStore {
+        let name = NUM.fetch_add(1, SeqCst).to_string();
+        let tmpdir_path = TMP_DIR.path().join(name);
+        SqliteStateStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap()
+    }
+
+    #[async_test]
+    async fn test_pause_completes_without_timeout() {
+        let store = new_store().await;
+
+        // Pause should complete quickly without hitting the 5s timeout.
+        let start = std::time::Instant::now();
+        store.pause().await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "pause() took {elapsed:?}, expected < 2s (no timeout)"
+        );
+
+        // Connections should be None after pause.
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "connections should be None after pause");
+    }
+
+    #[async_test]
+    async fn test_resume_restores_connections() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+
+        // Connections should be None after pause.
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_none());
+        }
+
+        store.resume().await.unwrap();
+
+        // Connections should be Some after resume.
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_some(), "connections should be Some after resume");
+        }
+    }
+
+    #[async_test]
+    async fn test_pause_is_idempotent() {
+        let store = new_store().await;
+
+        // First pause.
+        store.pause().await.unwrap();
+        // Second pause should also succeed (no-op).
+        store.pause().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none());
+    }
+
+    #[async_test]
+    async fn test_resume_is_idempotent() {
+        let store = new_store().await;
+
+        // Resume on an active (non-paused) store should be a no-op.
+        store.resume().await.unwrap();
+
+        // Connections should still be Some.
+        let guard = store.connections.lock().await;
+        assert!(guard.is_some());
+    }
+
+    #[async_test]
+    async fn test_read_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store.get_custom_value(b"some_key").await;
+        assert!(err.is_err(), "read should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_write_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store.set_custom_value(b"key", b"value".to_vec()).await;
+        assert!(err.is_err(), "write should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_data_persists_across_pause_resume() {
+        let store = new_store().await;
+
+        // Write some data.
+        store.set_custom_value(b"test_key", b"test_value".to_vec()).await.unwrap();
+
+        // Verify it's there.
+        let value = store.get_custom_value(b"test_key").await.unwrap();
+        assert_eq!(value.as_deref(), Some(b"test_value".as_slice()));
+
+        // Pause and resume.
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Data should still be there after resume.
+        let value = store.get_custom_value(b"test_key").await.unwrap();
+        assert_eq!(
+            value.as_deref(),
+            Some(b"test_value".as_slice()),
+            "data should persist across pause/resume"
+        );
+    }
+
+    #[async_test]
+    async fn test_multiple_pause_resume_cycles() {
+        let store = new_store().await;
+
+        for i in 0..3 {
+            let key = format!("key_{i}");
+            let value = format!("value_{i}");
+
+            store.set_custom_value(key.as_bytes(), value.as_bytes().to_vec()).await.unwrap();
+
+            store.pause().await.unwrap();
+            store.resume().await.unwrap();
+
+            // Verify all previously written data is still accessible.
+            for j in 0..=i {
+                let k = format!("key_{j}");
+                let v = format!("value_{j}");
+                let retrieved = store.get_custom_value(k.as_bytes()).await.unwrap();
+                assert_eq!(
+                    retrieved.as_deref(),
+                    Some(v.as_bytes()),
+                    "data for key_{j} should persist after cycle {i}"
+                );
+            }
+        }
+    }
+
+    #[async_test]
+    async fn test_pool_is_fully_drained_after_pause() {
+        let store = new_store().await;
+
+        // Do a few reads to exercise the pool.
+        let _ = store.get_custom_value(b"key1").await;
+        let _ = store.get_custom_value(b"key2").await;
+
+        store.pause().await.unwrap();
+
+        // After pause, the connections field should be None (pool and write
+        // connection have been fully torn down).
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "all connections should be released after pause");
+    }
+
+    #[async_test]
+    async fn test_operations_work_immediately_after_resume() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Write should work immediately.
+        store.set_custom_value(b"after_resume", b"works".to_vec()).await.unwrap();
+
+        // Read should work immediately.
+        let value = store.get_custom_value(b"after_resume").await.unwrap();
+        assert_eq!(value.as_deref(), Some(b"works".as_slice()));
+    }
+
+    #[async_test]
+    async fn test_pause_waits_for_held_read_connection_to_drain() {
+        let store = new_store().await;
+
+        // Acquire a read connection and hold it, simulating an in-flight read.
+        let held_conn = store.read().await.unwrap();
+
+        // Spawn pause in a background task — it will close the pool and then
+        // poll-wait for pool.status().size == 0 in the drain loop.
+        let store_clone = store.clone();
+        let pause_handle = tokio::spawn(async move {
+            store_clone.pause().await.unwrap();
+        });
+
+        // Give pause() a moment to close the pool and enter the drain loop.
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+        // The pause task should still be running because we hold a connection.
+        assert!(!pause_handle.is_finished(), "pause should be waiting for the held connection");
+
+        // Release the held connection — this lets pool.status().size drop to 0.
+        drop(held_conn);
+
+        // Now pause should complete promptly (well within the 5s timeout).
+        let timeout = tokio::time::timeout(std::time::Duration::from_secs(3), pause_handle).await;
+        assert!(timeout.is_ok(), "pause should complete after the held connection is released");
+        timeout.unwrap().unwrap();
+
+        // Verify the store is fully paused.
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "connections should be None after pause");
+    }
+}

@@ -872,6 +872,210 @@ mod tests {
 }
 
 #[cfg(test)]
+mod pause_resume_tests {
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+
+    use matrix_sdk_base::media::{
+        MediaFormat, MediaRequestParameters,
+        store::{IgnoreMediaRetentionPolicy, MediaStore},
+    };
+    use matrix_sdk_test::async_test;
+    use ruma::{events::room::MediaSource, mxc_uri};
+    use tempfile::{TempDir, tempdir};
+
+    use super::SqliteMediaStore;
+
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static NUM: AtomicU32 = AtomicU32::new(0);
+
+    async fn new_store() -> SqliteMediaStore {
+        let name = NUM.fetch_add(1, SeqCst).to_string();
+        let tmpdir_path = TMP_DIR.path().join(name);
+        SqliteMediaStore::open(tmpdir_path, None).await.unwrap()
+    }
+
+    fn test_request() -> MediaRequestParameters {
+        MediaRequestParameters {
+            source: MediaSource::Plain(mxc_uri!("mxc://localhost/test_media").to_owned()),
+            format: MediaFormat::File,
+        }
+    }
+
+    #[async_test]
+    async fn test_pause_completes_without_timeout() {
+        let store = new_store().await;
+
+        // Pause should complete quickly without hitting any timeout.
+        let start = std::time::Instant::now();
+        store.pause().await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "pause() took {elapsed:?}, expected < 2s (no timeout)"
+        );
+
+        // Connections should be None after pause.
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "connections should be None after pause");
+    }
+
+    #[async_test]
+    async fn test_resume_restores_connections() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_none());
+        }
+
+        store.resume().await.unwrap();
+
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_some(), "connections should be Some after resume");
+        }
+    }
+
+    #[async_test]
+    async fn test_pause_is_idempotent() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        // Second pause should be a no-op.
+        store.pause().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none());
+    }
+
+    #[async_test]
+    async fn test_resume_is_idempotent() {
+        let store = new_store().await;
+
+        // Resume on an active (non-paused) store should be a no-op.
+        store.resume().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_some());
+    }
+
+    #[async_test]
+    async fn test_read_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store.get_media_content(&test_request()).await;
+        assert!(err.is_err(), "read should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_write_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store
+            .add_media_content(&test_request(), b"data".to_vec(), IgnoreMediaRetentionPolicy::No)
+            .await;
+        assert!(err.is_err(), "write should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_data_persists_across_pause_resume() {
+        let store = new_store().await;
+
+        // Write some media content.
+        store
+            .add_media_content(
+                &test_request(),
+                b"hello world".to_vec(),
+                IgnoreMediaRetentionPolicy::Yes,
+            )
+            .await
+            .unwrap();
+
+        // Verify it's there.
+        let content = store.get_media_content(&test_request()).await.unwrap();
+        assert_eq!(content.as_deref(), Some(b"hello world".as_slice()));
+
+        // Pause and resume.
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Content should still be there after resume.
+        let content = store.get_media_content(&test_request()).await.unwrap();
+        assert_eq!(
+            content.as_deref(),
+            Some(b"hello world".as_slice()),
+            "media content should persist across pause/resume"
+        );
+    }
+
+    #[async_test]
+    async fn test_multiple_pause_resume_cycles() {
+        let store = new_store().await;
+
+        for _ in 0..5 {
+            store.pause().await.unwrap();
+            store.resume().await.unwrap();
+
+            // After each cycle, the store should be fully operational.
+            let result = store.get_media_content(&test_request()).await;
+            assert!(result.is_ok(), "store should work after pause/resume cycle");
+        }
+    }
+
+    #[async_test]
+    async fn test_pool_is_fully_drained_after_pause() {
+        let store = new_store().await;
+
+        // Do a few reads to exercise the pool.
+        let _ = store.get_media_content(&test_request()).await;
+        let _ = store.get_media_content(&test_request()).await;
+
+        store.pause().await.unwrap();
+
+        // After pause, the connections field should be None (pool and write
+        // connection have been fully torn down).
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "all connections should be released after pause");
+    }
+
+    #[async_test]
+    async fn test_operations_work_immediately_after_resume() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Read should work immediately after resume.
+        let result = store.get_media_content(&test_request()).await;
+        assert!(result.is_ok(), "read should succeed immediately after resume");
+
+        // Write should work immediately after resume.
+        let result = store
+            .add_media_content(
+                &test_request(),
+                b"after_resume".to_vec(),
+                IgnoreMediaRetentionPolicy::No,
+            )
+            .await;
+        assert!(result.is_ok(), "write should succeed immediately after resume");
+    }
+}
+
+#[cfg(test)]
 mod encrypted_tests {
     use std::sync::{
         LazyLock,

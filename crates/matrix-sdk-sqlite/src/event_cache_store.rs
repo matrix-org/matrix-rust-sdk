@@ -2012,3 +2012,174 @@ mod encrypted_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod pause_resume_tests {
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+
+    use matrix_sdk_base::{event_cache::store::EventCacheStore, linked_chunk::LinkedChunkId};
+    use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
+    use tempfile::{TempDir, tempdir};
+
+    use super::SqliteEventCacheStore;
+
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static NUM: AtomicU32 = AtomicU32::new(0);
+
+    async fn new_store() -> SqliteEventCacheStore {
+        let name = NUM.fetch_add(1, SeqCst).to_string();
+        let tmpdir_path = TMP_DIR.path().join(name);
+        SqliteEventCacheStore::open(tmpdir_path, None).await.unwrap()
+    }
+
+    #[async_test]
+    async fn test_pause_completes_without_timeout() {
+        let store = new_store().await;
+
+        // Pause should complete quickly without hitting the 5s timeout.
+        let start = std::time::Instant::now();
+        store.pause().await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "pause() took {elapsed:?}, expected < 2s (no timeout)"
+        );
+
+        // Connections should be None after pause.
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "connections should be None after pause");
+    }
+
+    #[async_test]
+    async fn test_resume_restores_connections() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_none());
+        }
+
+        store.resume().await.unwrap();
+
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_some(), "connections should be Some after resume");
+        }
+    }
+
+    #[async_test]
+    async fn test_pause_is_idempotent() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        // Second pause should be a no-op.
+        store.pause().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none());
+    }
+
+    #[async_test]
+    async fn test_resume_is_idempotent() {
+        let store = new_store().await;
+
+        // Resume on an active (non-paused) store should be a no-op.
+        store.resume().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_some());
+    }
+
+    #[async_test]
+    async fn test_read_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        assert!(err.is_err(), "read should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_write_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store.try_take_leased_lock(1000, "test_lock", "holder").await;
+        assert!(err.is_err(), "write should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_data_persists_across_pause_resume() {
+        let store = new_store().await;
+
+        // Take a lease lock — this is persisted in the database.
+        let result = store.try_take_leased_lock(60_000, "test_lock", "holder").await.unwrap();
+        assert!(result.is_some(), "should have acquired the lock");
+
+        // Pause and resume.
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // The lock should still be held by the original holder after resume.
+        let result = store.try_take_leased_lock(60_000, "test_lock", "other_holder").await.unwrap();
+        assert!(result.is_none(), "lock should still be held by the original holder after resume");
+    }
+
+    #[async_test]
+    async fn test_multiple_pause_resume_cycles() {
+        let store = new_store().await;
+
+        for _ in 0..5 {
+            store.pause().await.unwrap();
+            store.resume().await.unwrap();
+
+            // After each cycle, the store should be fully operational.
+            let result = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+            assert!(result.is_ok(), "store should work after pause/resume cycle");
+        }
+    }
+
+    #[async_test]
+    async fn test_pool_is_fully_drained_after_pause() {
+        let store = new_store().await;
+
+        // Do a few reads to exercise the pool.
+        let _ = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        let _ = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+
+        store.pause().await.unwrap();
+
+        // After pause, the connections field should be None (pool and write
+        // connection have been fully torn down).
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "all connections should be released after pause");
+    }
+
+    #[async_test]
+    async fn test_operations_work_immediately_after_resume() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Read should work immediately after resume.
+        let result = store.load_all_chunks(LinkedChunkId::Room(*DEFAULT_TEST_ROOM_ID)).await;
+        assert!(result.is_ok(), "read should succeed immediately after resume");
+
+        // Write should work immediately after resume.
+        let result = store.try_take_leased_lock(1000, "test_lock", "holder").await;
+        assert!(result.is_ok(), "write should succeed immediately after resume");
+    }
+}
