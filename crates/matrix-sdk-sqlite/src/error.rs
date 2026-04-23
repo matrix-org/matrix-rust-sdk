@@ -113,6 +113,9 @@ pub enum Error {
 
     #[error("The store contains invalid data: {details}")]
     InvalidData { details: String },
+
+    #[error("The store is paused")]
+    StorePaused,
 }
 
 macro_rules! impl_from {
