@@ -180,6 +180,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- Revert back to to determining lock dirtiness in `Encryption::{spin_lock_store, try_lock_once_store}`
+  through logic defined in `OlmMachine`, rather than `CrossProcessLock`.
+  ([#6496](https://github.com/matrix-org/matrix-rust-sdk/pull/6496))
 - [**breaking**] Update `Encryption::{spin_lock_store, try_lock_once_store}` so that lock dirtiness
   is determined entirely by `CrossProcessLock`, rather than logic defined by `OlmMachine`. Also enforce
   that lock generation is opaque by removing `CrossProcessLockStoreGuardWithGeneration`.
