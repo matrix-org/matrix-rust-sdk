@@ -20,7 +20,7 @@ use matrix_sdk_common::cross_process_lock::CrossProcessLockError;
 use matrix_sdk_crypto::{CryptoStoreError, MegolmError, OlmError};
 use thiserror::Error;
 
-use crate::event_cache::store::EventCacheStoreError;
+use crate::{event_cache::store::EventCacheStoreError, media::store::MediaStoreError};
 
 /// Result type of the rust-sdk.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -48,6 +48,10 @@ pub enum Error {
     /// An error happened while manipulating the event cache store.
     #[error(transparent)]
     EventCacheStore(#[from] EventCacheStoreError),
+
+    /// An error happened in the media store.
+    #[error(transparent)]
+    MediaStore(#[from] MediaStoreError),
 
     /// An error happened while attempting to lock the event cache store.
     #[error(transparent)]
