@@ -147,7 +147,7 @@ impl RoomInfo {
             .map(|p| RoomPowerLevels::new(p, room.own_user_id().to_owned()));
 
         let active_service_members_count =
-            room.active_service_members().await.unwrap_or_default().len() as u64;
+            room.active_service_members().await?.unwrap_or_default().len() as u64;
 
         Ok(Self {
             id: room.room_id().to_string(),

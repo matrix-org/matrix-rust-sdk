@@ -1034,7 +1034,7 @@ impl NotificationItem {
             .collect_vec();
 
         let active_service_members_count =
-            room.active_service_members().await.unwrap_or_default().len() as u64;
+            room.active_service_members().await?.unwrap_or_default().len() as u64;
 
         let item = NotificationItem {
             event,

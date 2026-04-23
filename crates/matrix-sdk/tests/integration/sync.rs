@@ -2420,7 +2420,7 @@ async fn test_active_service_members() {
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 1);
     assert_eq!(room.service_members().unwrap().len(), 2);
-    assert!(room.active_service_members().await.unwrap().is_empty());
+    assert!(room.active_service_members().await.unwrap().unwrap().is_empty());
 
     // Now another user joined the room
     let human_user = EventFactory::new()
@@ -2440,7 +2440,7 @@ async fn test_active_service_members() {
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 2);
     assert_eq!(room.service_members().unwrap().len(), 2);
-    assert!(room.active_service_members().await.unwrap().is_empty());
+    assert!(room.active_service_members().await.unwrap().unwrap().is_empty());
 
     // Now one of the service members in the member hints joined the room
     let service_member_1 =
@@ -2459,7 +2459,7 @@ async fn test_active_service_members() {
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 3);
     assert_eq!(room.service_members().unwrap().len(), 2);
-    assert_eq!(room.active_service_members().await.unwrap().len(), 1);
+    assert_eq!(room.active_service_members().await.unwrap().unwrap().len(), 1);
 
     // And a second one joins too
     let service_member_2 =
@@ -2478,7 +2478,7 @@ async fn test_active_service_members() {
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 4);
     assert_eq!(room.service_members().unwrap().len(), 2);
-    assert_eq!(room.active_service_members().await.unwrap().len(), 2);
+    assert_eq!(room.active_service_members().await.unwrap().unwrap().len(), 2);
 
     // And now the 2nd service member leaves the room
     let service_member_2_left = EventFactory::new()
@@ -2500,5 +2500,5 @@ async fn test_active_service_members() {
     let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
     assert_eq!(active_members.len(), 3);
     assert_eq!(room.service_members().unwrap().len(), 2);
-    assert_eq!(room.active_service_members().await.unwrap().len(), 1);
+    assert_eq!(room.active_service_members().await.unwrap().unwrap().len(), 1);
 }
