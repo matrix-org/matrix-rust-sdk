@@ -192,6 +192,14 @@ impl SqliteMediaStore {
     async fn get_db_size(&self) -> Result<Option<usize>> {
         Ok(Some(self.pool.get().await?.get_db_size().await?))
     }
+
+    pub async fn pause(&self) -> Result<()> {
+        Ok(())
+    }
+
+    pub async fn resume(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Run migrations for the given version of the database.

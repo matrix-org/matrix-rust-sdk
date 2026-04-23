@@ -80,6 +80,16 @@ impl EventCacheStoreLock {
         Self { cross_process_lock, store }
     }
 
+    /// Pause the store, releasing database connections and file locks.
+    pub async fn pause(&self) -> Result<(), EventCacheStoreError> {
+        self.store.pause().await
+    }
+
+    /// Resume the store after a pause.
+    pub async fn resume(&self) -> Result<(), EventCacheStoreError> {
+        self.store.resume().await
+    }
+
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).
     pub async fn lock(&self) -> Result<EventCacheStoreLockState, CrossProcessLockError> {
         Ok(self.cross_process_lock.spin_lock(None).await??.map(|cross_process_lock_guard| {

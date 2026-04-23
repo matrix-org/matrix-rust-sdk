@@ -2368,6 +2368,14 @@ impl StateStore for SqliteStateStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.get_db_size().await
     }
+
+    async fn pause(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
