@@ -54,8 +54,7 @@ async fn test_decline_call() {
     let event_item = message.as_event().unwrap();
     assert!(event_item.content().is_rtc_notification());
     assert_let!(
-        TimelineItemContent::RtcNotification { call_intent: _, declinations } =
-            event_item.content()
+        TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
     assert_eq!(declinations.len(), 0);
 
@@ -65,7 +64,7 @@ async fn test_decline_call() {
     let event_item = updated_message.as_event().unwrap();
 
     assert_let!(
-        TimelineItemContent::RtcNotification { call_intent, declinations } = event_item.content()
+        TimelineItemContent::RtcNotification { call_intent, declined_by } = event_item.content()
     );
     assert_eq!(declinations.len(), 1);
     assert_eq!(declinations[0], *BOB);
@@ -119,8 +118,7 @@ async fn test_multiple_decline_call() {
     let event_item = message.as_event().unwrap();
     assert!(event_item.content().is_rtc_notification());
     assert_let!(
-        TimelineItemContent::RtcNotification { call_intent: _, declinations } =
-            event_item.content()
+        TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
     assert_eq!(declinations.len(), 0);
 
@@ -130,8 +128,7 @@ async fn test_multiple_decline_call() {
     let event_item = updated_message.as_event().unwrap();
 
     assert_let!(
-        TimelineItemContent::RtcNotification { call_intent: _, declinations } =
-            event_item.content()
+        TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
     assert_eq!(declinations.len(), 1);
     assert_eq!(declinations[0], *BOB);
@@ -142,8 +139,7 @@ async fn test_multiple_decline_call() {
     let event_item = updated_message.as_event().unwrap();
 
     assert_let!(
-        TimelineItemContent::RtcNotification { call_intent: _, declinations } =
-            event_item.content()
+        TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
     assert_eq!(declinations.len(), 2);
     assert_eq!(declinations[0], *BOB);

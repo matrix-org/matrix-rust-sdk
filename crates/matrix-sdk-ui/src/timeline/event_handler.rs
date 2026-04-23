@@ -418,7 +418,7 @@ impl TimelineAction {
             AnyMessageLikeEventContent::RtcNotification(c) => {
                 Self::add_item(TimelineItemContent::RtcNotification {
                     call_intent: c.call_intent,
-                    declinations: Vec::new(),
+                    declined_by: Vec::new(),
                 })
             }
 

@@ -125,7 +125,7 @@ pub enum TimelineItemContent {
         /// The intent of this notification.
         call_intent: Option<CallIntent>,
         /// Users who have declined this call notification
-        declinations: Vec<OwnedUserId>,
+        declined_by: Vec<OwnedUserId>,
     },
 }
 
@@ -236,8 +236,8 @@ impl TimelineItemContent {
     }
 
     pub(in crate::timeline) fn as_rtc_notification_mut(&mut self) -> Option<&mut Vec<OwnedUserId>> {
-        if let TimelineItemContent::RtcNotification { declinations, .. } = self {
-            Some(declinations)
+        if let TimelineItemContent::RtcNotification { declined_by, .. } = self {
+            Some(declined_by)
         } else {
             None
         }
