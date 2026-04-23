@@ -472,19 +472,9 @@ impl Aggregation {
                 ApplyAggregationResult::Error(AggregationError::CantUndoBeaconStop)
             }
 
-            AggregationKind::CallDeclined { sender } => {
-                match rtc_notification_declinations_from_item(event) {
-                    Ok(declinations) => {
-                        let before = declinations.len();
-                        declinations.retain(|s| s != sender);
-                        if declinations.len() < before {
-                            ApplyAggregationResult::UpdatedItem
-                        } else {
-                            ApplyAggregationResult::LeftItemIntact
-                        }
-                    }
-                    Err(err) => ApplyAggregationResult::Error(err),
-                }
+            AggregationKind::CallDeclined { .. } => {
+                // One cannot un-decline a call
+                ApplyAggregationResult::Error(AggregationError::CantUndoRtcDecline)
             }
         }
     }
@@ -1085,6 +1075,9 @@ pub(crate) enum AggregationError {
 
     #[error("a beacon stop can't be unapplied")]
     CantUndoBeaconStop,
+
+    #[error("a call decline can't be unapplied")]
+    CantUndoRtcDecline,
 
     #[error(
         "trying to apply an aggregation of one type to an invalid target: \
