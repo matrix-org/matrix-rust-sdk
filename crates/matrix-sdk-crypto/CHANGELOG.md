@@ -43,6 +43,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- Re-introduce cross-process lock generation logic in `OlmMachine`
+  ([#6496](https://github.com/matrix-org/matrix-rust-sdk/pull/6496))
 - [**breaking**] The `MegolmV1BackupKey::encrypt` now returns a `Result`
   ([#6477](https://github.com/matrix-org/matrix-rust-sdk/pull/6477))
 - [**breaking**] `CryptoStore::get_secrets_from_inbox` now returns a `Vec` of
