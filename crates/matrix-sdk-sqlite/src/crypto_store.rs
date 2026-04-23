@@ -1811,6 +1811,14 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
+    async fn pause(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<()> {
+        Ok(())
+    }
+
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         Ok(Some(self.pool.get().await?.get_db_size().await?))
     }
