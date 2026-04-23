@@ -74,7 +74,6 @@ pub trait LiveLocationsListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, updates: Vec<LiveLocationShareUpdate>);
 }
 
-
 /// Tracks active live location shares in a room.
 ///
 /// Holds the SDK [`SdkLiveLocationsObserver`] which keeps the beacon and

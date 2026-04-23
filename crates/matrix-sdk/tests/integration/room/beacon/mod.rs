@@ -3,7 +3,8 @@ use std::time::Duration;
 use futures_util::{FutureExt, StreamExt as _, pin_mut};
 use js_int::uint;
 use matrix_sdk::{
-    assert_let_timeout, live_locations_observer::LiveLocationShare, test_utils::mocks::MatrixMockServer,
+    assert_let_timeout, live_locations_observer::LiveLocationShare,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_test::{
     DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, async_test, event_factory::EventFactory,
