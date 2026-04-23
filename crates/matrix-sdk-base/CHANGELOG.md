@@ -31,6 +31,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `Room::active_room_members`, returning a list of all the service room members 
+  that are active in the room. 
+  ([#6843](https://github.com/matrix-org/matrix-rust-sdk/pull/6483))
 - Add support in the `MemoryStore`'s implementation of `EventCacheStore` for 
   having duplicate events in a room, where each duplicate is in a different 
   `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
