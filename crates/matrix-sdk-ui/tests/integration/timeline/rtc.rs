@@ -56,7 +56,7 @@ async fn test_decline_call() {
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
-    assert_eq!(declinations.len(), 0);
+    assert_eq!(declined_by.len(), 0);
 
     // Ignore update 1 (implicit read receipt following the declination)
     // Then the decline is taken into account.
@@ -66,8 +66,8 @@ async fn test_decline_call() {
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent, declined_by } = event_item.content()
     );
-    assert_eq!(declinations.len(), 1);
-    assert_eq!(declinations[0], *BOB);
+    assert_eq!(declined_by.len(), 1);
+    assert_eq!(declined_by[0], *BOB);
     assert_eq!(call_intent.clone().unwrap(), CallIntent::Audio);
 }
 
@@ -120,7 +120,7 @@ async fn test_multiple_decline_call() {
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
-    assert_eq!(declinations.len(), 0);
+    assert_eq!(declined_by.len(), 0);
 
     // Ignore update 1 (implicit read receipt following the declination)
     // Then the first decline is taken into account.
@@ -130,8 +130,8 @@ async fn test_multiple_decline_call() {
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
-    assert_eq!(declinations.len(), 1);
-    assert_eq!(declinations[0], *BOB);
+    assert_eq!(declined_by.len(), 1);
+    assert_eq!(declined_by[0], *BOB);
 
     // Ignore update 3 (implicit read receipt following the declination)
     // Then the second decline is taken into account.
@@ -141,7 +141,7 @@ async fn test_multiple_decline_call() {
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
-    assert_eq!(declinations.len(), 2);
-    assert_eq!(declinations[0], *BOB);
-    assert_eq!(declinations[1], *CAROL);
+    assert_eq!(declined_by.len(), 2);
+    assert_eq!(declined_by[0], *BOB);
+    assert_eq!(declined_by[1], *CAROL);
 }
