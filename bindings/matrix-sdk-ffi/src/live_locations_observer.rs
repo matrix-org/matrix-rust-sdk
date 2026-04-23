@@ -16,7 +16,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
-use matrix_sdk::live_location_share::{
+use matrix_sdk::live_locations_observer::{
     LiveLocationShare as SdkLiveLocationShare, LiveLocationsObserver as SdkLiveLocationsObserver,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
@@ -68,11 +68,12 @@ pub enum LiveLocationShareUpdate {
 
 /// Listener for live location share updates.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+pub trait LiveLocationsListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     /// Called with a batch of [`LiveLocationShareUpdate`]s whenever the list
     /// of active shares changes.
     fn on_update(&self, updates: Vec<LiveLocationShareUpdate>);
 }
+
 
 /// Tracks active live location shares in a room.
 ///
@@ -101,7 +102,7 @@ impl LiveLocationsObserver {
     /// Returns a [`TaskHandle`] that, when dropped, stops the listener.
     /// The event handlers remain registered for as long as this
     /// [`LiveLocationsObserver`] object is alive.
-    pub fn subscribe(&self, listener: Box<dyn LiveLocationShareListener>) -> Arc<TaskHandle> {
+    pub fn subscribe(&self, listener: Box<dyn LiveLocationsListener>) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.subscribe();
 
         if !initial_values.is_empty() {

@@ -56,7 +56,7 @@ use crate::{
     error::{ClientError, MediaInfoError, NotYetImplemented, QueueWedgeError, RoomError},
     event::TimelineEvent,
     identity_status_change::IdentityStatusChange,
-    live_location_share::LiveLocationsObserver,
+    live_locations_observer::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
     ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
