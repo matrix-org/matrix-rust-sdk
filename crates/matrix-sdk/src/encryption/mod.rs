@@ -38,9 +38,7 @@ use futures_util::{
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
-    cross_process_lock::{
-        AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError, CrossProcessLockState,
-    },
+    cross_process_lock::{AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError},
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
         store::{
@@ -1842,6 +1840,34 @@ impl Encryption {
         Ok(())
     }
 
+    /// Maybe reload the `OlmMachine` after acquiring the lock for the first
+    /// time.
+    ///
+    /// Returns the current generation number.
+    async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
+        let olm_machine_guard = self.client.olm_machine().await;
+        if let Some(olm_machine) = olm_machine_guard.as_ref() {
+            let (new_gen, generation_number) = olm_machine
+                .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
+                .await?;
+            // If the crypto store generation has changed,
+            if new_gen {
+                // (get rid of the reference to the current crypto store first)
+                drop(olm_machine_guard);
+                // Recreate the OlmMachine.
+                self.client.base_client().regenerate_olm(None).await?;
+            }
+            Ok(generation_number)
+        } else {
+            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
+            // been initialised by the time we get here. Ideally we'd panic, or return an
+            // error, but for now I'm just adding some logging to check if it
+            // happens, and returning the magic number 0.
+            warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
+            Ok(0)
+        }
+    }
+
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
     /// spin-waits until the lock is available.
     ///
@@ -1864,7 +1890,14 @@ impl Encryption {
     ///
     /// Returns a guard to the lock, if it was obtained.
     pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessLockGuard>, Error> {
-        self.lock_store(CrossProcessLock::try_lock_once).await
+        match self.lock_store(CrossProcessLock::try_lock_once).await {
+            Err(Error::CrossProcessLockError(e))
+                if matches!(*e, CrossProcessLockError::Unobtained(_)) =>
+            {
+                Ok(None)
+            }
+            other => other,
+        }
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
@@ -1881,14 +1914,9 @@ impl Encryption {
             Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
         };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            Ok(Some(match acquire(lock).await.map_err(wrap_err)?? {
-                CrossProcessLockState::Clean(guard) => guard,
-                CrossProcessLockState::Dirty(guard) => {
-                    self.client.base_client().regenerate_olm(None).await?;
-                    guard.clear_dirty();
-                    guard
-                }
-            }))
+            let guard = acquire(lock).await.map_err(wrap_err)??;
+            let _ = self.on_lock_newly_acquired().await?;
+            Ok(Some(guard.into_guard()))
         } else {
             Ok(None)
         }
@@ -2202,7 +2230,7 @@ mod tests {
     };
 
     use crate::{
-        Client, Error, assert_next_matches_with_timeout,
+        Client, assert_next_matches_with_timeout,
         config::RequestConfig,
         encryption::{
             DuplicateOneTimeKeyErrorMessage, OAuthCrossSigningResetInfo, VerificationState,
@@ -2324,8 +2352,8 @@ mod tests {
         assert!(client1.encryption().backups().are_enabled().await);
 
         // The other client can't take the lock too.
-        let error = client2.encryption().try_lock_store_once().await.unwrap_err();
-        assert!(matches!(error, Error::CrossProcessLockError(_)));
+        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
+        assert!(acquired2.is_none());
 
         // Now have the first client release the lock,
         drop(acquired1);
