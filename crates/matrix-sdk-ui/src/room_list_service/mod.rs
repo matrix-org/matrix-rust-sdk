@@ -224,18 +224,22 @@ impl RoomListService {
                         // We want Sliding Sync to apply the poll + network timeout —i.e. to do the
                         // long-polling— in some particular cases. Let's define them.
                         match observable_state.get() {
-                            // The very first request must return immediately so the session can
-                            // be established as fast as possible.
-                            State::Init => PollTimeout::Some(0),
+                            // Pre-`Running` states must respond immediately: the session is still
+                            // being established, recovering, or has terminated. `SyncIndicator`
+                            // also derives from the time spent outside `Running`, so long-polling
+                            // here would falsely trigger the loading hint.
+                            State::Init
+                            | State::SettingUp
+                            | State::Recovering
+                            | State::Error { .. }
+                            | State::Terminated { .. } => PollTimeout::Some(0),
 
-                            // Once we have a `pos`, let the server long-poll. If a list change
-                            // still needs to be delivered, the server can answer immediately.
-                            State::SettingUp | State::Recovering | State::Running => {
-                                PollTimeout::Default
-                            }
-
-                            // Terminal states — included for exhaustiveness.
-                            State::Error { .. } | State::Terminated { .. } => PollTimeout::Some(0),
+                            // Once we are `Running`, let the server long-poll regardless of
+                            // whether the list is fully loaded. If the next Growing batch is
+                            // ready (or any update is queued) the server can still answer
+                            // immediately; otherwise it holds the connection instead of forcing
+                            // the client to spin on empty responses.
+                            State::Running => PollTimeout::Default,
                         }
                     }),
             )
@@ -679,7 +683,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_long_poll_after_first_sync() -> Result<(), Error> {
+    async fn test_long_poll_once_running() -> Result<(), Error> {
         let (client, server) = new_client().await;
         let room_list = RoomListService::new(client).await?;
 
@@ -704,21 +708,44 @@ mod tests {
             .mount_as_scoped(&server)
             .await;
 
+        // Drive the state machine: Init -> SettingUp -> Running -> Running.
         let _ = sync.next().await;
         assert_eq!(room_list.state().get(), State::SettingUp);
         let _ = sync.next().await;
+        assert_eq!(room_list.state().get(), State::Running);
+        let _ = sync.next().await;
 
         let requests = server.received_requests().await.unwrap();
-        let second_request =
-            requests.iter().filter(|request| SlidingSyncMatcher.matches(request)).nth(1).unwrap();
+        let sliding_sync_requests: Vec<_> =
+            requests.iter().filter(|request| SlidingSyncMatcher.matches(request)).collect();
 
-        assert!(
-            second_request
+        let timeout_of = |index: usize| -> Option<String> {
+            sliding_sync_requests[index]
                 .url
                 .query_pairs()
-                .any(|(key, value)| key == "timeout" && value == "30000"),
-            "expected second sync request to enable long-poll timeout, got {:?}",
-            second_request.url
+                .find(|(key, _)| key == "timeout")
+                .map(|(_, value)| value.into_owned())
+        };
+
+        // The `SettingUp` request must keep `timeout=0`: `SyncIndicator` is derived
+        // from how long we stay outside `Running`, so long-polling here would falsely
+        // trigger the loading hint.
+        assert_eq!(
+            timeout_of(1).as_deref(),
+            Some("0"),
+            "request issued in `SettingUp` must not long-poll: {:?}",
+            sliding_sync_requests[1].url,
+        );
+
+        // The first request issued while already in `Running` must long-poll, even
+        // though the list is not yet fully loaded — otherwise an idle homeserver
+        // gets flooded with back-to-back `timeout=0` requests carrying the same
+        // `pos`.
+        assert_eq!(
+            timeout_of(2).as_deref(),
+            Some("30000"),
+            "request issued in `Running` must long-poll: {:?}",
+            sliding_sync_requests[2].url,
         );
 
         Ok(())
