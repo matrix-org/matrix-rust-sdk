@@ -51,6 +51,7 @@ All notable changes to this project will be documented in this file.
 ### Refactor
 
 - [**breaking**] Remove `ttl_cache::TtlCache` because it is now unused.
+  ([#6484](https://github.com/matrix-org/matrix-rust-sdk/pull/6484))
 
 ## [0.16.0] - 2025-12-04
 
