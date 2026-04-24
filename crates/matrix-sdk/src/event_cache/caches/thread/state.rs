@@ -78,6 +78,85 @@ pub struct ThreadEventCacheState {
     waited_for_initial_prev_token: bool,
 }
 
+impl ThreadEventCacheState {
+    /// If storage is enabled, unload all the chunks, then reloads only the
+    /// last one.
+    ///
+    /// If storage's enabled, return a diff update that starts with a clear
+    /// of all events; as a result, the caller may override any
+    /// pending diff updates with the result of this function.
+    ///
+    /// Otherwise, returns `None`.
+    async fn shrink_to_last_chunk(&mut self, store: &EventCacheStoreLockGuard) -> Result<()> {
+        // Attempt to load the last chunk.
+        let linked_chunk_id = LinkedChunkId::Thread(&self.room_id, &self.thread_id);
+
+        let (last_chunk, chunk_identifier_generator) =
+            match store.load_last_chunk(linked_chunk_id).await {
+                Ok(pair) => pair,
+
+                Err(err) => {
+                    // If loading the last chunk failed, clear the entire linked chunk.
+                    error!("error when reloading a linked chunk from memory: {err}");
+
+                    // Clear storage for this room.
+                    store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
+
+                    // Restart with an empty linked chunk.
+                    (None, ChunkIdentifierGenerator::new_from_scratch())
+                }
+            };
+
+        debug!("unloading the linked chunk, and resetting it to its last chunk");
+
+        // Remove all the chunks from the linked chunks, except for the last one, and
+        // updates the chunk identifier generator.
+        if let Err(err) =
+            self.thread_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
+        {
+            error!("error when replacing the linked chunk: {err}");
+            return self.reset_internal(store).await;
+        }
+
+        // Don't propagate those updates to the store; this is only for the in-memory
+        // representation that we're doing this. Let's drain those store updates.
+        let _ = self.thread_linked_chunk.store_updates().take();
+
+        Ok(())
+    }
+
+    async fn reset_internal(&mut self, store: &EventCacheStoreLockGuard) -> Result<()> {
+        self.thread_linked_chunk.reset();
+
+        self.propagate_changes(store).await?;
+
+        // Reset the pagination state too: pretend we never waited for the initial
+        // prev-batch token, and indicate that we're not at the start of the
+        // timeline, since we don't know about that anymore.
+        self.waited_for_initial_prev_token = false;
+
+        Ok(())
+    }
+
+    pub async fn propagate_changes(&mut self, store: &EventCacheStoreLockGuard) -> Result<()> {
+        let updates = self.thread_linked_chunk.store_updates().take();
+
+        self.send_updates_to_store(updates, store).await
+    }
+
+    async fn send_updates_to_store(
+        &mut self,
+        updates: Vec<Update<Event, Gap>>,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<()> {
+        let linked_chunk_id =
+            OwnedLinkedChunkId::Thread(self.room_id.clone(), self.thread_id.clone());
+
+        send_updates_to_store(&store, linked_chunk_id, &self.linked_chunk_update_sender, updates)
+            .await
+    }
+}
+
 impl lock::Store for ThreadEventCacheState {
     fn store(&self) -> &EventCacheStoreLock {
         &self.store
@@ -196,7 +275,7 @@ pub type ThreadEventCacheStateLockWriteGuard<'a> =
 impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<()> {
-        self.shrink_to_last_chunk().await?;
+        self.state.shrink_to_last_chunk(&self.store).await?;
 
         let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
@@ -237,54 +316,6 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     /// Get the `waited_for_initial_prev_token` value.
     pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
-    }
-
-    /// If storage is enabled, unload all the chunks, then reloads only the
-    /// last one.
-    ///
-    /// If storage's enabled, return a diff update that starts with a clear
-    /// of all events; as a result, the caller may override any
-    /// pending diff updates with the result of this function.
-    ///
-    /// Otherwise, returns `None`.
-    pub async fn shrink_to_last_chunk(&mut self) -> Result<()> {
-        // Attempt to load the last chunk.
-        let linked_chunk_id = LinkedChunkId::Thread(&self.state.room_id, &self.state.thread_id);
-
-        let (last_chunk, chunk_identifier_generator) =
-            match self.store.load_last_chunk(linked_chunk_id).await {
-                Ok(pair) => pair,
-
-                Err(err) => {
-                    // If loading the last chunk failed, clear the entire linked chunk.
-                    error!("error when reloading a linked chunk from memory: {err}");
-
-                    // Clear storage for this room.
-                    self.store
-                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                        .await?;
-
-                    // Restart with an empty linked chunk.
-                    (None, ChunkIdentifierGenerator::new_from_scratch())
-                }
-            };
-
-        debug!("unloading the linked chunk, and resetting it to its last chunk");
-
-        // Remove all the chunks from the linked chunks, except for the last one, and
-        // updates the chunk identifier generator.
-        if let Err(err) =
-            self.state.thread_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
-        {
-            error!("error when replacing the linked chunk: {err}");
-            return self.reset_internal().await;
-        }
-
-        // Don't propagate those updates to the store; this is only for the in-memory
-        // representation that we're doing this. Let's drain those store updates.
-        let _ = self.state.thread_linked_chunk.store_updates().take();
-
-        Ok(())
     }
 
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
@@ -332,7 +363,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             &events,
         );
 
-        self.propagate_changes().await?;
+        self.state.propagate_changes(&self.store).await?;
 
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
@@ -354,19 +385,6 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
 
         Ok(diff_updates)
-    }
-
-    async fn reset_internal(&mut self) -> Result<()> {
-        self.state.thread_linked_chunk.reset();
-
-        self.propagate_changes().await?;
-
-        // Reset the pagination state too: pretend we never waited for the initial
-        // prev-batch token, and indicate that we're not at the start of the
-        // timeline, since we don't know about that anymore.
-        self.state.waited_for_initial_prev_token = false;
-
-        Ok(())
     }
 
     /// Find a single event in this thread.
@@ -416,7 +434,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
                     .expect("should have been a valid position of an item");
                 // We just changed the in-memory representation; synchronize this with
                 // the store.
-                self.propagate_changes().await?;
+                self.state.propagate_changes(&self.store).await?;
             }
             EventLocation::Store => {
                 self.save_events([new_event]).await?;
@@ -485,13 +503,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             )
             .expect("failed to remove an event");
 
-        self.propagate_changes().await
-    }
-
-    pub async fn propagate_changes(&mut self) -> Result<()> {
-        let updates = self.state.thread_linked_chunk.store_updates().take();
-
-        self.send_updates_to_store(updates).await
+        self.state.propagate_changes(&self.store).await
     }
 
     /// Apply some updates that are effective only on the store itself.
@@ -502,19 +514,6 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     /// storage.
     async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
         self.state.thread_linked_chunk.order_tracker.map_updates(&updates);
-        self.send_updates_to_store(updates).await
-    }
-
-    async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
-        let linked_chunk_id =
-            OwnedLinkedChunkId::Thread(self.state.room_id.clone(), self.state.thread_id.clone());
-
-        send_updates_to_store(
-            &self.store,
-            linked_chunk_id,
-            &self.state.linked_chunk_update_sender,
-            updates,
-        )
-        .await
+        self.state.send_updates_to_store(updates, &self.store).await
     }
 }
