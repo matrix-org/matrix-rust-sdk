@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{collections::HashMap, ops::Deref, sync::Arc};
+
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -20,12 +22,13 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
-use ruma::{OwnedRoomId, RoomId};
-use tokio::sync::{broadcast::Sender, mpsc};
+use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc};
 
 use super::{EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination};
 use crate::{client::WeakClient, room::WeakRoom};
 
+mod aggregator;
 pub mod event_focused;
 pub mod event_linked_chunk;
 pub(super) mod lock;
@@ -39,6 +42,14 @@ pub mod thread;
 #[derive(Debug)]
 pub(super) struct Caches {
     pub room: room::RoomEventCache,
+    pub threads: Arc<RwLock<HashMap<OwnedEventId, thread::ThreadEventCache>>>,
+    internals: CachesInternals,
+}
+
+#[derive(Debug)]
+struct CachesInternals {
+    store: EventCacheStoreLock,
+    linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
 }
 
 impl Caches {
@@ -76,14 +87,14 @@ impl Caches {
             client.user_id().expect("the user must be logged in, at this point").to_owned();
 
         let room_state = room::LockedRoomEventCacheState::new(
-            own_user_id,
+            own_user_id.clone(),
             room_id.to_owned(),
             weak_room.clone(),
             room_version_rules,
             enabled_thread_support,
             update_sender.clone(),
-            linked_chunk_update_sender,
-            store,
+            linked_chunk_update_sender.clone(),
+            store.clone(),
             pagination_status.clone(),
             automatic_pagination,
         )
@@ -95,6 +106,7 @@ impl Caches {
         let room_event_cache = room::RoomEventCache::new(
             room_id.to_owned(),
             weak_room,
+            own_user_id,
             room_state,
             pagination_status,
             auto_shrink_sender,
@@ -108,23 +120,135 @@ impl Caches {
                 .send(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned() });
         }
 
-        Ok(Self { room: room_event_cache })
+        Ok(Self {
+            room: room_event_cache,
+            threads: Arc::new(RwLock::new(HashMap::new())),
+            internals: CachesInternals { store, linked_chunk_update_sender },
+        })
+    }
+
+    /// Get the [`RoomEventCache`].
+    ///
+    /// [`RoomEventCache`]: room::RoomEventCache
+    pub async fn room(&self) -> &room::RoomEventCache {
+        &self.room
+    }
+
+    /// Get or create a [`ThreadEventCache`].
+    ///
+    /// Note: it is impossible to know if `thread_id` represents a valid thread
+    /// identifier. It means it's possible to create a [`ThreadEventCache`] for
+    /// an event that is not a thread root.
+    ///
+    /// [`ThreadEventCache`]: thread::ThreadEventCache
+    pub async fn thread(
+        &self,
+        thread_id: OwnedEventId,
+    ) -> Result<
+        OwnedRwLockReadGuard<
+            HashMap<OwnedEventId, thread::ThreadEventCache>,
+            thread::ThreadEventCache,
+        >,
+    > {
+        Ok(
+            match OwnedRwLockWriteGuard::try_downgrade_map(
+                self.threads.clone().write_owned().await,
+                |threads| threads.get(&thread_id),
+            ) {
+                // Thread exists.
+                Ok(locked_cache) => locked_cache,
+                // Thread does not exist, let's create it.
+                Err(mut threads) => {
+                    let room = &self.room;
+                    let cache = thread::ThreadEventCache::new(
+                        room.room_id().to_owned(),
+                        thread_id.clone(),
+                        room.own_user_id().to_owned(),
+                        room.weak_room().to_owned(),
+                        self.internals.store.clone(),
+                        room.update_sender().generic_update_sender().clone(),
+                        self.internals.linked_chunk_update_sender.clone(),
+                    )
+                    .await?;
+
+                    threads.insert(thread_id.clone(), cache);
+
+                    OwnedRwLockWriteGuard::downgrade_map(threads, |threads| {
+                        threads.get(&thread_id).unwrap()
+                    })
+                }
+            },
+        )
     }
 
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room } = &self;
+        let Self { room, threads, internals: _ } = &self;
 
-        room.handle_joined_room_update(updates).await?;
+        // Room.
+        {
+            let mut updates = updates.clone();
+            updates.timeline = aggregator::aggregate_timeline_for_room(updates.timeline);
+
+            room.handle_joined_room_update(updates).await?;
+        }
+
+        // Threads.
+        {
+            let mut updates = updates.clone();
+            updates.account_data.clear();
+            updates.ambiguity_changes.clear();
+
+            let timeline_for_threads = aggregator::aggregate_timeline_for_threads(
+                &updates.timeline,
+                threads.read().await.deref(),
+                room.state().read().await?,
+            )
+            .await?;
+
+            for (thread_id, timeline) in timeline_for_threads {
+                let mut updates = updates.clone();
+                updates.timeline = timeline;
+
+                self.thread(thread_id).await?.handle_joined_room_update(updates).await?;
+            }
+        }
 
         Ok(())
     }
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room } = &self;
+        let Self { room, threads, internals: _ } = &self;
 
-        room.handle_left_room_update(updates).await?;
+        // Room.
+        {
+            let mut updates = updates.clone();
+            updates.timeline = aggregator::aggregate_timeline_for_room(updates.timeline);
+
+            room.handle_left_room_update(updates).await?;
+        }
+
+        // Threads.
+        {
+            let mut updates = updates.clone();
+            updates.account_data.clear();
+            updates.ambiguity_changes.clear();
+
+            let timeline_for_threads = aggregator::aggregate_timeline_for_threads(
+                &updates.timeline,
+                threads.read().await.deref(),
+                room.state().read().await?,
+            )
+            .await?;
+
+            for (thread_id, timeline) in timeline_for_threads {
+                let mut updates = updates.clone();
+                updates.timeline = timeline;
+
+                self.thread(thread_id).await?.handle_left_room_update(updates).await?;
+            }
+        }
 
         Ok(())
     }
@@ -157,15 +281,33 @@ impl Caches {
 /// To reset all the event caches, call [`ResetCaches::reset_all`]. If this type
 /// is dropped, no reset happens and the exclusive lock is released.
 pub(super) struct ResetCaches<'c> {
-    room_lock: (&'c room::RoomEventCache, room::RoomEventCacheStateLockWriteGuard<'c>),
+    room_lock: (room::RoomEventCacheStateLockWriteGuard<'c>, room::RoomEventCacheUpdateSender),
+    threads_lock: OwnedRwLockWriteGuard<HashMap<OwnedEventId, thread::ThreadEventCache>>,
+    thread_locks: Vec<(
+        thread::OwnedThreadEventCacheStateLockWriteGuard,
+        thread::ThreadEventCacheUpdateSender,
+    )>,
 }
 
 impl<'c> ResetCaches<'c> {
     /// Create a new [`ResetCaches`].
     ///
     /// It can fail if acquiring an exclusive lock fails.
-    async fn new(Caches { room }: &'c mut Caches) -> Result<Self> {
-        Ok(Self { room_lock: (room, room.state().write().await?) })
+    async fn new(Caches { room, threads, internals: _ }: &'c mut Caches) -> Result<Self> {
+        // Acquire an exclusive access to the state of the room.
+        let room_lock = (room.state().write().await?, room.update_sender().clone());
+
+        // Acquire an exclusive access to the threads.
+        // Then, for each thread, acquire an exclusive access to its state.
+        let threads_lock = threads.clone().write_owned().await;
+        let mut thread_locks = Vec::new();
+
+        for thread in threads_lock.values() {
+            thread_locks
+                .push((thread.state().write_owned().await?, thread.update_sender().clone()));
+        }
+
+        Ok(Self { room_lock, threads_lock, thread_locks })
     }
 
     /// Reset all the event caches, and broadcast the [`TimelineVectorDiffs`].
@@ -175,17 +317,39 @@ impl<'c> ResetCaches<'c> {
     ///
     /// It can fail if resetting an event cache fails.
     pub async fn reset_all(self) -> Result<()> {
-        let Self { room_lock: (room, mut room_state) } = self;
+        let Self { room_lock, threads_lock, thread_locks } = self;
 
         {
+            let (mut room_state, room_update_sender) = room_lock;
+
             let updates_as_vector_diffs = room_state.reset().await?;
-            room.update_sender().send(
+            room_update_sender.send(
                 room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
                 }),
-                Some(room::RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() }),
+                Some(room::RoomEventCacheGenericUpdate { room_id: room_state.room_id.clone() }),
             );
+        }
+
+        {
+            for thread_lock in thread_locks {
+                let (mut thread_state, thread_update_sender) = thread_lock;
+
+                let updates_as_vector_diffs = thread_state.reset().await?;
+                thread_update_sender.send(
+                    TimelineVectorDiffs {
+                        diffs: updates_as_vector_diffs,
+                        origin: EventsOrigin::Cache,
+                    },
+                    // This function is part of the `RoomEventCache` flow. The generic update is
+                    // handled by it.
+                    None,
+                );
+            }
+
+            // Now we can release the exclusive acces over the threads.
+            drop(threads_lock);
         }
 
         Ok(())
