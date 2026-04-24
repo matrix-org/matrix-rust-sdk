@@ -32,8 +32,9 @@ use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
 };
 use matrix_sdk_base::{
-    BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
+    BaseClient, DmRoomDefinition, RoomInfoNotableUpdate, RoomState, RoomStateFilter,
+    SendOutsideWasm, SessionMeta, StateStoreDataKey, StateStoreDataValue, StoreError,
+    SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{DynStateStore, RoomLoadSettings, SupportedVersionsResponse, WellKnownResponse},
@@ -1846,10 +1847,23 @@ impl Client {
     pub fn get_dm_rooms(&self, user_id: &UserId) -> impl Iterator<Item = Room> {
         let rooms = self.joined_rooms();
 
+        let dm_definition = &self.base_client().dm_room_definition;
+
         // Find the room we share with the `user_id` and only with `user_id`
         let rooms = rooms.into_iter().filter(move |r| {
             let targets = r.direct_targets();
-            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
+            let targets_match =
+                targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id));
+            match dm_definition {
+                DmRoomDefinition::MatrixSpec => targets_match,
+                DmRoomDefinition::TwoMembers => {
+                    let service_members_count =
+                        r.service_members().map(|s| s.len()).unwrap_or_default() as u64;
+                    let active_non_service_members =
+                        r.active_members_count().saturating_sub(service_members_count);
+                    targets_match && active_non_service_members <= 2
+                }
+            }
         });
 
         trace!(?user_id, ?rooms, "Found DM rooms with user");
