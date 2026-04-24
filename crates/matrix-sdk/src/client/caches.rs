@@ -36,13 +36,13 @@ pub(crate) struct ClientCaches {
     ///
     /// - The versions prefilled with `ClientBuilder::server_versions()`
     /// - The versions fetched from an *authenticated* request to the server.
-    pub(crate) supported_versions: Cache<SupportedVersions>,
+    pub(crate) supported_versions: Cache<SupportedVersions, Arc<HttpError>>,
     /// Well-known information.
-    pub(super) well_known: Cache<Option<WellKnownResponse>>,
+    pub(super) well_known: Cache<Option<WellKnownResponse>, ()>,
     /// OAuth 2.0 server metadata.
-    pub(crate) server_metadata: Cache<AuthorizationServerMetadata>,
+    pub(crate) server_metadata: Cache<AuthorizationServerMetadata, ()>,
     /// Homeserver capabilities.
-    pub(crate) homeserver_capabilities: Cache<Capabilities>,
+    pub(crate) homeserver_capabilities: Cache<Capabilities, Arc<HttpError>>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion
@@ -70,16 +70,16 @@ impl<Value> CachedValue<Value> {
 }
 
 /// A cache in the [`ClientCaches`].
-pub(crate) struct Cache<Value> {
+pub(crate) struct Cache<Value, Error> {
     /// The value that is cached.
     value: Mutex<CachedValue<TtlValue<Value>>>,
     /// Lock making sure that we are only refreshing the value once at a time.
     ///
     /// Stores the error that happened during the last refresh, if any.
-    pub(crate) refresh_lock: AsyncMutex<Result<(), Arc<HttpError>>>,
+    pub(crate) refresh_lock: AsyncMutex<Result<(), Error>>,
 }
 
-impl<Value> Cache<Value> {
+impl<Value, Error> Cache<Value, Error> {
     /// Construct a new empty `Cache`.
     pub(crate) fn new() -> Self {
         Self::with_value(CachedValue::NotSet)
@@ -101,7 +101,7 @@ impl<Value> Cache<Value> {
     }
 }
 
-impl<Value> Cache<Value>
+impl<Value, Error> Cache<Value, Error>
 where
     Value: Clone,
 {
