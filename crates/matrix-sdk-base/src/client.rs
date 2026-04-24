@@ -1202,6 +1202,19 @@ impl From<&v5::Request> for RequestedRequiredStates {
     }
 }
 
+/// An enum that defines what the [`BaseClient`] should consider a DM room.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum DmRoomDefinition {
+    /// Standard Matrix spec definition: a room linked to a user in an
+    /// `m.direct` event.
+    #[default]
+    MatrixSpec,
+    /// A room that is direct, as per the spec but also contains at most 2
+    /// active members.
+    TwoMembers,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
