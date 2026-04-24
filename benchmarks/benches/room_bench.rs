@@ -6,8 +6,8 @@ use matrix_sdk::{
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{
-    BaseClient, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore, ThreadingSupport,
-    store::StoreConfig,
+    BaseClient, DmRoomDefinition, RoomInfo, RoomState, SessionMeta, StateChanges, StateStore,
+    ThreadingSupport, store::StoreConfig,
 };
 use matrix_sdk_sqlite::SqliteStateStore;
 use matrix_sdk_test::{JoinedRoomBuilder, base64_sha256_hash, event_factory::EventFactory};
@@ -63,6 +63,7 @@ pub fn receive_all_members_benchmark(c: &mut Criterion) {
         ))
         .state_store(sqlite_store),
         ThreadingSupport::Disabled,
+        DmRoomDefinition::default(),
     );
 
     runtime
