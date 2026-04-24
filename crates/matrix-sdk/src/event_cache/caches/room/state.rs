@@ -55,29 +55,26 @@ use super::{
     super::{
         super::{
             EventCacheError,
+            automatic_pagination::AutomaticPagination,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-            persistence::{load_linked_chunk_metadata, send_updates_to_store},
+            persistence::{
+                find_event, find_event_relations, find_event_with_relations,
+                load_linked_chunk_metadata, send_updates_to_store,
+            },
         },
         EventLocation, TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache},
         event_linked_chunk::EventLinkedChunk,
         lock,
+        pagination::SharedPaginationStatus,
         pinned_events::PinnedEventCache,
         read_receipts::compute_unread_counts,
-        thread::ThreadEventCache,
     },
     EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
     sort_positions_descending,
 };
-use crate::{
-    Room,
-    event_cache::{
-        automatic_pagination::AutomaticPagination, caches::pagination::SharedPaginationStatus,
-        persistence::find_event,
-    },
-    room::WeakRoom,
-};
+use crate::{Room, room::WeakRoom};
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -156,102 +153,6 @@ impl RoomEventCacheState {
     /// Return a read-only reference to the underlying room linked chunk.
     pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
         &self.room_linked_chunk
-    }
-
-    /// Implementation of
-    /// [`RoomEventCacheStateLockReadGuard::find_event_with_relations`] and
-    /// [`RoomEventCacheStateLockWriteGuard::find_event_with_relations`].
-    async fn find_event_with_relations(
-        &self,
-        event_id: &EventId,
-        filters: Option<Vec<RelationType>>,
-        store: &EventCacheStoreLockGuard,
-    ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-        // First, hit storage to get the target event and its related events.
-        let found = store.find_event(&self.room_id, event_id).await?;
-
-        let Some(target) = found else {
-            // We haven't found the event: return early.
-            return Ok(None);
-        };
-
-        // Then, find the transitive closure of all the related events.
-        let related = self.find_event_relations(event_id, filters, store).await?;
-
-        Ok(Some((target, related)))
-    }
-
-    /// Implementation of
-    /// [`RoomEventCacheStateLockReadGuard::find_event_relations`].
-    async fn find_event_relations(
-        &self,
-        event_id: &EventId,
-        filters: Option<Vec<RelationType>>,
-        store: &EventCacheStoreLockGuard,
-    ) -> Result<Vec<Event>, EventCacheError> {
-        // Initialize the stack with all the related events, to find the
-        // transitive closure of all the related events.
-        let mut related =
-            store.find_event_relations(&self.room_id, event_id, filters.as_deref()).await?;
-        let mut stack =
-            related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
-
-        // Also keep track of already seen events, in case there's a loop in the
-        // relation graph.
-        let mut already_seen = HashSet::new();
-        already_seen.insert(event_id.to_owned());
-
-        let mut num_iters = 1;
-
-        // Find the related event for each previously-related event.
-        while let Some(event_id) = stack.pop() {
-            if !already_seen.insert(event_id.clone()) {
-                // Skip events we've already seen.
-                continue;
-            }
-
-            let other_related =
-                store.find_event_relations(&self.room_id, &event_id, filters.as_deref()).await?;
-
-            stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
-            related.extend(other_related);
-
-            num_iters += 1;
-        }
-
-        trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
-
-        // Sort the results by their positions in the linked chunk, if available.
-        //
-        // If an event doesn't have a known position, it goes to the start of the array.
-        related.sort_by(|(_, lhs), (_, rhs)| {
-            use std::cmp::Ordering;
-
-            match (lhs, rhs) {
-                (None, None) => Ordering::Equal,
-                (None, Some(_)) => Ordering::Less,
-                (Some(_), None) => Ordering::Greater,
-                (Some(lhs), Some(rhs)) => {
-                    let lhs = self.room_linked_chunk.event_order(*lhs);
-                    let rhs = self.room_linked_chunk.event_order(*rhs);
-
-                    // The events should have a definite position, but in the case they don't,
-                    // still consider that not having a position means you'll end at the start
-                    // of the array.
-                    match (lhs, rhs) {
-                        (None, None) => Ordering::Equal,
-                        (None, Some(_)) => Ordering::Less,
-                        (Some(_), None) => Ordering::Greater,
-                        (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
-                    }
-                }
-            }
-        });
-
-        // Keep only the events, not their positions.
-        let related = related.into_iter().map(|(event, _pos)| event).collect();
-
-        Ok(related)
     }
 }
 
@@ -423,10 +324,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         &self.state.subscriber_count
     }
 
-    /// Find a single event in this room.
-    ///
-    /// It starts by looking into loaded events in `EventLinkedChunk` before
-    /// looking inside the storage.
+    /// See documentation of [`find_event`].
     pub async fn find_event(
         &self,
         event_id: &EventId,
@@ -434,44 +332,30 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
-    /// Find an event and all its relations in the persisted storage.
-    ///
-    /// This goes straight to the database, as a simplification; we don't
-    /// expect to need to have to look up in memory events, or that
-    /// all the related events are actually loaded.
-    ///
-    /// The related events are sorted like this:
-    /// - events saved out-of-band with [`super::RoomEventCache::save_events`]
-    ///   will be located at the beginning of the array.
-    /// - events present in the linked chunk (be it in memory or in the
-    ///   database) will be sorted according to their ordering in the linked
-    ///   chunk.
+    /// See documentation of [`find_event_with_relations`].
     pub async fn find_event_with_relations(
         &self,
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
     ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-        self.state.find_event_with_relations(event_id, filters, &self.store).await
+        find_event_with_relations(
+            event_id,
+            &self.room_id,
+            filters,
+            &self.room_linked_chunk,
+            &self.store,
+        )
+        .await
     }
 
-    /// Find all relations for an event in the persisted storage.
-    ///
-    /// This goes straight to the database, as a simplification; we don't
-    /// expect to need to have to look up in memory events, or that
-    /// all the related events are actually loaded.
-    ///
-    /// The related events are sorted like this:
-    /// - events saved out-of-band with [`super::RoomEventCache::save_events`]
-    ///   will be located at the beginning of the array.
-    /// - events present in the linked chunk (be it in memory or in the
-    ///   database) will be sorted according to their ordering in the linked
-    ///   chunk.
+    /// See documentation of [`find_event_relations`].
     pub async fn find_event_relations(
         &self,
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
     ) -> Result<Vec<Event>, EventCacheError> {
-        self.state.find_event_relations(event_id, filters, &self.store).await
+        find_event_relations(event_id, &self.room_id, filters, &self.room_linked_chunk, &self.store)
+            .await
     }
 
     //// Find a single event in this room, starting from the most recent event.
@@ -561,10 +445,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self.state.waited_for_initial_prev_token
     }
 
-    /// Find a single event in this room.
-    ///
-    /// It starts by looking into loaded events in `EventLinkedChunk` before
-    /// looking inside the storage.
+    /// See documentation of [`find_event`].
     pub async fn find_event(
         &self,
         event_id: &EventId,
@@ -572,24 +453,20 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
-    /// Find an event and all its relations in the persisted storage.
-    ///
-    /// This goes straight to the database, as a simplification; we don't
-    /// expect to need to have to look up in memory events, or that
-    /// all the related events are actually loaded.
-    ///
-    /// The related events are sorted like this:
-    /// - events saved out-of-band with [`super::RoomEventCache::save_events`]
-    ///   will be located at the beginning of the array.
-    /// - events present in the linked chunk (be it in memory or in the
-    ///   database) will be sorted according to their ordering in the linked
-    ///   chunk.
+    /// See documentation of [`find_event_with_relations`].
     pub async fn find_event_with_relations(
         &self,
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
     ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-        self.state.find_event_with_relations(event_id, filters, &self.store).await
+        find_event_with_relations(
+            event_id,
+            &self.room_id,
+            filters,
+            &self.room_linked_chunk,
+            &self.store,
+        )
+        .await
     }
 
     /// If storage is enabled, unload all the chunks, then reloads only the
