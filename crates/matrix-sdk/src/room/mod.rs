@@ -3984,6 +3984,7 @@ impl Room {
         self.ensure_room_joined()?;
 
         let mut beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
+
         if beacon_info_event.content.live {
             beacon_info_event.content.stop();
             Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
