@@ -25,19 +25,19 @@ use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
 
 use crate::{
-    authentication::OidcConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
+    authentication::OAuthConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
 };
 
 /// Handler for logging in with a QR code.
 #[derive(uniffi::Object)]
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
-    oidc_configuration: OidcConfiguration,
+    oauth_configuration: OAuthConfiguration,
 }
 
 impl LoginWithQrCodeHandler {
-    pub(crate) fn new(oauth: OAuth, oidc_configuration: OidcConfiguration) -> Self {
-        Self { oauth, oidc_configuration }
+    pub(crate) fn new(oauth: OAuth, oauth_configuration: OAuthConfiguration) -> Self {
+        Self { oauth, oauth_configuration }
     }
 }
 
@@ -71,7 +71,7 @@ impl LoginWithQrCodeHandler {
         progress_listener: Box<dyn QrLoginProgressListener>,
     ) -> Result<(), HumanQrLoginError> {
         let registration_data = self
-            .oidc_configuration
+            .oauth_configuration
             .registration_data()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
@@ -116,7 +116,7 @@ impl LoginWithQrCodeHandler {
         progress_listener: Box<dyn GeneratedQrLoginProgressListener>,
     ) -> Result<(), HumanQrLoginError> {
         let registration_data = self
-            .oidc_configuration
+            .oauth_configuration
             .registration_data()
             .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
 
