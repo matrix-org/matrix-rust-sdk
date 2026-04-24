@@ -17,7 +17,8 @@ use std::{fmt::Debug, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
 use matrix_sdk::live_locations_observer::{
-    LiveLocationShare as SdkLiveLocationShare, LiveLocationsObserver as SdkLiveLocationsObserver,
+    BeaconInfoUpdate as SdkBeaconInfoUpdate, LiveLocationShare as SdkLiveLocationShare,
+    LiveLocationsObserver as SdkLiveLocationsObserver,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
@@ -46,6 +47,17 @@ pub struct LiveLocationShare {
     pub timeout: u64,
     /// The event ID of the beacon_info state event for this share.
     pub beacon_id: String,
+}
+
+/// A beacon_info update for the current user's live location share.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BeaconInfoUpdate {
+    /// The room where the beacon_info event changed.
+    pub room_id: String,
+    /// The beacon_info event ID.
+    pub event_id: String,
+    /// Whether the share is currently live.
+    pub live: bool,
 }
 
 /// An update to the list of active live location shares.
@@ -142,6 +154,16 @@ impl From<SdkLiveLocationShare> for LiveLocationShare {
             start_ts,
             timeout,
             beacon_id,
+        }
+    }
+}
+
+impl From<SdkBeaconInfoUpdate> for BeaconInfoUpdate {
+    fn from(update: SdkBeaconInfoUpdate) -> Self {
+        Self {
+            room_id: update.room_id.to_string(),
+            event_id: update.event_id.to_string(),
+            live: update.content.live,
         }
     }
 }

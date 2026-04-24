@@ -24,7 +24,7 @@ use imbl::Vector;
 use matrix_sdk_base::{deserialized_responses::SyncOrStrippedState, event_cache::Event};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncStateEvent,
         beacon::OriginalSyncBeaconEvent,
@@ -57,6 +57,17 @@ pub struct LiveLocationShare {
     pub beacon_id: OwnedEventId,
     /// Information about the associated beacon event.
     pub beacon_info: BeaconInfoEventContent,
+}
+
+/// A `beacon_info` update for the current user in one room.
+#[derive(Clone, Debug)]
+pub struct BeaconInfoUpdate {
+    /// The room where the `beacon_info` update was observed.
+    pub room_id: OwnedRoomId,
+    /// The event ID of the `beacon_info` event.
+    pub event_id: OwnedEventId,
+    /// The `beacon_info` event content.
+    pub content: BeaconInfoEventContent,
 }
 
 /// Tracks active live location shares in a room using an [`ObservableVector`].

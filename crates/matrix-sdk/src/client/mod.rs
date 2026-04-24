@@ -76,7 +76,7 @@ use ruma::{
         path_builder::PathBuilder,
     },
     assign,
-    events::direct::DirectUserIdentifier,
+    events::{beacon_info::OriginalSyncBeaconInfoEvent, direct::DirectUserIdentifier},
     push::Ruleset,
     time::Instant,
 };
@@ -110,6 +110,7 @@ use crate::{
     },
     http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
+    live_locations_observer::BeaconInfoUpdate,
     media::MediaError,
     notification_settings::NotificationSettings,
     room::RoomMember,
@@ -1067,6 +1068,33 @@ impl Client {
                 room_id,
             )),
         )
+    }
+
+    /// Subscribe to future `beacon_info` updates for the current user across
+    /// all rooms.
+    ///
+    /// This stream is push-only: it emits only future updates observed during
+    /// sync processing and does not replay existing state.
+    pub fn observe_own_beacon_info_updates(
+        &self,
+    ) -> Result<impl Stream<Item = BeaconInfoUpdate> + use<>> {
+        let observer = self.observe_events::<OriginalSyncBeaconInfoEvent, Room>();
+        let mut stream = observer.subscribe();
+        let own_user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+        Ok(async_stream::stream! {
+            let _observer = observer;
+
+            while let Some((event, room)) = stream.next().await {
+                if event.state_key != own_user_id {
+                    continue;
+                }
+                yield BeaconInfoUpdate {
+                    room_id: room.room_id().to_owned(),
+                    event_id: event.event_id,
+                    content: event.content,
+                };
+            }
+        })
     }
 
     /// Remove the event handler associated with the handle.
