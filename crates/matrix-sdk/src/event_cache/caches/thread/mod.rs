@@ -20,16 +20,22 @@ mod updates;
 
 use std::{fmt, sync::Arc};
 
-use matrix_sdk_base::event_cache::{Event, store::EventCacheStoreLock};
+use matrix_sdk_base::{
+    event_cache::{Event, store::EventCacheStoreLock},
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
+};
 use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
 use tokio::sync::{
     Notify,
     broadcast::{Receiver, Sender},
 };
-use tracing::{error, trace};
+use tracing::{error, instrument, trace};
 
-pub(super) use self::state::LockedThreadEventCacheState;
-use self::{pagination::ThreadPagination, updates::ThreadEventCacheUpdateSender};
+use self::pagination::ThreadPagination;
+pub(super) use self::{
+    state::{LockedThreadEventCacheState, OwnedThreadEventCacheStateLockWriteGuard},
+    updates::ThreadEventCacheUpdateSender,
+};
 use super::{
     super::Result,
     EventsOrigin, TimelineVectorDiffs,
@@ -39,7 +45,7 @@ use super::{
 use crate::room::WeakRoom;
 
 /// All the information related to a single thread.
-pub(super) struct ThreadEventCache {
+pub struct ThreadEventCache {
     inner: Arc<ThreadEventCacheInner>,
 }
 
@@ -135,13 +141,53 @@ impl ThreadEventCache {
         ThreadPagination::new(self.inner.clone())
     }
 
-    /// Clear a thread.
-    pub async fn clear(&mut self) -> Result<()> {
-        let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
+    /// Return a reference to the state.
+    pub(in super::super) fn state(&self) -> &LockedThreadEventCacheState {
+        &self.inner.state
+    }
 
-        if !updates_as_vector_diffs.is_empty() {
+    /// Get a reference to the [`RoomEventCacheUpdateSender`].
+    pub(in super::super) fn update_sender(&self) -> &ThreadEventCacheUpdateSender {
+        &self.inner.update_sender
+    }
+
+    /// Handle a [`JoinedRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline).await?;
+
+        Ok(())
+    }
+
+    /// Handle a [`LeftRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline).await?;
+
+        Ok(())
+    }
+
+    /// Handle a [`Timeline`], i.e. new events received by a sync for this
+    /// thread.
+    async fn handle_timeline(&self, timeline: Timeline) -> Result<()> {
+        if timeline.events.is_empty() && timeline.prev_batch.is_none() {
+            return Ok(());
+        }
+
+        trace!("adding new events");
+
+        let (stored_prev_batch_token, timeline_event_diffs) =
+            self.inner.state.write().await?.handle_sync(timeline).await?;
+
+        // Now that all events have been added, we can trigger the
+        // `pagination_token_notifier`.
+        if stored_prev_batch_token {
+            self.inner.pagination_batch_token_notifier.notify_one();
+        }
+
+        if !timeline_event_diffs.is_empty() {
             self.inner.update_sender.send(
-                TimelineVectorDiffs { diffs: updates_as_vector_diffs, origin: EventsOrigin::Cache },
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
                 // This function is part of the `RoomEventCache` flow. The generic update is
                 // handled by it.
                 None,
@@ -158,6 +204,8 @@ impl ThreadEventCache {
         events: Vec<Event>,
         prev_batch_token: &Option<String>,
     ) -> Result<()> {
+        todo!()
+        /*
         if events.is_empty() {
             return Ok(());
         }
@@ -183,6 +231,7 @@ impl ThreadEventCache {
         }
 
         Ok(())
+        */
     }
 
     /// Replaces a single event, be it saved in memory or in the store.
