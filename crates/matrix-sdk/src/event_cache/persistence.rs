@@ -20,11 +20,16 @@ use matrix_sdk_base::{
     executor::spawn,
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
-use ruma::serde::Raw;
+use ruma::{EventId, RoomId, serde::Raw};
 use tokio::sync::broadcast::Sender;
 use tracing::trace;
 
-use super::{EventCacheError, Result, caches::room::RoomEventCacheLinkedChunkUpdate};
+use super::{
+    EventCacheError, Result,
+    caches::{
+        EventLocation, event_linked_chunk::EventLinkedChunk, room::RoomEventCacheLinkedChunkUpdate,
+    },
+};
 
 /// Load a linked chunk's full metadata, making sure the chunks are
 /// according to their their links.
@@ -264,4 +269,22 @@ fn strip_relations_if_present<T>(event: &mut Raw<T>) {
         None
     };
     let _ = closure();
+}
+
+/// Find a single event, first in-memory, then in-store.
+pub async fn find_event(
+    event_id: &EventId,
+    room_id: &RoomId,
+    event_linked_chunk: &EventLinkedChunk,
+    store: &EventCacheStoreLockGuard,
+) -> Result<Option<(EventLocation, Event)>> {
+    // There are supposedly fewer events loaded in memory than in the store. Let's
+    // start by looking up in the `EventLinkedChunk`.
+    for (position, event) in event_linked_chunk.revents() {
+        if event.event_id().as_deref() == Some(event_id) {
+            return Ok(Some((EventLocation::Memory(position), event.clone())));
+        }
+    }
+
+    Ok(store.find_event(room_id, event_id).await?.map(|event| (EventLocation::Store, event)))
 }
