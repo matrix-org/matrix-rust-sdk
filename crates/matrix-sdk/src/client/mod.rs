@@ -3488,6 +3488,12 @@ impl Client {
     ) -> Result<Option<RoomPendingKeyBundleDetails>> {
         Ok(self.base_client().get_pending_key_bundle_details_for_room(room_id).await?)
     }
+
+    /// Returns the [`DmRoomDefinition`] this client uses to check if a room is
+    /// a DM.
+    pub fn dm_room_definition(&self) -> &DmRoomDefinition {
+        &self.inner.base_client.dm_room_definition
+    }
 }
 
 /// Contains the disk size of the different stores, if known. It won't be
