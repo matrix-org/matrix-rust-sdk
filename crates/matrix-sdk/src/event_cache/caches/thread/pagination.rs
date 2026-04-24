@@ -376,7 +376,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             &topo_ordered_events,
         );
 
-        state.propagate_changes().await?;
+        state.state.propagate_changes(&state.store).await?;
 
         // Notify observers about the updates.
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
