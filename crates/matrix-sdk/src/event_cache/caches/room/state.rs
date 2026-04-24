@@ -904,15 +904,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         Ok((has_new_gap, timeline_event_diffs))
     }
 
-    /// Subscribe to thread for a given root event, and get a (maybe empty)
-    /// initially known list of events for that thread.
-    pub async fn subscribe_to_thread(
-        &mut self,
-        root: OwnedEventId,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        self.get_or_reload_thread(root).await?.subscribe().await
-    }
-
     // --------------------------------------------
     // utility methods
     // --------------------------------------------
