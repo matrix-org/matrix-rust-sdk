@@ -21,6 +21,7 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
+    sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
@@ -343,9 +344,10 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
     pub async fn handle_sync(
         &mut self,
-        events: Vec<Event>,
-        prev_batch_token: &Option<String>,
+        timeline: Timeline,
     ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
+        let prev_batch_token = &timeline.prev_batch;
+
         let DeduplicationOutcome {
             all_events: events,
             in_memory_duplicated_event_ids,
@@ -356,7 +358,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             &self.store,
             LinkedChunkId::Thread(&self.state.room_id, &self.state.thread_id),
             &self.state.thread_linked_chunk,
-            events,
+            timeline.events,
         )
         .await?;
 
@@ -386,6 +388,15 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         );
 
         self.state.propagate_changes(&self.store).await?;
+
+        if timeline.limited && has_new_gap {
+            // If there was a previous batch token for a limited timeline, unload the chunks
+            // so it only contains the last one; otherwise, there might be a
+            // valid gap in between, and observers may not render it (yet).
+            //
+            // We must do this *after* persisting these events to storage.
+            self.state.shrink_to_last_chunk(&self.store).await?;
+        }
 
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 

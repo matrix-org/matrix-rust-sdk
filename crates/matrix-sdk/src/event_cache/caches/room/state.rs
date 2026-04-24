@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet, hash_map::Entry},
-    ops::DerefMut,
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
@@ -785,15 +784,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
     async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
         self.state.room_linked_chunk.reset();
-
-        // No need to update the thread summaries: the room events are
-        // gone because of the reset of `room_linked_chunk`.
-        //
-        // Clear the threads.
-        for thread in self.state.threads.values_mut() {
-            thread.clear().await?;
-        }
-
         self.propagate_changes().await?;
 
         // Reset the pagination state too: pretend we never waited for the initial
@@ -1059,6 +1049,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         Ok(())
     }
 
+    /*
     pub(super) async fn get_or_reload_thread(
         &mut self,
         root_event_id: OwnedEventId,
@@ -1093,6 +1084,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
         }
     }
+    */
 
     #[instrument(skip_all)]
     async fn update_threads(

@@ -133,7 +133,7 @@ impl RoomEventCacheUpdateSender {
     }
 
     /// Get the generic update sender.
-    pub(super) fn generic_update_sender(&self) -> &Sender<RoomEventCacheGenericUpdate> {
+    pub(in super::super) fn generic_update_sender(&self) -> &Sender<RoomEventCacheGenericUpdate> {
         &self.generic_sender
     }
 

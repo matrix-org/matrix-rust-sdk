@@ -30,14 +30,16 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
 
-pub(super) use self::state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
+pub(super) use self::state::{
+    LockedRoomEventCacheState, RoomEventCacheStateLockReadGuard, RoomEventCacheStateLockWriteGuard,
+};
 pub use self::{
     subscriber::RoomEventCacheSubscriber,
     updates::{
@@ -79,26 +81,39 @@ impl RoomEventCache {
     pub(super) fn new(
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
+        own_user_id: OwnedUserId,
         state: LockedRoomEventCacheState,
         shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
-            inner: Arc::new(RoomEventCacheInner::new(
+            inner: Arc::new(RoomEventCacheInner {
                 room_id,
                 weak_room,
+                own_user_id,
                 state,
-                shared_pagination_status,
-                auto_shrink_sender,
                 update_sender,
-            )),
+                pagination_batch_token_notifier: Notify::new(),
+                auto_shrink_sender,
+                shared_pagination_status,
+            }),
         }
     }
 
     /// Get the room ID for this [`RoomEventCache`].
     pub fn room_id(&self) -> &RoomId {
         &self.inner.room_id
+    }
+
+    /// Get the owner of this [`RoomEventCache`].
+    pub(super) fn own_user_id(&self) -> &OwnedUserId {
+        &self.inner.own_user_id
+    }
+
+    /// Get the weak room of this [`RoomEventCache`].
+    pub(super) fn weak_room(&self) -> &WeakRoom {
+        &self.inner.weak_room
     }
 
     /// Read all current events.
@@ -436,6 +451,9 @@ pub(super) struct RoomEventCacheInner {
 
     weak_room: WeakRoom,
 
+    /// The user's own user id.
+    own_user_id: OwnedUserId,
+
     /// State for this room's event cache.
     state: LockedRoomEventCacheState,
 
@@ -455,27 +473,6 @@ pub(super) struct RoomEventCacheInner {
 }
 
 impl RoomEventCacheInner {
-    /// Creates a new cache for a room, and subscribes to room updates, so as
-    /// to handle new timeline events.
-    fn new(
-        room_id: OwnedRoomId,
-        weak_room: WeakRoom,
-        state: LockedRoomEventCacheState,
-        shared_pagination_status: SharedObservable<SharedPaginationStatus>,
-        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
-        update_sender: RoomEventCacheUpdateSender,
-    ) -> Self {
-        Self {
-            room_id,
-            weak_room,
-            state,
-            update_sender,
-            pagination_batch_token_notifier: Notify::new(),
-            auto_shrink_sender,
-            shared_pagination_status,
-        }
-    }
-
     fn handle_account_data(&self, account_data: Vec<Raw<AnyRoomAccountDataEvent>>) {
         if account_data.is_empty() {
             return;
