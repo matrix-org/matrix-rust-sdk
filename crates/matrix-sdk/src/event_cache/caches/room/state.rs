@@ -74,6 +74,7 @@ use crate::{
     Room,
     event_cache::{
         automatic_pagination::AutomaticPagination, caches::pagination::SharedPaginationStatus,
+        persistence::find_event,
     },
     room::WeakRoom,
 };
@@ -155,27 +156,6 @@ impl RoomEventCacheState {
     /// Return a read-only reference to the underlying room linked chunk.
     pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
         &self.room_linked_chunk
-    }
-
-    /// Implementation of [`RoomEventCacheStateLockReadGuard::find_event`] and
-    /// [`RoomEventCacheStateLockWriteGuard::find_event`].
-    async fn find_event(
-        &self,
-        event_id: &EventId,
-        store: &EventCacheStoreLockGuard,
-    ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-        // There are supposedly fewer events loaded in memory than in the store. Let's
-        // start by looking up in the `EventLinkedChunk`.
-        for (position, event) in self.room_linked_chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Ok(Some((EventLocation::Memory(position), event.clone())));
-            }
-        }
-
-        Ok(store
-            .find_event(&self.room_id, event_id)
-            .await?
-            .map(|event| (EventLocation::Store, event)))
     }
 
     /// Implementation of
@@ -451,7 +431,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-        self.state.find_event(event_id, &self.store).await
+        find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
     /// Find an event and all its relations in the persisted storage.
@@ -589,7 +569,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
-        self.state.find_event(event_id, &self.store).await
+        find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
     /// Find an event and all its relations in the persisted storage.
