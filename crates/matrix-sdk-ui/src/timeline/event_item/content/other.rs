@@ -15,21 +15,33 @@
 //! Timeline item content for other message-like events created by the
 //! EventContent macro from ruma.
 
-use ruma::events::MessageLikeEventType;
+use ruma::{
+    events::{AnyMessageLikeEventContent, AnySyncTimelineEvent, MessageLikeEventType},
+    serde::Raw,
+};
 
 /// A custom event created by the EventContent macro from ruma.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct OtherMessageLike {
     pub(in crate::timeline) event_type: MessageLikeEventType,
+    pub(in crate::timeline) raw_event: Option<Raw<AnySyncTimelineEvent>>,
 }
 
 impl OtherMessageLike {
-    pub fn from_event_type(event_type: MessageLikeEventType) -> Self {
-        Self { event_type }
+    pub fn from_event_type_and_event(
+        event_type: MessageLikeEventType,
+        raw_event: Option<Raw<AnySyncTimelineEvent>>,
+    ) -> Self {
+        Self { event_type, raw_event }
     }
 
     /// Get the event_type of this message.
     pub fn event_type(&self) -> &MessageLikeEventType {
         &self.event_type
+    }
+
+    /// Get the raw event of this message, if available.
+    pub fn raw_event(&self) -> &Option<Raw<AnySyncTimelineEvent>> {
+        &self.raw_event
     }
 }
