@@ -470,7 +470,7 @@ impl Client {
     /// Information about login options for the client's homeserver.
     pub async fn homeserver_login_details(&self) -> Arc<HomeserverLoginDetails> {
         let oauth = self.inner.oauth();
-        let (supports_oidc_login, supported_oidc_prompts) = match oauth.server_metadata().await {
+        let (supports_oauth_login, supported_oauth_prompts) = match oauth.server_metadata().await {
             Ok(metadata) => {
                 let prompts =
                     metadata.prompt_values_supported.into_iter().map(Into::into).collect();
@@ -478,7 +478,7 @@ impl Client {
                 (true, prompts)
             }
             Err(error) => {
-                error!("Failed to fetch OIDC provider metadata: {error}");
+                error!("Failed to fetch OAuth provider metadata: {error}");
                 (false, Default::default())
             }
         };
@@ -506,8 +506,8 @@ impl Client {
         Arc::new(HomeserverLoginDetails {
             url: self.homeserver(),
             sliding_sync_version,
-            supports_oidc_login,
-            supported_oidc_prompts,
+            supports_oauth_login,
+            supported_oauth_prompts,
             supports_sso_login,
             supports_password_login,
         })
