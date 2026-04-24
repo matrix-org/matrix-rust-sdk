@@ -131,6 +131,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Add a recursion limit attribute that raises it from the default value of 128 to 256.
+  ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
 - Reject invalid edits as candidates for the latest event.
   ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 - Fix an infinite loop when loading pinned events from the storage.
@@ -173,8 +175,6 @@ All notable changes to this project will be documented in this file.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
 - Remove an unwrap in `SlidingSync::send_sync_request` when an asynchronous task panics or is cancelled.
   ([#6316](https://github.com/matrix-org/matrix-rust-sdk/pull/6316))
-- Add a recursion limit attribute that raises it from the default value of 128 to 256.
-  ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
 
 ### Refactor
 
