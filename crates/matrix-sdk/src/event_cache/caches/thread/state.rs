@@ -272,7 +272,29 @@ pub type ThreadEventCacheStateLockReadGuard<'a> =
 pub type ThreadEventCacheStateLockWriteGuard<'a> =
     lock::StateLockWriteGuard<'a, ThreadEventCacheState>;
 
+/// The owned write-lock guard around [`ThreadEventCacheState`].
+pub type OwnedThreadEventCacheStateLockWriteGuard =
+    lock::OwnedStateLockWriteGuard<ThreadEventCacheState>;
+
 impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
+    /// Force to shrink the room, whenever there is subscribers or not.
+    async fn reload(&mut self) -> Result<()> {
+        self.state.shrink_to_last_chunk(&self.store).await?;
+
+        let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
+
+        if !diffs.is_empty() {
+            self.state.update_sender.send(
+                TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.to_owned() }),
+            );
+        }
+
+        Ok(())
+    }
+}
+
+impl lock::Reload for OwnedThreadEventCacheStateLockWriteGuard {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<()> {
         self.state.shrink_to_last_chunk(&self.store).await?;
@@ -368,23 +390,6 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         Ok((has_new_gap, timeline_event_diffs))
-    }
-
-    /// Reset this data structure as if it were brand new.
-    ///
-    /// Return a single diff update that is a clear of all events; as a
-    /// result, the caller may override any pending diff updates
-    /// with the result of this function.
-    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
-        self.reset_internal().await?;
-
-        let diff_updates = self.state.thread_linked_chunk.updates_as_vector_diffs();
-
-        // Ensure the contract defined in the doc comment is true:
-        debug_assert_eq!(diff_updates.len(), 1);
-        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-        Ok(diff_updates)
     }
 
     /// Find a single event in this thread.
@@ -515,5 +520,24 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
         self.state.thread_linked_chunk.order_tracker.map_updates(&updates);
         self.state.send_updates_to_store(updates, &self.store).await
+    }
+}
+
+impl OwnedThreadEventCacheStateLockWriteGuard {
+    /// Reset this data structure as if it were brand new.
+    ///
+    /// Return a single diff update that is a clear of all events; as a
+    /// result, the caller may override any pending diff updates
+    /// with the result of this function.
+    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+        self.state.reset_internal(&self.store).await?;
+
+        let diff_updates = self.state.thread_linked_chunk.updates_as_vector_diffs();
+
+        // Ensure the contract defined in the doc comment is true:
+        debug_assert_eq!(diff_updates.len(), 1);
+        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
+
+        Ok(diff_updates)
     }
 }
