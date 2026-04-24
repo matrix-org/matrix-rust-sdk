@@ -29,14 +29,14 @@ use matrix_sdk::{
 use ruma::serde::Raw;
 use url::Url;
 
-use crate::client::{Client, OidcPrompt, SlidingSyncVersion};
+use crate::client::{Client, OAuthPrompt, SlidingSyncVersion};
 
 #[derive(uniffi::Object)]
 pub struct HomeserverLoginDetails {
     pub(crate) url: String,
     pub(crate) sliding_sync_version: SlidingSyncVersion,
     pub(crate) supports_oidc_login: bool,
-    pub(crate) supported_oidc_prompts: Vec<OidcPrompt>,
+    pub(crate) supported_oidc_prompts: Vec<OAuthPrompt>,
     pub(crate) supports_sso_login: bool,
     pub(crate) supports_password_login: bool,
 }
@@ -65,7 +65,7 @@ impl HomeserverLoginDetails {
 
     /// The prompts advertised by the authentication issuer for use in the login
     /// URL.
-    pub fn supported_oidc_prompts(&self) -> Vec<OidcPrompt> {
+    pub fn supported_oidc_prompts(&self) -> Vec<OAuthPrompt> {
         self.supported_oidc_prompts.clone()
     }
 

@@ -38,7 +38,7 @@ use matrix_sdk::{
             account::request_openid_token,
             discovery::{
                 discover_homeserver::RtcFocusInfo,
-                get_authorization_server_metadata::v1::Prompt as RumaOidcPrompt,
+                get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             },
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{Visibility, create_room},
@@ -637,7 +637,7 @@ impl Client {
     pub async fn url_for_oauth(
         &self,
         oauth_configuration: &OAuthConfiguration,
-        prompt: Option<OidcPrompt>,
+        prompt: Option<OAuthPrompt>,
         login_hint: Option<String>,
         device_id: Option<String>,
         additional_scopes: Option<Vec<String>>,
@@ -2918,7 +2918,7 @@ impl TryFrom<SlidingSyncVersion> for SdkSlidingSyncVersion {
 }
 
 #[derive(Clone, uniffi::Enum)]
-pub enum OidcPrompt {
+pub enum OAuthPrompt {
     /// The Authorization Server should prompt the End-User to create a user
     /// account.
     ///
@@ -2937,10 +2937,10 @@ pub enum OidcPrompt {
     Unknown { value: String },
 }
 
-impl From<RumaOidcPrompt> for OidcPrompt {
-    fn from(value: RumaOidcPrompt) -> Self {
+impl From<RumaOAuthPrompt> for OAuthPrompt {
+    fn from(value: RumaOAuthPrompt) -> Self {
         match value {
-            RumaOidcPrompt::Create => Self::Create,
+            RumaOAuthPrompt::Create => Self::Create,
             value => match value.as_str() {
                 "consent" => Self::Consent,
                 "login" => Self::Login,
@@ -2950,13 +2950,13 @@ impl From<RumaOidcPrompt> for OidcPrompt {
     }
 }
 
-impl From<OidcPrompt> for RumaOidcPrompt {
-    fn from(value: OidcPrompt) -> Self {
+impl From<OAuthPrompt> for RumaOAuthPrompt {
+    fn from(value: OAuthPrompt) -> Self {
         match value {
-            OidcPrompt::Create => Self::Create,
-            OidcPrompt::Consent => Self::from("consent"),
-            OidcPrompt::Login => Self::from("login"),
-            OidcPrompt::Unknown { value } => value.into(),
+            OAuthPrompt::Create => Self::Create,
+            OAuthPrompt::Consent => Self::from("consent"),
+            OAuthPrompt::Login => Self::from("login"),
+            OAuthPrompt::Unknown { value } => value.into(),
         }
     }
 }
