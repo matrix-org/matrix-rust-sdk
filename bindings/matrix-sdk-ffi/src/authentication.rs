@@ -124,12 +124,12 @@ pub enum SsoError {
     Generic { message: String },
 }
 
-/// The configuration to use when authenticating with OIDC.
+/// The configuration to use when authenticating with OAuth.
 #[derive(uniffi::Record)]
-pub struct OidcConfiguration {
-    /// The name of the client that will be shown during OIDC authentication.
+pub struct OAuthConfiguration {
+    /// The name of the client that will be shown during OAuth authentication.
     pub client_name: Option<String>,
-    /// The redirect URI that will be used when OIDC authentication is
+    /// The redirect URI that will be used when OAuth authentication is
     /// successful.
     pub redirect_uri: String,
     /// A URI that contains information about the client.
@@ -149,7 +149,7 @@ pub struct OidcConfiguration {
     pub static_registrations: HashMap<String, String>,
 }
 
-impl OidcConfiguration {
+impl OAuthConfiguration {
     pub(crate) fn redirect_uri(&self) -> Result<Url, OidcError> {
         Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)
     }

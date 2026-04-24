@@ -124,7 +124,7 @@ use super::{
 };
 use crate::{
     ClientError,
-    authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
+    authentication::{HomeserverLoginDetails, OAuthConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
     live_locations_observer::BeaconInfoUpdate,
@@ -609,7 +609,7 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `oidc_configuration` - The configuration used to load the credentials
+    /// * `oauth_configuration` - The configuration used to load the credentials
     ///   of the client if it is already registered with the authorization
     ///   server, or register the client and store its credentials if it isn't.
     ///
@@ -636,14 +636,14 @@ impl Client {
     ///   are always requested.
     pub async fn url_for_oidc(
         &self,
-        oidc_configuration: &OidcConfiguration,
+        oauth_configuration: &OAuthConfiguration,
         prompt: Option<OidcPrompt>,
         login_hint: Option<String>,
         device_id: Option<String>,
         additional_scopes: Option<Vec<String>>,
     ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
-        let registration_data = oidc_configuration.registration_data()?;
-        let redirect_uri = oidc_configuration.redirect_uri()?;
+        let registration_data = oauth_configuration.registration_data()?;
+        let redirect_uri = oauth_configuration.redirect_uri()?;
 
         let device_id = device_id.map(OwnedDeviceId::from);
 
@@ -689,13 +689,13 @@ impl Client {
     ///
     /// # Arguments
     ///
-    /// * `oidc_configuration` - The data to restore or register the client with
-    ///   the server.
+    /// * `oauth_configuration` - The data to restore or register the client
+    ///   with the server.
     pub fn new_login_with_qr_code_handler(
         self: Arc<Self>,
-        oidc_configuration: OidcConfiguration,
+        oauth_configuration: OAuthConfiguration,
     ) -> LoginWithQrCodeHandler {
-        LoginWithQrCodeHandler::new(self.inner.oauth(), oidc_configuration)
+        LoginWithQrCodeHandler::new(self.inner.oauth(), oauth_configuration)
     }
 
     /// Create a handler for granting login from this device to a new device by
