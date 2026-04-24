@@ -35,8 +35,8 @@ use crate::client::{Client, OAuthPrompt, SlidingSyncVersion};
 pub struct HomeserverLoginDetails {
     pub(crate) url: String,
     pub(crate) sliding_sync_version: SlidingSyncVersion,
-    pub(crate) supports_oidc_login: bool,
-    pub(crate) supported_oidc_prompts: Vec<OAuthPrompt>,
+    pub(crate) supports_oauth_login: bool,
+    pub(crate) supported_oauth_prompts: Vec<OAuthPrompt>,
     pub(crate) supports_sso_login: bool,
     pub(crate) supports_password_login: bool,
 }
@@ -53,20 +53,20 @@ impl HomeserverLoginDetails {
         self.sliding_sync_version.clone()
     }
 
-    /// Whether the current homeserver supports login using OIDC.
-    pub fn supports_oidc_login(&self) -> bool {
-        self.supports_oidc_login
+    /// Whether the current homeserver supports login using OAuth.
+    pub fn supports_oauth_login(&self) -> bool {
+        self.supports_oauth_login
+    }
+
+    /// The prompts advertised by the authentication issuer for use in the login
+    /// URL.
+    pub fn supported_oauth_prompts(&self) -> Vec<OAuthPrompt> {
+        self.supported_oauth_prompts.clone()
     }
 
     /// Whether the current homeserver supports login using legacy SSO.
     pub fn supports_sso_login(&self) -> bool {
         self.supports_sso_login
-    }
-
-    /// The prompts advertised by the authentication issuer for use in the login
-    /// URL.
-    pub fn supported_oidc_prompts(&self) -> Vec<OAuthPrompt> {
-        self.supported_oidc_prompts.clone()
     }
 
     /// Whether the current homeserver supports the password login flow.
