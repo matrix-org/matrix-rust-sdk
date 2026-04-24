@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     executor::spawn,
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
-use ruma::{EventId, RoomId, serde::Raw};
+use ruma::{EventId, RoomId, events::relation::RelationType, serde::Raw};
 use tokio::sync::broadcast::Sender;
 use tracing::trace;
 
@@ -287,4 +287,120 @@ pub async fn find_event(
     }
 
     Ok(store.find_event(room_id, event_id).await?.map(|event| (EventLocation::Store, event)))
+}
+
+/// Find an event and all its relations in the persisted storage.
+///
+/// This goes straight to the database, as a simplification; we don't
+/// expect to need to have to look up in memory events, or that
+/// all the related events are actually loaded.
+///
+/// The related events are sorted like this:
+/// - events saved out-of-band with `save_events` (if this method exists on the
+///   cache calling this function) will be located at the beginning of the
+///   array.
+/// - events present in the linked chunk (be it in memory or in the database)
+///   will be sorted according to their ordering in the linked chunk.
+pub async fn find_event_with_relations(
+    event_id: &EventId,
+    room_id: &RoomId,
+    filters: Option<Vec<RelationType>>,
+    event_linked_chunk: &EventLinkedChunk,
+    store: &EventCacheStoreLockGuard,
+) -> Result<Option<(Event, Vec<Event>)>> {
+    // First, hit storage to get the target event and its related events.
+    let found = store.find_event(&room_id, event_id).await?;
+
+    let Some(target) = found else {
+        // We haven't found the event: return early.
+        return Ok(None);
+    };
+
+    // Then, find the transitive closure of all the related events.
+    let related =
+        find_event_relations(event_id, room_id, filters, event_linked_chunk, store).await?;
+
+    Ok(Some((target, related)))
+}
+
+/// Find all relations for an event in the persisted storage.
+///
+/// This goes straight to the database, as a simplification; we don't
+/// expect to need to have to look up in memory events, or that
+/// all the related events are actually loaded.
+///
+/// The related events are sorted like this:
+/// - events saved out-of-band with `save_events` (if this method exists on the
+///   cache calling this function) will be located at the beginning of the
+///   array.
+/// - events present in the linked chunk (be it in memory or in the database)
+///   will be sorted according to their ordering in the linked chunk.
+pub async fn find_event_relations(
+    event_id: &EventId,
+    room_id: &RoomId,
+    filters: Option<Vec<RelationType>>,
+    event_linked_chunk: &EventLinkedChunk,
+    store: &EventCacheStoreLockGuard,
+) -> Result<Vec<Event>> {
+    // Initialize the stack with all the related events, to find the
+    // transitive closure of all the related events.
+    let mut related = store.find_event_relations(&room_id, event_id, filters.as_deref()).await?;
+    let mut stack = related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
+
+    // Also keep track of already seen events, in case there's a loop in the
+    // relation graph.
+    let mut already_seen = HashSet::new();
+    already_seen.insert(event_id.to_owned());
+
+    let mut num_iters = 1;
+
+    // Find the related event for each previously-related event.
+    while let Some(event_id) = stack.pop() {
+        if !already_seen.insert(event_id.clone()) {
+            // Skip events we've already seen.
+            continue;
+        }
+
+        let other_related =
+            store.find_event_relations(room_id, &event_id, filters.as_deref()).await?;
+
+        stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
+        related.extend(other_related);
+
+        num_iters += 1;
+    }
+
+    trace!(num_related = %related.len(), num_iters, "computed transitive closure of related events");
+
+    // Sort the results by their positions in the linked chunk, if available.
+    //
+    // If an event doesn't have a known position, it goes to the start of the array.
+    related.sort_by(|(_, lhs), (_, rhs)| {
+        use std::cmp::Ordering;
+
+        match (lhs, rhs) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less,
+            (Some(_), None) => Ordering::Greater,
+            (Some(lhs), Some(rhs)) => {
+                let lhs = event_linked_chunk.event_order(*lhs);
+                let rhs = event_linked_chunk.event_order(*rhs);
+
+                // The events should have a definite position, but in the case they don't,
+                // still consider that not having a position means you'll end at the start
+                // of the array.
+                match (lhs, rhs) {
+                    (None, None) => Ordering::Equal,
+                    (None, Some(_)) => Ordering::Less,
+                    (Some(_), None) => Ordering::Greater,
+                    (Some(lhs), Some(rhs)) => lhs.cmp(&rhs),
+                }
+            }
+        }
+    });
+
+    // Keep only the events, not their positions.
+    let related = related.into_iter().map(|(event, _pos)| event).collect();
+
+    Ok(related)
 }
