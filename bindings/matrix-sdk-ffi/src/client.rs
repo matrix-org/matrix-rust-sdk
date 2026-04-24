@@ -594,10 +594,10 @@ impl Client {
         Ok(Arc::new(SsoHandler { client: Arc::clone(self), url }))
     }
 
-    /// Requests the URL needed for opening a web view using OIDC. Once the web
-    /// view has succeeded, call `login_with_oidc_callback` with the callback it
-    /// returns. If a failure occurs and a callback isn't available, make sure
-    /// to call `abort_oidc_auth` to inform the client of this.
+    /// Requests the URL needed for opening a web view using OAuth. Once the web
+    /// view has succeeded, call `login_with_oauth_callback` with the callback
+    /// it returns. If a failure occurs and a callback isn't available, make
+    /// sure to call `abort_oauth_auth` to inform the client of this.
     ///
     /// # Arguments
     ///
@@ -626,7 +626,7 @@ impl Client {
     ///   The scopes for API access and the device ID according to the
     ///   [specification](https://spec.matrix.org/v1.15/client-server-api/#allocated-scope-tokens)
     ///   are always requested.
-    pub async fn url_for_oidc(
+    pub async fn url_for_oauth(
         &self,
         oauth_configuration: &OAuthConfiguration,
         prompt: Option<OidcPrompt>,
@@ -661,14 +661,14 @@ impl Client {
         Ok(Arc::new(data))
     }
 
-    /// Aborts an existing OIDC login operation that might have been cancelled,
+    /// Aborts an existing OAuth login operation that might have been cancelled,
     /// failed etc.
-    pub async fn abort_oidc_auth(&self, authorization_data: Arc<OAuthAuthorizationData>) {
+    pub async fn abort_oauth_auth(&self, authorization_data: Arc<OAuthAuthorizationData>) {
         self.inner.oauth().abort_login(&authorization_data.state).await;
     }
 
-    /// Completes the OIDC login process.
-    pub async fn login_with_oidc_callback(&self, callback_url: String) -> Result<(), OidcError> {
+    /// Completes the OAuth login process.
+    pub async fn login_with_oauth_callback(&self, callback_url: String) -> Result<(), OidcError> {
         let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
 
         self.inner.oauth().finish_login(url.into()).await?;
