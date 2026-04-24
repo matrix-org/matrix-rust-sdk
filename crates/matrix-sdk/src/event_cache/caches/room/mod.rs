@@ -151,17 +151,6 @@ impl RoomEventCache {
         Ok((events, subscriber))
     }
 
-    /// Subscribe to thread for a given root event, and get a (maybe empty)
-    /// initially known list of events for that thread.
-    pub async fn subscribe_to_thread(
-        &self,
-        thread_root: OwnedEventId,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let mut state = self.inner.state.write().await?;
-
-        state.subscribe_to_thread(thread_root).await
-    }
-
     /// Subscribe to the pinned event cache for this room.
     ///
     /// This is a persisted view over the pinned events of a room.
