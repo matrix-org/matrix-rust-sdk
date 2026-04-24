@@ -2,12 +2,13 @@ use std::{collections::BTreeMap, ops::Not as _, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use eyeball_im::VectorDiff;
-use futures_util::FutureExt;
+use futures_util::{FutureExt, StreamExt, pin_mut};
 use matrix_sdk::{
     Client, Error, MemoryStore, SlidingSyncList, StateChanges, StateStore, ThreadingSupport,
     assert_let_timeout,
     authentication::oauth::{OAuthError, error::OAuthTokenRevocationError},
     config::{RequestConfig, StoreConfig, SyncSettings, SyncToken},
+    live_locations_observer::BeaconInfoUpdate,
     sleep::sleep,
     store::{RoomLoadSettings, ThreadSubscriptionStatus},
     sync::{RoomUpdate, State},
@@ -30,7 +31,7 @@ use matrix_sdk_test::{
     },
 };
 use ruma::{
-    EventId, Int, OwnedUserId, RoomId, RoomVersionId,
+    EventId, Int, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, RoomVersionId,
     api::client::{
         directory::{
             get_public_rooms,
@@ -1317,6 +1318,137 @@ async fn test_rooms_stream() {
     assert_eq!(room_3.room_id(), room_id_3);
 
     assert_pending!(rooms_stream);
+}
+
+#[async_test]
+async fn test_observe_own_beacon_info_updates_emits_room_id_event_id_and_content() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let stream = client.observe_own_beacon_info_updates().unwrap();
+    pin_mut!(stream);
+
+    let now = MilliSecondsSinceUnixEpoch::now();
+    let f = EventFactory::new();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(
+                f.beacon_info(
+                    Some("Live Share".to_owned()),
+                    Duration::from_millis(300_000),
+                    true,
+                    Some(now),
+                )
+                .event_id(event_id!("$own_beacon_info"))
+                .sender(user_id!("@example:localhost"))
+                .state_key(user_id!("@example:localhost"))
+                .into_raw_sync_state(),
+            ),
+        )
+        .await;
+
+    let update: BeaconInfoUpdate = stream.next().await.expect("expected a beacon_info update");
+    assert_eq!(update.room_id, *DEFAULT_TEST_ROOM_ID);
+    assert_eq!(update.event_id, event_id!("$own_beacon_info"));
+    assert_eq!(update.content.description, Some("Live Share".to_owned()));
+    assert!(update.content.live);
+}
+
+#[async_test]
+async fn test_observe_own_beacon_info_updates_filters_other_users() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let stream = client.observe_own_beacon_info_updates().unwrap();
+    pin_mut!(stream);
+
+    let now = MilliSecondsSinceUnixEpoch::now();
+    let f = EventFactory::new();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(
+                f.beacon_info(None, Duration::from_millis(300_000), true, Some(now))
+                    .event_id(event_id!("$other_beacon_info"))
+                    .sender(user_id!("@alice:localhost"))
+                    .state_key(user_id!("@alice:localhost"))
+                    .into_raw_sync_state(),
+            ),
+        )
+        .await;
+
+    assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_observe_own_beacon_info_updates_delivers_updates_from_multiple_rooms() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let stream = client.observe_own_beacon_info_updates().unwrap();
+    pin_mut!(stream);
+
+    let now = MilliSecondsSinceUnixEpoch::now();
+    let f = EventFactory::new();
+    let second_room = room_id!("!second:example.org");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(
+                f.beacon_info(None, Duration::from_millis(300_000), true, Some(now))
+                    .event_id(event_id!("$room1_beacon"))
+                    .sender(user_id!("@example:localhost"))
+                    .state_key(user_id!("@example:localhost"))
+                    .into_raw_sync_state(),
+            ),
+        )
+        .await;
+
+    let first = stream.next().await.expect("expected first update");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(second_room).add_state_event(
+                f.beacon_info(None, Duration::from_millis(300_000), false, Some(now))
+                    .event_id(event_id!("$room2_beacon"))
+                    .sender(user_id!("@example:localhost"))
+                    .state_key(user_id!("@example:localhost"))
+                    .into_raw_sync_state(),
+            ),
+        )
+        .await;
+
+    let second = stream.next().await.expect("expected second update");
+
+    assert_eq!(first.room_id, *DEFAULT_TEST_ROOM_ID);
+    assert_eq!(second.room_id, second_room.to_owned());
+}
+
+#[async_test]
+async fn test_observe_own_beacon_info_updates_stays_idle_without_matching_updates() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let stream = client.observe_own_beacon_info_updates().unwrap();
+    pin_mut!(stream);
+
+    server.sync_joined_room(&client, *DEFAULT_TEST_ROOM_ID).await;
+
+    assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_observe_own_beacon_info_updates_requires_known_own_user_id() {
+    let (client, _server) = no_retry_test_client_with_server().await;
+
+    let res = client.observe_own_beacon_info_updates();
+
+    assert!(matches!(res, Err(Error::AuthenticationRequired)));
 }
 
 #[async_test]

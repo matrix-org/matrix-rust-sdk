@@ -127,6 +127,7 @@ use crate::{
     authentication::{HomeserverLoginDetails, OidcConfiguration, OidcError, SsoError, SsoHandler},
     client,
     encryption::Encryption,
+    live_locations_observer::BeaconInfoUpdate,
     notification::{
         NotificationClient, NotificationEvent, NotificationItem, NotificationRoomInfo,
         NotificationSenderInfo,
@@ -265,6 +266,13 @@ pub trait AccountDataListener: SyncOutsideWasm + SendOutsideWasm {
 pub trait DuplicateKeyUploadErrorListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called once when uploading keys fails.
     fn on_duplicate_key_upload_error(&self, message: Option<DuplicateOneTimeKeyErrorMessage>);
+}
+
+/// A listener for the current user's client-wide beacon_info updates.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait BeaconInfoListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called whenever the current user's beacon_info changes in any room.
+    fn on_update(&self, update: BeaconInfoUpdate);
 }
 
 /// Information about the old and new key that caused a duplicate key upload
@@ -839,6 +847,25 @@ impl Client {
                 }
             }
         })))
+    }
+
+    /// Subscribe to beacon_info updates for the current user across all rooms.
+    ///
+    /// The listener is only called for new matching updates; there is no
+    /// initial replay.
+    pub fn subscribe_to_own_beacon_info_updates(
+        &self,
+        listener: Box<dyn BeaconInfoListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let stream = self.inner.observe_own_beacon_info_updates()?;
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(stream);
+
+            while let Some(update) = stream.next().await {
+                listener.on_update(update.into());
+            }
+        }))))
     }
 
     /// Subscribe to updates of global account data events.
