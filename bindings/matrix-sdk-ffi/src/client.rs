@@ -28,7 +28,9 @@ use matrix_sdk::STATE_STORE_DATABASE_NAME;
 use matrix_sdk::media::MediaFileHandle as SdkMediaFileHandle;
 use matrix_sdk::{
     Account, AuthApi, AuthSession, Client as MatrixClient, Error, SessionChange, SessionTokens,
-    authentication::oauth::{ClientId, OAuthAuthorizationData, OAuthError, OAuthSession},
+    authentication::oauth::{
+        ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
+    },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     executor::AbortOnDrop,
     media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
@@ -124,7 +126,9 @@ use super::{
 };
 use crate::{
     ClientError,
-    authentication::{HomeserverLoginDetails, OAuthConfiguration, OidcError, SsoError, SsoHandler},
+    authentication::{
+        HomeserverLoginDetails, OAuthConfiguration, OAuthError, SsoError, SsoHandler,
+    },
     client,
     encryption::Encryption,
     live_locations_observer::BeaconInfoUpdate,
@@ -641,7 +645,7 @@ impl Client {
         login_hint: Option<String>,
         device_id: Option<String>,
         additional_scopes: Option<Vec<String>>,
-    ) -> Result<Arc<OAuthAuthorizationData>, OidcError> {
+    ) -> Result<Arc<OAuthAuthorizationData>, OAuthError> {
         let registration_data = oauth_configuration.registration_data()?;
         let redirect_uri = oauth_configuration.redirect_uri()?;
 
@@ -676,8 +680,8 @@ impl Client {
     }
 
     /// Completes the OAuth login process.
-    pub async fn login_with_oauth_callback(&self, callback_url: String) -> Result<(), OidcError> {
-        let url = Url::parse(&callback_url).or(Err(OidcError::CallbackUrlInvalid))?;
+    pub async fn login_with_oauth_callback(&self, callback_url: String) -> Result<(), OAuthError> {
+        let url = Url::parse(&callback_url).or(Err(OAuthError::CallbackUrlInvalid))?;
 
         self.inner.oauth().finish_login(url.into()).await?;
 
@@ -1236,7 +1240,7 @@ impl Client {
             Ok(server_metadata) => server_metadata,
             Err(e) => {
                 error!("Failed retrieving cached server metadata: {e}");
-                return Err(OAuthError::from(e).into());
+                return Err(SdkOAuthError::from(e).into());
             }
         };
 

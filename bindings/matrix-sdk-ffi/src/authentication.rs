@@ -150,11 +150,11 @@ pub struct OAuthConfiguration {
 }
 
 impl OAuthConfiguration {
-    pub(crate) fn redirect_uri(&self) -> Result<Url, OidcError> {
-        Url::parse(&self.redirect_uri).map_err(|_| OidcError::CallbackUrlInvalid)
+    pub(crate) fn redirect_uri(&self) -> Result<Url, OAuthError> {
+        Url::parse(&self.redirect_uri).map_err(|_| OAuthError::CallbackUrlInvalid)
     }
 
-    pub(crate) fn client_metadata(&self) -> Result<Raw<ClientMetadata>, OidcError> {
+    pub(crate) fn client_metadata(&self) -> Result<Raw<ClientMetadata>, OAuthError> {
         let redirect_uri = self.redirect_uri()?;
         let client_name = self.client_name.as_ref().map(|n| Localized::new(n.to_owned(), []));
         let client_uri = self.client_uri.localized_url()?;
@@ -178,10 +178,10 @@ impl OAuthConfiguration {
             )
         };
 
-        Raw::new(&metadata).map_err(|_| OidcError::MetadataInvalid)
+        Raw::new(&metadata).map_err(|_| OAuthError::MetadataInvalid)
     }
 
-    pub(crate) fn registration_data(&self) -> Result<ClientRegistrationData, OidcError> {
+    pub(crate) fn registration_data(&self) -> Result<ClientRegistrationData, OAuthError> {
         let client_metadata = self.client_metadata()?;
 
         let mut registration_data = ClientRegistrationData::new(client_metadata);
@@ -208,43 +208,43 @@ impl OAuthConfiguration {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
-pub enum OidcError {
+pub enum OAuthError {
     #[error(
         "The homeserver doesn't provide an authentication issuer in its well-known configuration."
     )]
     NotSupported,
-    #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
+    #[error("Unable to use OAuth as the supplied client metadata is invalid.")]
     MetadataInvalid,
-    #[error("The supplied callback URL used to complete OIDC is invalid.")]
+    #[error("The supplied callback URL used to complete OAuth is invalid.")]
     CallbackUrlInvalid,
-    #[error("The OIDC login was cancelled by the user.")]
+    #[error("The OAuth login was cancelled by the user.")]
     Cancelled,
 
     #[error("An error occurred: {message}")]
     Generic { message: String },
 }
 
-impl From<SdkOAuthError> for OidcError {
-    fn from(e: SdkOAuthError) -> OidcError {
+impl From<SdkOAuthError> for OAuthError {
+    fn from(e: SdkOAuthError) -> OAuthError {
         match e {
-            SdkOAuthError::Discovery(error) if error.is_not_supported() => OidcError::NotSupported,
+            SdkOAuthError::Discovery(error) if error.is_not_supported() => OAuthError::NotSupported,
             SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::RedirectUri(_))
             | SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::InvalidState) => {
-                OidcError::CallbackUrlInvalid
+                OAuthError::CallbackUrlInvalid
             }
             SdkOAuthError::AuthorizationCode(OAuthAuthorizationCodeError::Cancelled) => {
-                OidcError::Cancelled
+                OAuthError::Cancelled
             }
-            _ => OidcError::Generic { message: e.to_string() },
+            _ => OAuthError::Generic { message: e.to_string() },
         }
     }
 }
 
-impl From<Error> for OidcError {
-    fn from(e: Error) -> OidcError {
+impl From<Error> for OAuthError {
+    fn from(e: Error) -> OAuthError {
         match e {
             Error::OAuth(e) => (*e).into(),
-            _ => OidcError::Generic { message: e.to_string() },
+            _ => OAuthError::Generic { message: e.to_string() },
         }
     }
 }
@@ -254,11 +254,11 @@ impl From<Error> for OidcError {
 trait OptionExt {
     /// Convenience method to convert an `Option<String>` to a URL and returns
     /// it as a Localized URL. No localization is actually performed.
-    fn localized_url(&self) -> Result<Option<Localized<Url>>, OidcError>;
+    fn localized_url(&self) -> Result<Option<Localized<Url>>, OAuthError>;
 }
 
 impl OptionExt for Option<String> {
-    fn localized_url(&self) -> Result<Option<Localized<Url>>, OidcError> {
+    fn localized_url(&self) -> Result<Option<Localized<Url>>, OAuthError> {
         self.as_deref().map(StrExt::localized_url).transpose()
     }
 }
@@ -266,11 +266,11 @@ impl OptionExt for Option<String> {
 trait StrExt {
     /// Convenience method to convert a string to a URL and returns it as a
     /// Localized URL. No localization is actually performed.
-    fn localized_url(&self) -> Result<Localized<Url>, OidcError>;
+    fn localized_url(&self) -> Result<Localized<Url>, OAuthError>;
 }
 
 impl StrExt for str {
-    fn localized_url(&self) -> Result<Localized<Url>, OidcError> {
-        Ok(Localized::new(Url::parse(self).map_err(|_| OidcError::MetadataInvalid)?, []))
+    fn localized_url(&self) -> Result<Localized<Url>, OAuthError> {
+        Ok(Localized::new(Url::parse(self).map_err(|_| OAuthError::MetadataInvalid)?, []))
     }
 }

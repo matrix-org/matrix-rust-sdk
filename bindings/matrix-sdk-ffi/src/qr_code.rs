@@ -73,7 +73,7 @@ impl LoginWithQrCodeHandler {
         let registration_data = self
             .oauth_configuration
             .registration_data()
-            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+            .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
         let login =
             self.oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
@@ -118,7 +118,7 @@ impl LoginWithQrCodeHandler {
         let registration_data = self
             .oauth_configuration
             .registration_data()
-            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+            .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
         let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
 
@@ -322,8 +322,8 @@ pub enum HumanQrLoginError {
     Unknown,
     #[error("The homeserver doesn't provide sliding sync in its configuration.")]
     SlidingSyncNotAvailable,
-    #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
-    OidcMetadataInvalid,
+    #[error("Unable to use OAuth as the supplied client metadata is invalid.")]
+    OAuthMetadataInvalid,
     #[error("The other device is not signed in and as such can't sign in other devices.")]
     OtherDeviceNotSignedIn,
     #[error("The check code was already sent.")]
