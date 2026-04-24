@@ -83,7 +83,7 @@ mod tests {
 
     use super::{super::BaseRoomInfo, RoomNotableTags};
     use crate::{
-        BaseClient, RoomState, SessionMeta,
+        BaseClient, DmRoomDefinition, RoomState, SessionMeta,
         client::ThreadingSupport,
         response_processors as processors,
         store::{RoomLoadSettings, StoreConfig},
@@ -95,6 +95,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
 
         client
@@ -191,6 +192,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
 
         client
