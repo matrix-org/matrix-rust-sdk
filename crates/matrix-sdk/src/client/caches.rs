@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use matrix_sdk_base::store::WellKnownResponse;
-use matrix_sdk_common::{locks::Mutex, ttl_cache::TtlValue};
+use matrix_sdk_common::{locks::Mutex, ttl::TtlValue};
 use ruma::api::{
     SupportedVersions,
     client::discovery::{

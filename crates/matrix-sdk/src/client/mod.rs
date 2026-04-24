@@ -40,7 +40,7 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl_cache::TtlValue};
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -3501,7 +3501,7 @@ pub(crate) mod tests {
     use matrix_sdk_base::{
         RoomState,
         store::{MemoryStore, StoreConfig},
-        ttl_cache::TtlValue,
+        ttl::TtlValue,
     };
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,

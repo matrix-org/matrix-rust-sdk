@@ -174,7 +174,7 @@ use error::{
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
-use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings, ttl_cache::TtlValue};
+use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings, ttl::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use oauth2::{

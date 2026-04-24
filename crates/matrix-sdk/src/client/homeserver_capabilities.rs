@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError, ttl_cache::TtlValue};
+use matrix_sdk_base::{StateStoreDataKey, StateStoreDataValue, StoreError, ttl::TtlValue};
 use ruma::{
     api::{
         Metadata,

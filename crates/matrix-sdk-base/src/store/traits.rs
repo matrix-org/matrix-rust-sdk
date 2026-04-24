@@ -22,7 +22,7 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::{AsyncTraitDeps, ttl_cache::TtlValue};
+use matrix_sdk_common::{AsyncTraitDeps, ttl::TtlValue};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
