@@ -3976,15 +3976,21 @@ impl Room {
     /// # Errors
     ///
     /// Returns an error if the room is not joined, if the beacon information
-    /// is redacted or stripped, or if the state event is not found.
+    /// is redacted or stripped, if the state event is not found, or if the
+    /// existing beacon is no longer live.
     pub async fn stop_live_location_share(
         &self,
     ) -> Result<send_state_event::v3::Response, BeaconError> {
         self.ensure_room_joined()?;
 
         let mut beacon_info_event = self.get_user_beacon_info(self.own_user_id()).await?;
-        beacon_info_event.content.stop();
-        Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
+
+        if beacon_info_event.content.live {
+            beacon_info_event.content.stop();
+            Ok(self.send_state_event_for_key(self.own_user_id(), beacon_info_event.content).await?)
+        } else {
+            Err(BeaconError::NotLive)
+        }
     }
 
     /// Send a location beacon event in the current room.
