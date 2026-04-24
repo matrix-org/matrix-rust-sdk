@@ -28,7 +28,9 @@ use homeserver_config::*;
 use matrix_sdk_base::crypto::DecryptionSettings;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
-use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig, ttl::TtlValue};
+use matrix_sdk_base::{
+    BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig, ttl::TtlValue,
+};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
@@ -126,6 +128,7 @@ pub struct ClientBuilder {
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
     search_index_store_kind: SearchIndexStoreKind,
+    dm_room_definition: DmRoomDefinition,
 }
 
 impl ClientBuilder {
@@ -162,7 +165,16 @@ impl ClientBuilder {
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store_kind: SearchIndexStoreKind::InMemory,
+            dm_room_definition: DmRoomDefinition::MatrixSpec,
         }
+    }
+
+    /// Sets the definition the [`Client`] will use to check if a room is a DM.
+    ///
+    /// By default this is [`DmRoomDefinition::MatrixSpec`].
+    pub fn dm_room_definition(mut self, dm_room_definition: DmRoomDefinition) -> Self {
+        self.dm_room_definition = dm_room_definition;
+        self
     }
 
     /// Set the homeserver URL to use.
@@ -567,6 +579,7 @@ impl ClientBuilder {
             let mut client = BaseClient::new(
                 build_store_config(self.store_config, &self.cross_process_lock_config).await?,
                 self.threading_support,
+                self.dm_room_definition,
             );
 
             #[cfg(feature = "e2e-encryption")]

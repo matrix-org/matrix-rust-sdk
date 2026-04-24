@@ -79,7 +79,9 @@ use crate::{
 /// rather through `matrix_sdk::Client`.
 ///
 /// ```rust
-/// use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
+/// use matrix_sdk_base::{
+///     BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig,
+/// };
 /// use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 ///
 /// let client = BaseClient::new(
@@ -87,6 +89,7 @@ use crate::{
 ///         "cross-process-holder-name".to_owned(),
 ///     )),
 ///     ThreadingSupport::Disabled,
+///     DmRoomDefinition::default(),
 /// );
 /// ```
 #[derive(Clone)]
@@ -131,6 +134,9 @@ pub struct BaseClient {
 
     /// Whether the client supports threads or not.
     pub threading_support: ThreadingSupport,
+
+    /// The definition of what is considered a DM room.
+    pub dm_room_definition: DmRoomDefinition,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -176,7 +182,11 @@ impl BaseClient {
     ///
     /// * `config` - the configuration for the stores (state store, event cache
     ///   store and crypto store).
-    pub fn new(config: StoreConfig, threading_support: ThreadingSupport) -> Self {
+    pub fn new(
+        config: StoreConfig,
+        threading_support: ThreadingSupport,
+        dm_room_definition: DmRoomDefinition,
+    ) -> Self {
         let store = BaseStateStore::new(config.state_store);
 
         BaseClient {
@@ -197,6 +207,7 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             handle_verification_events: true,
             threading_support,
+            dm_room_definition,
         }
     }
 
@@ -228,6 +239,7 @@ impl BaseClient {
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
             threading_support: self.threading_support,
+            dm_room_definition: self.dm_room_definition.clone(),
         };
 
         copy.state_store.derive_from_other(&self.state_store).await?;
@@ -245,7 +257,7 @@ impl BaseClient {
         _handle_verification_events: bool,
     ) -> Result<Self> {
         let config = StoreConfig::new(cross_process_store_config).state_store(MemoryStore::new());
-        Ok(Self::new(config, ThreadingSupport::Disabled))
+        Ok(Self::new(config, ThreadingSupport::Disabled, DmRoomDefinition::default()))
     }
 
     /// Get the session meta information.
@@ -440,11 +452,15 @@ impl BaseClient {
     /// # Examples
     ///
     /// ```rust
-    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
+    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport, DmRoomDefinition};
     /// # use ruma::{OwnedRoomId, OwnedUserId, RoomId};
     /// use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     /// # async {
-    /// # let client = BaseClient::new(StoreConfig::new(CrossProcessLockConfig::multi_process("example")), ThreadingSupport::Disabled);
+    /// # let client = BaseClient::new(
+    ///     StoreConfig::new(CrossProcessLockConfig::multi_process("example")),
+    ///     ThreadingSupport::Disabled,
+    ///     DmRoomDefinition::default()
+    /// );
     /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
     /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<OwnedUserId>> { todo!() }
     /// # let room_id: &RoomId = todo!();
@@ -1240,7 +1256,7 @@ mod tests {
 
     use super::{BaseClient, RequestedRequiredStates};
     use crate::{
-        RoomDisplayName, RoomState, SessionMeta,
+        DmRoomDefinition, RoomDisplayName, RoomState, SessionMeta,
         client::ThreadingSupport,
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
@@ -1534,6 +1550,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
         client
             .activate(
@@ -1596,6 +1613,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
         client
             .activate(
@@ -1660,6 +1678,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
         client
             .activate(
@@ -1724,6 +1743,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
 
         client

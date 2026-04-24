@@ -32,7 +32,10 @@ use matrix_sdk::{
         VersionBuilderError,
     },
 };
-use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
+use matrix_sdk_base::{
+    DmRoomDefinition,
+    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
+};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
@@ -152,6 +155,8 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
 
     threading_support: ThreadingSupport,
+
+    dm_room_definition: DmRoomDefinition,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -196,7 +201,14 @@ impl ClientBuilder {
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
             search_index_store: None,
+            dm_room_definition: DmRoomDefinition::MatrixSpec,
         })
+    }
+
+    pub fn dm_room_definition(self: Arc<Self>, dm_room_definition: DmRoomDefinition) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.dm_room_definition = dm_room_definition;
+        Arc::new(builder)
     }
 
     pub fn cross_process_lock_config(
@@ -551,7 +563,9 @@ impl ClientBuilder {
             inner_builder = inner_builder.request_config(updated_config);
         }
 
-        inner_builder = inner_builder.with_threading_support(builder.threading_support);
+        inner_builder = inner_builder
+            .dm_room_definition(builder.dm_room_definition)
+            .with_threading_support(builder.threading_support);
 
         let sdk_client = inner_builder.build().await?;
 
