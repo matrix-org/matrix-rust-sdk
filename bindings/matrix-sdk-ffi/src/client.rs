@@ -2694,23 +2694,23 @@ impl Session {
                     sliding_sync_version,
                 })
             }
-            // Build the session from the OIDC UserSession.
+            // Build the session from the OAuth UserSession.
             AuthApi::OAuth(api) => {
                 let matrix_sdk::authentication::oauth::UserSession {
                     meta: matrix_sdk::SessionMeta { user_id, device_id },
                     tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
                 } = api.user_session().context("Missing session")?;
-                let client_id = api.client_id().context("OIDC client ID is missing.")?.clone();
-                let oidc_data = OidcSessionData { client_id };
+                let client_id = api.client_id().context("OAuth client ID is missing.")?.clone();
+                let oauth_data = OAuthSessionData { client_id };
 
-                let oidc_data = serde_json::to_string(&oidc_data).ok();
+                let oauth_data_string = serde_json::to_string(&oauth_data).ok();
                 Ok(Session {
                     access_token,
                     refresh_token,
                     user_id: user_id.to_string(),
                     device_id: device_id.to_string(),
                     homeserver_url,
-                    oidc_data,
+                    oidc_data: oauth_data_string,
                     sliding_sync_version,
                 })
             }
@@ -2732,13 +2732,13 @@ impl TryFrom<Session> for AuthSession {
             user_id,
             device_id,
             homeserver_url: _,
-            oidc_data,
+            oidc_data: oauth_data_string,
             sliding_sync_version: _,
         } = value;
 
-        if let Some(oidc_data) = oidc_data {
-            // Create an OidcSession.
-            let oidc_data = serde_json::from_str::<OidcSessionData>(&oidc_data)?;
+        if let Some(oauth_data_string) = oauth_data_string {
+            // Create an OAuth Session.
+            let oauth_data = serde_json::from_str::<OAuthSessionData>(&oauth_data_string)?;
 
             let user_session = matrix_sdk::authentication::oauth::UserSession {
                 meta: matrix_sdk::SessionMeta {
@@ -2748,7 +2748,7 @@ impl TryFrom<Session> for AuthSession {
                 tokens: matrix_sdk::SessionTokens { access_token, refresh_token },
             };
 
-            let session = OAuthSession { client_id: oidc_data.client_id, user: user_session };
+            let session = OAuthSession { client_id: oauth_data.client_id, user: user_session };
 
             Ok(AuthSession::OAuth(session.into()))
         } else {
@@ -2766,10 +2766,9 @@ impl TryFrom<Session> for AuthSession {
     }
 }
 
-/// Represents a client registration against an OpenID Connect authentication
-/// issuer.
+/// Represents a client registration against an OAuth authentication issuer.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct OidcSessionData {
+pub(crate) struct OAuthSessionData {
     client_id: ClientId,
 }
 
