@@ -275,12 +275,6 @@ impl RoomEventCache {
         RoomPagination::new(self.inner.clone())
     }
 
-    /// Return a [`ThreadPagination`] type useful for running back-pagination
-    /// queries in the `thread_id` thread.
-    pub async fn thread_pagination(&self, thread_id: OwnedEventId) -> Result<ThreadPagination> {
-        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).await?.pagination())
-    }
-
     /// Try to find a single event in this room, starting from the most recent
     /// event.
     ///
