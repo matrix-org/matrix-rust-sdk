@@ -2692,7 +2692,7 @@ pub struct Session {
     pub homeserver_url: String,
     /// Additional data for this session if OpenID Connect was used for
     /// authentication.
-    pub oidc_data: Option<String>,
+    pub oauth_data: Option<String>,
     /// The sliding sync version used for this session.
     pub sliding_sync_version: SlidingSyncVersion,
 }
@@ -2717,7 +2717,7 @@ impl Session {
                     user_id: user_id.to_string(),
                     device_id: device_id.to_string(),
                     homeserver_url,
-                    oidc_data: None,
+                    oauth_data: None,
                     sliding_sync_version,
                 })
             }
@@ -2737,7 +2737,7 @@ impl Session {
                     user_id: user_id.to_string(),
                     device_id: device_id.to_string(),
                     homeserver_url,
-                    oidc_data: oauth_data_string,
+                    oauth_data: oauth_data_string,
                     sliding_sync_version,
                 })
             }
@@ -2759,7 +2759,7 @@ impl TryFrom<Session> for AuthSession {
             user_id,
             device_id,
             homeserver_url: _,
-            oidc_data: oauth_data_string,
+            oauth_data: oauth_data_string,
             sliding_sync_version: _,
         } = value;
 
