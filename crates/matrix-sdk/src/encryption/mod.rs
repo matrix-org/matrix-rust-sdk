@@ -83,7 +83,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{debug, error, instrument, warn};
+use tracing::{Span, debug, error, instrument, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -1844,12 +1844,19 @@ impl Encryption {
     /// time.
     ///
     /// Returns the current generation number.
+    #[instrument(skip(self), fields(olm_machine_new_generation, olm_machine_generation))]
     async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
         let olm_machine_guard = self.client.olm_machine().await;
         if let Some(olm_machine) = olm_machine_guard.as_ref() {
             let (new_gen, generation_number) = olm_machine
                 .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
                 .await?;
+
+            Span::current()
+                .record("olm_machine_new_generation", new_gen)
+                .record("olm_machine_generation", generation_number);
+            debug!("OlmMachine generation maintained in CryptoStore");
+
             // If the crypto store generation has changed,
             if new_gen {
                 // (get rid of the reference to the current crypto store first)
