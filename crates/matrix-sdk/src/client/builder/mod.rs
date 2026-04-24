@@ -155,7 +155,7 @@ impl ClientBuilder {
                 sender_device_trust_requirement: TrustRequirement::Untrusted,
             },
             #[cfg(feature = "e2e-encryption")]
-            enable_share_history_on_invite: false,
+            enable_share_history_on_invite: true,
             cross_process_lock_config: CrossProcessLockConfig::MultiProcess {
                 holder_name: Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             },
@@ -485,6 +485,9 @@ impl ClientBuilder {
 
     /// Whether to enable the experimental support for sending and receiving
     /// encrypted room history on invite, per [MSC4268].
+    ///
+    /// This setting is now enabled by default, but can be disabled via this
+    /// method.
     ///
     /// [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
     #[cfg(feature = "e2e-encryption")]
