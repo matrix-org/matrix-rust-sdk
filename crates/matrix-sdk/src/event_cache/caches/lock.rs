@@ -19,12 +19,15 @@
 //!
 //! [`RoomEventCache`]: super::super::RoomEventCache
 
-use std::ops::{Deref, DerefMut};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 
 use matrix_sdk_base::event_cache::store::{
     EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState,
 };
-use tokio::sync::{Mutex, RwLock, RwLockWriteGuard};
+use tokio::sync::{Mutex, OwnedRwLockWriteGuard, RwLock, RwLockWriteGuard};
 
 use super::super::Result;
 
@@ -34,7 +37,7 @@ use super::super::Result;
 /// updated at the same time.
 pub struct StateLock<S> {
     /// The per-thread lock around the real state.
-    locked_state: RwLock<S>,
+    locked_state: Arc<RwLock<S>>,
 
     /// A lock taken to avoid multiple attempts to upgrade from a read lock
     /// to a write lock.
@@ -47,7 +50,10 @@ pub struct StateLock<S> {
 impl<S> StateLock<S> {
     /// Construct a new [`StateLock`].
     pub fn new_inner(state: S) -> Self {
-        Self { locked_state: RwLock::new(state), state_lock_upgrade_mutex: Mutex::new(()) }
+        Self {
+            locked_state: Arc::new(RwLock::new(state)),
+            state_lock_upgrade_mutex: Mutex::new(()),
+        }
     }
 
     /// Lock this [`StateLock`] with per-thread shared access.
@@ -175,6 +181,40 @@ impl<S> StateLock<S> {
             }
         }
     }
+
+    /// Lock this [`StateLock`] with exclusive per-thread (owned) write access.
+    ///
+    /// This method locks the per-thread lock over the state, and then locks
+    /// the cross-process lock over the store. It returns an RAII guard
+    /// which will drop the write access to the state and to the store when
+    /// dropped.
+    ///
+    /// If the cross-process lock over the store is dirty (see
+    /// [`EventCacheStoreLockState`]), the state is reset to the last chunk.
+    pub async fn write_owned(&self) -> Result<OwnedStateLockWriteGuard<S>>
+    where
+        S: Store,
+        OwnedStateLockWriteGuard<S>: Reload,
+    {
+        let state_guard = self.locked_state.clone().write_owned().await;
+
+        match state_guard.store().lock().await? {
+            EventCacheStoreLockState::Clean(store_guard) => {
+                Ok(OwnedStateLockWriteGuard { state: state_guard, store: store_guard })
+            }
+            EventCacheStoreLockState::Dirty(store_guard) => {
+                let mut guard = OwnedStateLockWriteGuard { state: state_guard, store: store_guard };
+
+                // Reload the state.
+                guard.reload().await?;
+
+                // All good now, mark the cross-process lock as non-dirty.
+                EventCacheStoreLockGuard::clear_dirty(&guard.store);
+
+                Ok(guard)
+            }
+        }
+    }
 }
 
 /// The read lock guard returned by [`StateLock::read`].
@@ -227,6 +267,29 @@ impl<'a, S> StateLockWriteGuard<'a, S> {
     /// state and to the store when dropped.
     fn downgrade(self) -> StateLockReadGuard<'a, S> {
         StateLockReadGuard { state: self.state.downgrade(), store: self.store }
+    }
+}
+
+/// The owned write lock guard return by [`StateLock::write_owned`].
+pub struct OwnedStateLockWriteGuard<S> {
+    /// The per-thread write lock guard over the state `S`.
+    pub state: OwnedRwLockWriteGuard<S>,
+
+    /// The cross-process lock guard over the store.
+    pub store: EventCacheStoreLockGuard,
+}
+
+impl<S> Deref for OwnedStateLockWriteGuard<S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl<S> DerefMut for OwnedStateLockWriteGuard<S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
     }
 }
 
