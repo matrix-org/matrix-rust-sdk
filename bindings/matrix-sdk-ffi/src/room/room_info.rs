@@ -64,6 +64,7 @@ pub struct RoomInfo {
     topic: Option<String>,
     avatar_url: Option<String>,
     is_direct: bool,
+    is_dm: bool,
     /// Whether the room is public or not, based on the join rules.
     ///
     /// Can be `None` if the join rules state event is not available for this
@@ -160,6 +161,7 @@ impl RoomInfo {
             topic: room.topic(),
             avatar_url: room.avatar_url().map(Into::into),
             is_direct: room.is_direct().await?,
+            is_dm: room.is_dm().await?,
             is_public: room.is_public(),
             is_space: room.is_space(),
             successor_room: room.successor_room().map(Into::into),
