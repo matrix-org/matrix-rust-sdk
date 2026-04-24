@@ -221,7 +221,7 @@ impl GlobalSearchBuilder {
     pub async fn only_dm_rooms(mut self) -> Result<Self, crate::Error> {
         let mut to_remove = HashSet::new();
         for room in &self.room_set {
-            if !room.is_direct().await? {
+            if !room.is_dm().await? {
                 to_remove.insert(room.room_id().to_owned());
             }
         }
@@ -233,7 +233,7 @@ impl GlobalSearchBuilder {
     pub async fn no_dms(mut self) -> Result<Self, crate::Error> {
         let mut to_remove = HashSet::new();
         for room in &self.room_set {
-            if room.is_direct().await? {
+            if room.is_dm().await? {
                 to_remove.insert(room.room_id().to_owned());
             }
         }
