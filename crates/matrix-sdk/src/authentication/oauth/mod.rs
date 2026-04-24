@@ -469,24 +469,6 @@ impl OAuth {
             return Ok(metadata.into_data());
         }
 
-        let _server_metadata_guard = match server_metadata_cache.refresh_lock.try_lock() {
-            Ok(guard) => guard,
-            Err(_) => {
-                // There is already a refresh in progress, wait for it to finish.
-                let guard = server_metadata_cache.refresh_lock.lock().await;
-
-                // Reuse the data if it was cached and it hasn't expired.
-                if let CachedValue::Cached(value) = server_metadata_cache.value()
-                    && !value.has_expired()
-                {
-                    return Ok(value.into_data());
-                }
-
-                // The data wasn't cached or has expired, we need to make another request.
-                guard
-            }
-        };
-
         self.server_metadata().await
     }
 
@@ -500,6 +482,43 @@ impl OAuth {
     /// Returns an error if a problem occurred when fetching or validating the
     /// metadata.
     pub async fn server_metadata(
+        &self,
+    ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
+        let server_metadata_cache = &self.client.inner.caches.server_metadata;
+
+        let mut server_metadata_guard = match server_metadata_cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = server_metadata_cache.refresh_lock.lock().await;
+
+                // Reuse the data if the request was successful.
+                if matches!(*guard, Ok(()))
+                    && let CachedValue::Cached(value) = server_metadata_cache.value()
+                {
+                    return Ok(value.into_data());
+                }
+
+                // The previous request failed, make another request.
+                guard
+            }
+        };
+
+        match self.server_metadata_inner().await {
+            Ok(metadata) => {
+                // Always refresh the cache.
+                self.client.inner.caches.server_metadata.set_value(TtlValue::new(metadata.clone()));
+                *server_metadata_guard = Ok(());
+                Ok(metadata)
+            }
+            Err(error) => {
+                *server_metadata_guard = Err(());
+                Err(error)
+            }
+        }
+    }
+
+    async fn server_metadata_inner(
         &self,
     ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
         let is_endpoint_unsupported = |error: &HttpError| {
@@ -527,10 +546,6 @@ impl OAuth {
         } else {
             metadata.validate_urls()?;
         }
-
-        // Always refresh the cache when we got a new value to possibly avoid extra
-        // calls in cached_server_metadata.
-        self.client.inner.caches.server_metadata.set_value(TtlValue::new(metadata.clone()));
 
         Ok(metadata)
     }
