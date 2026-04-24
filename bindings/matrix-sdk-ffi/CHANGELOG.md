@@ -164,6 +164,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] All OIDC related types and functions have been renamed from `Oidc`/`oidc` to `OAuth`/`oauth` to align
+  with the finalised naming in the spec.
+  ([#6500](https://github.com/matrix-org/matrix-rust-sdk/pull/6500))
 - [**breaking**] `LiveLocationShares` has been renamed to `LiveLocationsObserver` and
   `Room::live_location_shares` to `Room::live_locations_observer`.
   ([#6446](https://github.com/matrix-org/matrix-rust-sdk/pull/6446))
