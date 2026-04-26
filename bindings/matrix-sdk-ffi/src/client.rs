@@ -3024,7 +3024,7 @@ impl TryFrom<AllowRule> for RumaAllowRule {
                 let room_id = RoomId::parse(room_id)?;
                 Ok(Self::RoomMembership(ruma::room::RoomMembership::new(room_id)))
             }
-            AllowRule::Custom { json } => Ok(Self::_Custom(Box::new(serde_json::from_str(&json)?))),
+            AllowRule::Custom { json } => Ok(serde_json::from_str(&json)?),
         }
     }
 }

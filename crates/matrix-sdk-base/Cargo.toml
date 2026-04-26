@@ -15,6 +15,12 @@ version = "0.16.0"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
+[package.metadata.cargo-machete]
+ignored = [
+    # Used only to enable the `js` feature under WASM.
+    "getrandom_0_2"
+]
+
 [features]
 default = []
 e2e-encryption = ["dep:matrix-sdk-crypto"]
@@ -23,6 +29,7 @@ js = [
     "matrix-sdk-crypto?/js",
     "ruma/js",
     "matrix-sdk-store-encryption/js",
+    "getrandom_0_2/js",
 ]
 qrcode = ["matrix-sdk-crypto?/qrcode"]
 automatic-room-key-forwarding = [
@@ -80,6 +87,7 @@ decancer = { version = "3.3.3", default-features = false }
 eyeball = { workspace = true, features = ["async-lock"] }
 eyeball-im.workspace = true
 futures-util.workspace = true
+getrandom_0_2 = { package = "getrandom", version = "0.2.5", default-features = false }
 growable-bloom-filter.workspace = true
 http = { workspace = true, optional = true }
 matrix-sdk-common.workspace = true
