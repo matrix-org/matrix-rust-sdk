@@ -11,16 +11,18 @@ rust-version.workspace = true
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [package.metadata.cargo-machete]
-ignored = ["getrandom"] # We do manually enable a feature for it.
+ignored = ["getrandom", "getrandom_0_2"] # We manually enable a feature for each.
 
 [features]
-js = ["dep:getrandom", "getrandom?/wasm_js"]
+js = ["dep:getrandom", "getrandom?/wasm_js", "dep:getrandom_0_2", "getrandom_0_2?/js"]
 
 [dependencies]
 base64.workspace = true
 blake3 = { version = "1.8.2", default-features = false }
 chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["std"] }
 getrandom = { workspace = true, optional = true }
+# This version is still in the dependency tree due to the chacha20poly1305 crate.
+getrandom_0_2 = { package = "getrandom", version = "0.2.5", default-features = false, optional = true }
 hmac.workspace = true
 pbkdf2.workspace = true
 rand = { workspace = true, features = ["thread_rng"] }

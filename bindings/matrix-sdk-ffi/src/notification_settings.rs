@@ -318,10 +318,8 @@ impl TryFrom<SdkTweak> for Tweak {
                 Self::Highlight { value: matches!(highlight, HighlightTweakValue::Yes) }
             }
             _ => {
-                let json_string = value
-                    .custom_value()
-                    .ok_or_else(|| "Unsupported tweak type".to_owned())?
-                    .to_string();
+                let json_string =
+                    value.value().ok_or_else(|| "Unsupported tweak type".to_owned())?.to_string();
 
                 Self::Custom { name: value.set_tweak().to_owned(), value: json_string }
             }
