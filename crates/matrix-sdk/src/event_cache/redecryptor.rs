@@ -412,7 +412,12 @@ impl EventCache {
         let receipt_event = None;
 
         state
-            .post_process_new_events(new_events, PostProcessingOrigin::Redecryption, receipt_event)
+            .post_process_new_events(
+                new_events,
+                None,
+                PostProcessingOrigin::Redecryption,
+                receipt_event,
+            )
             .await?;
 
         // We replaced a bunch of events, reactive updates for those replacements have

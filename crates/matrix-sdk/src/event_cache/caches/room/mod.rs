@@ -34,15 +34,17 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
-pub use subscriber::RoomEventCacheSubscriber;
 use tokio::sync::{Notify, broadcast::Receiver, mpsc};
 use tracing::{instrument, trace, warn};
-pub use updates::{
-    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-    RoomEventCacheUpdateSender,
-};
 
+pub(super) use self::state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
+pub use self::{
+    subscriber::RoomEventCacheSubscriber,
+    updates::{
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+        RoomEventCacheUpdateSender,
+    },
+};
 use super::{
     super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
@@ -163,6 +165,19 @@ impl RoomEventCache {
         state.subscribe_to_pinned_events(room).await
     }
 
+    /// Find an event `event_id` in thread `thread_root`.
+    #[cfg(test)]
+    pub(super) async fn find_event_in_thread(
+        &self,
+        thread_root: OwnedEventId,
+        event_id: &EventId,
+    ) -> Result<Option<(super::EventLocation, Event)>> {
+        let mut state = self.inner.state.write().await?;
+
+        let thread_cache = state.get_or_reload_thread(thread_root).await?;
+        thread_cache.find_event(event_id).await
+    }
+
     /// Create or get an event-focused timeline cache for this room.
     ///
     /// This creates a timeline centered around a specific event (e.g., for
@@ -248,7 +263,7 @@ impl RoomEventCache {
     /// Return a [`ThreadPagination`] type useful for running back-pagination
     /// queries in the `thread_id` thread.
     pub async fn thread_pagination(&self, thread_id: OwnedEventId) -> Result<ThreadPagination> {
-        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).pagination())
+        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).await?.pagination())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -419,15 +434,15 @@ pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
-    pub weak_room: WeakRoom,
+    weak_room: WeakRoom,
 
     /// State for this room's event cache.
-    pub state: LockedRoomEventCacheState,
+    state: LockedRoomEventCacheState,
 
     /// A notifier that we received a new pagination token.
-    pub pagination_batch_token_notifier: Notify,
+    pagination_batch_token_notifier: Notify,
 
-    pub shared_pagination_status: SharedObservable<SharedPaginationStatus>,
+    shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -455,7 +470,7 @@ impl RoomEventCacheInner {
             weak_room,
             state,
             update_sender,
-            pagination_batch_token_notifier: Default::default(),
+            pagination_batch_token_notifier: Notify::new(),
             auto_shrink_sender,
             shared_pagination_status,
         }
@@ -556,7 +571,6 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        // Add all the events to the backend.
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
@@ -920,6 +934,7 @@ mod timed_tests {
     #[async_test]
     async fn test_write_to_storage() {
         let room_id = room_id!("!galette:saucisse.bzh");
+        let event_id_0 = event_id!("$ev0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
         let event_cache_store = Arc::new(MemoryStore::new());
@@ -949,7 +964,7 @@ mod timed_tests {
         let timeline = Timeline {
             limited: true,
             prev_batch: Some("raclette".to_owned()),
-            events: vec![f.text_msg("hey yo").sender(*ALICE).into_event()],
+            events: vec![f.text_msg("hey yo").event_id(event_id_0).into_event()],
         };
 
         room_event_cache
@@ -985,9 +1000,7 @@ mod timed_tests {
         // Then we have the stored event.
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            let deserialized = events[0].raw().deserialize().unwrap();
-            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = deserialized);
-            assert_eq!(msg.as_original().unwrap().content.body(), "hey yo");
+            assert_eq!(events[0].event_id().as_deref(), Some(event_id_0));
         });
 
         // That's all, folks!
@@ -1096,8 +1109,8 @@ mod timed_tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
+        let ev1 = f.text_msg("hello world").event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1166,7 +1179,7 @@ mod timed_tests {
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        // The rooms knows about all cached events.
+        // The room knows about all cached events.
         {
             assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
             assert!(room_event_cache.find_event(event_id2).await.unwrap().is_some());

@@ -36,14 +36,13 @@ use tracing::{debug, instrument, trace, warn};
 use super::super::redecryptor::ResolvedUtd;
 use super::{
     super::{EventCacheError, EventsOrigin, Result, persistence::send_updates_to_store},
+    TimelineVectorDiffs,
     event_linked_chunk::EventLinkedChunk,
     lock,
+    lock::Reload as _,
     room::RoomEventCacheLinkedChunkUpdate,
 };
-use crate::{
-    Room, client::WeakClient, config::RequestConfig, event_cache::TimelineVectorDiffs,
-    room::WeakRoom,
-};
+use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
 
 pub(in super::super) struct PinnedEventCacheState {
     /// The ID of the room owning this list of pinned events.
@@ -542,5 +541,13 @@ impl PinnedEventCache {
         });
 
         Ok(Some(loaded_events))
+    }
+
+    /// Force to reload the pinned events.
+    //
+    // TODO(@hywan): Temporary fix. All the states must be in a single struct behind
+    // the cross-process lock instead of being dispatched in each cache.
+    pub(super) async fn reload(&self) -> Result<()> {
+        self.state.write().await?.reload().await
     }
 }
