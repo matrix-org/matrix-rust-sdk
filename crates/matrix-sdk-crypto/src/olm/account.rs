@@ -25,7 +25,7 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use rsa::{Pss, RsaPrivateKey};
+use rsa::{Pss, RsaPrivateKey, rand_core::OsRng};
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
@@ -402,7 +402,7 @@ pub struct PickledAccount {
     pub fallback_key_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
     /// X.509 certificated private key
     #[serde(default)]
-    rsa_key: Option<RsaPrivateKey>,
+    pub rsa_key: Option<RsaPrivateKey>,
 }
 
 fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
@@ -443,6 +443,8 @@ impl Account {
         // will be able to do so.
         account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
+        let mut rng = OsRng::default();
+
         Self {
             static_data: StaticAccountData {
                 user_id: user_id.into(),
@@ -456,8 +458,7 @@ impl Account {
             uploaded_signed_key_count: 0,
             fallback_creation_timestamp: None,
             rsa_key: Some(
-                RsaPrivateKey::from_p_q(3u64.into(), 5u64.into(), 15u64.into())
-                    .expect("Failed to hard-code RSA private key"),
+                RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate new RSA private key"),
             ),
         }
     }
