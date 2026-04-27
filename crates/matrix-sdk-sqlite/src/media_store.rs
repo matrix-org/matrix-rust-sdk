@@ -14,9 +14,14 @@
 
 //! An SQLite-based backend for the [`MediaStore`].
 
-use std::{fmt, path::Path, sync::Arc};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
+use deadpool::managed::PoolConfig;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     media::{
@@ -38,8 +43,8 @@ use tokio::{
 use tracing::{debug, instrument};
 
 use crate::{
-    OpenStoreError, Secret, SqliteStoreConfig,
-    connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
+    OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
+    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -64,14 +69,17 @@ const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
 pub struct SqliteMediaStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
-    /// The pool of connections.
-    pool: SqlitePool,
+    /// `Some` when active, `None` when paused.
+    connections: Arc<Mutex<Option<SqliteConnections>>>,
 
-    /// We make the difference between connections for read operations, and for
-    /// write operations. We keep a single connection apart from write
-    /// operations. All other connections are used for read operations. The
-    /// lock is used to ensure there is one owner at a time.
-    write_connection: Arc<Mutex<SqliteAsyncConn>>,
+    /// Retained so we can rebuild the pool on resume.
+    db_path: PathBuf,
+
+    /// Retained so we can rebuild the pool on resume.
+    pool_config: PoolConfig,
+
+    /// Retained so we can re-apply runtime config on resume.
+    runtime_config: RuntimeConfig,
 
     media_service: MediaService,
 }
@@ -117,10 +125,17 @@ impl SqliteMediaStore {
 
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
+        let db_path = config.path.join(DATABASE_NAME);
+        let pool_config = config.pool_config();
+        let runtime_config = config.runtime_config();
+
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let this = Self::open_with_pool(pool, config.secret).await?;
-        this.write().await?.apply_runtime_config(config.runtime_config).await?;
+        let this =
+            Self::open_with_pool(pool, db_path, pool_config, runtime_config, config.secret).await?;
+
+        // Apply runtime config on the write connection.
+        this.write().await?.apply_runtime_config(runtime_config).await?;
 
         Ok(this)
     }
@@ -129,6 +144,9 @@ impl SqliteMediaStore {
     /// pool. The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
+        db_path: PathBuf,
+        pool_config: PoolConfig,
+        runtime_config: RuntimeConfig,
         secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
@@ -138,8 +156,8 @@ impl SqliteMediaStore {
 
         conn.wal_checkpoint().await;
 
-        let store_cipher = match secret {
-            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
+        let store_cipher = match &secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s.clone()).await?)),
             None => None,
         };
 
@@ -148,11 +166,18 @@ impl SqliteMediaStore {
         let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
         media_service.restore(media_retention_policy, last_media_cleanup_time);
 
+        let connections = SqliteConnections {
+            pool,
+            // Use `conn` as our selected write connection.
+            write_connection: Arc::new(Mutex::new(conn)),
+        };
+
         Ok(Self {
             store_cipher,
-            pool,
-            // Use `conn` as our selected write connections.
-            write_connection: Arc::new(Mutex::new(conn)),
+            connections: Arc::new(Mutex::new(Some(connections))),
+            db_path,
+            pool_config,
+            runtime_config,
             media_service,
         })
     }
@@ -160,7 +185,13 @@ impl SqliteMediaStore {
     // Acquire a connection for executing read operations.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
-        let connection = self.pool.get().await?;
+        let pool = {
+            let guard = self.connections.lock().await;
+            let conns = guard.as_ref().ok_or(Error::StorePaused)?;
+            conns.pool.clone()
+        };
+
+        let connection = pool.get().await?;
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
@@ -174,7 +205,13 @@ impl SqliteMediaStore {
     // Acquire a connection for executing write operations.
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
-        let connection = self.write_connection.clone().lock_owned().await;
+        let write_connection = {
+            let guard = self.connections.lock().await;
+            let conns = guard.as_ref().ok_or(Error::StorePaused)?;
+            conns.write_connection.clone()
+        };
+
+        let connection = write_connection.lock_owned().await;
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
@@ -186,11 +223,44 @@ impl SqliteMediaStore {
     }
 
     pub async fn vacuum(&self) -> Result<()> {
-        self.write_connection.lock().await.vacuum().await
+        let write_connection = {
+            let guard = self.connections.lock().await;
+            let conns = guard.as_ref().ok_or(Error::StorePaused)?;
+            conns.write_connection.clone()
+        };
+        write_connection.lock().await.vacuum().await
     }
 
     async fn get_db_size(&self) -> Result<Option<usize>> {
-        Ok(Some(self.pool.get().await?.get_db_size().await?))
+        let pool = {
+            let guard = self.connections.lock().await;
+            let conns = guard.as_ref().ok_or(Error::StorePaused)?;
+            conns.pool.clone()
+        };
+        Ok(Some(pool.get().await?.get_db_size().await?))
+    }
+
+    pub async fn pause(&self) -> Result<()> {
+        connection::pause_connections(&self.connections, "Media store").await;
+        Ok(())
+    }
+
+    pub async fn resume(&self) -> Result<()> {
+        connection::resume_connections(
+            &self.connections,
+            self.db_path.clone(),
+            self.pool_config,
+            self.runtime_config,
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Returns the pool size status, for testing purposes.
+    #[cfg(test)]
+    async fn pool_max_size(&self) -> Option<usize> {
+        let guard = self.connections.lock().await;
+        guard.as_ref().map(|conns| conns.pool.status().max_size)
     }
 }
 
@@ -385,6 +455,14 @@ impl MediaStore for SqliteMediaStore {
         let _timer = timer!("method");
 
         self.media_service.clean(self).await
+    }
+
+    async fn pause(&self) -> Result<(), Self::Error> {
+        SqliteMediaStore::pause(self).await
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        SqliteMediaStore::resume(self).await
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {
@@ -724,7 +802,7 @@ mod tests {
 
         let store = SqliteMediaStore::open_with_config(store_open_config).await.unwrap();
 
-        assert_eq!(store.pool.status().max_size, 42);
+        assert_eq!(store.pool_max_size().await.unwrap(), 42);
     }
 
     #[async_test]
@@ -790,6 +868,210 @@ mod tests {
         assert_eq!(contents.len(), 2, "media cache contents length is wrong");
         assert_eq!(contents[0], content, "file is not last access");
         assert_eq!(contents[1], thumbnail_content, "thumbnail is not second-to-last access");
+    }
+}
+
+#[cfg(test)]
+mod pause_resume_tests {
+    use std::sync::{
+        LazyLock,
+        atomic::{AtomicU32, Ordering::SeqCst},
+    };
+
+    use matrix_sdk_base::media::{
+        MediaFormat, MediaRequestParameters,
+        store::{IgnoreMediaRetentionPolicy, MediaStore},
+    };
+    use matrix_sdk_test::async_test;
+    use ruma::{events::room::MediaSource, mxc_uri};
+    use tempfile::{TempDir, tempdir};
+
+    use super::SqliteMediaStore;
+
+    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static NUM: AtomicU32 = AtomicU32::new(0);
+
+    async fn new_store() -> SqliteMediaStore {
+        let name = NUM.fetch_add(1, SeqCst).to_string();
+        let tmpdir_path = TMP_DIR.path().join(name);
+        SqliteMediaStore::open(tmpdir_path, None).await.unwrap()
+    }
+
+    fn test_request() -> MediaRequestParameters {
+        MediaRequestParameters {
+            source: MediaSource::Plain(mxc_uri!("mxc://localhost/test_media").to_owned()),
+            format: MediaFormat::File,
+        }
+    }
+
+    #[async_test]
+    async fn test_pause_completes_without_timeout() {
+        let store = new_store().await;
+
+        // Pause should complete quickly without hitting any timeout.
+        let start = std::time::Instant::now();
+        store.pause().await.unwrap();
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "pause() took {elapsed:?}, expected < 2s (no timeout)"
+        );
+
+        // Connections should be None after pause.
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "connections should be None after pause");
+    }
+
+    #[async_test]
+    async fn test_resume_restores_connections() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_none());
+        }
+
+        store.resume().await.unwrap();
+
+        {
+            let guard = store.connections.lock().await;
+            assert!(guard.is_some(), "connections should be Some after resume");
+        }
+    }
+
+    #[async_test]
+    async fn test_pause_is_idempotent() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        // Second pause should be a no-op.
+        store.pause().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none());
+    }
+
+    #[async_test]
+    async fn test_resume_is_idempotent() {
+        let store = new_store().await;
+
+        // Resume on an active (non-paused) store should be a no-op.
+        store.resume().await.unwrap();
+
+        let guard = store.connections.lock().await;
+        assert!(guard.is_some());
+    }
+
+    #[async_test]
+    async fn test_read_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store.get_media_content(&test_request()).await;
+        assert!(err.is_err(), "read should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_write_fails_when_paused() {
+        let store = new_store().await;
+        store.pause().await.unwrap();
+
+        let err = store
+            .add_media_content(&test_request(), b"data".to_vec(), IgnoreMediaRetentionPolicy::No)
+            .await;
+        assert!(err.is_err(), "write should fail when paused");
+
+        let err_msg = err.unwrap_err().to_string();
+        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+    }
+
+    #[async_test]
+    async fn test_data_persists_across_pause_resume() {
+        let store = new_store().await;
+
+        // Write some media content.
+        store
+            .add_media_content(
+                &test_request(),
+                b"hello world".to_vec(),
+                IgnoreMediaRetentionPolicy::Yes,
+            )
+            .await
+            .unwrap();
+
+        // Verify it's there.
+        let content = store.get_media_content(&test_request()).await.unwrap();
+        assert_eq!(content.as_deref(), Some(b"hello world".as_slice()));
+
+        // Pause and resume.
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Content should still be there after resume.
+        let content = store.get_media_content(&test_request()).await.unwrap();
+        assert_eq!(
+            content.as_deref(),
+            Some(b"hello world".as_slice()),
+            "media content should persist across pause/resume"
+        );
+    }
+
+    #[async_test]
+    async fn test_multiple_pause_resume_cycles() {
+        let store = new_store().await;
+
+        for _ in 0..5 {
+            store.pause().await.unwrap();
+            store.resume().await.unwrap();
+
+            // After each cycle, the store should be fully operational.
+            let result = store.get_media_content(&test_request()).await;
+            assert!(result.is_ok(), "store should work after pause/resume cycle");
+        }
+    }
+
+    #[async_test]
+    async fn test_pool_is_fully_drained_after_pause() {
+        let store = new_store().await;
+
+        // Do a few reads to exercise the pool.
+        let _ = store.get_media_content(&test_request()).await;
+        let _ = store.get_media_content(&test_request()).await;
+
+        store.pause().await.unwrap();
+
+        // After pause, the connections field should be None (pool and write
+        // connection have been fully torn down).
+        let guard = store.connections.lock().await;
+        assert!(guard.is_none(), "all connections should be released after pause");
+    }
+
+    #[async_test]
+    async fn test_operations_work_immediately_after_resume() {
+        let store = new_store().await;
+
+        store.pause().await.unwrap();
+        store.resume().await.unwrap();
+
+        // Read should work immediately after resume.
+        let result = store.get_media_content(&test_request()).await;
+        assert!(result.is_ok(), "read should succeed immediately after resume");
+
+        // Write should work immediately after resume.
+        let result = store
+            .add_media_content(
+                &test_request(),
+                b"after_resume".to_vec(),
+                IgnoreMediaRetentionPolicy::No,
+            )
+            .await;
+        assert!(result.is_ok(), "write should succeed immediately after resume");
     }
 }
 

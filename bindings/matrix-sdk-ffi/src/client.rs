@@ -454,6 +454,24 @@ impl Client {
         Ok(self.inner.optimize_stores().await?)
     }
 
+    /// Pause the client, releasing all database connections and file locks.
+    ///
+    /// Call this when the app enters the background on iOS to prevent
+    /// `0xdead10cc` terminations. Waits for all in-flight database
+    /// operations to complete before returning.
+    ///
+    /// Call `resume()` when the app returns to the foreground.
+    pub async fn pause(&self) -> Result<(), ClientError> {
+        Ok(self.inner.pause().await?)
+    }
+
+    /// Resume the client after a `pause()`, re-opening database connections.
+    ///
+    /// Call this when the app returns to the foreground.
+    pub async fn resume(&self) -> Result<(), ClientError> {
+        Ok(self.inner.resume().await?)
+    }
+
     /// Returns the sizes of the existing stores, if known.
     pub async fn get_store_sizes(&self) -> Result<StoreSizes, ClientError> {
         Ok(self.inner.get_store_sizes().await?.into())

@@ -63,6 +63,8 @@ use ruma::{
 use serde_json::{Value as JsonValue, json};
 use stream_assert::{assert_next_matches, assert_pending};
 use tempfile::tempdir;
+#[cfg(feature = "sqlite")]
+use tokio::time::timeout;
 use tokio_stream::wrappers::BroadcastStream;
 use wiremock::{
     Mock, Request, ResponseTemplate,
@@ -1435,6 +1437,121 @@ async fn test_restore_room() {
     let room = client.get_room(room_id).unwrap();
     assert!(room.is_favourite());
     assert!(!room.pinned_event_ids().unwrap().is_empty());
+}
+
+#[async_test]
+#[cfg(feature = "sqlite")]
+async fn test_client_pause_resume_with_sqlite_store() {
+    let tempdir = tempdir().unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.sqlite_store(tempdir.path(), None))
+        .build()
+        .await;
+
+    client
+        .state_store()
+        .set_custom_value(b"pause_resume_key", b"before_pause".to_vec())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        client.state_store().get_custom_value(b"pause_resume_key").await.unwrap().as_deref(),
+        Some(b"before_pause".as_slice())
+    );
+
+    client.pause().await.unwrap();
+
+    let read_err = client.state_store().get_custom_value(b"pause_resume_key").await.unwrap_err();
+    assert!(
+        read_err.to_string().contains("paused"),
+        "read while paused should mention 'paused', got: {read_err}"
+    );
+
+    let write_err = client
+        .state_store()
+        .set_custom_value(b"pause_resume_key", b"while_paused".to_vec())
+        .await
+        .unwrap_err();
+    assert!(
+        write_err.to_string().contains("paused"),
+        "write while paused should mention 'paused', got: {write_err}"
+    );
+
+    client.resume().await.unwrap();
+
+    assert_eq!(
+        client.state_store().get_custom_value(b"pause_resume_key").await.unwrap().as_deref(),
+        Some(b"before_pause".as_slice())
+    );
+
+    client
+        .state_store()
+        .set_custom_value(b"pause_resume_key", b"after_resume".to_vec())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        client.state_store().get_custom_value(b"pause_resume_key").await.unwrap().as_deref(),
+        Some(b"after_resume".as_slice())
+    );
+}
+
+#[async_test]
+#[cfg(feature = "sqlite")]
+async fn test_client_pause_waits_for_held_state_store_write() {
+    let tempdir = tempdir().unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.sqlite_store(tempdir.path(), None))
+        .build()
+        .await;
+
+    client.state_store().set_custom_value(b"held_write_key", b"initial".to_vec()).await.unwrap();
+
+    let write_fut = client.state_store().set_custom_value(b"held_write_key", b"updated".to_vec());
+    tokio::pin!(write_fut);
+
+    assert!(
+        write_fut.as_mut().now_or_never().is_none(),
+        "write future should not complete immediately before being awaited"
+    );
+
+    let client_clone = client.clone();
+    let pause_handle = spawn(async move {
+        client_clone.pause().await.unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    assert!(
+        !pause_handle.is_finished(),
+        "pause should wait for the in-flight state store write to finish"
+    );
+
+    write_fut.await.unwrap();
+
+    timeout(Duration::from_secs(3), pause_handle)
+        .await
+        .expect("pause should complete after the held write finishes")
+        .unwrap();
+
+    let paused_err = client.state_store().get_custom_value(b"held_write_key").await.unwrap_err();
+    assert!(
+        paused_err.to_string().contains("paused"),
+        "store should be paused after pause completes, got: {paused_err}"
+    );
+
+    client.resume().await.unwrap();
+
+    assert_eq!(
+        client.state_store().get_custom_value(b"held_write_key").await.unwrap().as_deref(),
+        Some(b"updated".as_slice())
+    );
 }
 
 #[async_test]

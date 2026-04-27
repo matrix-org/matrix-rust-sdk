@@ -3368,6 +3368,50 @@ impl Client {
         self.inner.thread_subscription_catchup.get().unwrap()
     }
 
+    /// Pause the client for background suspension.
+    ///
+    /// This method:
+    /// 1. Disables all send queues (prevents new message sends).
+    /// 2. Pauses all database stores, waiting for in-flight operations and
+    ///    releasing all SQLite connections and file locks.
+    ///
+    /// Call [`Client::resume()`] when the app returns to the foreground.
+    ///
+    /// # iOS
+    ///
+    /// Call this before the app is suspended to avoid `0xdead10cc` kills.
+    /// Typically called from `applicationDidEnterBackground` or an
+    /// equivalent SwiftUI lifecycle event, *after* stopping the
+    /// `matrix_sdk_ui::sync_service::SyncService`.
+    pub async fn pause(&self) -> Result<()> {
+        info!("Client::pause — releasing database resources");
+
+        // Disable send queues so no new sends hit the stores.
+        self.send_queue().set_enabled(false).await;
+
+        // Pause all stores (waits for in-flight ops, closes connections).
+        self.base_client().pause_stores().await?;
+
+        info!("Client::pause — complete, all database connections released");
+        Ok(())
+    }
+
+    /// Resume the client after a [`Client::pause()`].
+    ///
+    /// Re-opens database connections and re-enables send queues.
+    pub async fn resume(&self) -> Result<()> {
+        info!("Client::resume — re-acquiring database resources");
+
+        // Resume stores (creates new connection pools).
+        self.base_client().resume_stores().await?;
+
+        // Re-enable send queues.
+        self.send_queue().set_enabled(true).await;
+
+        info!("Client::resume — complete");
+        Ok(())
+    }
+
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
     ///

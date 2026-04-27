@@ -208,6 +208,16 @@ impl SqliteStoreConfig {
         self
     }
 
+    /// Returns the pool configuration.
+    pub(crate) fn pool_config(&self) -> PoolConfig {
+        self.pool_config
+    }
+
+    /// Returns the runtime configuration.
+    pub(crate) fn runtime_config(&self) -> RuntimeConfig {
+        self.runtime_config
+    }
+
     /// Build a pool of active connections to a particular database.
     pub fn build_pool_of_connections(
         &self,
@@ -228,7 +238,7 @@ impl SqliteStoreConfig {
 ///
 /// This configuration is applied by
 /// [`utils::SqliteAsyncConnExt::apply_runtime_config`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct RuntimeConfig {
     /// If `true`, [`utils::SqliteAsyncConnExt::optimize`] will be called.
     optimize: bool,
