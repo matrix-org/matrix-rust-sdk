@@ -1439,7 +1439,9 @@ pub enum ProcessedToDeviceEvent {
     /// A successfully-decrypted encrypted event.
     /// Contains the raw decrypted event and encryption info
     Decrypted {
-        /// The raw decrypted event
+        /// The cleartext envelope of the event
+        envelope: Raw<AnyToDeviceEvent>,
+        /// The inner plaintext (i.e. decrypted ciphertext) of the event
         raw: Raw<AnyToDeviceEvent>,
         /// The Olm encryption info
         encryption_info: EncryptionInfo,

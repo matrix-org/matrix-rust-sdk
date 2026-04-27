@@ -378,7 +378,7 @@ impl Client {
 
         for processed_to_device in events {
             let (raw_event, encryption_info) = match processed_to_device {
-                ProcessedToDeviceEvent::Decrypted { raw, encryption_info } => {
+                ProcessedToDeviceEvent::Decrypted { raw, encryption_info, .. } => {
                     (raw, Some(encryption_info))
                 }
                 other => (&other.to_raw(), None),

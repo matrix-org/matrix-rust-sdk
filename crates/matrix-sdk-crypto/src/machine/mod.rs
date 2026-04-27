@@ -1589,6 +1589,8 @@ impl OlmMachine {
         e: ToDeviceEvent<ToDeviceEncryptedEventContent>,
         decryption_settings: &DecryptionSettings,
     ) -> Option<ProcessedToDeviceEvent> {
+        let original_event = raw_event.clone();
+
         let decrypted = match self
             .decrypt_to_device_event(transaction, &e, changes, decryption_settings)
             .await
@@ -1612,7 +1614,7 @@ impl OlmMachine {
                 }
 
                 return Some(ProcessedToDeviceEvent::UnableToDecrypt {
-                    encrypted_event: raw_event,
+                    encrypted_event: original_event,
                     utd_info: ToDeviceUnableToDecryptInfo { reason },
                 });
             }
@@ -1649,6 +1651,7 @@ impl OlmMachine {
         }
 
         Some(ProcessedToDeviceEvent::Decrypted {
+            envelope: original_event,
             raw: raw_event,
             encryption_info: decrypted.result.encryption_info,
         })

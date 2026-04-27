@@ -76,7 +76,7 @@ async fn test_send_encrypted_to_device() {
     )
     .await;
 
-    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info, .. } = processed_event);
 
     let decrypted_event = raw.deserialize().unwrap();
 
@@ -146,7 +146,7 @@ async fn test_encrypted_to_device_from_deleted_device() {
     )
     .await;
 
-    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info } = processed_event);
+    assert_let!(ProcessedToDeviceEvent::Decrypted { raw, encryption_info, .. } = processed_event);
 
     let decrypted_event = raw.deserialize().unwrap();
     assert_eq!(decrypted_event.event_type().to_string(), custom_event_type.to_owned());
