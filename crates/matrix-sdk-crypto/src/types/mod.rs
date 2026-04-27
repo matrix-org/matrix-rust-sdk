@@ -162,6 +162,12 @@ impl BackupSecrets {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RsaSignature {
+    cerificates: Vec<String>,
+    signature: rsa::pss::Signature,
+}
+
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
 /// There are two important cases here:
@@ -177,7 +183,7 @@ pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
     /// An RSA digital signature.
-    Rsa(rsa::pss::Signature),
+    Rsa(RsaSignature),
     /// A digital signature in an unsupported algorithm. The raw signature bytes
     /// are represented as a base64-encoded string.
     Other(String),
@@ -277,6 +283,10 @@ impl Signatures {
     pub fn signature_count(&self) -> usize {
         self.0.values().map(|u| u.len()).sum()
     }
+
+    //pub(crate) fn iter(&self) -> Iter<'_, OwnedUserId, BTreeMap<OwnedDeviceKeyId,
+    // Result<Signature, InvalidSignature>>> {    self.0.iter()
+    //}
 }
 
 impl Default for Signatures {

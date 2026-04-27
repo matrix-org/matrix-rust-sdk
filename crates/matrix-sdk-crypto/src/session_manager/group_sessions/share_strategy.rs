@@ -1031,6 +1031,8 @@ fn has_identity_verification_violation(
     own_identity: Option<&OwnUserIdentityData>,
     device_owner_identity: Option<&UserIdentityData>,
 ) -> bool {
+    // TODO: AJB: share code with [`OtherUserIdentity::is_verified`]
+
     device_owner_identity.is_some_and(|device_owner_identity| {
         device_owner_identity.was_previously_verified()
             && !is_user_verified(own_identity, device_owner_identity)

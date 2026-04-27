@@ -325,11 +325,16 @@ impl DerefMut for OtherUserIdentity {
 }
 
 impl OtherUserIdentity {
-    /// Is this user identity verified.
+    /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        self.own_identity
-            .as_ref()
-            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner))
+        // TODO: AJB: or they are signed by the X.509 CA
+
+        true
+
+        //self.own_identity
+        //    .as_ref()
+        //    .is_some_and(|own_identity|
+        // own_identity.is_identity_verified(&self.inner))
     }
 
     /// Manually verify this user.
@@ -901,6 +906,23 @@ impl OtherUserIdentityData {
     /// Returns `true` if the signature check succeeded, otherwise `false`.
     pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
         self.user_id() == device.user_id() && self.self_signing_key.verify_device(device).is_ok()
+    }
+
+    pub(crate) fn verify_certificate_chain(&self, certificate_authorities: Vec<String>) -> bool {
+        let Some(this_user_sigs) = self.master_key.signatures().get(&self.user_id) else {
+            return false;
+        };
+
+        for (key_id, sig) in this_user_sigs {
+            if let Ok(sig) = sig {
+                if let Signature::Rsa(rsa_sig) = sig {
+                    rsa_sig
+                }
+            }
+        }
+
+        // TODO: AJB: hardcoded
+        true
     }
 }
 
