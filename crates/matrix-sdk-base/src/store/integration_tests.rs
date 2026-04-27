@@ -8,7 +8,7 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
-use matrix_sdk_common::ttl_cache::TtlValue;
+use matrix_sdk_common::ttl::TtlValue;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,

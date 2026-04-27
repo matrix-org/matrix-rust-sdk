@@ -174,7 +174,7 @@ use error::{
 };
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::types::qr_login::QrCodeData;
-use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
+use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings, ttl::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use oauth2::{
@@ -225,7 +225,9 @@ use self::{
 };
 use super::{AuthData, SessionTokens};
 use crate::{
-    Client, HttpError, RefreshTokenError, Result, client::SessionChange, executor::spawn,
+    Client, HttpError, RefreshTokenError, Result,
+    client::{SessionChange, caches::CachedValue},
+    executor::spawn,
     utils::UrlOrQuery,
 };
 
@@ -434,6 +436,9 @@ impl OAuth {
     /// [`OAuth::server_metadata()`], and cache the response before returning
     /// it.
     ///
+    /// The cache can be forced to be refreshed by calling
+    /// [`OAuth::server_metadata()`] instead.
+    ///
     /// In most cases during the authentication process, it is better to always
     /// fetch the metadata from the server. This is provided for convenience for
     /// cases where the client doesn't want to incur the extra time necessary to
@@ -444,19 +449,27 @@ impl OAuth {
     pub async fn cached_server_metadata(
         &self,
     ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
-        const CACHE_KEY: &str = "SERVER_METADATA";
+        let server_metadata_cache = &self.client.inner.caches.server_metadata;
 
-        let mut cache = self.client.inner.caches.server_metadata.lock().await;
+        if let CachedValue::Cached(metadata) = server_metadata_cache.value() {
+            if metadata.has_expired() {
+                debug!("spawning task to refresh OAuth 2.0 server metadata cache");
 
-        let metadata = if let Some(metadata) = cache.get(CACHE_KEY) {
-            metadata
-        } else {
-            let server_metadata = self.server_metadata().await?;
-            cache.insert(CACHE_KEY.to_owned(), server_metadata.clone());
-            server_metadata
-        };
+                let oauth = self.clone();
+                self.client.task_monitor().spawn_finite_task(
+                    "refresh OAuth 2.0 server metadata cache",
+                    async move {
+                        if let Err(error) = oauth.server_metadata().await {
+                            warn!("failed to refresh OAuth 2.0 server metadata cache: {error}");
+                        }
+                    },
+                );
+            }
 
-        Ok(metadata)
+            return Ok(metadata.into_data());
+        }
+
+        self.server_metadata().await
     }
 
     /// Fetch the OAuth 2.0 authorization server metadata of the homeserver.
@@ -469,6 +482,43 @@ impl OAuth {
     /// Returns an error if a problem occurred when fetching or validating the
     /// metadata.
     pub async fn server_metadata(
+        &self,
+    ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
+        let server_metadata_cache = &self.client.inner.caches.server_metadata;
+
+        let mut server_metadata_guard = match server_metadata_cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = server_metadata_cache.refresh_lock.lock().await;
+
+                // Reuse the data if the request was successful.
+                if matches!(*guard, Ok(()))
+                    && let CachedValue::Cached(value) = server_metadata_cache.value()
+                {
+                    return Ok(value.into_data());
+                }
+
+                // The previous request failed, make another request.
+                guard
+            }
+        };
+
+        match self.server_metadata_inner().await {
+            Ok(metadata) => {
+                // Always refresh the cache.
+                self.client.inner.caches.server_metadata.set_value(TtlValue::new(metadata.clone()));
+                *server_metadata_guard = Ok(());
+                Ok(metadata)
+            }
+            Err(error) => {
+                *server_metadata_guard = Err(());
+                Err(error)
+            }
+        }
+    }
+
+    async fn server_metadata_inner(
         &self,
     ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
         let is_endpoint_unsupported = |error: &HttpError| {

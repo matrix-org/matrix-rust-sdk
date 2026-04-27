@@ -55,7 +55,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
-- [**breaking**] `TtlStoreValue` was moved and renamed to `matrix_sdk_common::ttl_cache::TtlValue`.
+- [**breaking**] `TtlStoreValue` was moved and renamed to `matrix_sdk_common::ttl::TtlValue`.
+  ([#6463](https://github.com/matrix-org/matrix-rust-sdk/pull/6463),
+  [#6484](https://github.com/matrix-org/matrix-rust-sdk/pull/6484))
 - [**breaking**] `Gap::prev_token` has been renamed to `Gap::token` since it's now used for both
   the previous batch token and the next batch token.
   ([#6236](https://github.com/matrix-org/matrix-rust-sdk/pull/6236))

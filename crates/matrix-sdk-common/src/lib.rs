@@ -41,7 +41,7 @@ pub mod stream;
 pub mod task_monitor;
 pub mod timeout;
 pub mod tracing_timer;
-pub mod ttl_cache;
+pub mod ttl;
 
 // We cannot currently measure test coverage in the WASM environment, so
 // js_tracing is incorrectly flagged as untested. Disable coverage checking for
