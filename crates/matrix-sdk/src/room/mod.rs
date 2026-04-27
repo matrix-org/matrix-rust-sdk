@@ -4564,6 +4564,11 @@ impl Room {
             Ok(false)
         }
     }
+
+    /// Checks if the current room is a DM.
+    pub async fn is_dm(&self) -> Result<bool> {
+        Ok(self.inner.is_dm(self.client.dm_room_definition()).await?)
+    }
 }
 
 #[cfg(feature = "e2e-encryption")]

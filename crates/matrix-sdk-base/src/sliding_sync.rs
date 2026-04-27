@@ -298,8 +298,8 @@ mod tests {
 
     use super::http;
     use crate::{
-        BaseClient, EncryptionState, RequestedRequiredStates, RoomInfoNotableUpdate, RoomState,
-        SessionMeta,
+        BaseClient, DmRoomDefinition, EncryptionState, RequestedRequiredStates,
+        RoomInfoNotableUpdate, RoomState, SessionMeta,
         client::ThreadingSupport,
         room::{RoomHero, RoomInfoNotableUpdateReasons},
         store::{RoomLoadSettings, StoreConfig},
@@ -1245,7 +1245,8 @@ mod tests {
                 let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
                 state_store = store.state_store.clone();
 
-                let client = BaseClient::new(store, ThreadingSupport::Disabled);
+                let client =
+                    BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
                 client
                     .activate(
                         session_meta.clone(),
@@ -1276,7 +1277,8 @@ mod tests {
             let client = {
                 let mut store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
                 store.state_store = state_store;
-                let client = BaseClient::new(store, ThreadingSupport::Disabled);
+                let client =
+                    BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
                 client
                     .activate(
                         session_meta,

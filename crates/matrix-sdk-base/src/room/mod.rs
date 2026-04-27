@@ -69,7 +69,7 @@ pub use tombstone::{PredecessorRoom, SuccessorRoom};
 use tracing::{info, instrument, warn};
 
 use crate::{
-    Error,
+    DmRoomDefinition, Error,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
@@ -301,6 +301,26 @@ impl Room {
 
             // TODO: implement logic once we have the stripped events as we'd have with an Invite
             RoomState::Knocked => Ok(false),
+        }
+    }
+
+    /// Checks if the current room is a DM based on the rules from the
+    /// [`DmRoomDefinition`].
+    pub async fn is_dm(&self, dm_room_definition: &DmRoomDefinition) -> StoreResult<bool> {
+        let is_direct = self.is_direct().await?;
+
+        match *dm_room_definition {
+            DmRoomDefinition::MatrixSpec => Ok(is_direct),
+            DmRoomDefinition::TwoMembers => {
+                if !is_direct {
+                    return Ok(false);
+                }
+                let active_service_member_count =
+                    self.active_service_members().await?.unwrap_or_default().len() as u64;
+                let has_at_most_two_members =
+                    self.active_members_count().saturating_sub(active_service_member_count) <= 2;
+                Ok(has_at_most_two_members)
+            }
         }
     }
 

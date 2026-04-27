@@ -45,6 +45,8 @@ pub mod sync;
 mod test_utils;
 mod utils;
 
+pub use client::DmRoomDefinition;
+
 #[cfg(feature = "experimental-element-recent-emojis")]
 pub mod recent_emojis;
 
