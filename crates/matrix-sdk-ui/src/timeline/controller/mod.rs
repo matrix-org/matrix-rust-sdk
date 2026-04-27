@@ -314,6 +314,9 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                         // their parent `beacon_info` state event's timeline
                         // item. They are never rendered as standalone items.
                         AnyMessageLikeEventContent::Beacon(_) => false,
+                        // Ignore decline events, the matching RtcNotification event will be updated
+                        // to reflect the decline.
+                        AnyMessageLikeEventContent::RtcDecline(_) => false,
 
                         _ => false,
                     }

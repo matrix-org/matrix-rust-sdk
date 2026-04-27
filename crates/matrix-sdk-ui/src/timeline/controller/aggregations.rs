@@ -154,6 +154,12 @@ pub(crate) enum AggregationKind {
     ///
     /// Unlike [`BeaconUpdate`], a beacon stop is not reversible.
     BeaconStop { content: BeaconInfoEventContent },
+
+    /// An m.rtc.decline event for an m.rtc.notification event
+    CallDeclined {
+        /// Sender of the decline.
+        sender: OwnedUserId,
+    },
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -211,6 +217,19 @@ fn live_location_state_from_item<'a>(
             actual: event.content().debug_string().to_owned(),
         })
     }
+}
+
+/// Gets the mutable list of users that did decline this notification event.
+fn rtc_notification_declinations_from_item<'a>(
+    event: &'a mut Cow<'_, EventTimelineItem>,
+) -> Result<&'a mut Vec<OwnedUserId>, AggregationError> {
+    let debug_string = event.content().debug_string().to_owned();
+    event.to_mut().content_mut().as_rtc_notification_mut().ok_or_else(|| {
+        AggregationError::InvalidType {
+            expected: "an rtc notification".to_owned(),
+            actual: debug_string,
+        }
+    })
 }
 
 impl Aggregation {
@@ -335,6 +354,20 @@ impl Aggregation {
                 }
                 Err(err) => ApplyAggregationResult::Error(err),
             },
+
+            AggregationKind::CallDeclined { sender } => {
+                match rtc_notification_declinations_from_item(event) {
+                    Ok(declinations) => {
+                        if declinations.contains(sender) {
+                            ApplyAggregationResult::LeftItemIntact
+                        } else {
+                            declinations.push(sender.clone());
+                            ApplyAggregationResult::UpdatedItem
+                        }
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
         }
     }
 
@@ -429,6 +462,11 @@ impl Aggregation {
             AggregationKind::BeaconStop { .. } => {
                 // Stopping a live location share is not reversible.
                 ApplyAggregationResult::Error(AggregationError::CantUndoBeaconStop)
+            }
+
+            AggregationKind::CallDeclined { .. } => {
+                // One cannot un-decline a call
+                ApplyAggregationResult::Error(AggregationError::CantUndoRtcDecline)
             }
         }
     }
@@ -739,7 +777,8 @@ impl Aggregations {
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
                 | AggregationKind::BeaconUpdate { .. }
-                | AggregationKind::BeaconStop { .. } => {
+                | AggregationKind::BeaconStop { .. }
+                | AggregationKind::CallDeclined { .. } => {
                     // Nothing particular to do.
                 }
 
@@ -1028,6 +1067,9 @@ pub(crate) enum AggregationError {
 
     #[error("a beacon stop can't be unapplied")]
     CantUndoBeaconStop,
+
+    #[error("a call decline can't be unapplied")]
+    CantUndoRtcDecline,
 
     #[error(
         "trying to apply an aggregation of one type to an invalid target: \

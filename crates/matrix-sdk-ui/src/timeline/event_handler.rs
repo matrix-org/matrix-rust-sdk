@@ -166,6 +166,9 @@ pub(super) enum HandleAggregationKind {
     /// this does not carry a `relates_to` event ID; instead the target live
     /// item is found by matching the sender.
     BeaconStop { content: BeaconInfoEventContent },
+
+    /// A decline for an `m.rtc.notification` call.
+    CallDeclined,
 }
 
 impl HandleAggregationKind {
@@ -180,6 +183,7 @@ impl HandleAggregationKind {
             HandleAggregationKind::PollEnd => "a poll end",
             HandleAggregationKind::BeaconUpdate { .. } => "a beacon location update",
             HandleAggregationKind::BeaconStop { .. } => "a beacon stop",
+            HandleAggregationKind::CallDeclined => "a call decline",
         }
     }
 }
@@ -412,8 +416,16 @@ impl TimelineAction {
             }
 
             AnyMessageLikeEventContent::RtcNotification(c) => {
-                Self::add_item(TimelineItemContent::RtcNotification { call_intent: c.call_intent })
+                Self::add_item(TimelineItemContent::RtcNotification {
+                    call_intent: c.call_intent,
+                    declined_by: Vec::new(),
+                })
             }
+
+            AnyMessageLikeEventContent::RtcDecline(c) => Self::HandleAggregation {
+                related_event: c.relates_to.event_id,
+                kind: HandleAggregationKind::CallDeclined,
+            },
 
             AnyMessageLikeEventContent::Sticker(content) => {
                 Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
@@ -653,6 +665,9 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
                 HandleAggregationKind::BeaconStop { content } => {
                     self.handle_beacon_stop(content);
+                }
+                HandleAggregationKind::CallDeclined => {
+                    self.handle_call_declined(related_event);
                 }
             },
         }
@@ -898,6 +913,24 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 true
             }
         }
+    }
+
+    /// Handle a call decline event by updating the related call notification
+    /// event and adding the new decliner to the list via the manager.
+    fn handle_call_declined(&mut self, notification_event_id: OwnedEventId) {
+        let target = TimelineEventItemId::EventId(notification_event_id);
+        let aggregation = Aggregation::new(
+            self.ctx.flow.timeline_item_id(),
+            AggregationKind::CallDeclined { sender: self.ctx.sender.clone() },
+        );
+        self.meta.aggregations.add(target.clone(), aggregation.clone());
+        find_item_and_apply_aggregation(
+            &self.meta.aggregations,
+            self.items,
+            &target,
+            aggregation,
+            &self.meta.room_version_rules,
+        );
     }
 
     /// Add a new event item in the timeline.

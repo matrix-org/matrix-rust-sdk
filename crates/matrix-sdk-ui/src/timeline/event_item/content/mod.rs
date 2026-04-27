@@ -124,6 +124,8 @@ pub enum TimelineItemContent {
     RtcNotification {
         /// The intent of this notification.
         call_intent: Option<CallIntent>,
+        /// Users who have declined this call notification
+        declined_by: Vec<OwnedUserId>,
     },
 }
 
@@ -233,10 +235,24 @@ impl TimelineItemContent {
         }) => state)
     }
 
+    pub(in crate::timeline) fn as_rtc_notification_mut(&mut self) -> Option<&mut Vec<OwnedUserId>> {
+        if let TimelineItemContent::RtcNotification { declined_by, .. } = self {
+            Some(declined_by)
+        } else {
+            None
+        }
+    }
+
     /// Check whether this item's content is a
     /// [`LiveLocation`][MsgLikeKind::LiveLocation].
     pub fn is_live_location(&self) -> bool {
         matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. }))
+    }
+
+    /// Check whether this item's content is an
+    /// [`RtcNotification`][Self::RtcNotification].
+    pub fn is_rtc_notification(&self) -> bool {
+        matches!(self, Self::RtcNotification { .. })
     }
 
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
