@@ -31,10 +31,7 @@ use matrix_sdk_base::{
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
 use rusqlite::{OptionalExtension, params_from_iter};
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, instrument};
 
 use crate::{
@@ -115,9 +112,7 @@ impl SqliteMediaStore {
 
         let _timer = timer!("open_with_config");
 
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await?;
 
         let this = Self::open_with_pool(pool, config.secret).await?;
         this.write().await?.apply_runtime_config(config.runtime_config).await?;
@@ -225,7 +220,8 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     Ok(())
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl MediaStore for SqliteMediaStore {
     type Error = Error;
 
@@ -661,6 +657,9 @@ impl MediaStoreInner for SqliteMediaStore {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::{
         path::PathBuf,
         sync::{
@@ -680,12 +679,15 @@ mod tests {
     };
     use matrix_sdk_test::async_test;
     use ruma::{events::room::MediaSource, media::Method, mxc_uri, uint};
-    use tempfile::{TempDir, tempdir};
 
     use super::SqliteMediaStore;
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{
+        SqliteStoreConfig,
+        test_utils::{TempDirWrapper, create_tmp_dir},
+        utils::SqliteAsyncConnExt,
+    };
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_media_store_workspace() -> PathBuf {
@@ -755,7 +757,7 @@ mod tests {
 
         // Since the precision of the timestamp is in seconds, wait so the timestamps
         // differ.
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        matrix_sdk_common::sleep::sleep(Duration::from_secs(3)).await;
 
         media_store
             .add_media_content(
@@ -775,7 +777,7 @@ mod tests {
 
         // Since the precision of the timestamp is in seconds, wait so the timestamps
         // differ.
-        tokio::time::sleep(Duration::from_secs(3)).await;
+        matrix_sdk_common::sleep::sleep(Duration::from_secs(3)).await;
 
         // Access the file so its last access is more recent.
         let _ = media_store
@@ -795,6 +797,9 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::sync::{
         LazyLock,
         atomic::{AtomicU32, Ordering::SeqCst},
@@ -804,11 +809,11 @@ mod encrypted_tests {
         media::store::MediaStoreError, media_store_inner_integration_tests,
         media_store_integration_tests, media_store_integration_tests_time,
     };
-    use tempfile::{TempDir, tempdir};
 
     use super::SqliteMediaStore;
+    use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_media_store() -> Result<SqliteMediaStore, MediaStoreError> {

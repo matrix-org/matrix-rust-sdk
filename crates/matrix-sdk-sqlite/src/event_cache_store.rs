@@ -18,6 +18,7 @@ use std::{collections::HashMap, fmt, iter::once, path::Path, sync::Arc};
 
 use async_trait::async_trait;
 use matrix_sdk_base::{
+    SendOutsideWasm,
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
     event_cache::{
@@ -37,10 +38,7 @@ use ruma::{
 use rusqlite::{
     OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
 };
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, error, instrument, trace};
 
 use crate::{
@@ -123,9 +121,7 @@ impl SqliteEventCacheStore {
 
         let _timer = timer!("open_with_config");
 
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await?;
 
         let this = Self::open_with_pool(pool, config.secret).await?;
         this.write().await?.apply_runtime_config(config.runtime_config).await?;
@@ -508,7 +504,8 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     Ok(())
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl EventCacheStore for SqliteEventCacheStore {
     type Error = Error;
 
@@ -1553,8 +1550,8 @@ fn find_event_relations_transaction(
 /// of the kind SQLITE_BUSY from happening, for transactions that may involve
 /// both reads and writes, and start with a write.
 async fn with_immediate_transaction<
-    T: Send + 'static,
-    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + Send + 'static,
+    T: SendOutsideWasm + 'static,
+    F: FnOnce(&Transaction<'_>) -> Result<T, Error> + SendOutsideWasm + 'static,
 >(
     this: &SqliteEventCacheStore,
     f: F,
@@ -1645,6 +1642,9 @@ fn insert_chunk(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::{
         path::PathBuf,
         sync::{
@@ -1663,16 +1663,16 @@ mod tests {
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
-    use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
     use crate::{
         SqliteStoreConfig,
         event_cache_store::keys,
+        test_utils::{TempDirWrapper, create_tmp_dir},
         utils::{EncryptableStore as _, SqliteAsyncConnExt},
     };
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_event_cache_store_workspace() -> PathBuf {
@@ -1830,6 +1830,9 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::sync::{
         LazyLock,
         atomic::{AtomicU32, Ordering::SeqCst},
@@ -1845,11 +1848,11 @@ mod encrypted_tests {
         events::{relation::RelationType, room::message::RoomMessageEventContentWithoutRelation},
         room_id, user_id,
     };
-    use tempfile::{TempDir, tempdir};
 
     use super::SqliteEventCacheStore;
+    use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_event_cache_store() -> Result<SqliteEventCacheStore, EventCacheStoreError> {

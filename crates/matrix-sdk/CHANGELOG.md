@@ -120,6 +120,8 @@ All notable changes to this project will be documented in this file.
   to true will now trigger a download of all historical keys for the room in
   question from the client's key backup.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+- Support SQLite backed store when compiling to `wasm32-unknown-unknown` target
+  ([#6329](https://github.com/matrix-org/matrix-rust-sdk/pull/6329))
 - Add widget partial support for MSC4039. Allows widgets to download non-encrypted files from the
   content repository (like avatars).
   ([#6354](https://github.com/matrix-org/matrix-rust-sdk/pull/6354))

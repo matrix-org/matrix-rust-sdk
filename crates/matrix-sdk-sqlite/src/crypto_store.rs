@@ -43,10 +43,7 @@ use ruma::{
     events::secret::request::SecretName,
 };
 use rusqlite::{OptionalExtension, named_params, params_from_iter};
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
@@ -147,9 +144,7 @@ impl SqliteCryptoStore {
 
     /// Open the SQLite-based crypto store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await?;
 
         let this = Self::open_with_pool(pool, config.secret).await?;
         this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
@@ -708,7 +703,8 @@ impl SqliteConnectionExt for rusqlite::Connection {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
     async fn get_sessions_for_sender_key(&self, sender_key: Key) -> Result<Vec<Vec<u8>>> {
         Ok(self
@@ -1042,10 +1038,12 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteObjectCryptoStoreExt for SqliteAsyncConn {}
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl CryptoStore for SqliteCryptoStore {
     type Error = Error;
 
@@ -1818,7 +1816,12 @@ impl CryptoStore for SqliteCryptoStore {
 
 #[cfg(test)]
 mod tests {
-    use std::{path::Path, sync::LazyLock};
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    use std::sync::LazyLock;
+    #[cfg(target_family = "wasm")]
+    use std::sync::atomic::{AtomicU32, Ordering::SeqCst};
 
     use matrix_sdk_common::deserialized_responses::WithheldCode;
     use matrix_sdk_crypto::{
@@ -1828,38 +1831,63 @@ mod tests {
     use matrix_sdk_test::async_test;
     use ruma::{device_id, room_id, user_id};
     use similar_asserts::assert_eq;
-    use tempfile::{TempDir, tempdir};
+    #[cfg(not(target_family = "wasm"))]
+    use tempfile::tempdir;
+    #[cfg(not(target_family = "wasm"))]
     use tokio::fs;
 
     use super::SqliteCryptoStore;
-    use crate::SqliteStoreConfig;
+    #[cfg(target_family = "wasm")]
+    use crate::connection::setup_vfs;
+    use crate::{
+        SqliteStoreConfig,
+        test_utils::{TempDirWrapper, create_tmp_dir},
+    };
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
+    #[cfg(target_family = "wasm")]
+    static NUM: AtomicU32 = AtomicU32::new(0);
 
     struct TestDb {
         // Needs to be kept alive because the Drop implementation for TempDir deletes the
         // directory.
-        _dir: TempDir,
+        _dir: TempDirWrapper,
+
         database: SqliteCryptoStore,
     }
 
-    fn copy_db(data_path: &str) -> TempDir {
+    #[cfg(not(target_family = "wasm"))]
+    async fn copy_db(db_source: &[u8]) -> TempDirWrapper {
         let db_name = super::DATABASE_NAME;
-
-        let manifest_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let database_path = manifest_path.join(data_path).join(db_name);
 
         let tmpdir = tempdir().unwrap();
         let destination = tmpdir.path().join(db_name);
 
         // Copy the test database to the tempdir so our test runs are idempotent.
-        std::fs::copy(&database_path, destination).unwrap();
+        fs::write(destination, db_source).await.unwrap();
 
         tmpdir
     }
 
-    async fn get_test_db(data_path: &str, passphrase: Option<&str>) -> TestDb {
-        let tmpdir = copy_db(data_path);
+    #[cfg(target_family = "wasm")]
+    async fn copy_db(db_source: &[u8]) -> TempDirWrapper {
+        let name = NUM.fetch_add(1, SeqCst).to_string();
+        let tmpdir = TMP_DIR.path().join(name);
+
+        // Get tool used to manipulate database inside VFS.
+        let tool = setup_vfs(&tmpdir).await.unwrap();
+
+        // Import our test fixture into destination database.
+        tool.import_db(super::DATABASE_NAME, db_source).unwrap();
+
+        // Make sure that we successfully imported the database.
+        assert!(tool.exists(super::DATABASE_NAME).unwrap(), "imported db must exists");
+
+        TempDirWrapper::new_with_path(tmpdir)
+    }
+
+    async fn get_test_db(db_source: &[u8], passphrase: Option<&str>) -> TestDb {
+        let tmpdir = copy_db(db_source).await;
 
         let database = SqliteCryptoStore::open(tmpdir.path(), passphrase)
             .await
@@ -1882,7 +1910,13 @@ mod tests {
     /// pre-filled database, or in other words use a test vector for this.
     #[async_test]
     async fn test_open_test_vector_store() {
-        let TestDb { _dir: _, database } = get_test_db("testing/data/storage", None).await;
+        // Load test database source during compile-time, since we do not have
+        // access to file system during runtime for WASM targets.
+        let TestDb { _dir: _, database } = get_test_db(
+            include_bytes!("../../../testing/data/storage/matrix-sdk-crypto.wasm.db"),
+            None,
+        )
+        .await;
 
         let account = database
             .load_account()
@@ -1948,8 +1982,10 @@ mod tests {
     /// pre-filled database, or in other words use a test vector for this.
     #[async_test]
     async fn test_open_test_vector_encrypted_store() {
+        // Load test database source during compile-time, since we do not have
+        // access to file system during runtime for WASM targets.
         let TestDb { _dir: _, database } = get_test_db(
-            "testing/data/storage/alice",
+            include_bytes!("../../../testing/data/storage/alice/matrix-sdk-crypto.wasm.db"),
             Some(concat!(
                 "/rCia2fYAJ+twCZ1Xm2mxFCYcmJdyzkdJjwtgXsziWpYS/UeNxnixuSieuwZXm+x1VsJHmWpl",
                 "H+QIQBZpEGZtC9/S/l8xK+WOCesmET0o6yJ/KP73ofDtjBlnNpPwuHLKFpyTbyicpCgQ4UT+5E",
@@ -2238,9 +2274,12 @@ mod tests {
         use crate::utils::{EncryptableStore, SqliteAsyncConnExt};
 
         // Create a database with version 16
+        #[cfg(not(target_family = "wasm"))]
         let tmpdir = tempdir().unwrap();
+        #[cfg(target_family = "wasm")]
+        let tmpdir = TempDirWrapper::new();
         let config = SqliteStoreConfig::new(tmpdir.path());
-        let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
+        let pool = config.build_pool_of_connections(super::DATABASE_NAME).await.unwrap();
         let conn = pool.get().await.unwrap();
         let version = super::initialize_store(&conn, 0).await.unwrap();
         let old_data_store =
@@ -2296,8 +2335,14 @@ mod tests {
     ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
 
+        #[cfg(not(target_family = "wasm"))]
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
+        }
+        #[cfg(target_family = "wasm")]
+        if clear_data {
+            let tool = setup_vfs(&tmpdir_path).await.unwrap();
+            tool.delete_db(super::DATABASE_NAME).unwrap();
         }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), passphrase)
@@ -2314,12 +2359,15 @@ mod encrypted_tests {
     use std::sync::LazyLock;
 
     use matrix_sdk_crypto::{cryptostore_integration_tests, cryptostore_integration_tests_time};
-    use tempfile::{TempDir, tempdir};
+    #[cfg(not(target_family = "wasm"))]
     use tokio::fs;
 
     use super::SqliteCryptoStore;
+    #[cfg(target_family = "wasm")]
+    use crate::connection::setup_vfs;
+    use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
 
     async fn get_store(
         name: &str,
@@ -2327,10 +2375,17 @@ mod encrypted_tests {
         clear_data: bool,
     ) -> SqliteCryptoStore {
         let tmpdir_path = TMP_DIR.path().join(name);
+
         let pass = passphrase.unwrap_or("default_test_password");
 
+        #[cfg(not(target_family = "wasm"))]
         if clear_data {
             let _ = fs::remove_dir_all(&tmpdir_path).await;
+        }
+        #[cfg(target_family = "wasm")]
+        if clear_data {
+            let tool = setup_vfs(&tmpdir_path).await.unwrap();
+            tool.delete_db(super::DATABASE_NAME).unwrap();
         }
 
         SqliteCryptoStore::open(tmpdir_path.to_str().unwrap(), Some(pass))

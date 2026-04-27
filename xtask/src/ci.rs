@@ -154,6 +154,11 @@ enum WasmFeatureSet {
     MatrixSdkIndexeddbStoresNoCrypto,
     /// Check `matrix-sdk` crate with `indexeddb` and `e2e-encryption` features
     MatrixSdkIndexeddbStores,
+    /// Check `matrix-sdk` crate with `sqlite` feature (but not
+    /// `e2e-encryption`)
+    MatrixSdkSqliteStoresNoCrypto,
+    /// Check `matrix-sdk` crate with `sqlite` and `e2e-encryption` features
+    MatrixSdkSqliteStores,
     /// Check `matrix-sdk-indexeddb` crate with all features
     IndexeddbAllFeatures,
     /// Check `matrix-sdk-indexeddb` crate with `e2e-encryption` feature
@@ -163,6 +168,18 @@ enum WasmFeatureSet {
     /// Equivalent to `indexeddb-all-features`, `indexeddb-crypto` and
     /// `indexeddb-state`
     Indexeddb,
+    /// Check `matrix-sdk-sqlite` crate with all features
+    SqliteAllFeatures,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` and
+    /// `crypto-store` feature
+    SqliteCrypto,
+    /// Check `matrix-sdk-sqlite` crate with `state-store` feature
+    SqliteState,
+    /// Check `matrix-sdk-sqlite` crate with `event-cache` feature
+    SqliteCache,
+    /// Equivalent to `sqlite-all-features`, `sqlite-crypto`, `sqlite-state`,
+    /// and `sqlite-cache`
+    Sqlite,
 }
 
 impl CiArgs {
@@ -366,6 +383,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         return Ok(());
     }
 
+    if let Some(WasmFeatureSet::Sqlite) = cmd {
+        run_wasm_checks(Some(WasmFeatureSet::SqliteAllFeatures))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCrypto))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteState))?;
+        run_wasm_checks(Some(WasmFeatureSet::SqliteCache))?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, "-p matrix-sdk-qrcode --features js"),
         (WasmFeatureSet::MatrixSdkNoDefault, "-p matrix-sdk --no-default-features --features js"),
@@ -380,6 +405,14 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
             WasmFeatureSet::MatrixSdkIndexeddbStores,
             "-p matrix-sdk --no-default-features --features js,indexeddb,e2e-encryption",
         ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite",
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStores,
+            "-p matrix-sdk --no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption",
+        ),
         (WasmFeatureSet::IndexeddbAllFeatures, "-p matrix-sdk-indexeddb"),
         (
             WasmFeatureSet::IndexeddbCrypto,
@@ -388,6 +421,22 @@ fn run_wasm_checks(cmd: Option<WasmFeatureSet>) -> Result<()> {
         (
             WasmFeatureSet::IndexeddbState,
             "-p matrix-sdk-indexeddb --no-default-features --features state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteAllFeatures,
+            "-p matrix-sdk-sqlite --no-default-features --features js,crypto-store,experimental-encrypted-state-events,state-store,event-cache",
+        ),
+        (
+            WasmFeatureSet::SqliteCrypto,
+            "-p matrix-sdk-sqlite --no-default-features --features js,state-store,crypto-store",
+        ),
+        (
+            WasmFeatureSet::SqliteState,
+            "-p matrix-sdk-sqlite --no-default-features --features js,state-store",
+        ),
+        (
+            WasmFeatureSet::SqliteCache,
+            "-p matrix-sdk-sqlite --no-default-features --features js,event-cache",
         ),
     ]);
 
@@ -422,6 +471,14 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         return Ok(());
     }
 
+    if let Some(WasmFeatureSet::Sqlite) = cmd {
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteAllFeatures), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCache), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteState), runner)?;
+        run_wasm_pack_tests(Some(WasmFeatureSet::SqliteCrypto), runner)?;
+        return Ok(());
+    }
+
     let args = BTreeMap::from([
         (WasmFeatureSet::MatrixSdkQrcode, ("crates/matrix-sdk-qrcode", "--features js")),
         (
@@ -449,6 +506,52 @@ fn run_wasm_pack_tests(cmd: Option<WasmFeatureSet>, runner: WasmTestRunner) -> R
         (
             WasmFeatureSet::IndexeddbState,
             ("crates/matrix-sdk-indexeddb", "--no-default-features --features state-store"),
+        ),
+        // SQLite WASM test suites has to be ran in release mode due to
+        // a harmless debug assertion when closing database.
+        //
+        // Ref: https://github.com/Spxg/sqlite-wasm-rs/blob/master/crates/sqlite-wasm-vfs/src/sahpool.rs#L672
+        (
+            WasmFeatureSet::MatrixSdkSqliteStoresNoCrypto,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,sqlite,bundled-sqlite,testing --lib --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::MatrixSdkSqliteStores,
+            (
+                "crates/matrix-sdk",
+                "--no-default-features --features js,sqlite,bundled-sqlite,e2e-encryption,testing --lib --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteAllFeatures,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--features js,state-store,experimental-encrypted-state-events,crypto-store,event-cache --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCrypto,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,state-store,crypto-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteState,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,state-store --release",
+            ),
+        ),
+        (
+            WasmFeatureSet::SqliteCache,
+            (
+                "crates/matrix-sdk-sqlite",
+                "--no-default-features --features js,event-cache --release",
+            ),
         ),
     ]);
 
