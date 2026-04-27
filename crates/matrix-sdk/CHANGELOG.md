@@ -8,7 +8,12 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Add `Client::get_dm_rooms` function to get an iterator with the DMs for the provided user id. 
+- Sharing encrypted history on room invite, per
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) is
+  now enabled by default (though can still be disabled via
+  `ClientBuilder::with_enable_share_history_on_invite`).
+  ([#6497](https://github.com/matrix-org/matrix-rust-sdk/pull/6497))
+- Add `Client::get_dm_rooms` function to get an iterator with the DMs for the provided user id.
   ([#6487](https://github.com/matrix-org/matrix-rust-sdk/pull/6487))
 - Support the stable `m.key_backup` prefix for MSC4287: Sharing key backup
   preference between clients.
@@ -35,7 +40,7 @@ All notable changes to this project will be documented in this file.
   TLS backend.
   ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
 - [**breaking**] Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
-  of the homeserver. This replaces `Client::get_capabilities()`. 
+  of the homeserver. This replaces `Client::get_capabilities()`.
   ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
 - [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
   a cross-signing reset does not succeed after some period of time.
@@ -145,8 +150,8 @@ All notable changes to this project will be documented in this file.
   are now also eligible as the latest event for a room, preventing the live location sharing item
   from disappearing from the room list summary once the session ends.
   ([#6373](https://github.com/matrix-org/matrix-rust-sdk/pull/6373))
-- Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using 
-  the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail. 
+- Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using
+  the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail.
   ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))
 - Room keys are now rotated whenever the client receives an `m.room.member` event not belonging
   to the current user with non-`join` membership in order to prevent
@@ -234,9 +239,9 @@ All notable changes to this project will be documented in this file.
   ```
 - `RoomPaginationStatus` is renamed to `PaginationStatus`.
   ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174/))
-- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with 
-  `ClientBuilder::cross_process_store_config` to allow specifying the configuration for the cross-process lock and 
-  whether it should act as a no-op (client used in a single process) or we should keep the previous behavior (client 
+- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with
+  `ClientBuilder::cross_process_store_config` to allow specifying the configuration for the cross-process lock and
+  whether it should act as a no-op (client used in a single process) or we should keep the previous behavior (client
   used in multiple processes). ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 
 ## [0.16.0] - 2025-12-04
