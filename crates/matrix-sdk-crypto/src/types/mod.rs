@@ -40,7 +40,7 @@ use ruma::{
     serde::StringEnum,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError, base64_encode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
@@ -175,6 +175,8 @@ impl BackupSecrets {
 pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
+    /// An RSA digital signature.
+    Rsa(Vec<u8>),
     /// A digital signature in an unsupported algorithm. The raw signature bytes
     /// are represented as a base64-encoded string.
     Other(String),
@@ -200,6 +202,7 @@ impl Signature {
     pub fn to_base64(&self) -> String {
         match self {
             Signature::Ed25519(s) => s.to_base64(),
+            Signature::Rsa(s) => base64_encode(s),
             Signature::Other(s) => s.to_owned(),
         }
     }
@@ -232,6 +235,17 @@ impl Signatures {
         signature: Ed25519Signature,
     ) -> Option<Result<Signature, InvalidSignature>> {
         self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
+    }
+
+    /// Add the given signature from the given signer and the given key_id to
+    /// the collection.
+    pub fn add_signature_rsa(
+        &mut self,
+        signer: OwnedUserId,
+        key_id: OwnedDeviceKeyId,
+        signature: Vec<u8>,
+    ) -> Option<Result<Signature, InvalidSignature>> {
+        self.0.entry(signer).or_default().insert(key_id, Ok(Signature::Rsa(signature)))
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given

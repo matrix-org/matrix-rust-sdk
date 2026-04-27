@@ -302,6 +302,10 @@ pub enum SignatureError {
     /// The store ran into an error.
     #[error(transparent)]
     StoreError(#[from] CryptoStoreError),
+
+    /// The RSA signing or verification process failed.
+    #[error(transparent)]
+    RsaError(#[from] rsa::Error),
 }
 
 /// Error that occurs when a room key can't be converted into a valid Megolm

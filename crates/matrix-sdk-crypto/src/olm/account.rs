@@ -15,6 +15,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
+    hash::{DefaultHasher, Hash},
     ops::{Deref, Not as _},
     sync::Arc,
     time::Duration,
@@ -25,10 +26,11 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
+use rsa::{Pss, RsaPrivateKey, pss::BlindedSigningKey, signature::RandomizedSigner};
 use ruma::{
-    CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
-    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
-    OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, KeyAlgorithm,
+    MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId,
+    OwnedOneTimeKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
@@ -64,7 +66,7 @@ use crate::{
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
-    olm::SenderData,
+    olm::{SenderData, utility::to_signable_json},
     store::{
         Store,
         types::{Changes, DeviceChanges},
@@ -359,6 +361,8 @@ pub struct Account {
     /// from a `AccountPickle` that didn't use time-based fallback key
     /// rotation.
     fallback_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    /// X.509 certificated private key
+    rsa_key: RsaPrivateKey,
 }
 
 impl Deref for Account {
@@ -835,12 +839,29 @@ impl Account {
         &self,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
-        let signature = self.sign_json(to_canonical_value(&cross_signing_key)?)?;
+        let canonical_json = to_canonical_value(&cross_signing_key)?;
+        let signer = self.user_id().to_owned();
+
+        let signature = self.sign_json(canonical_json.clone())?;
 
         cross_signing_key.signatures.add_signature(
-            self.user_id().to_owned(),
+            signer.clone(),
             DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, self.device_id()),
             signature,
+        );
+
+        let mut hasher = DefaultHasher::new();
+        let public_key = self.rsa_key.to_public_key();
+        public_key.hash(&mut hasher);
+        let key_name = DeviceId::from(hasher.into());
+
+        let key_algorithm = DeviceKeyAlgorithm::_Custom("rsa".into());
+
+        let rsa_signature = self.sign_json_rsa(canonical_json.clone())?;
+        cross_signing_key.signatures.add_signature_rsa(
+            signer,
+            DeviceKeyId::from_parts(key_algorithm, &key_name),
+            rsa_signature,
         );
 
         Ok(())
@@ -874,6 +895,17 @@ impl Account {
     ///   string.
     pub fn sign_json(&self, json: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         self.inner.sign_json(json)
+    }
+
+    /// Sign the supplied JSON string with our RSA key.
+    ///
+    /// # Arguments
+    ///
+    /// * `json` - The canonical JSON value to sign string.
+    pub fn sign_json_rsa(&self, json: CanonicalJsonValue) -> Result<Vec<u8>, SignatureError> {
+        let json = to_signable_json(json)?;
+        let scheme = Pss::new::<Sha256>();
+        Ok(self.rsa_key.sign(scheme, json.as_bytes())?)
     }
 
     /// Sign and prepare one-time keys to be uploaded.

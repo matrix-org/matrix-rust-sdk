@@ -27,7 +27,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
-use vodozemac::Ed25519Signature;
+use vodozemac::{Ed25519Keypair, Ed25519Signature};
 
 use super::StaticAccountData;
 use crate::{
