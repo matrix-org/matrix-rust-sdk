@@ -25,7 +25,9 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use rsa::{Pss, RsaPrivateKey, rand_core::OsRng};
+use rsa::{
+    Pss, RsaPrivateKey, pkcs1v15::SigningKey, rand_core::OsRng, signature::RandomizedSigner,
+};
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
@@ -43,7 +45,10 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::Error};
-use serde_json::value::{RawValue as RawJsonValue, to_raw_value};
+use serde_json::{
+    json,
+    value::{RawValue as RawJsonValue, to_raw_value},
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
@@ -860,19 +865,21 @@ impl Account {
             signature,
         );
 
-        let key_name = device_id!("todo_key_id");
+        //let key_name = device_id!("todo_key_id");
 
-        let key_algorithm: DeviceKeyAlgorithm = serde_json::from_str("rsa").expect(
-            "Hard-coded string unexpectedly failed to deserialize as a DeviceKeyAlgorithm.",
-        );
+        //let key_algorithm: DeviceKeyAlgorithm = serde_json::from_str("rsa").expect(
+        //    "Hard-coded string unexpectedly failed to deserialize as a
+        // DeviceKeyAlgorithm.",
+        //);
+
+        //let device_key_id = DeviceKeyId::from_parts(key_algorithm, key_name);
+
+        let device_key_id =
+            serde_json::from_value(json!("rsa:todo_key_id")).expect("Failed to deserialize x");
 
         let rsa_signature = self.sign_json_rsa(canonical_json.clone())?;
         if let Some(rsa_signature) = rsa_signature {
-            cross_signing_key.signatures.add_signature_rsa(
-                signer,
-                DeviceKeyId::from_parts(key_algorithm, key_name),
-                rsa_signature,
-            );
+            cross_signing_key.signatures.add_signature_rsa(signer, device_key_id, rsa_signature);
         }
 
         Ok(())
@@ -916,12 +923,15 @@ impl Account {
     pub fn sign_json_rsa(
         &self,
         json: CanonicalJsonValue,
-    ) -> Result<Option<Vec<u8>>, SignatureError> {
+    ) -> Result<Option<rsa::pss::Signature>, SignatureError> {
         let json = to_signable_json(json)?;
-        let scheme = Pss::new::<Sha256>();
 
         Ok(match &self.rsa_key {
-            Some(rsa_key) => Some(rsa_key.sign(scheme, json.as_bytes())?),
+            Some(rsa_key) => {
+                let mut rng = OsRng::default();
+                let signing_key = rsa::pss::SigningKey::<Sha256>::new(rsa_key.clone());
+                Some(signing_key.sign_with_rng(&mut rng, json.as_bytes()))
+            }
             None => None,
         })
     }

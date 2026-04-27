@@ -35,6 +35,7 @@ use std::{
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
+use rsa::signature::SignatureEncoding;
 use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
     serde::StringEnum,
@@ -176,7 +177,7 @@ pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
     /// An RSA digital signature.
-    Rsa(Vec<u8>),
+    Rsa(rsa::pss::Signature),
     /// A digital signature in an unsupported algorithm. The raw signature bytes
     /// are represented as a base64-encoded string.
     Other(String),
@@ -202,7 +203,7 @@ impl Signature {
     pub fn to_base64(&self) -> String {
         match self {
             Signature::Ed25519(s) => s.to_base64(),
-            Signature::Rsa(s) => base64_encode(s),
+            Signature::Rsa(s) => base64_encode(s.to_vec()),
             Signature::Other(s) => s.to_owned(),
         }
     }
@@ -243,7 +244,7 @@ impl Signatures {
         &mut self,
         signer: OwnedUserId,
         key_id: OwnedDeviceKeyId,
-        signature: Vec<u8>,
+        signature: rsa::pss::Signature,
     ) -> Option<Result<Signature, InvalidSignature>> {
         self.0.entry(signer).or_default().insert(key_id, Ok(Signature::Rsa(signature)))
     }
