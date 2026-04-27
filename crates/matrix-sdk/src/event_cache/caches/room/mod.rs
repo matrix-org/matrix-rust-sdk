@@ -514,6 +514,7 @@ impl RoomEventCacheInner {
             timeline,
             ephemeral_events,
             ambiguity_changes,
+            None,
         )
         .await
     }
@@ -523,6 +524,7 @@ impl RoomEventCacheInner {
     /// The event is inserted if and only if the cache is not empty.
     async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
         let state = self.state.write().await?;
+        let sent_event_id = event.event_id();
 
         // Insert the event if the room is not empty, otherwise it can break the
         // pagination logic when detecting the start of the timeline because no gap can
@@ -534,6 +536,7 @@ impl RoomEventCacheInner {
                     Timeline { limited: false, prev_batch: None, events: vec![event] },
                     Vec::new(),
                     BTreeMap::new(),
+                    sent_event_id,
                 )
                 .await;
         }
@@ -547,6 +550,7 @@ impl RoomEventCacheInner {
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        sent_event_id_from_send_queue: Option<OwnedEventId>,
     ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
@@ -561,6 +565,10 @@ impl RoomEventCacheInner {
 
         let (stored_prev_batch_token, timeline_event_diffs) =
             state.handle_sync(timeline, &ephemeral_events).await?;
+
+        if let Some(event_id) = sent_event_id_from_send_queue {
+            state.mark_event_as_sent_from_send_queue(event_id);
+        }
 
         drop(state);
 
