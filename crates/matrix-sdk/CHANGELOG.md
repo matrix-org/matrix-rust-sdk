@@ -187,6 +187,8 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- [**breaking**] Upgrade Ruma to 0.15.0.
+  ([#6503](https://github.com/matrix-org/matrix-rust-sdk/pull/6503))
 - Revert back to to determining lock dirtiness in `Encryption::{spin_lock_store, try_lock_once_store}`
   through logic defined in `OlmMachine`, rather than `CrossProcessLock`.
   ([#6496](https://github.com/matrix-org/matrix-rust-sdk/pull/6496))
