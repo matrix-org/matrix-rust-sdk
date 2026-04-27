@@ -223,21 +223,13 @@ fn live_location_state_from_item<'a>(
 fn rtc_notification_declinations_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut Vec<OwnedUserId>, AggregationError> {
-    if event.content().is_rtc_notification() {
-        // It was an RtcNotification! Now return the declinations as mutable.
-        let declinations = event
-            .to_mut()
-            .content_mut()
-            .as_rtc_notification_mut()
-            .expect("it was an rtc notification just above");
-
-        Ok(declinations)
-    } else {
-        Err(AggregationError::InvalidType {
+    let debug_string = event.content().debug_string().to_owned();
+    event.to_mut().content_mut().as_rtc_notification_mut().ok_or_else(|| {
+        AggregationError::InvalidType {
             expected: "an rtc notification".to_owned(),
-            actual: event.content().debug_string().to_owned(),
-        })
-    }
+            actual: debug_string,
+        }
+    })
 }
 
 impl Aggregation {
