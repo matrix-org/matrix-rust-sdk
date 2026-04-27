@@ -15,7 +15,6 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
-    hash::{DefaultHasher, Hash},
     ops::{Deref, Not as _},
     sync::Arc,
     time::Duration,
@@ -26,11 +25,11 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use rsa::{Pss, RsaPrivateKey, pss::BlindedSigningKey, signature::RandomizedSigner};
+use rsa::{Pss, RsaPrivateKey};
 use ruma::{
-    CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, KeyAlgorithm,
-    MilliSecondsSinceUnixEpoch, OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId,
-    OwnedOneTimeKeyId, OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
+    CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
+    OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
+    OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
         keys::{
@@ -39,6 +38,7 @@ use ruma::{
         },
     },
     canonical_json::to_canonical_value,
+    device_id,
     events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
     serde::Raw,
 };
@@ -362,7 +362,7 @@ pub struct Account {
     /// rotation.
     fallback_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
     /// X.509 certificated private key
-    rsa_key: RsaPrivateKey,
+    rsa_key: Option<RsaPrivateKey>,
 }
 
 impl Deref for Account {
@@ -400,6 +400,9 @@ pub struct PickledAccount {
     /// The timestamp of the last time we generated a fallback key.
     #[serde(default)]
     pub fallback_key_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    /// X.509 certificated private key
+    #[serde(default)]
+    rsa_key: Option<RsaPrivateKey>,
 }
 
 fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
@@ -452,6 +455,10 @@ impl Account {
             shared: false,
             uploaded_signed_key_count: 0,
             fallback_creation_timestamp: None,
+            rsa_key: Some(
+                RsaPrivateKey::from_p_q(3u64.into(), 5u64.into(), 15u64.into())
+                    .expect("Failed to hard-code RSA private key"),
+            ),
         }
     }
 
@@ -700,6 +707,7 @@ impl Account {
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.static_data.creation_local_time,
             fallback_key_creation_timestamp: self.fallback_creation_timestamp,
+            rsa_key: self.rsa_key.clone(),
         }
     }
 
@@ -783,6 +791,7 @@ impl Account {
             shared: pickle.shared,
             uploaded_signed_key_count: pickle.uploaded_signed_key_count,
             fallback_creation_timestamp: pickle.fallback_key_creation_timestamp,
+            rsa_key: pickle.rsa_key,
         })
     }
 
@@ -850,19 +859,20 @@ impl Account {
             signature,
         );
 
-        let mut hasher = DefaultHasher::new();
-        let public_key = self.rsa_key.to_public_key();
-        public_key.hash(&mut hasher);
-        let key_name = DeviceId::from(hasher.into());
+        let key_name = device_id!("todo_key_id");
 
-        let key_algorithm = DeviceKeyAlgorithm::_Custom("rsa".into());
+        let key_algorithm: DeviceKeyAlgorithm = serde_json::from_str("rsa").expect(
+            "Hard-coded string unexpectedly failed to deserialize as a DeviceKeyAlgorithm.",
+        );
 
         let rsa_signature = self.sign_json_rsa(canonical_json.clone())?;
-        cross_signing_key.signatures.add_signature_rsa(
-            signer,
-            DeviceKeyId::from_parts(key_algorithm, &key_name),
-            rsa_signature,
-        );
+        if let Some(rsa_signature) = rsa_signature {
+            cross_signing_key.signatures.add_signature_rsa(
+                signer,
+                DeviceKeyId::from_parts(key_algorithm, key_name),
+                rsa_signature,
+            );
+        }
 
         Ok(())
     }
@@ -902,10 +912,17 @@ impl Account {
     /// # Arguments
     ///
     /// * `json` - The canonical JSON value to sign string.
-    pub fn sign_json_rsa(&self, json: CanonicalJsonValue) -> Result<Vec<u8>, SignatureError> {
+    pub fn sign_json_rsa(
+        &self,
+        json: CanonicalJsonValue,
+    ) -> Result<Option<Vec<u8>>, SignatureError> {
         let json = to_signable_json(json)?;
         let scheme = Pss::new::<Sha256>();
-        Ok(self.rsa_key.sign(scheme, json.as_bytes())?)
+
+        Ok(match &self.rsa_key {
+            Some(rsa_key) => Some(rsa_key.sign(scheme, json.as_bytes())?),
+            None => None,
+        })
     }
 
     /// Sign and prepare one-time keys to be uploaded.
