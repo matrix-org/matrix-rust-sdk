@@ -871,6 +871,8 @@ impl Account {
 
         //let device_key_id = DeviceKeyId::from_parts(key_algorithm, key_name);
 
+        // TODO: AJB: more properly support an RSA algorithm type?
+
         let device_key_id =
             serde_json::from_value(json!("rsa:todo_key_id")).expect("Failed to deserialize x");
 

@@ -41,7 +41,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError, base64_decode};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
@@ -172,6 +172,36 @@ pub struct RsaSignature {
 }
 
 impl RsaSignature {
+    fn from_json(value: &serde_json::Value) -> Result<Self, InvalidSignature> {
+        fn inner(value: &serde_json::Value) -> Option<RsaSignature> {
+            // TODO: AJB: we silently ignore errors here. It's not particularly easy to do
+            // anything
+            // else as matrix_sdk_crypto::types::Signatures::deserialize depends on an error
+            // to know this is not an RSA signature. We could probably return an
+            // enum to distinguish between "this is not an RSA signature" and
+            // "something went wrong deserializing an RSA signature"
+
+            let certificates: Option<Vec<String>> = value
+                .get("certificates")?
+                .as_array()?
+                .iter()
+                .map(|v| v.as_str().map(|s| s.to_owned()))
+                .collect();
+
+            Some(RsaSignature {
+                certificates: certificates?,
+                signature: rsa::pss::Signature::try_from(
+                    &base64_decode(value.get("signature")?.as_str()?).ok()?[..],
+                )
+                .ok()?,
+            })
+        }
+
+        inner(value).ok_or(InvalidSignature {
+            source: serde_json::to_string(value).unwrap_or_else(|e| e.to_string()),
+        })
+    }
+
     fn to_json(&self) -> serde_json::Value {
         // Can't use serde_json::to_value here because rsa::pss::Signature is not
         // Serialize. (Also we want this to be infallible.)
@@ -329,7 +359,7 @@ impl<'de> Deserialize<'de> for Signatures {
     where
         D: Deserializer<'de>,
     {
-        let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
+        let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, serde_json::Value>> =
             Deserialize::deserialize(deserializer)?;
 
         let map = map
@@ -340,10 +370,32 @@ impl<'de> Deserialize<'de> for Signatures {
                     .map(|(key_id, s)| {
                         let algorithm = key_id.algorithm();
                         let signature = match algorithm {
-                            DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
-                                .map(|s| s.into())
-                                .map_err(|_| InvalidSignature { source: s }),
-                            _ => Ok(Signature::Other(s)),
+                            DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(
+                                s.as_str().expect("TODO: AJB: deal with non-str JSON object"),
+                            )
+                            .map(|s| s.into())
+                            .map_err(|_| InvalidSignature {
+                                source: s
+                                    .as_str()
+                                    .expect("TODO: AJB: deal with non-str JSON object")
+                                    .to_owned(),
+                            }),
+                            DeviceKeyAlgorithm::_Custom(_) => {
+                                if let Ok(rsa_signature) = RsaSignature::from_json(&s) {
+                                    Ok(Signature::Rsa(rsa_signature))
+                                } else {
+                                    Ok(Signature::Other(
+                                        s.as_str()
+                                            .expect("TODO: AJB: deal with non-str JSON object")
+                                            .to_owned(),
+                                    ))
+                                }
+                            }
+                            _ => Ok(Signature::Other(
+                                s.as_str()
+                                    .expect("TODO: AJB: deal with non-str JSON object")
+                                    .to_owned(),
+                            )),
                         };
 
                         Ok((key_id, signature))
