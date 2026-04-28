@@ -329,12 +329,9 @@ impl OtherUserIdentity {
     pub fn is_verified(&self) -> bool {
         // TODO: AJB: or they are signed by the X.509 CA
 
-        true
-
-        //self.own_identity
-        //    .as_ref()
-        //    .is_some_and(|own_identity|
-        // own_identity.is_identity_verified(&self.inner))
+        self.own_identity
+            .as_ref()
+            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner))
     }
 
     /// Manually verify this user.
@@ -913,13 +910,13 @@ impl OtherUserIdentityData {
             return false;
         };
 
-        for (key_id, sig) in this_user_sigs {
-            if let Ok(sig) = sig {
-                if let Signature::Rsa(rsa_sig) = sig {
-                    rsa_sig
-                }
-            }
-        }
+        //for (key_id, sig) in this_user_sigs {
+        //    if let Ok(sig) = sig {
+        //        if let Signature::Rsa(rsa_sig) = sig {
+        //            rsa_sig
+        //        }
+        //    }
+        //}
 
         // TODO: AJB: hardcoded
         true

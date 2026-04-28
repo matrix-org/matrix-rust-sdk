@@ -25,9 +25,7 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use rsa::{
-    Pss, RsaPrivateKey, pkcs1v15::SigningKey, rand_core::OsRng, signature::RandomizedSigner,
-};
+use rsa::{RsaPrivateKey, rand_core::OsRng, signature::RandomizedSigner};
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
@@ -40,7 +38,6 @@ use ruma::{
         },
     },
     canonical_json::to_canonical_value,
-    device_id,
     events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
     serde::Raw,
 };

@@ -19,7 +19,7 @@ use matrix_sdk_crypto::{
     decrypt_room_key_export, encrypt_room_key_export,
     olm::ExportedRoomKey,
     store::types::{BackupDecryptionKey, Changes},
-    types::requests::ToDeviceRequest,
+    types::{Signature, requests::ToDeviceRequest},
 };
 use ruma::{
     DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
@@ -1537,7 +1537,11 @@ impl OlmMachine {
                             (
                                 k.to_string(),
                                 match v {
-                                    Ok(s) => s.to_base64(),
+                                    Ok(s) => match s {
+                                        Signature::Ed25519(s) => s.to_base64(),
+                                        Signature::Rsa(_s) => todo!("TODO: AJB: can't return arbitrary JSON over uniffi, so can't support RSA signatures"),
+                                        Signature::Other(s) => s.to_owned()
+                                    },
                                     Err(i) => i.source,
                                 },
                             )

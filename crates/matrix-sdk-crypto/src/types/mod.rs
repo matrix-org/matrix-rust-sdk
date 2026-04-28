@@ -35,13 +35,13 @@ use std::{
 
 use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
-use rsa::signature::SignatureEncoding;
 use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
     serde::StringEnum,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError, base64_encode};
+use serde_json::json;
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
@@ -162,10 +162,24 @@ impl BackupSecrets {
     }
 }
 
+/// An RSA signature and certificate chain
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct RsaSignature {
-    cerificates: Vec<String>,
-    signature: rsa::pss::Signature,
+pub struct RsaSignature {
+    /// The certificate chain
+    pub certificates: Vec<String>,
+    /// The signature itself
+    pub signature: rsa::pss::Signature,
+}
+
+impl RsaSignature {
+    fn to_json(&self) -> serde_json::Value {
+        // Can't use serde_json::to_value here because rsa::pss::Signature is not
+        // Serialize. (Also we want this to be infallible.)
+        json!({
+            "certificates": self.certificates,
+            "signature": format!("{:x}", self.signature),
+        })
+    }
 }
 
 /// Represents a potentially decoded signature (but *not* a validated one).
@@ -206,11 +220,11 @@ impl Signature {
     }
 
     /// Convert the signature to a base64 encoded string.
-    pub fn to_base64(&self) -> String {
+    pub fn to_json(&self) -> serde_json::Value {
         match self {
-            Signature::Ed25519(s) => s.to_base64(),
-            Signature::Rsa(s) => base64_encode(s.to_vec()),
-            Signature::Other(s) => s.to_owned(),
+            Signature::Ed25519(s) => json!(s.to_base64()),
+            Signature::Rsa(s) => s.to_json(),
+            Signature::Other(s) => json!(s.to_owned()),
         }
     }
 }
@@ -252,7 +266,11 @@ impl Signatures {
         key_id: OwnedDeviceKeyId,
         signature: rsa::pss::Signature,
     ) -> Option<Result<Signature, InvalidSignature>> {
-        self.0.entry(signer).or_default().insert(key_id, Ok(Signature::Rsa(signature)))
+        self.0.entry(signer).or_default().insert(
+            key_id,
+            // TODO: AJB: hard-coded empty list of certs
+            Ok(Signature::Rsa(RsaSignature { signature, certificates: Vec::new() })),
+        )
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given
@@ -345,26 +363,26 @@ impl Serialize for Signatures {
     where
         S: Serializer,
     {
-        let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = self
-            .0
-            .iter()
-            .map(|(u, m)| {
-                (
-                    u,
-                    m.iter()
-                        .map(|(d, s)| {
-                            (
-                                d,
-                                match s {
-                                    Ok(s) => s.to_base64(),
-                                    Err(i) => i.source.to_owned(),
-                                },
-                            )
-                        })
-                        .collect(),
-                )
-            })
-            .collect();
+        let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, serde_json::Value>> =
+            self.0
+                .iter()
+                .map(|(u, m)| {
+                    (
+                        u,
+                        m.iter()
+                            .map(|(d, s)| {
+                                (
+                                    d,
+                                    match s {
+                                        Ok(s) => json!(s.to_json()),
+                                        Err(i) => json!(i.source.to_owned()),
+                                    },
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .collect();
 
         Serialize::serialize(&signatures, serializer)
     }
