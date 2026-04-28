@@ -112,8 +112,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             });
         }
 
-        let prev_first_chunk =
-            state.thread_linked_chunk().chunks().next().expect("a linked chunk is never empty");
+        let prev_first_chunk = state.thread_linked_chunk().first_chunk();
 
         // The first chunk is not a gap, we can load its previous chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&state.room_id, &state.thread_id);
