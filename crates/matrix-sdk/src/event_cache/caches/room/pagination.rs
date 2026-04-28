@@ -170,8 +170,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             });
         }
 
-        let prev_first_chunk =
-            state.room_linked_chunk().chunks().next().expect("a linked chunk is never empty");
+        let prev_first_chunk = state.room_linked_chunk().first_chunk();
 
         // The first chunk is not a gap, we can load its previous chunk.
         let linked_chunk_id = LinkedChunkId::Room(&state.state.room_id);
