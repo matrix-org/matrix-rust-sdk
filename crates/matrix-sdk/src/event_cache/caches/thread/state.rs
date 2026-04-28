@@ -33,7 +33,7 @@ use super::{
         super::{
             EventCacheError, EventsOrigin, Result,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-            persistence::{load_linked_chunk_metadata, send_updates_to_store},
+            persistence::{find_event, load_linked_chunk_metadata, send_updates_to_store},
         },
         EventLocation, TimelineVectorDiffs,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
@@ -411,27 +411,12 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         Ok((has_new_gap, timeline_event_diffs))
     }
 
-    /// Find a single event in this thread.
-    ///
-    /// It starts by looking into loaded events in `EventLinkedChunk` before
-    /// looking inside the storage.
+    /// See documentation of [`find_event`].
     pub(super) async fn find_event(
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>> {
-        // There are supposedly fewer events loaded in memory than in the store. Let's
-        // start by looking up in the `EventLinkedChunk`.
-        for (position, event) in self.thread_linked_chunk.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
-                return Ok(Some((EventLocation::Memory(position), event.clone())));
-            }
-        }
-
-        Ok(self
-            .store
-            .find_event(&self.room_id, event_id)
-            .await?
-            .map(|event| (EventLocation::Store, event)))
+        find_event(event_id, &self.room_id, &self.thread_linked_chunk, &self.store).await
     }
 
     /// Replaces a single event, be it saved in memory or in the store.
