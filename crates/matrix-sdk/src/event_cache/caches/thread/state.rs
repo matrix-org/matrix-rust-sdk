@@ -14,6 +14,8 @@
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
+    check_validity_of_replacement_events,
+    deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
@@ -21,10 +23,11 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
+    serde_helpers::extract_edit_target,
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
-use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, events::relation::RelationType};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
@@ -33,7 +36,10 @@ use super::{
         super::{
             EventCacheError, EventsOrigin, Result,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-            persistence::{find_event, load_linked_chunk_metadata, send_updates_to_store},
+            persistence::{
+                find_event, find_event_with_relations, load_linked_chunk_metadata,
+                send_updates_to_store,
+            },
         },
         EventLocation, TimelineVectorDiffs,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
@@ -317,6 +323,92 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
     /// Return a read-only reference to the underlying thread linked chunk.
     pub fn thread_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.thread_linked_chunk
+    }
+
+    /// Compute and return the [`ThreadSummary`] for this thread.
+    pub async fn compute_thread_summary(&self) -> Result<Option<ThreadSummary>> {
+        // Find the latest event ID.
+        //
+        // TODO(@hywan): This is inefficient. Ultimately, we want to rely on
+        // `LatestEvent` to compute the `ThreadSummary` correctly.
+        let latest_event_id = {
+            // Find the last non-edit event.
+            let mut latest_event_id = self
+                .thread_linked_chunk()
+                .revents()
+                .filter(|(_position, event)| extract_edit_target(event.raw()).is_none())
+                .next()
+                .and_then(|(_position, event)| event.event_id());
+
+            // If there's an edit to the latest event in the thread, use the latest edit
+            // event ID as the latest event ID for the thread summary.
+            if let Some(event_id) = latest_event_id.as_ref()
+                && let Some((original_event, edits)) = self
+                    .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
+                    .await?
+            {
+                let latest_valid_edit = edits.into_iter().rfind(|edit| {
+                    let original_json = original_event.raw();
+                    let original_encryption_info = original_event.encryption_info();
+                    let replacement_json = edit.raw();
+                    let replacement_encryption_info = edit.encryption_info();
+
+                    check_validity_of_replacement_events(
+                        original_json,
+                        original_encryption_info.map(|v| &**v),
+                        replacement_json,
+                        replacement_encryption_info.map(|v| &**v),
+                    )
+                    .is_ok()
+                });
+
+                if let Some(latest_valid_edit) = latest_valid_edit {
+                    latest_event_id = latest_valid_edit.event_id();
+                }
+            }
+
+            latest_event_id
+        };
+
+        // Compute the thread summary.
+
+        // Read the latest number of thread replies from the store.
+        //
+        // Implementation note: since this is based on the `m.relates_to` field, and
+        // that field can only be present on room messages, we don't have to
+        // worry about filtering out aggregation events (like reactions/edits/etc.).
+        // Pretty neat, huh?
+        let num_replies = {
+            let thread_replies = self
+                .store
+                .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
+                .await?;
+            thread_replies.len().try_into().unwrap_or(u32::MAX)
+        };
+
+        let summary = if num_replies > 0 {
+            Some(ThreadSummary { num_replies, latest_reply: latest_event_id })
+        } else {
+            None
+        };
+
+        Ok(summary)
+    }
+
+    /// See documentation of [`find_event_with_relations`].
+    async fn find_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filters: Option<Vec<RelationType>>,
+    ) -> Result<Option<(Event, Vec<Event>)>> {
+        find_event_with_relations(
+            event_id,
+            &self.room_id,
+            filters,
+            &self.thread_linked_chunk,
+            &self.store,
+        )
+        .await
     }
 }
 
