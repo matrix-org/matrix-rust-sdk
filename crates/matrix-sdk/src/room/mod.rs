@@ -4014,7 +4014,11 @@ impl Room {
 
         if beacon_info_event.content.is_live() {
             let content = BeaconEventContent::new(beacon_info_event.event_id, geo_uri, None);
-            Ok(self.send(content).await?.response)
+            Ok(self
+                .send(content)
+                .with_request_config(RequestConfig::new().retry_limit(6))
+                .await?
+                .response)
         } else {
             Err(BeaconError::NotLive)
         }
