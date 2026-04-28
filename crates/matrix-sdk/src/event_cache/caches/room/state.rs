@@ -105,11 +105,6 @@ pub struct RoomEventCacheState {
     /// linked chunk for this room.
     room_linked_chunk: EventLinkedChunk,
 
-    /// Threads present in this room.
-    ///
-    /// Keyed by the thread root event ID.
-    threads: HashMap<OwnedEventId, ThreadEventCache>,
-
     /// Event-focused caches for this room.
     ///
     /// Keyed by the focused event ID and thread mode. Each entry represents
@@ -258,11 +253,6 @@ impl LockedRoomEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
-            // The threads mapping is intentionally empty at start, since we're going to
-            // reload threads lazily, as soon as we need to (based on external
-            // subscribers) or when we get new information about those (from
-            // sync).
-            threads: HashMap::new(),
             // Event-focused caches are created on-demand when the user navigates to a
             // permalink.
             event_focused_caches: HashMap::new(),
@@ -292,11 +282,6 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<(), EventCacheError> {
         self.shrink_to_last_chunk().await?;
-
-        // Reload the threads.
-        for thread_event_cache in self.threads.values_mut() {
-            thread_event_cache.reload().await?;
-        }
 
         // Reload the pinned-events.
         if let Some(pinned_event_cache) = self.pinned_event_cache.get_mut() {
@@ -840,59 +825,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             if let Err(error) = result {
                 error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
             }
-        }
-
-        Ok(())
-    }
-
-    /*
-    pub(super) async fn get_or_reload_thread(
-        &mut self,
-        root_event_id: OwnedEventId,
-    ) -> Result<&mut ThreadEventCache, EventCacheError> {
-        let RoomEventCacheState {
-            room_id,
-            weak_room,
-            own_user_id,
-            store,
-            update_sender,
-            linked_chunk_update_sender,
-            threads,
-            ..
-        } = self.state.deref_mut();
-
-        match threads.entry(root_event_id.clone()) {
-            Entry::Vacant(entry) => {
-                let thread_event_cache = ThreadEventCache::new(
-                    room_id.clone(),
-                    root_event_id,
-                    own_user_id.clone(),
-                    weak_room.clone(),
-                    store.clone(),
-                    update_sender.generic_update_sender().clone(),
-                    linked_chunk_update_sender.clone(),
-                )
-                .await?;
-
-                Ok(entry.insert(thread_event_cache))
-            }
-
-            Entry::Occupied(entry) => Ok(entry.into_mut()),
-        }
-    }
-    */
-
-    #[instrument(skip_all)]
-    async fn update_threads(
-        &mut self,
-        new_events_by_thread: BTreeMap<OwnedEventId, Vec<Event>>,
-        prev_batch_token: Option<String>,
-        post_processing_origin: PostProcessingOrigin,
-    ) -> Result<(), EventCacheError> {
-        for (thread_root, new_events) in new_events_by_thread {
-            let thread_cache = self.get_or_reload_thread(thread_root.clone()).await?;
-
-            thread_cache.add_live_events(new_events, &prev_batch_token).await?;
         }
 
         Ok(())
