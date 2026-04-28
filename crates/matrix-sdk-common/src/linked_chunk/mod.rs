@@ -1110,6 +1110,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             .skip(position.index()))
     }
 
+    /// Return the first chunk.
+    pub fn first_chunk(&self) -> &Chunk<CAP, Item, Gap> {
+        self.links.first_chunk()
+    }
+
     /// Get a mutable reference to the `LinkedChunk` updates, aka
     /// [`ObservableUpdates`].
     ///
