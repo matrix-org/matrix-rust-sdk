@@ -7766,6 +7766,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "x509test"
+version = "0.1.0"
+dependencies = [
+ "rustls",
+]
+
+[[package]]
 name = "xshell"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
