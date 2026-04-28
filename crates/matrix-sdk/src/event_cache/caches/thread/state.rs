@@ -398,6 +398,14 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             self.state.shrink_to_last_chunk(&self.store).await?;
         }
 
+        // Save `bundled_latest_thread_event`.
+        for event in events {
+            // Save a bundled thread event, if there was one.
+            if let Some(bundled_thread) = event.bundled_latest_thread_event {
+                self.save_events([*bundled_thread]).await?;
+            }
+        }
+
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         Ok((has_new_gap, timeline_event_diffs))
