@@ -975,35 +975,30 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             return Ok(());
         };
 
-        let Some(event_id) = redaction.redacts(&self.state.room_version_rules.redaction) else {
+        let Some(target_event_id) = redaction.redacts(&self.room_version_rules.redaction) else {
             warn!("missing target event id from the redaction event");
             return Ok(());
         };
 
         // Replace the redacted event by a redacted form, if we knew about it.
-        let Some((location, mut target_event)) = self.find_event(event_id).await? else {
+        let Some((location, mut target_event)) = self.find_event(target_event_id).await? else {
             trace!("redacted event is missing from the linked chunk");
             return Ok(());
         };
 
-        // Don't redact already redacted events.
-        let thread_root = if let Ok(deserialized) = target_event.raw().deserialize() {
-            if deserialized.is_redacted() {
-                return Ok(());
-            }
+        let target_event_raw = target_event.raw();
 
-            // If the event is part of a thread, update the thread linked chunk and the
-            // summary.
-            extract_thread_root(target_event.raw())
-        } else {
-            warn!("failed to deserialize the event to redact");
-            None
-        };
+        // Don't redact already redacted events.
+        if let Ok(deserialized) = target_event_raw.deserialize()
+            && deserialized.is_redacted()
+        {
+            return Ok(());
+        }
 
         if let Some(redacted_event) = apply_redaction(
-            target_event.raw(),
+            target_event_raw,
             event.raw().cast_ref_unchecked::<SyncRoomRedactionEvent>(),
-            &self.state.room_version_rules.redaction,
+            &self.room_version_rules.redaction,
         ) {
             // It's safe to cast `redacted_event` here:
             // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
@@ -1012,30 +1007,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             target_event.replace_raw(redacted_event.cast_unchecked());
 
             self.replace_event_at(location, target_event.clone()).await?;
-
-            // If the redacted event was part of a thread, remove it in the thread linked
-            // chunk too, and make sure to update the thread root's summary
-            // as well.
-            //
-            // Note: there is an ordering issue here: the above `replace_event_at` must
-            // happen BEFORE we recompute the summary, otherwise the set of
-            // replies may include the to-be-redacted event.
-            if let Some(thread_root) = thread_root
-                && let Some(thread_cache) = self.state.threads.get_mut(&thread_root)
-            {
-                thread_cache.replace_event_if_present(event_id, target_event).await?;
-
-                // The number of replies may have changed, so update the thread summary if
-                // needs be.
-                let latest_event_id = thread_cache.latest_event_id().await?;
-
-                self.maybe_update_thread_summary(
-                    thread_root,
-                    latest_event_id,
-                    post_processing_origin,
-                )
-                .await?;
-            }
         }
 
         Ok(())
