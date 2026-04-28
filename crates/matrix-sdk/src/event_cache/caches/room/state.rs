@@ -833,11 +833,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
                     }
                 }
             }
-
-            // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread]).await?;
-            }
         }
 
         if self.state.enabled_thread_support {
