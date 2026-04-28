@@ -25,7 +25,7 @@ use std::{
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
-    deserialized_responses::AmbiguityChange,
+    deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::Event,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
@@ -390,6 +390,32 @@ impl RoomEventCache {
         self.inner
             .handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes, None)
             .await?;
+
+        Ok(())
+    }
+
+    pub(super) async fn update_thread_summary(
+        &self,
+        thread_id: &EventId,
+        new_thread_summary: ThreadSummary,
+    ) -> Result<()> {
+        let timeline_event_diffs = self
+            .inner
+            .state
+            .write()
+            .await?
+            .update_thread_summary(thread_id, new_thread_summary)
+            .await?;
+
+        if !timeline_event_diffs.is_empty() {
+            self.inner.update_sender.send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Sync,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+            );
+        }
 
         Ok(())
     }

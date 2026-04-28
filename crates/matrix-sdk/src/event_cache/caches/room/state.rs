@@ -756,7 +756,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             self.shrink_to_last_chunk().await?;
         }
 
-        let timeline_event_diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
+        let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
 
         Ok((has_new_gap, timeline_event_diffs))
     }
@@ -789,55 +789,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
                 .await?;
         }
 
-        let mut new_events_by_thread: BTreeMap<_, Vec<_>> = BTreeMap::new();
-
         for event in events {
             self.maybe_apply_new_redaction(&event, post_processing_origin).await?;
-
-            if self.state.enabled_thread_support {
-                // Only add the event to a thread if:
-                // - thread support is enabled,
-                // - and if this is a sync (we can't know where to insert backpaginated events
-                //   in threads).
-                if matches!(post_processing_origin, PostProcessingOrigin::Sync) {
-                    if let Some(thread_root) = extract_thread_root(event.raw()) {
-                        new_events_by_thread.entry(thread_root).or_default().push(event.clone());
-                    } else if let Some(event_id) = event.event_id() {
-                        // If we spot the root of a thread, add it to its linked chunk.
-                        if self.state.threads.contains_key(&event_id) {
-                            new_events_by_thread.entry(event_id).or_default().push(event.clone());
-                        }
-                    }
-                }
-
-                // If the post-processing origin is the redecryption, and this is part of a
-                // thread, mark the thread as needing an update, potentially for its latest
-                // event, that might have been redecrypted now.
-                #[cfg(feature = "e2e-encryption")]
-                if matches!(post_processing_origin, PostProcessingOrigin::Redecryption)
-                    && let Some(thread_root) = extract_thread_root(event.raw())
-                {
-                    new_events_by_thread.entry(thread_root).or_default();
-                }
-
-                // Look for edits that may apply to a thread; we'll process them later.
-                if let Some(edit_target) = extract_edit_target(event.raw()) {
-                    // If the edited event is known, and part of a thread,
-                    if let Some((_location, edit_target_event)) =
-                        self.find_event(&edit_target).await?
-                        && let Some(thread_root) = extract_thread_root(edit_target_event.raw())
-                    {
-                        // Mark the thread for processing, unless it was already marked as
-                        // such.
-                        new_events_by_thread.entry(thread_root).or_default();
-                    }
-                }
-            }
-        }
-
-        if self.state.enabled_thread_support {
-            self.update_threads(new_events_by_thread, prev_batch_token, post_processing_origin)
-                .await?;
         }
 
         self.update_read_receipts(receipt_event.as_ref()).await?;
@@ -940,104 +893,29 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             let thread_cache = self.get_or_reload_thread(thread_root.clone()).await?;
 
             thread_cache.add_live_events(new_events, &prev_batch_token).await?;
-
-            let mut latest_event_id = thread_cache.latest_event_id().await?;
-
-            // If there's an edit to the latest event in the thread, use the latest edit
-            // event id as the latest event id for the thread summary.
-            if let Some(event_id) = latest_event_id.as_ref()
-                && let Some((original_event, edits)) = self
-                    .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
-                    .await?
-            {
-                let latest_valid_edit = edits.into_iter().rfind(|edit| {
-                    let original_json = original_event.raw();
-                    let original_encryption_info = original_event.encryption_info();
-                    let replacement_json = edit.raw();
-                    let replacement_encryption_info = edit.encryption_info();
-
-                    check_validity_of_replacement_events(
-                        original_json,
-                        original_encryption_info.map(|v| &**v),
-                        replacement_json,
-                        replacement_encryption_info.map(|v| &**v),
-                    )
-                    .is_ok()
-                });
-
-                if let Some(latest_valid_edit) = latest_valid_edit {
-                    latest_event_id = latest_valid_edit.event_id();
-                }
-            }
-
-            self.maybe_update_thread_summary(thread_root, latest_event_id, post_processing_origin)
-                .await?;
         }
 
         Ok(())
     }
 
     /// Update a thread summary on the given thread root, if needs be.
-    async fn maybe_update_thread_summary(
+    #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+    pub async fn update_thread_summary(
         &mut self,
-        thread_root: OwnedEventId,
-        latest_event_id: Option<OwnedEventId>,
-        _post_processing_origin: PostProcessingOrigin,
-    ) -> Result<(), EventCacheError> {
-        // Add a thread summary to the (room) event which has the thread root, if we
-        // knew about it.
-
-        let Some((location, mut target_event)) = self.find_event(&thread_root).await? else {
-            trace!(%thread_root, "thread root event is missing from the room linked chunk");
-            return Ok(());
+        thread_id: &EventId,
+        new_thread_summary: ThreadSummary,
+    ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        let Some((location, mut thread_root_event)) = self.find_event(&thread_id).await? else {
+            trace!(%thread_id, "thread root event is missing from the room linked chunk");
+            return Ok(Vec::new());
         };
-
-        let prev_summary = target_event.thread_summary.summary();
-
-        // Recompute the thread summary, if needs be.
-
-        // Read the latest number of thread replies from the store.
-        //
-        // Implementation note: since this is based on the `m.relates_to` field, and
-        // that field can only be present on room messages, we don't have to
-        // worry about filtering out aggregation events (like
-        // reactions/edits/etc.). Pretty neat, huh?
-        let num_replies = {
-            let thread_replies = self
-                .store
-                .find_event_relations(
-                    &self.state.room_id,
-                    &thread_root,
-                    Some(&[RelationType::Thread]),
-                )
-                .await?;
-            thread_replies.len().try_into().unwrap_or(u32::MAX)
-        };
-
-        let new_summary = if num_replies > 0 {
-            Some(ThreadSummary { num_replies, latest_reply: latest_event_id })
-        } else {
-            None
-        };
-
-        // Note: in the case of redecryption, we still trigger an update even if the
-        // summary has changed, so that observers can be notified that the
-        // event in the summary may have been decrypted now.
-        #[cfg(feature = "e2e-encryption")]
-        let update_if_same_summaries =
-            matches!(_post_processing_origin, PostProcessingOrigin::Redecryption);
-        #[cfg(not(feature = "e2e-encryption"))]
-        let update_if_same_summaries = false;
-
-        if !update_if_same_summaries && prev_summary == new_summary.as_ref() {
-            trace!(%thread_root, "thread summary is up-to-date, no need to update it");
-            return Ok(());
-        }
 
         // Trigger an update to observers.
-        trace!(%thread_root, "updating thread summary: {new_summary:?}");
-        target_event.thread_summary = ThreadSummaryStatus::from_opt(new_summary);
-        self.replace_event_at(location, target_event).await
+        trace!(%thread_id, "updating thread summary: {new_thread_summary:?}");
+        thread_root_event.thread_summary = ThreadSummaryStatus::from_opt(Some(new_thread_summary));
+        self.replace_event_at(location, thread_root_event).await?;
+
+        Ok(self.room_linked_chunk.updates_as_vector_diffs())
     }
 
     /// Replaces a single event, be it saved in memory or in the store.
