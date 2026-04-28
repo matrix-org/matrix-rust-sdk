@@ -210,7 +210,14 @@ impl Caches {
                 let mut updates = updates.clone();
                 updates.timeline = timeline;
 
-                self.thread(thread_id).await?.handle_joined_room_update(updates).await?;
+                let thread = self.thread(thread_id).await?;
+                thread.handle_joined_room_update(updates).await?;
+
+                if let Some(thread_summary) =
+                    thread.state().read().await?.compute_thread_summary().await?
+                {
+                    room.update_thread_summary(thread.thread_id(), thread_summary).await?;
+                }
             }
         }
 
@@ -246,7 +253,14 @@ impl Caches {
                 let mut updates = updates.clone();
                 updates.timeline = timeline;
 
-                self.thread(thread_id).await?.handle_left_room_update(updates).await?;
+                let thread = self.thread(thread_id).await?;
+                thread.handle_left_room_update(updates).await?;
+
+                if let Some(thread_summary) =
+                    thread.state().read().await?.compute_thread_summary().await?
+                {
+                    room.update_thread_summary(thread.thread_id(), thread_summary).await?;
+                }
             }
         }
 

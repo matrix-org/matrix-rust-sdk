@@ -24,7 +24,9 @@ use matrix_sdk_base::{
     event_cache::{Event, store::EventCacheStoreLock},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId};
+use ruma::{
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, room_version_rules::RoomVersionRules,
+};
 use tokio::sync::{
     Notify,
     broadcast::{Receiver, Sender},
@@ -123,6 +125,16 @@ impl ThreadEventCache {
         Ok(cache)
     }
 
+    /// Get the room ID for this room.
+    pub fn room_id(&self) -> &RoomId {
+        &self.inner.room_id
+    }
+
+    /// Get the thread ID for this thread.
+    pub fn thread_id(&self) -> &EventId {
+        &self.inner.thread_id
+    }
+
     /// Subscribe to live events from this thread.
     pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
         let state = self.inner.state.read().await?;
@@ -142,7 +154,7 @@ impl ThreadEventCache {
     }
 
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &LockedThreadEventCacheState {
+    pub(super) fn state(&self) -> &LockedThreadEventCacheState {
         &self.inner.state
     }
 
@@ -197,43 +209,6 @@ impl ThreadEventCache {
         Ok(())
     }
 
-    /// Push some live events to this thread, and propagate the updates to
-    /// the listeners.
-    pub async fn add_live_events(
-        &mut self,
-        events: Vec<Event>,
-        prev_batch_token: &Option<String>,
-    ) -> Result<()> {
-        todo!()
-        /*
-        if events.is_empty() {
-            return Ok(());
-        }
-
-        trace!("adding new events");
-
-        let (stored_prev_batch_token, timeline_event_diffs) =
-            self.inner.state.write().await?.handle_sync(events, prev_batch_token).await?;
-
-        // Now that all events have been added, we can trigger the
-        // `pagination_token_notifier`.
-        if stored_prev_batch_token {
-            self.inner.pagination_batch_token_notifier.notify_one();
-        }
-
-        if !timeline_event_diffs.is_empty() {
-            self.inner.update_sender.send(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
-                // This function is part of the `RoomEventCache` flow. The generic update is
-                // handled by it.
-                None,
-            );
-        }
-
-        Ok(())
-        */
-    }
-
     /// Replaces a single event, be it saved in memory or in the store.
     ///
     /// If it was saved in memory, this will emit a notification to
@@ -264,19 +239,6 @@ impl ThreadEventCache {
         }
 
         Ok(())
-    }
-
-    /// Returns the latest event ID in this thread, if any.
-    pub async fn latest_event_id(&self) -> Result<Option<OwnedEventId>> {
-        Ok(self
-            .inner
-            .state
-            .read()
-            .await?
-            .thread_linked_chunk()
-            .revents()
-            .next()
-            .and_then(|(_position, event)| event.event_id()))
     }
 
     /// Force to reload the thread.

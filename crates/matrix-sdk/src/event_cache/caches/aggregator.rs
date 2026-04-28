@@ -59,14 +59,18 @@ pub async fn aggregate_timeline_for_threads(
                 .push(event.clone());
         }
 
-        // This event is an edit that may apply to a thread..
+        // This event is an edit that may apply to a thread.
         if let Some(edit_target) = extract_edit_target(event.raw()) {
             // This event is known and part of a thread.
-            if let Some((_location, edit_target_event)) =
+            if let Some((_location, edited_event)) =
                 room_event_cache.find_event(&edit_target).await?
-                && let Some(thread_root) = extract_thread_root(edit_target_event.raw())
+                && let Some(thread_root) = extract_thread_root(edited_event.raw())
             {
-                new_events_by_thread.entry(thread_root).or_insert_with(default_timeline);
+                new_events_by_thread
+                    .entry(thread_root)
+                    .or_insert_with(default_timeline)
+                    .events
+                    .push(event.clone());
             }
         }
     }
