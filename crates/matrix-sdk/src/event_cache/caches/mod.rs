@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{OwnedEventId, OwnedRoomId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc};
 
 use super::{EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination};
@@ -50,6 +50,7 @@ pub(super) struct Caches {
 struct CachesInternals {
     store: EventCacheStoreLock,
     linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
+    room_version_rules: RoomVersionRules,
 }
 
 impl Caches {
@@ -90,7 +91,7 @@ impl Caches {
             own_user_id.clone(),
             room_id.to_owned(),
             weak_room.clone(),
-            room_version_rules,
+            room_version_rules.clone(),
             enabled_thread_support,
             update_sender.clone(),
             linked_chunk_update_sender.clone(),
@@ -123,7 +124,7 @@ impl Caches {
         Ok(Self {
             room: room_event_cache,
             threads: Arc::new(RwLock::new(HashMap::new())),
-            internals: CachesInternals { store, linked_chunk_update_sender },
+            internals: CachesInternals { store, linked_chunk_update_sender, room_version_rules },
         })
     }
 
@@ -164,6 +165,7 @@ impl Caches {
                         room.room_id().to_owned(),
                         thread_id.clone(),
                         room.own_user_id().to_owned(),
+                        self.internals.room_version_rules.clone(),
                         room.weak_room().to_owned(),
                         self.internals.store.clone(),
                         room.update_sender().generic_update_sender().clone(),
