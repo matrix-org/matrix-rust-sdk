@@ -362,6 +362,8 @@ impl<'de> Deserialize<'de> for Signatures {
         let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, serde_json::Value>> =
             Deserialize::deserialize(deserializer)?;
 
+        // TODO: AJB: migration from the old format (with String on the RHS) to this one
+
         let map = map
             .into_iter()
             .map(|(user, signatures)| {
