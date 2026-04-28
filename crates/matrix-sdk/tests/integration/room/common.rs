@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, iter, time::Duration};
+use std::{collections::BTreeMap, iter, ops::Not, time::Duration};
 
 use assert_matches2::{assert_let, assert_matches};
 use js_int::uint;
@@ -6,8 +6,9 @@ use matrix_sdk::{
     RoomDisplayName, RoomMemberships,
     config::{SyncSettings, SyncToken},
     room::RoomMember,
-    test_utils::mocks::MatrixMockServer,
+    test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
 };
+use matrix_sdk_base::DmRoomDefinition;
 use matrix_sdk_test::{
     BOB, DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
     bulk_room_members, event_factory::EventFactory, sync_state_event, test_json,
@@ -15,7 +16,7 @@ use matrix_sdk_test::{
 use ruma::{
     event_id,
     events::{
-        AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
+        AnyGlobalAccountDataEvent, AnySyncStateEvent, AnySyncTimelineEvent, StateEventType,
         direct::DirectUserIdentifier,
         room::{avatar, member::MembershipState, message::RoomMessageEventContent},
     },
@@ -891,4 +892,99 @@ async fn test_room_avatar() {
     assert_eq!(avatar_info.width, Some(uint!(200)));
     assert_eq!(avatar_info.mimetype.as_deref(), Some("image/png"));
     assert_eq!(avatar_info.size, Some(uint!(5243)));
+}
+
+#[async_test]
+async fn test_is_dm_using_matrix_spec() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| b.dm_room_definition(DmRoomDefinition::MatrixSpec))
+        .build()
+        .await;
+    let alice_user_id = user_id!("@alice:localhost");
+
+    let room_id = room_id!("!room:localhost");
+
+    // We mock the m.direct account data with a single target for the room id
+    let direct_data = EventFactory::new()
+        .direct()
+        .add_user(alice_user_id.to_owned().into(), room_id)
+        .into_raw::<AnyGlobalAccountDataEvent>();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |response| {
+            response.add_global_account_data(direct_data);
+        })
+        .await;
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    // Room has direct targets, so it's considered direct and a DM using the spec
+    // definition.
+    assert!(room.is_dm().await.unwrap());
+
+    // We mock the m.direct account data with no targets
+    let direct_data = EventFactory::new().direct().into_raw::<AnyGlobalAccountDataEvent>();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |response| {
+            response.add_global_account_data(direct_data);
+        })
+        .await;
+
+    // Room doesn't have direct targets anymore, so it's not a DM using the spec
+    // definition.
+    assert!(room.is_dm().await.unwrap().not());
+}
+
+#[async_test]
+async fn test_is_dm_using_at_most_two_members_definition() {
+    let server = MatrixMockServer::new().await;
+    let client = server
+        .client_builder()
+        .on_builder(|b| b.dm_room_definition(DmRoomDefinition::TwoMembers))
+        .build()
+        .await;
+    let alice_user_id = user_id!("@alice:localhost");
+
+    let room_id = room_id!("!room:localhost");
+
+    // We mock the m.direct account data with a single target for the room id
+    let direct_data = EventFactory::new()
+        .direct()
+        .add_user(alice_user_id.to_owned().into(), room_id)
+        .into_raw::<AnyGlobalAccountDataEvent>();
+    server
+        .mock_sync()
+        .ok_and_run(&client, |response| {
+            response.add_global_account_data(direct_data);
+        })
+        .await;
+
+    // The room has direct targets, and 2 active users, so it's a DM.
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(2)),
+        )
+        .await;
+    assert!(room.is_dm().await.unwrap());
+
+    // The room has direct targets, and a single active user, so it's a DM.
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(1)),
+        )
+        .await;
+    assert!(room.is_dm().await.unwrap());
+
+    // The room has direct targets, and > 2 active users, so it's NOT a DM.
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(3)),
+        )
+        .await;
+    assert!(!room.is_dm().await.unwrap());
 }
