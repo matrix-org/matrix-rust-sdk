@@ -84,6 +84,7 @@ impl ThreadEventCache {
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
         own_user_id: OwnedUserId,
+        room_version_rules: RoomVersionRules,
         weak_room: WeakRoom,
         store: EventCacheStoreLock,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
@@ -95,6 +96,7 @@ impl ThreadEventCache {
             room_id.clone(),
             thread_id.clone(),
             own_user_id,
+            room_version_rules,
             store,
             update_sender.clone(),
             linked_chunk_update_sender,
@@ -196,38 +198,6 @@ impl ThreadEventCache {
         if stored_prev_batch_token {
             self.inner.pagination_batch_token_notifier.notify_one();
         }
-
-        if !timeline_event_diffs.is_empty() {
-            self.inner.update_sender.send(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
-                // This function is part of the `RoomEventCache` flow. The generic update is
-                // handled by it.
-                None,
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Replaces a single event, be it saved in memory or in the store.
-    ///
-    /// If it was saved in memory, this will emit a notification to
-    /// observers that a single item has been replaced. Otherwise,
-    /// such a notification is not emitted, because observers are
-    /// unlikely to observe the store updates directly.
-    pub(super) async fn replace_event_if_present(
-        &mut self,
-        event_id: &EventId,
-        new_event: Event,
-    ) -> Result<()> {
-        let mut state = self.inner.state.write().await?;
-
-        if let Err(err) = state.replace_event_if_present(event_id, new_event).await {
-            error!(%err, "failed to replace an event");
-            return Err(err);
-        }
-
-        let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
             self.inner.update_sender.send(

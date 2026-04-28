@@ -14,7 +14,7 @@
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    check_validity_of_replacement_events,
+    apply_redaction, check_validity_of_replacement_events,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
@@ -27,9 +27,16 @@ use matrix_sdk_base::{
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
-use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, events::relation::RelationType};
+use ruma::{
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
+    events::{
+        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType,
+        relation::RelationType, room::redaction::SyncRoomRedactionEvent,
+    },
+    room_version_rules::RoomVersionRules,
+};
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
     super::{
@@ -59,6 +66,9 @@ pub struct ThreadEventCacheState {
 
     /// The user's own user id.
     pub own_user_id: OwnedUserId,
+
+    /// The rules for the version of this room.
+    room_version_rules: RoomVersionRules,
 
     /// Reference to the underlying backing store.
     store: EventCacheStoreLock,
@@ -191,6 +201,7 @@ impl LockedThreadEventCacheState {
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
         own_user_id: OwnedUserId,
+        room_version_rules: RoomVersionRules,
         store: EventCacheStoreLock,
         update_sender: ThreadEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
@@ -255,6 +266,7 @@ impl LockedThreadEventCacheState {
             room_id,
             thread_id,
             own_user_id,
+            room_version_rules,
             store,
             thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
@@ -490,8 +502,11 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             self.state.shrink_to_last_chunk(&self.store).await?;
         }
 
-        // Save `bundled_latest_thread_event`.
+        // Do stuff for each event.
         for event in events {
+            // Handle redaction.
+            self.maybe_apply_new_redaction(&event).await?;
+
             // Save a bundled thread event, if there was one.
             if let Some(bundled_thread) = event.bundled_latest_thread_event {
                 self.save_events([*bundled_thread]).await?;
@@ -501,6 +516,67 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         Ok((has_new_gap, timeline_event_diffs))
+    }
+
+    /// If the given event is a redaction, try to retrieve the
+    /// to-be-redacted event in the chunk, and replace it by the
+    /// redacted form.
+    #[instrument(skip_all)]
+    async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<()> {
+        let raw_event = event.raw();
+
+        // Do not deserialise the entire event if we aren't certain it's a
+        // `m.room.redaction`. It saves a non-negligible amount of computations.
+        let Ok(Some(MessageLikeEventType::RoomRedaction)) =
+            raw_event.get_field::<MessageLikeEventType>("type")
+        else {
+            return Ok(());
+        };
+
+        // It is a `m.room.redaction`! We can deserialize it entirely.
+
+        let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
+            redaction,
+        ))) = raw_event.deserialize()
+        else {
+            return Ok(());
+        };
+
+        let Some(event_id) = redaction.redacts(&self.room_version_rules.redaction) else {
+            warn!("missing target event id from the redaction event");
+            return Ok(());
+        };
+
+        // Replace the redacted event by a redacted form, if we knew about it.
+        let Some((location, mut target_event)) = self.find_event(event_id).await? else {
+            trace!("redacted event is missing from the linked chunk");
+            return Ok(());
+        };
+
+        let target_event_raw = target_event.raw();
+
+        // Don't redact already redacted events.
+        if let Ok(deserialized) = target_event_raw.deserialize()
+            && deserialized.is_redacted()
+        {
+            return Ok(());
+        };
+
+        if let Some(redacted_event) = apply_redaction(
+            target_event_raw,
+            event.raw().cast_ref_unchecked::<SyncRoomRedactionEvent>(),
+            &self.room_version_rules.redaction,
+        ) {
+            // It's safe to cast `redacted_event` here:
+            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+            //   when calling .raw(), so it's still one under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            target_event.replace_raw(redacted_event.cast_unchecked());
+
+            self.replace_event_at(location, target_event.clone()).await?;
+        }
+
+        Ok(())
     }
 
     /// See documentation of [`find_event`].
@@ -517,16 +593,11 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     /// observers that a single item has been replaced. Otherwise,
     /// such a notification is not emitted, because observers are
     /// unlikely to observe the store updates directly.
-    pub async fn replace_event_if_present(
+    pub async fn replace_event_at(
         &mut self,
-        event_id: &EventId,
+        location: EventLocation,
         new_event: Event,
     ) -> Result<()> {
-        let Some((location, _event)) = self.find_event(event_id).await? else {
-            trace!("redacted event is missing from the thread linked chunk");
-            return Ok(());
-        };
-
         match location {
             EventLocation::Memory(position) => {
                 self.state
