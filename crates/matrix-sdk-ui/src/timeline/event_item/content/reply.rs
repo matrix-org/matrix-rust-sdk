@@ -123,7 +123,7 @@ impl EmbeddedEvent {
         let sender = event.sender().to_owned();
         let timestamp = event.origin_server_ts();
         let identifier = TimelineEventItemId::EventId(event.event_id().to_owned());
-        let action = TimelineAction::from_event(
+        let actions = TimelineAction::from_event(
             event,
             &raw_event,
             room_data_provider,
@@ -133,8 +133,8 @@ impl EmbeddedEvent {
             thread_summary,
         )
         .await;
-
-        match action {
+        //TODO how should we handle this?
+        match *actions.iter().next() {
             Some(TimelineAction::AddItem { content }) => {
                 let sender_profile = TimelineDetails::from_initial_value(
                     room_data_provider.profile_from_user_id(&sender).await,

@@ -21,14 +21,22 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, event_id,
-    events::beacon_info::{BeaconInfoEventContent, RedactedBeaconInfoEventContent},
+    events::{
+        AnySyncTimelineEvent,
+        beacon_info::{BeaconInfoEventContent, RedactedBeaconInfoEventContent},
+    },
     owned_event_id, uint,
 };
 use stream_assert::{assert_next_matches, assert_pending};
 
+use super::TestRoomDataProvider;
 use crate::timeline::{
-    EventTimelineItem, ReactionStatus, TimelineEventItemId, event_item::beacon_info_matches,
+    EmbeddedEvent, EventTimelineItem, ReactionStatus, TimelineEventItemId, TimelineItemContent,
+    controller::TimelineMetadata,
+    event_handler::{HandleAggregationKind, TimelineAction},
+    event_item::beacon_info_matches,
     tests::TestTimeline,
+    traits::RoomDataProvider,
 };
 
 /// A `beacon_info` state event creates a `MsgLikeKind::LiveLocation`
@@ -481,6 +489,232 @@ async fn test_pending_beacon_stop_not_applied_to_different_session() {
     assert_eq!(state.description(), Some("New session"));
 
     assert_pending!(stream);
+}
+
+/// A new live `beacon_info` replacing a previous live session should implicitly
+/// stop the previous timeline item, even if no explicit stop event was sent.
+#[async_test]
+async fn test_replacing_live_beacon_stops_previous_item() {
+    let timeline = TestTimeline::new();
+    let mut stream = timeline.subscribe_events().await;
+    let old_start_id = event_id!("$old_start:example.org");
+    let new_start_id = event_id!("$new_start:example.org");
+    let old_session_ts = MilliSecondsSinceUnixEpoch::now();
+    let new_session_ts = MilliSecondsSinceUnixEpoch::now();
+
+    let old_content = BeaconInfoEventContent::new(
+        Some("Old session".to_owned()),
+        Duration::from_secs(3600),
+        true,
+        Some(old_session_ts),
+    );
+
+    timeline
+        .handle_live_event(
+            timeline
+                .factory
+                .beacon_info(
+                    Some("Old session".to_owned()),
+                    Duration::from_secs(3600),
+                    true,
+                    Some(old_session_ts),
+                )
+                .sender(&ALICE)
+                .state_key(&**ALICE)
+                .event_id(old_start_id),
+        )
+        .await;
+
+    let old_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert!(old_item.content().as_live_location_state().unwrap().is_live());
+
+    timeline
+        .handle_live_event(
+            timeline
+                .factory
+                .beacon_info(
+                    Some("New session".to_owned()),
+                    Duration::from_secs(3600),
+                    true,
+                    Some(new_session_ts),
+                )
+                .sender(&ALICE)
+                .state_key(&**ALICE)
+                .event_id(new_start_id)
+                .prev_content(old_content),
+        )
+        .await;
+
+    let items = timeline.live_location_event_items().await;
+    assert_eq!(items.len(), 2, "both sessions should remain visible in the timeline");
+
+    let old_state = items
+        .iter()
+        .find(|item| item.event_id() == Some(old_start_id))
+        .unwrap()
+        .content()
+        .as_live_location_state()
+        .unwrap();
+    assert!(
+        !old_state.is_live(),
+        "the replaced live beacon should be considered stopped once a new session replaces it"
+    );
+    assert_eq!(old_state.description(), Some("Old session"));
+
+    let new_state = items
+        .iter()
+        .find(|item| item.event_id() == Some(new_start_id))
+        .unwrap()
+        .content()
+        .as_live_location_state()
+        .unwrap();
+    assert!(new_state.is_live(), "the replacement session should stay live");
+    assert_eq!(new_state.description(), Some("New session"));
+}
+
+#[async_test]
+async fn test_replacing_live_beacon_actions_include_add_and_stop() {
+    let timeline = TestTimeline::new();
+    let new_start_id = event_id!("$new_start:example.org");
+    let old_session_ts = MilliSecondsSinceUnixEpoch::now();
+    let new_session_ts = MilliSecondsSinceUnixEpoch::now();
+
+    let old_content = BeaconInfoEventContent::new(
+        Some("Old session".to_owned()),
+        Duration::from_secs(3600),
+        true,
+        Some(old_session_ts),
+    );
+
+    let raw_event = timeline
+        .factory
+        .beacon_info(
+            Some("New session".to_owned()),
+            Duration::from_secs(3600),
+            true,
+            Some(new_session_ts),
+        )
+        .sender(&ALICE)
+        .state_key(&**ALICE)
+        .event_id(new_start_id)
+        .prev_content(old_content)
+        .into_raw_sync();
+    let event: AnySyncTimelineEvent = raw_event.deserialize().unwrap();
+
+    let actions = TimelineAction::from_event(
+        event,
+        &raw_event,
+        &TestRoomDataProvider::default(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    assert_eq!(actions.len(), 2);
+    assert_matches!(&actions[0], TimelineAction::AddItem { .. });
+    match &actions[1] {
+        TimelineAction::HandleAggregation {
+            related_event,
+            kind: HandleAggregationKind::BeaconStop { .. },
+        } => {
+            assert_eq!(related_event, new_start_id)
+        }
+        other => panic!("expected beacon stop aggregation, got {other:?}"),
+    }
+}
+
+#[async_test]
+async fn test_replacing_live_beacon_latest_event_projection_returns_add_item() {
+    let timeline = TestTimeline::new();
+    let new_start_id = event_id!("$new_start:example.org");
+    let old_session_ts = MilliSecondsSinceUnixEpoch::now();
+    let new_session_ts = MilliSecondsSinceUnixEpoch::now();
+
+    let raw_event = timeline
+        .factory
+        .beacon_info(
+            Some("New session".to_owned()),
+            Duration::from_secs(3600),
+            true,
+            Some(new_session_ts),
+        )
+        .sender(&ALICE)
+        .state_key(&**ALICE)
+        .event_id(new_start_id)
+        .prev_content(BeaconInfoEventContent::new(
+            Some("Old session".to_owned()),
+            Duration::from_secs(3600),
+            true,
+            Some(old_session_ts),
+        ))
+        .into_raw_sync();
+    let event: AnySyncTimelineEvent = raw_event.deserialize().unwrap();
+
+    let actions = TimelineAction::from_event(
+        event,
+        &raw_event,
+        &TestRoomDataProvider::default(),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await;
+
+    let projected = actions.iter().find_map(|action| match action {
+        TimelineAction::AddItem { content } => Some(content.clone()),
+        TimelineAction::HandleAggregation {
+            kind: HandleAggregationKind::BeaconStop { content, .. },
+            ..
+        } => Some(TimelineItemContent::MsgLike(crate::timeline::MsgLikeContent {
+            kind: crate::timeline::MsgLikeKind::LiveLocation(
+                crate::timeline::LiveLocationState::new(content.clone()),
+            ),
+            reactions: Default::default(),
+            thread_root: None,
+            in_reply_to: None,
+            thread_summary: None,
+        })),
+        _ => None,
+    });
+    assert_matches!(projected, Some(TimelineItemContent::MsgLike(_)));
+}
+
+#[async_test]
+async fn test_beacon_stop_reply_projection_ignores_beacon_stop() {
+    let timeline = TestTimeline::new();
+    let stop_event_id = event_id!("$beacon_stop:example.org");
+    let session_ts = MilliSecondsSinceUnixEpoch::now();
+
+    let raw_event = timeline
+        .factory
+        .beacon_info(
+            Some("Stopped session".to_owned()),
+            Duration::from_secs(3600),
+            false,
+            Some(session_ts),
+        )
+        .sender(&ALICE)
+        .state_key(&**ALICE)
+        .event_id(stop_event_id)
+        .into_raw_sync();
+    let timeline_event =
+        matrix_sdk::deserialized_responses::TimelineEvent::from_plaintext(raw_event.clone());
+    let meta = TimelineMetadata::new(
+        timeline.data().own_user_id().to_owned(),
+        timeline.data().room_version_rules(),
+        None,
+        None,
+        false,
+    );
+
+    let embedded = EmbeddedEvent::try_from_timeline_event(timeline_event, timeline.data(), &meta)
+        .await
+        .unwrap();
+
+    assert_matches!(embedded, None);
 }
 
 /// Duplicate beacon location updates (same timestamp) are de-duplicated.

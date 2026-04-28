@@ -162,7 +162,7 @@ impl TimelineItemContent {
         let raw_event = timeline_event.into_raw();
         let deserialized_event = raw_event.deserialize().ok()?;
 
-        match TimelineAction::from_event(
+        let actions = TimelineAction::from_event(
             deserialized_event,
             &raw_event,
             room,
@@ -170,14 +170,15 @@ impl TimelineItemContent {
             None,
             None,
             None,
-        )
-        .await
+        ).await;
+        //TODO how should we handle this?
+        match *actions.iter().next()
         {
             Some(TimelineAction::AddItem { content }) => Some(content),
 
             // Aggregated event: only edits and beacon stop are supported at the moment.
             Some(TimelineAction::HandleAggregation {
-                kind: HandleAggregationKind::BeaconStop { content },
+                kind: HandleAggregationKind::BeaconStop { content , ..},
                 ..
             }) => Some(TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content)),
