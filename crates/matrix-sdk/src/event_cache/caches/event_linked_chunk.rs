@@ -177,6 +177,11 @@ impl EventLinkedChunk {
         self.chunks.chunk_identifier(predicate)
     }
 
+    /// Return the first chunk.
+    pub fn first_chunk(&self) -> &Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+        self.chunks.first_chunk()
+    }
+
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
