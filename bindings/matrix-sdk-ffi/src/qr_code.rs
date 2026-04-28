@@ -423,7 +423,7 @@ pub enum HumanQrGrantLoginError {
     NotFound,
 
     /// An unknown error has happened.
-    #[error("An unknown error has happened.")]
+    #[error("An unknown error has happened: {0}")]
     Unknown(String),
 
     /// The requested device was not returned by the homeserver.

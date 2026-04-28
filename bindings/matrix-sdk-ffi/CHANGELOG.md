@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `HumanQrGrantLoginError::Unknown` reason in error message.
+  ([#6514](https://github.com/matrix-org/matrix-rust-sdk/pull/6514))
 - Add a list of `declined_by: Vec<String>` to the `TimelineItemContent::RtcNotification`, this will contain the list
   of users that have declined the call.
   ([#6494](https://github.com/matrix-org/matrix-rust-sdk/pull/6494))
