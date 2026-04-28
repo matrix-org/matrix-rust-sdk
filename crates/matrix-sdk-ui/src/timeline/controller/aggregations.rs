@@ -183,40 +183,28 @@ pub(crate) struct Aggregation {
 fn poll_state_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut PollState, AggregationError> {
-    if event.content().is_poll() {
-        // It was a poll! Now return the state as mutable.
-        let state = as_variant!(
-            event.to_mut().content_mut(),
-            TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(s), ..}) => s
-        )
-        .expect("it was a poll just above");
-        Ok(state)
-    } else {
-        Err(AggregationError::InvalidType {
-            expected: "a poll".to_owned(),
-            actual: event.content().debug_string().to_owned(),
-        })
-    }
+    let debug_string = event.content().debug_string().to_owned();
+    as_variant!(
+        event.to_mut().content_mut(),
+        TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(s), .. }) => s
+    )
+    .ok_or_else(|| AggregationError::InvalidType {
+        expected: "a poll".to_owned(),
+        actual: debug_string,
+    })
 }
 
 /// Get the [`LiveLocationState`] from a given [`TimelineItemContent`], mutably.
 fn live_location_state_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut LiveLocationState, AggregationError> {
-    if event.content().is_live_location() {
-        // It was a live location! Now return the state as mutable.
-        let state = event
-            .to_mut()
-            .content_mut()
-            .as_live_location_state_mut()
-            .expect("it was a live location just above");
-        Ok(state)
-    } else {
-        Err(AggregationError::InvalidType {
+    let debug_string = event.content().debug_string().to_owned();
+    event.to_mut().content_mut().as_live_location_state_mut().ok_or_else(|| {
+        AggregationError::InvalidType {
             expected: "a live location".to_owned(),
-            actual: event.content().debug_string().to_owned(),
-        })
-    }
+            actual: debug_string,
+        }
+    })
 }
 
 /// Gets the mutable list of users that did decline this notification event.

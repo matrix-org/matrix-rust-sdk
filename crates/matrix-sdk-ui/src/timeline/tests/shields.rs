@@ -22,7 +22,8 @@ use ruma::{
 use stream_assert::{assert_next_matches, assert_pending};
 
 use crate::timeline::{
-    EventSendState, TimelineEventShieldState, TimelineEventShieldStateCode,
+    EventSendState, MsgLikeContent, MsgLikeKind, TimelineEventShieldState,
+    TimelineEventShieldStateCode, TimelineItemContent,
     tests::{TestTimeline, TestTimelineBuilder},
 };
 
@@ -156,7 +157,13 @@ async fn test_live_location_no_sent_in_clear_shield() {
 
     // No beacons yet → shield should be None.
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-    assert!(item.content().is_live_location(), "timeline item should be a live location");
+    assert!(
+        matches!(
+            item.content(),
+            TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. })
+        ),
+        "timeline item should be a live location"
+    );
 
     let shield = item.get_shield(false);
     assert_eq!(shield, TimelineEventShieldState::None);

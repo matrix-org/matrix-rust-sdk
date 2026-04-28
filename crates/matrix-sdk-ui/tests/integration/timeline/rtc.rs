@@ -52,7 +52,7 @@ async fn test_decline_call() {
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     let event_item = message.as_event().unwrap();
-    assert!(event_item.content().is_rtc_notification());
+    assert!(matches!(event_item.content(), TimelineItemContent::RtcNotification { .. }));
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );
@@ -116,7 +116,7 @@ async fn test_multiple_decline_call() {
 
     assert_let!(VectorDiff::PushBack { value: message } = &timeline_updates[0]);
     let event_item = message.as_event().unwrap();
-    assert!(event_item.content().is_rtc_notification());
+    assert!(matches!(event_item.content(), TimelineItemContent::RtcNotification { .. }));
     assert_let!(
         TimelineItemContent::RtcNotification { call_intent: _, declined_by } = event_item.content()
     );

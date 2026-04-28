@@ -243,18 +243,6 @@ impl TimelineItemContent {
         }
     }
 
-    /// Check whether this item's content is a
-    /// [`LiveLocation`][MsgLikeKind::LiveLocation].
-    pub fn is_live_location(&self) -> bool {
-        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. }))
-    }
-
-    /// Check whether this item's content is an
-    /// [`RtcNotification`][Self::RtcNotification].
-    pub fn is_rtc_notification(&self) -> bool {
-        matches!(self, Self::RtcNotification { .. })
-    }
-
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
     /// inner [`Message`].
     pub fn as_message(&self) -> Option<&Message> {
