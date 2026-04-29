@@ -560,7 +560,7 @@ mod tests_latest_event {
             .await
             .unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
         let room_send_queue = send_queue.for_room(room);
@@ -677,7 +677,7 @@ mod tests_latest_event {
             .await
             .unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let mut latest_event = LatestEvent::new(&weak_room, None);
 
@@ -771,7 +771,7 @@ mod tests_latest_event {
                 .await
                 .unwrap();
 
-            let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+            let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
             // Check there is no `LatestEventValue` for the moment.
             {
