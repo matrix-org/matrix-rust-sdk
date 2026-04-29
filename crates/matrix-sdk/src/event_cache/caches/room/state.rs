@@ -654,8 +654,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         mut timeline: Timeline,
         ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
-        let timeline_prev_batch_token = timeline.prev_batch.take();
-        let mut prev_batch_token = timeline_prev_batch_token.clone();
+        let mut prev_batch_token = timeline.prev_batch.take();
 
         let DeduplicationOutcome {
             all_events: events,
@@ -723,13 +722,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         // Extract a new read receipt, if available.
         let new_receipt = extract_read_receipt(ephemeral_events);
-        self.post_process_new_events(
-            events,
-            timeline_prev_batch_token,
-            PostProcessingOrigin::Sync,
-            new_receipt,
-        )
-        .await?;
+        self.post_process_new_events(events, new_receipt).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -757,8 +750,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn post_process_new_events(
         &mut self,
         events: Vec<Event>,
-        prev_batch_token: Option<String>,
-        post_processing_origin: PostProcessingOrigin,
         receipt_event: Option<ReceiptEventContent>,
     ) -> Result<(), EventCacheError> {
         // Update the store before doing the post-processing.
@@ -775,7 +766,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         }
 
         for event in events {
-            self.maybe_apply_new_redaction(&event, post_processing_origin).await?;
+            self.maybe_apply_new_redaction(&event).await?;
         }
 
         self.update_read_receipts(receipt_event.as_ref()).await?;
@@ -883,11 +874,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// to-be-redacted event in the chunk, and replace it by the
     /// redacted form.
     #[instrument(skip_all)]
-    async fn maybe_apply_new_redaction(
-        &mut self,
-        event: &Event,
-        post_processing_origin: PostProcessingOrigin,
-    ) -> Result<(), EventCacheError> {
+    async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<(), EventCacheError> {
         let raw_event = event.raw();
 
         // Do not deserialise the entire event if we aren't certain it's a
