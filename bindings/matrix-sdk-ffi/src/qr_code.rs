@@ -17,8 +17,8 @@ use std::sync::Arc;
 use matrix_sdk::authentication::oauth::{
     OAuth,
     qrcode::{
-        self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
-        DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
+        self, CheckCodeSender as SdkCheckCodeSender, DeviceCodeErrorResponseType,
+        GeneratedQrProgress, LoginFailureReason, QrProgress, SenderError,
     },
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
@@ -391,11 +391,11 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
     }
 }
 
-impl From<CheckCodeSenderError> for HumanQrLoginError {
-    fn from(value: CheckCodeSenderError) -> Self {
+impl From<SenderError> for HumanQrLoginError {
+    fn from(value: SenderError) -> Self {
         match value {
-            CheckCodeSenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
-            CheckCodeSenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
+            SenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
+            SenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
         }
     }
 }
