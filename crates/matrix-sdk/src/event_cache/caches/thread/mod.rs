@@ -215,14 +215,6 @@ impl ThreadEventCache {
         Ok(())
     }
 
-    /// Force to reload the thread.
-    //
-    // TODO(@hywan): Temporary fix. All the states must be in a single struct behind
-    // the cross-process lock instead of being dispatched in each cache.
-    pub(super) async fn reload(&self) -> Result<()> {
-        self.inner.state.write().await?.reload().await
-    }
-
     /// Find a single event in this thread.
     ///
     /// It starts by looking into loaded events in `EventLinkedChunk` before
