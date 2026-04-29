@@ -47,6 +47,9 @@ use super::{
 use crate::room::WeakRoom;
 
 /// All the information related to a single thread.
+///
+/// Cloning is shallow, and thus is cheap to do.
+#[derive(Clone)]
 pub struct ThreadEventCache {
     inner: Arc<ThreadEventCacheInner>,
 }
