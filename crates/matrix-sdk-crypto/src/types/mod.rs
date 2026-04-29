@@ -39,6 +39,7 @@ use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
     serde::StringEnum,
 };
+use rustls::SignatureScheme;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
@@ -162,18 +163,22 @@ impl BackupSecrets {
     }
 }
 
-/// An RSA signature and certificate chain
+/// An X.509 signature and certificate chain
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RsaSignature {
-    /// The certificate chain
-    pub certificates: Vec<String>,
+pub struct X509Signature {
+    /// The PEM-encoded certificate chain, starting with the device's own
+    /// certificate, followed by intermediate certificates.
+    pub certificate_chain: String,
+
+    pub signature_scheme: SignatureScheme,
+
     /// The signature itself
     pub signature: String, // TODO: AJB: what type here?
 }
 
-impl RsaSignature {
+impl X509Signature {
     fn from_json(value: &serde_json::Value) -> Result<Self, InvalidSignature> {
-        fn inner(value: &serde_json::Value) -> Option<RsaSignature> {
+        fn inner(value: &serde_json::Value) -> Option<X509Signature> {
             // TODO: AJB: we silently ignore errors here. It's not particularly easy to do
             // anything
             // else as matrix_sdk_crypto::types::Signatures::deserialize depends on an error
@@ -188,8 +193,13 @@ impl RsaSignature {
                 .map(|v| v.as_str().map(|s| s.to_owned()))
                 .collect();
 
-            Some(RsaSignature {
-                certificates: certificates?,
+            // Signature schemes have a u16 identifier, defined at https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme.
+            // If the JSON contains anything that isn't a u16, refuse to parse it.
+            let signature_scheme: u16 = value.get("signature_scheme")?.as_u64()?.try_into().ok()?;
+
+            Some(X509Signature {
+                certificate_chain: certificates?,
+                signature_scheme: signature_scheme.into(),
                 signature: value.get("signature")?.as_str()?.to_owned(),
             })
         }
@@ -203,7 +213,7 @@ impl RsaSignature {
         // Can't use serde_json::to_value here because rsa::pss::Signature is not
         // Serialize. (Also we want this to be infallible.)
         json!({
-            "certificates": self.certificates,
+            "certificates": self.certificate_chain,
             "signature": self.signature,
         })
     }
@@ -223,8 +233,8 @@ impl RsaSignature {
 pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
-    /// An RSA digital signature.
-    Rsa(RsaSignature),
+    /// An X.509 digital signature.
+    X509(X509Signature),
     /// A digital signature in an unsupported algorithm. The raw signature bytes
     /// are represented as a base64-encoded string.
     Other(String),
@@ -250,7 +260,7 @@ impl Signature {
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             Signature::Ed25519(s) => json!(s.to_base64()),
-            Signature::Rsa(s) => s.to_json(),
+            Signature::X509(s) => s.to_json(),
             Signature::Other(s) => json!(s.to_owned()),
         }
     }
@@ -385,8 +395,8 @@ impl<'de> Deserialize<'de> for Signatures {
                                     .to_owned(),
                             }),
                             DeviceKeyAlgorithm::_Custom(_) => {
-                                if let Ok(rsa_signature) = RsaSignature::from_json(&s) {
-                                    Ok(Signature::Rsa(rsa_signature))
+                                if let Ok(x509_signature) = X509Signature::from_json(&s) {
+                                    Ok(Signature::X509(x509_signature))
                                 } else {
                                     Ok(Signature::Other(
                                         s.as_str()

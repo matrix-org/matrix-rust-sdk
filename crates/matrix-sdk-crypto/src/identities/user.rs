@@ -26,6 +26,7 @@ use matrix_sdk_common::locks::RwLock;
 use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
+    canonical_json::to_canonical_value,
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -35,6 +36,7 @@ use tracing::{error, info};
 use crate::{
     CryptoStoreError, DeviceData, VerificationRequest,
     error::SignatureError,
+    olm::utility::to_signable_json,
     store::{
         Store,
         types::{Changes, IdentityChanges},
@@ -44,6 +46,7 @@ use crate::{
         requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
+    x509::X509TrustRoot,
 };
 
 /// Enum over the different user identity types we can have.
@@ -928,21 +931,30 @@ impl OtherUserIdentityData {
         self.user_id() == device.user_id() && self.self_signing_key.verify_device(device).is_ok()
     }
 
-    pub(crate) fn verify_certificate_chain(&self, _certificate_authorities: Vec<String>) -> bool {
-        let Some(_this_user_sigs) = self.master_key.signatures().get(&self.user_id) else {
+    /// Check if the master key on this identity has been signed by an
+    /// X509-certificated key.
+    pub(crate) fn verify_x509_signatures(&self, verifier: &X509TrustRoot) -> bool {
+        let Some(this_user_sigs) = self.master_key.signatures().get(&self.user_id) else {
             return false;
         };
 
-        //for (key_id, sig) in this_user_sigs {
-        //    if let Ok(sig) = sig {
-        //        if let Signature::Rsa(rsa_sig) = sig {
-        //            rsa_sig
-        //        }
-        //    }
-        //}
+        let Ok(json) = to_canonical_value(&self.master_key) else {
+            tracing::warn!("Unable to serialize master key");
+            return false;
+        };
+        let Ok(msg) = to_signable_json(json) else {
+            tracing::warn!("Unable to serialize master key");
+            return false;
+        };
 
-        // TODO: AJB: hardcoded
-        true
+        for (key_id, sig) in this_user_sigs {
+            if let Ok(sig) = sig {
+                if verifier.verify_x509_signature(self.user_id(), &msg, sig) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 

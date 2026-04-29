@@ -16,5 +16,7 @@
 //! certificates.
 
 mod x509_keys;
+mod x509_trust_root;
 
 pub use x509_keys::X509Keys;
+pub use x509_trust_root::X509TrustRoot;
