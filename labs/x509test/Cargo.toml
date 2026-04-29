@@ -6,6 +6,8 @@ rust-version.workspace = true
 
 [dependencies]
 rustls = "^0.23.4"
+rustls-webpki = "^0.103.13"
+vodozemac = "0.10.0"
 
 [lints]
 workspace = true
