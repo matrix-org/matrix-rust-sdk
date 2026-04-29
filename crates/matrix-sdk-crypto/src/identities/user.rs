@@ -247,7 +247,7 @@ impl OwnUserIdentity {
         account.sign_cross_signing_key(&mut cross_signing_key)?;
 
         if let Some(x509_keys) = x509_keys {
-            x509_keys.sign_cross_signing_keys(&mut cross_signing_key)?;
+            x509_keys.sign_cross_signing_key(&self.user_id, &mut cross_signing_key)?;
         }
 
         let mut user_signed_keys = SignedKeys::new();
