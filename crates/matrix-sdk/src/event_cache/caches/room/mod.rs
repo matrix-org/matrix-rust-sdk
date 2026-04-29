@@ -2690,7 +2690,7 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
         assert!(events.is_empty());

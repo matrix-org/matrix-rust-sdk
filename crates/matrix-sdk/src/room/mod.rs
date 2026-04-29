@@ -3918,7 +3918,7 @@ impl Room {
     pub async fn event_cache(
         &self,
     ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        self.client.event_cache().for_room(self.room_id()).await
+        self.client.event_cache().room(self.room_id()).await
     }
 
     /// Get the beacon information event in the room for the `user_id`.
