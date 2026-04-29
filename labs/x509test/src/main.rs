@@ -75,7 +75,11 @@ fn verify(sig: Vec<u8>) {
         .verify_client_cert(&end_cert, intermediate_certs.as_ref(), UnixTime::now())
         .expect("Unable to verify client certificate");
 
-    // TODO: verify that the end cert is valid for the user id in question
+    use x509_parser::prelude::*;
+    let (_, parsed_cert) =
+        X509Certificate::from_der(end_cert.as_ref()).expect("Unable to parse end cert");
+    let email = parsed_cert.subject.iter_email().next().expect("No email in subject");
+    dbg!(&email.as_str().unwrap());
 
     let provider = CryptoProvider::get_default().expect("unable to get default provider");
 
