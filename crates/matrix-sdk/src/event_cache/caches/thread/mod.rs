@@ -25,7 +25,8 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, room_version_rules::RoomVersionRules,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
+    room_version_rules::RoomVersionRules,
 };
 use tokio::sync::{
     Notify,
@@ -83,7 +84,7 @@ impl fmt::Debug for ThreadEventCache {
 
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
-    pub async fn new(
+    pub(super) async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
         own_user_id: OwnedUserId,
@@ -232,6 +233,35 @@ impl ThreadEventCache {
         event_id: &EventId,
     ) -> Result<Option<(super::EventLocation, Event)>> {
         self.inner.state.write().await?.find_event(event_id).await
+    }
+
+    /// Try to find an event by ID in this thread, along with its related
+    /// events.
+    ///
+    /// You can filter which types of related events to retrieve using
+    /// `filter`. `None` will retrieve related events of any type.
+    ///
+    /// The related events are sorted like this:
+    ///
+    /// - events saved out-of-band (with `RoomEventCache::save_events`) will be
+    ///   located at the beginning of the array.
+    /// - events present in the linked chunk (be it in memory or in the storage)
+    ///   will be sorted according to their ordering in the linked chunk.
+    pub async fn find_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> Result<Option<(Event, Vec<Event>)>> {
+        // Search in all loaded or stored events.
+        Ok(self
+            .inner
+            .state
+            .read()
+            .await?
+            .find_event_with_relations(event_id, filter)
+            .await
+            .ok()
+            .flatten())
     }
 }
 
