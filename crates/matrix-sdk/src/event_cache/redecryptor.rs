@@ -407,14 +407,7 @@ impl EventCache {
             // unreads.
             let receipt_event = None;
 
-            state
-                .post_process_new_events(
-                    new_events,
-                    None,
-                    PostProcessingOrigin::Redecryption,
-                    receipt_event,
-                )
-                .await?;
+            state.post_process_new_events(new_events, receipt_event).await?;
 
             room_cache.update_sender().send(
                 RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
