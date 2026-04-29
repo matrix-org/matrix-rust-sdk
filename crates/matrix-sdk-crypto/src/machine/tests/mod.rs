@@ -142,7 +142,7 @@ pub fn to_device_requests_to_content(
 #[async_test]
 async fn test_create_olm_machine() {
     let test_start_ts = MilliSecondsSinceUnixEpoch::now();
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None, None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
 
     let device_creation_time = machine.device_creation_time();
     assert!(device_creation_time <= MilliSecondsSinceUnixEpoch::now());
@@ -163,7 +163,7 @@ async fn test_create_olm_machine() {
 
 #[async_test]
 async fn test_generate_one_time_keys() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None, None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
 
     machine
         .store()
@@ -207,7 +207,7 @@ async fn test_generate_one_time_keys() {
 
 #[async_test]
 async fn test_device_key_signing() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None, None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
 
     let (device_keys, identity_keys) = {
         let cache = machine.store().cache().await.unwrap();
@@ -229,7 +229,7 @@ async fn test_device_key_signing() {
 
 #[async_test]
 async fn test_session_invalidation() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None, None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
     let room_id = room_id!("!test:example.org");
 
     machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
@@ -249,7 +249,7 @@ async fn test_session_invalidation() {
 
 #[test]
 fn test_invalid_signature() {
-    let account = Account::with_device_id(user_id(), alice_device_id(), None);
+    let account = Account::with_device_id(user_id(), alice_device_id());
 
     let device_keys = account.device_keys();
 
@@ -265,7 +265,7 @@ fn test_invalid_signature() {
 
 #[test]
 fn test_one_time_key_signing() {
-    let mut account = Account::with_device_id(user_id(), alice_device_id(), None);
+    let mut account = Account::with_device_id(user_id(), alice_device_id());
     account.update_uploaded_key_count(49);
     account.generate_one_time_keys_if_needed();
 
@@ -290,7 +290,7 @@ fn test_one_time_key_signing() {
 
 #[async_test]
 async fn test_keys_for_upload() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None, None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
 
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -546,7 +546,7 @@ async fn create_dehydrated_machine_and_pair() -> (OlmMachine, OlmMachine) {
     // device. This should never happen in real life, so we have to poke the
     // info into the store directly.
     let alice_store = MemoryStore::new();
-    let alice_dehydrated_account = Account::new_dehydrated(alice_id(), None);
+    let alice_dehydrated_account = Account::new_dehydrated(alice_id());
     let mut alice_static_account = alice_dehydrated_account.static_data().clone();
     alice_static_account.dehydrated = true;
     let alice_device = DeviceData::from_account(&alice_dehydrated_account);
@@ -1260,7 +1260,7 @@ async fn test_query_ratcheted_key() {
     // Need a second bob session to check gossiping
     let bob_id = user_id();
     let bob_other_device = device_id!("OTHERBOB");
-    let bob_other_machine = OlmMachine::new(bob_id, bob_other_device, None, None).await;
+    let bob_other_machine = OlmMachine::new(bob_id, bob_other_device, None).await;
     let bob_other_device = DeviceData::from_machine_test_helper(&bob_other_machine).await.unwrap();
     bob.store().save_device_data(&[bob_other_device]).await.unwrap();
     bob.get_device(bob_id, device_id!("OTHERBOB"), None)
@@ -1477,7 +1477,7 @@ async fn test_room_key_with_fake_identity_keys() {
 async fn test_importing_private_cross_signing_keys_verifies_the_public_identity() {
     async fn create_additional_machine(machine: &OlmMachine) -> OlmMachine {
         let second_machine =
-            OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into(), None, None).await;
+            OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into(), None).await;
 
         let identity = machine
             .get_identity(machine.user_id(), None)
@@ -1568,7 +1568,7 @@ async fn test_wait_on_key_query_doesnt_block_store() {
     // This test will end immediately if it works, and times out after a few seconds
     // if it failed.
 
-    let machine = OlmMachine::new(bob_id(), bob_device_id(), None, None).await;
+    let machine = OlmMachine::new(bob_id(), bob_device_id(), None).await;
 
     // Mark Alice as a tracked user, so it gets into the groups of users for which
     // we need to query keys.
@@ -1642,9 +1642,8 @@ async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
 
     // Create the machine using `with_store` and without a call to enable_backup_v1,
     // like regenerate_olm would do
-    let alice = OlmMachine::with_store(user_id(), alice_device_id(), None, store, None, None)
-        .await
-        .unwrap();
+    let alice =
+        OlmMachine::with_store(user_id(), alice_device_id(), store, None, None).await.unwrap();
 
     let exported_key = ExportedRoomKey::from_backed_up_room_key(
         owned_room_id!("!room:id"),
@@ -1680,10 +1679,9 @@ async fn test_olm_machine_with_custom_account() {
     let account = vodozemac::olm::Account::new();
     let curve_key = account.identity_keys().curve25519;
 
-    let alice =
-        OlmMachine::with_store(user_id(), alice_device_id(), None, store, Some(account), None)
-            .await
-            .unwrap();
+    let alice = OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account), None)
+        .await
+        .unwrap();
 
     assert_eq!(
         alice.identity_keys().curve25519,
@@ -2025,10 +2023,9 @@ async fn test_mark_all_tracked_users_as_dirty() {
         .await
         .unwrap();
 
-    let alice =
-        OlmMachine::with_store(user_id(), alice_device_id(), None, store, Some(account), None)
-            .await
-            .unwrap();
+    let alice = OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account), None)
+        .await
+        .unwrap();
 
     // All users are marked as not dirty.
     alice.store().load_tracked_users().await.unwrap().iter().for_each(|tracked_user| {
@@ -2057,10 +2054,9 @@ async fn test_verified_latch_migration() {
     let to_track_not_dirty = vec![(bob_id, false), (carol_id, false)];
     store.save_tracked_users(&to_track_not_dirty).await.unwrap();
 
-    let alice =
-        OlmMachine::with_store(user_id(), alice_device_id(), None, store, Some(account), None)
-            .await
-            .unwrap();
+    let alice = OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account), None)
+        .await
+        .unwrap();
 
     let alice_store = alice.store();
 

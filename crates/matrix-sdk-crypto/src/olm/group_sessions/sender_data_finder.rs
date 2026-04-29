@@ -912,7 +912,7 @@ mod tests {
             is_verified: bool,
             signer: Option<&TestUser>,
         ) -> Self {
-            let account = Account::with_device_id(user_id, device_id, None);
+            let account = Account::with_device_id(user_id, device_id);
             let user_id = user_id.to_owned();
             let private_identity =
                 Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));

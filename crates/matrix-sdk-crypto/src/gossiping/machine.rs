@@ -1288,15 +1288,15 @@ mod tests {
     }
 
     fn account() -> Account {
-        Account::with_device_id(alice_id(), alice_device_id(), None)
+        Account::with_device_id(alice_id(), alice_device_id())
     }
 
     fn bob_account() -> Account {
-        Account::with_device_id(bob_id(), bob_device_id(), None)
+        Account::with_device_id(bob_id(), bob_device_id())
     }
 
     fn alice_2_account() -> Account {
-        Account::with_device_id(alice_id(), alice2_device_id(), None)
+        Account::with_device_id(alice_id(), alice2_device_id())
     }
 
     #[cfg(feature = "automatic-room-key-forwarding")]
@@ -1324,7 +1324,7 @@ mod tests {
     ) -> CryptoStoreWrapper {
         // Properly create the store by first saving the own device and then the account
         // data.
-        let account = Account::with_device_id(user_id, device_id, None);
+        let account = Account::with_device_id(user_id, device_id);
         let device = DeviceData::from_account(&account);
         device.set_trust_state(LocalTrust::Verified);
 
@@ -1341,10 +1341,10 @@ mod tests {
 
     async fn get_machine_test_helper() -> GossipMachine {
         let user_id = alice_id();
-        let account = Account::with_device_id(user_id, alice_device_id(), None);
+        let account = Account::with_device_id(user_id, alice_device_id());
         let device = DeviceData::from_account(&account);
         let another_device =
-            DeviceData::from_account(&Account::with_device_id(user_id, alice2_device_id(), None));
+            DeviceData::from_account(&Account::with_device_id(user_id, alice2_device_id()));
 
         let store =
             Arc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));

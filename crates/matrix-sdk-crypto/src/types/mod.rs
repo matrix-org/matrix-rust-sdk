@@ -41,7 +41,7 @@ use ruma::{
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::json;
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError, base64_decode};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
@@ -168,7 +168,7 @@ pub struct RsaSignature {
     /// The certificate chain
     pub certificates: Vec<String>,
     /// The signature itself
-    pub signature: rsa::pss::Signature,
+    pub signature: String, // TODO: AJB: what type here?
 }
 
 impl RsaSignature {
@@ -190,10 +190,7 @@ impl RsaSignature {
 
             Some(RsaSignature {
                 certificates: certificates?,
-                signature: rsa::pss::Signature::try_from(
-                    &base64_decode(value.get("signature")?.as_str()?).ok()?[..],
-                )
-                .ok()?,
+                signature: value.get("signature")?.as_str()?.to_owned(),
             })
         }
 
@@ -207,7 +204,7 @@ impl RsaSignature {
         // Serialize. (Also we want this to be infallible.)
         json!({
             "certificates": self.certificates,
-            "signature": format!("{:x}", self.signature),
+            "signature": self.signature,
         })
     }
 }
@@ -305,6 +302,7 @@ impl Signatures {
         )
 
          */
+        None
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given

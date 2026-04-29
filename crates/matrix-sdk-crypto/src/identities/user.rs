@@ -1639,7 +1639,7 @@ pub(crate) mod tests {
         assert!(!identity.is_device_signed(&first));
         assert!(identity.is_device_signed(&second));
 
-        let account = Account::with_device_id(second.user_id(), second.device_id(), None);
+        let account = Account::with_device_id(second.user_id(), second.device_id());
         let verification_machine = get_verification_machine(&account);
 
         let first = Device {
@@ -1672,7 +1672,7 @@ pub(crate) mod tests {
         let response = own_key_query();
         let (_, device) = device(&response);
 
-        let account = Account::with_device_id(device.user_id(), device.device_id(), None);
+        let account = Account::with_device_id(device.user_id(), device.device_id());
         let verification_machine = get_verification_machine(&account);
         let public_identity = verification_machine.get_own_user_identity_data().await.unwrap();
 
@@ -1777,7 +1777,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
-        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH"), None, None).await;
+        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH"), None).await;
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let my_id = machine.get_identity(my_user_id, None).await.unwrap().unwrap().own().unwrap();
@@ -1825,7 +1825,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
-        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH"), None, None).await;
+        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH"), None).await;
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let keys_query = DataSet::key_query_with_identity_a();
@@ -1863,7 +1863,7 @@ pub(crate) mod tests {
     async fn test_resolve_identity_verification_violation_with_withdraw() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None, None).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -1903,7 +1903,7 @@ pub(crate) mod tests {
     async fn test_reset_own_keys_creates_verification_violation() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None, None).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -1944,7 +1944,7 @@ pub(crate) mod tests {
     async fn test_own_keys_update_creates_own_identity_verification_violation() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None, None).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         // Start with our own identity verified
         let own_keys = DataSet::own_keys_query_response_1();
@@ -2045,11 +2045,8 @@ pub(crate) mod tests {
 
         let other_user_identity_data = get_other_identity();
 
-        let account = Account::with_device_id(
-            user_id!("@own_user:localhost"),
-            &owned_device_id!("DEV123"),
-            None,
-        );
+        let account =
+            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
 
         let verification_machine = get_verification_machine(&account);
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();

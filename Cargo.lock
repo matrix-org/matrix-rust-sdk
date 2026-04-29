@@ -3370,7 +3370,6 @@ dependencies = [
  "proptest",
  "rand 0.10.1",
  "rmp-serde",
- "rsa",
  "ruma",
  "rustls",
  "serde",

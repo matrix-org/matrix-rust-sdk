@@ -180,7 +180,7 @@ pub async fn export_secrets_bundle_from_store(
 
     if let Some(account) = account {
         let machine =
-            OlmMachine::with_store(&account.user_id, &account.device_id, None, store, None, None)
+            OlmMachine::with_store(&account.user_id, &account.device_id, store, None, None)
                 .await
                 .map_err(BundleExportError::StoreError)?;
 

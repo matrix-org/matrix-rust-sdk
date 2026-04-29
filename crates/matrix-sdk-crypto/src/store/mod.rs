@@ -1932,8 +1932,8 @@ mod tests {
 
     #[async_test]
     async fn test_merge_received_group_session() {
-        let alice_account = Account::with_device_id(user_id!("@a:s.co"), device_id!("ABC"), None);
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("DEF"), None, None).await;
+        let alice_account = Account::with_device_id(user_id!("@a:s.co"), device_id!("ABC"));
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("DEF"), None).await;
 
         let room_id = room_id!("!test:localhost");
 
@@ -2229,8 +2229,8 @@ mod tests {
     async fn test_build_room_key_bundle() {
         // Given: Alice has sent a number of room keys to Bob, including some in the
         // wrong room, and some that are not marked as shared...
-        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE"), None, None).await;
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB"), None, None).await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE"), None).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB"), None).await;
 
         let room1_id = room_id!("!room1:localhost");
         let room2_id = room_id!("!room2:localhost");
@@ -2316,9 +2316,9 @@ mod tests {
 
     #[async_test]
     async fn test_receive_room_key_bundle() {
-        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE"), None, None).await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE"), None).await;
         let alice_key = alice.identity_keys().curve25519;
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB"), None, None).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB"), None).await;
 
         let room_id = room_id!("!room1:localhost");
 

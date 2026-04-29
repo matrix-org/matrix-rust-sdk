@@ -1109,7 +1109,7 @@ mod tests {
         };
 
         let device_id = owned_device_id!("DEV123");
-        let account = Account::with_device_id(user_id, &device_id, None);
+        let account = Account::with_device_id(user_id, &device_id);
 
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
@@ -1149,7 +1149,7 @@ mod tests {
         };
 
         let device_id = owned_device_id!("DEV123");
-        let account = Account::with_device_id(user_id, &device_id, None);
+        let account = Account::with_device_id(user_id, &device_id);
 
         let private_identity =
             Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));

@@ -164,7 +164,7 @@ async fn test_receive_custom_encrypted_to_device_with_no_sender_device_keys_fail
  {
     let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
-    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id(), None, None).await;
+    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id(), None).await;
 
     let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
     alice.store().save_device_data(&[bob_device]).await.unwrap();
@@ -215,7 +215,7 @@ async fn test_excluding_insecure_means_custom_to_device_events_from_unverified_d
     let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
     // Alice is the sender
-    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id(), None, None).await;
+    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id(), None).await;
 
     let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
     alice.store().save_device_data(&[bob_device]).await.unwrap();
@@ -268,7 +268,7 @@ async fn test_excluding_insecure_does_not_prevent_key_events_being_processed() {
     let (bob, otk) = get_prepared_machine_test_helper(bob_id(), false).await;
 
     // Alice is the sender
-    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id(), None, None).await;
+    let alice = OlmMachine::new(tests::alice_id(), tests::alice_device_id(), None).await;
 
     let bob_device = DeviceData::from_machine_test_helper(&bob).await.unwrap();
     alice.store().save_device_data(&[bob_device]).await.unwrap();
@@ -755,7 +755,7 @@ async fn test_share_strategy_prevents_encryption() {
     use crate::CrossSigningKeyExport;
 
     // Create the local user (`@me`), and import the public identity keys
-    let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id(), None, None).await;
+    let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id(), None).await;
     let keys_query = DataSet::me_keys_query_response();
     machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 

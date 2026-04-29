@@ -1158,12 +1158,9 @@ mod tests {
         }
 
         async fn create_session(settings: EncryptionSettings) -> OutboundGroupSession {
-            let account = Account::with_device_id(
-                user_id!("@alice:example.org"),
-                device_id!("DEVICEID"),
-                None,
-            )
-            .static_data;
+            let account =
+                Account::with_device_id(user_id!("@alice:example.org"), device_id!("DEVICEID"))
+                    .static_data;
             let (session, _) = account
                 .create_group_session_pair(
                     room_id!("!test_room:example.org"),

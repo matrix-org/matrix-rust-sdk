@@ -202,7 +202,6 @@ impl OlmMachine {
     pub fn new(
         user_id: String,
         device_id: String,
-        _rsa_key: Option<String>,
         path: String,
         mut passphrase: Option<String>,
         _x509_keys: Option<String>,

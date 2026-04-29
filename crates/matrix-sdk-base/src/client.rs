@@ -378,8 +378,6 @@ impl BaseClient {
         let olm_machine = OlmMachine::with_store(
             &session_meta.user_id,
             &session_meta.device_id,
-            // TODO: AJB: rsa_key,
-            None,
             self.crypto_store.clone(),
             custom_account,
             // TODO: AJB: get existing x509_keys from the existing olm machine

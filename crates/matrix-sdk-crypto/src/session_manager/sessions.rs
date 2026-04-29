@@ -621,7 +621,7 @@ mod tests {
     }
 
     fn bob_account() -> Account {
-        Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"), None, None)
+        Account::with_device_id(user_id!("@bob:localhost"), device_id!("BOBDEVICE"))
     }
 
     fn keys_claim_with_failure() -> KeyClaimResponse {
@@ -651,7 +651,7 @@ mod tests {
         let user_id = user_id();
         let device_id = device_id();
 
-        let account = Account::with_device_id(user_id, device_id, None);
+        let account = Account::with_device_id(user_id, device_id);
         let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, MemoryStore::new()));
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(user_id)));
         let verification = VerificationMachine::new(
@@ -969,7 +969,7 @@ mod tests {
         let response = ruma_response_from_json(&response_json);
 
         let alice = user_id!("@alice:example.org");
-        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into(), None);
+        let mut alice_account = Account::with_device_id(alice, "DEVICEID".into());
         let alice_device = DeviceData::from_account(&alice_account);
 
         let (manager, _identity_manager) = session_manager_test_helper().await;

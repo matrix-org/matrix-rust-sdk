@@ -25,7 +25,6 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use rsa::RsaPrivateKey;
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
@@ -357,8 +356,6 @@ pub struct Account {
     /// from a `AccountPickle` that didn't use time-based fallback key
     /// rotation.
     fallback_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
-    /// X.509 certificated private key
-    rsa_key: Option<RsaPrivateKey>,
 }
 
 impl Deref for Account {
@@ -396,9 +393,6 @@ pub struct PickledAccount {
     /// The timestamp of the last time we generated a fallback key.
     #[serde(default)]
     pub fallback_key_creation_timestamp: Option<MilliSecondsSinceUnixEpoch>,
-    /// X.509 certificated private key
-    #[serde(default)]
-    pub rsa_key: Option<RsaPrivateKey>,
 }
 
 fn default_account_creation_time() -> MilliSecondsSinceUnixEpoch {
@@ -423,7 +417,6 @@ impl Account {
         mut account: InnerAccount,
         user_id: &UserId,
         device_id: &DeviceId,
-        rsa_key: Option<RsaPrivateKey>,
     ) -> Self {
         let identity_keys = account.identity_keys();
 
@@ -452,38 +445,33 @@ impl Account {
             shared: false,
             uploaded_signed_key_count: 0,
             fallback_creation_timestamp: None,
-            rsa_key,
         }
     }
 
     /// Create a fresh new account, this will generate the identity key-pair.
-    pub fn with_device_id(
-        user_id: &UserId,
-        device_id: &DeviceId,
-        rsa_key: Option<RsaPrivateKey>,
-    ) -> Self {
+    pub fn with_device_id(user_id: &UserId, device_id: &DeviceId) -> Self {
         let account = InnerAccount::new();
 
-        Self::new_helper(account, user_id, device_id, rsa_key)
+        Self::new_helper(account, user_id, device_id)
     }
 
     /// Create a new random Olm Account, the long-term Curve25519 identity key
     /// encoded as base64 will be used for the device ID.
-    pub fn new(user_id: &UserId, rsa_key: Option<RsaPrivateKey>) -> Self {
+    pub fn new(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
         let device_id: OwnedDeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
-        Self::new_helper(account, user_id, &device_id, rsa_key)
+        Self::new_helper(account, user_id, &device_id)
     }
 
     /// Create a new random Olm Account for a dehydrated device
-    pub fn new_dehydrated(user_id: &UserId, rsa_key: Option<RsaPrivateKey>) -> Self {
+    pub fn new_dehydrated(user_id: &UserId) -> Self {
         let account = InnerAccount::new();
         let device_id: OwnedDeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
-        let mut ret = Self::new_helper(account, user_id, &device_id, rsa_key);
+        let mut ret = Self::new_helper(account, user_id, &device_id);
         ret.static_data.dehydrated = true;
         ret
     }
@@ -705,7 +693,6 @@ impl Account {
             uploaded_signed_key_count: self.uploaded_key_count(),
             creation_local_time: self.static_data.creation_local_time,
             fallback_key_creation_timestamp: self.fallback_creation_timestamp,
-            rsa_key: self.rsa_key.clone(),
         }
     }
 
@@ -735,12 +722,12 @@ impl Account {
                 let pickle_key = expand_legacy_pickle_key(pickle_key, device_id);
                 let account =
                     InnerAccount::from_libolm_pickle(&d.device_pickle, pickle_key.as_ref())?;
-                Ok(Self::new_helper(account, user_id, device_id, None))
+                Ok(Self::new_helper(account, user_id, device_id))
             }
             DehydratedDeviceData::V2(d) => {
                 let account =
                     InnerAccount::from_dehydrated_device(&d.device_pickle, &d.nonce, pickle_key)?;
-                Ok(Self::new_helper(account, user_id, device_id, None))
+                Ok(Self::new_helper(account, user_id, device_id))
             }
             _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(
                 "Unsupported dehydrated device algorithm {:?}",
@@ -789,7 +776,6 @@ impl Account {
             shared: pickle.shared,
             uploaded_signed_key_count: pickle.uploaded_signed_key_count,
             fallback_creation_timestamp: pickle.fallback_key_creation_timestamp,
-            rsa_key: pickle.rsa_key,
         })
     }
 
@@ -1933,7 +1919,7 @@ mod tests {
 
     #[test]
     fn test_one_time_key_creation() -> Result<()> {
-        let mut account = Account::with_device_id(user_id(), device_id(), None);
+        let mut account = Account::with_device_id(user_id(), device_id());
 
         let (_, one_time_keys, _) = account.keys_for_upload();
         assert!(!one_time_keys.is_empty());
@@ -1970,7 +1956,7 @@ mod tests {
 
     #[test]
     fn test_fallback_key_creation() -> Result<()> {
-        let mut account = Account::with_device_id(user_id(), device_id(), None);
+        let mut account = Account::with_device_id(user_id(), device_id());
 
         let (_, _, fallback_keys) = account.keys_for_upload();
 
@@ -2039,7 +2025,7 @@ mod tests {
         let key = vodozemac::Curve25519PublicKey::from_base64(
             "7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs",
         )?;
-        let account = Account::with_device_id(user_id(), device_id(), None);
+        let account = Account::with_device_id(user_id(), device_id());
 
         let key = account.sign_key(key, true);
 
@@ -2063,7 +2049,7 @@ mod tests {
     #[test]
     fn test_account_and_device_creation_timestamp() -> Result<()> {
         let now = MilliSecondsSinceUnixEpoch::now();
-        let account = Account::with_device_id(user_id(), device_id(), None);
+        let account = Account::with_device_id(user_id(), device_id());
         let then = MilliSecondsSinceUnixEpoch::now();
 
         assert!(account.creation_local_time() >= now);
@@ -2148,7 +2134,7 @@ mod tests {
 
     #[async_test]
     async fn test_shared_history_set_when_creating_group_sessions() {
-        let account = Account::new(user_id(), None);
+        let account = Account::new(user_id());
         let room_id = room_id!("!room:id");
         let settings = EncryptionSettings {
             history_visibility: HistoryVisibility::Shared,

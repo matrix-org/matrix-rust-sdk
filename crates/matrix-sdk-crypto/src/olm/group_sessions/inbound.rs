@@ -949,7 +949,7 @@ mod tests {
 
     #[async_test]
     async fn test_pickle_snapshot() {
-        let account = Account::new(alice_id(), None);
+        let account = Account::new(alice_id());
         let room_id = room_id!("!test:localhost");
         let (_, session) = account.create_group_session_pair_with_defaults(room_id).await;
 
@@ -1161,7 +1161,7 @@ mod tests {
     #[async_test]
     #[allow(deprecated)]
     async fn test_session_comparison() {
-        let alice = Account::with_device_id(alice_id(), alice_device_id(), None);
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
@@ -1189,7 +1189,7 @@ mod tests {
     #[async_test]
     #[allow(deprecated)]
     async fn test_session_comparison_sender_data() {
-        let alice = Account::with_device_id(alice_id(), alice_device_id(), None);
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
@@ -1434,7 +1434,7 @@ mod tests {
 
     #[async_test]
     async fn test_shared_history_in_pickle() {
-        let alice = Account::with_device_id(alice_id(), alice_device_id(), None);
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
@@ -1458,7 +1458,7 @@ mod tests {
 
     #[async_test]
     async fn test_shared_history_in_export() {
-        let alice = Account::with_device_id(alice_id(), alice_device_id(), None);
+        let alice = Account::with_device_id(alice_id(), alice_device_id());
         let room_id = room_id!("!test:localhost");
 
         let (_, mut inbound) = alice.create_group_session_pair_with_defaults(room_id).await;
