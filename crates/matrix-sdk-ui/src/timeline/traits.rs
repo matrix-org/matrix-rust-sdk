@@ -23,7 +23,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::{RoomInfo, crypto::types::events::CryptoContextInfo};
 use ruma::{
-    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
+    EventId, OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId, UserId,
     events::{
         AnyMessageLikeEventContent,
         fully_read::FullyReadEventContent,
@@ -98,6 +98,7 @@ impl RoomExt for Room {
 pub(super) trait RoomDataProvider:
     Clone + PaginableRoom + PaginableThread + 'static
 {
+    fn room_id(&self) -> &RoomId;
     fn own_user_id(&self) -> &UserId;
     fn room_version_rules(&self) -> RoomVersionRules;
 
@@ -151,6 +152,10 @@ pub(super) trait RoomDataProvider:
 }
 
 impl RoomDataProvider for Room {
+    fn room_id(&self) -> &RoomId {
+        (**self).room_id()
+    }
+
     fn own_user_id(&self) -> &UserId {
         (**self).own_user_id()
     }

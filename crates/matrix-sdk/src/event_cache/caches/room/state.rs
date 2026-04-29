@@ -436,22 +436,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
-    /// See documentation of [`find_event_with_relations`].
-    pub async fn find_event_with_relations(
-        &self,
-        event_id: &EventId,
-        filters: Option<Vec<RelationType>>,
-    ) -> Result<Option<(Event, Vec<Event>)>, EventCacheError> {
-        find_event_with_relations(
-            event_id,
-            &self.room_id,
-            filters,
-            &self.room_linked_chunk,
-            &self.store,
-        )
-        .await
-    }
-
     /// If storage is enabled, unload all the chunks, then reloads only the
     /// last one.
     ///

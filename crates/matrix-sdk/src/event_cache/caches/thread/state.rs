@@ -408,7 +408,7 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
     }
 
     /// See documentation of [`find_event_with_relations`].
-    async fn find_event_with_relations(
+    pub async fn find_event_with_relations(
         &self,
         event_id: &EventId,
         filters: Option<Vec<RelationType>>,
