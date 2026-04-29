@@ -29,7 +29,7 @@ use matrix_sdk::{
     Result,
     attachment::{AttachmentInfo, Thumbnail},
     deserialized_responses::TimelineEvent,
-    event_cache::{EventCacheDropHandles, EventFocusThreadMode, RoomEventCache},
+    event_cache::{EventCacheDropHandles, EventFocusThreadMode},
     room::{
         Receipts, Room,
         edit::EditedContent,
@@ -114,9 +114,6 @@ pub struct Timeline {
     /// Cloneable, inner fields of the `Timeline`, shared with some background
     /// tasks.
     controller: TimelineController,
-
-    /// The event cache specialized for this room's view.
-    event_cache: RoomEventCache,
 
     /// References to long-running tasks held by the timeline.
     drop_handle: Arc<TimelineDropHandle>,

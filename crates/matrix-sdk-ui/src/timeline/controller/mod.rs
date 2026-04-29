@@ -15,6 +15,7 @@
 use std::{
     collections::BTreeSet,
     fmt,
+    ops::Deref,
     sync::{Arc, OnceLock},
 };
 
@@ -26,8 +27,8 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
-        DecryptionRetryRequest, EventFocusThreadMode, PaginationStatus, RoomEventCache,
-        TimelineVectorDiffs,
+        DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, RoomEventCache,
+        ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -37,7 +38,8 @@ use matrix_sdk::{
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomId, TransactionId,
+    UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -110,6 +112,9 @@ pub(in crate::timeline) enum TimelineFocusKind {
     Live {
         /// Whether to hide in-thread events from the timeline.
         hide_threaded_events: bool,
+
+        /// The cache holding all the events for this focus.
+        event_cache: RoomEventCache,
     },
 
     /// The timeline is focused on a single event, and it can expand in one
@@ -128,15 +133,24 @@ pub(in crate::timeline) enum TimelineFocusKind {
         /// The thread mode to use for this event-focused timeline, which is
         /// part of the key for the memoized event-focused cache.
         thread_mode: TimelineEventFocusThreadMode,
+
+        /// The cache holding all the events for this focus.
+        event_cache: EventFocusedCache,
     },
 
     /// A live timeline for a thread.
     Thread {
         /// The root event for the current thread.
         root_event_id: OwnedEventId,
+
+        /// The cache holding all the events for this focus.
+        event_cache: ThreadEventCache,
     },
 
-    PinnedEvents,
+    PinnedEvents {
+        /// The cache holding all the events for this focus.
+        event_cache: RoomEventCache,
+    },
 }
 
 impl TimelineFocusKind {
@@ -159,14 +173,14 @@ impl TimelineFocusKind {
     /// Whether to hide in-thread events from the timeline.
     fn hide_threaded_events(&self) -> bool {
         match self {
-            TimelineFocusKind::Live { hide_threaded_events } => *hide_threaded_events,
+            TimelineFocusKind::Live { hide_threaded_events, .. } => *hide_threaded_events,
             TimelineFocusKind::Event { thread_mode, .. } => {
                 matches!(
                     thread_mode,
                     TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true }
                 )
             }
-            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents => false,
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => false,
         }
     }
 
@@ -180,8 +194,8 @@ impl TimelineFocusKind {
     fn thread_root(&self) -> Option<&EventId> {
         match self {
             TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
-            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents => None,
-            TimelineFocusKind::Thread { root_event_id } => Some(root_event_id),
+            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Thread { root_event_id, .. } => Some(root_event_id),
         }
     }
 }
@@ -341,33 +355,50 @@ pub(super) struct InitFocusResult {
 }
 
 impl<P: RoomDataProvider> TimelineController<P> {
-    pub(super) fn new(
+    pub(super) async fn new(
         room_data_provider: P,
-        focus: TimelineFocus,
+        focus: &TimelineFocus,
+        event_cache: &EventCache,
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
         settings: TimelineSettings,
-    ) -> Self {
-        let focus = match focus {
-            TimelineFocus::Live { hide_threaded_events } => {
-                TimelineFocusKind::Live { hide_threaded_events }
-            }
+    ) -> Result<Self, Error> {
+        let room_id = room_data_provider.room_id();
 
-            TimelineFocus::Event { target, thread_mode, .. } => {
+        let focus = match focus {
+            TimelineFocus::Live { hide_threaded_events } => TimelineFocusKind::Live {
+                hide_threaded_events: *hide_threaded_events,
+                event_cache: event_cache.room(room_id).await?.0,
+            },
+
+            TimelineFocus::Event { target, thread_mode, num_context_events, .. } => {
                 TimelineFocusKind::Event {
-                    focused_event_id: target,
+                    event_cache: event_cache
+                        .room(room_id)
+                        .await?
+                        .0
+                        .get_or_create_event_focused_cache(
+                            target.clone(),
+                            *num_context_events,
+                            (*thread_mode).into(),
+                        )
+                        .await?,
+                    focused_event_id: target.clone(),
                     // This will be initialized in `Self::init_focus`.
                     thread_root: OnceLock::new(),
-                    thread_mode,
+                    thread_mode: *thread_mode,
                 }
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => {
-                TimelineFocusKind::Thread { root_event_id }
-            }
+            TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
+                event_cache: event_cache.thread(room_id, &root_event_id).await?.0,
+                root_event_id: root_event_id.clone(),
+            },
 
-            TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents,
+            TimelineFocus::PinnedEvents => {
+                TimelineFocusKind::PinnedEvents { event_cache: event_cache.room(room_id).await?.0 }
+            }
         };
 
         let focus = Arc::new(focus);
@@ -380,7 +411,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             is_room_encrypted,
         )));
 
-        Self { state, focus, room_data_provider, settings }
+        Ok(Self { state, focus, room_data_provider, settings })
     }
 
     /// Listens to encryption state changes for the room in
@@ -1329,21 +1360,17 @@ impl TimelineController {
     ///
     /// Should be called only once after creation of the [`TimelineController`],
     /// with all its fields set.
-    pub(super) async fn init_focus(
-        &self,
-        focus: &TimelineFocus,
-        room_event_cache: &RoomEventCache,
-    ) -> Result<InitFocusResult, Error> {
-        match focus {
-            TimelineFocus::Live { .. } => {
+    pub(super) async fn init_focus(&self) -> Result<InitFocusResult, Error> {
+        match self.focus.deref() {
+            TimelineFocusKind::Live { event_cache, .. } => {
                 // Retrieve the cached events, and add them to the timeline.
-                let events = room_event_cache.events().await?;
+                let events = event_cache.events().await?;
 
                 let has_events = !events.is_empty();
 
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
 
-                match room_event_cache.pagination().status().get() {
+                match event_cache.pagination().status().get() {
                     PaginationStatus::Idle { hit_timeline_start } => {
                         if hit_timeline_start {
                             // Eagerly insert the timeline start item, since pagination claims
@@ -1357,41 +1384,21 @@ impl TimelineController {
                 Ok(InitFocusResult { has_events, focus_task: None })
             }
 
-            TimelineFocus::Event { target: event_id, num_context_events, thread_mode } => {
-                // Use the event-focused cache from the event cache layer.
-                let event_cache_thread_mode = match thread_mode {
-                    TimelineEventFocusThreadMode::ForceThread => EventFocusThreadMode::ForceThread,
-                    TimelineEventFocusThreadMode::Automatic { .. } => {
-                        EventFocusThreadMode::Automatic
-                    }
-                };
-
-                let cache = room_event_cache
-                    .get_or_create_event_focused_cache(
-                        event_id.clone(),
-                        *num_context_events,
-                        event_cache_thread_mode,
-                    )
-                    .await
-                    .map_err(PaginationError::EventCache)?;
-
-                let (events, receiver) = cache.subscribe().await;
+            TimelineFocusKind::Event {
+                focused_event_id: event_id,
+                thread_mode,
+                thread_root: focus_thread_root,
+                event_cache,
+                ..
+            } => {
+                let (events, receiver) = event_cache.subscribe().await;
 
                 let has_events = !events.is_empty();
 
                 // Ask the cache for the thread root, if it managed to extract one or decided
                 // that the target event was the thread root.
-                match &*self.focus {
-                    TimelineFocusKind::Event { thread_root: focus_thread_root, .. } => {
-                        if let Some(thread_root) = cache.thread_root().await {
-                            focus_thread_root.get_or_init(|| thread_root);
-                        }
-                    }
-                    TimelineFocusKind::Live { .. }
-                    | TimelineFocusKind::Thread { .. }
-                    | TimelineFocusKind::PinnedEvents => {
-                        panic!("unexpected focus for an event-focused timeline")
-                    }
+                if let Some(thread_root) = event_cache.thread_root().await {
+                    focus_thread_root.get_or_init(|| thread_root);
                 }
 
                 self.replace_with_initial_remote_events(events, RemoteEventOrigin::Pagination)
@@ -1406,7 +1413,7 @@ impl TimelineController {
                         event_focused_task(
                             event_id.clone(),
                             (*thread_mode).into(),
-                            room_event_cache.clone(),
+                            event_cache.clone(),
                             self.clone(),
                             receiver,
                         ),
@@ -1416,9 +1423,8 @@ impl TimelineController {
                 Ok(InitFocusResult { has_events, focus_task: Some(task) })
             }
 
-            TimelineFocus::Thread { root_event_id, .. } => {
-                let (has_events, receiver) =
-                    self.init_with_thread_root(root_event_id, room_event_cache).await?;
+            TimelineFocusKind::Thread { event_cache, .. } => {
+                let (has_events, receiver) = self.init_with_thread_root(event_cache).await?;
 
                 let room = &self.room_data_provider;
                 let span = info_span!(
@@ -1433,22 +1439,17 @@ impl TimelineController {
                     .task_monitor()
                     .spawn_infinite_task(
                         "timeline::thread_event_cache_updates",
-                        thread_updates_task(
-                            receiver,
-                            room_event_cache.clone(),
-                            self.clone(),
-                            root_event_id.clone(),
-                        )
-                        .instrument(span),
+                        thread_updates_task(receiver, event_cache.clone(), self.clone())
+                            .instrument(span),
                     )
                     .abort_on_drop();
 
                 Ok(InitFocusResult { has_events, focus_task: Some(task) })
             }
 
-            TimelineFocus::PinnedEvents => {
+            TimelineFocusKind::PinnedEvents { event_cache } => {
                 let (initial_events, pinned_events_recv) =
-                    room_event_cache.subscribe_to_pinned_events().await?;
+                    event_cache.subscribe_to_pinned_events().await?;
 
                 let has_events = !initial_events.is_empty();
 
@@ -1464,11 +1465,7 @@ impl TimelineController {
                     .task_monitor()
                     .spawn_infinite_task(
                         "timeline::pinned_event_cache_updates",
-                        pinned_events_task(
-                            room_event_cache.clone(),
-                            self.clone(),
-                            pinned_events_recv,
-                        ),
+                        pinned_events_task(event_cache.clone(), self.clone(), pinned_events_recv),
                     )
                     .abort_on_drop();
 
@@ -1485,11 +1482,9 @@ impl TimelineController {
     /// inserted in the timeline.
     pub(super) async fn init_with_thread_root(
         &self,
-        root_event_id: &OwnedEventId,
-        room_event_cache: &RoomEventCache,
+        event_cache: &ThreadEventCache,
     ) -> Result<(bool, broadcast::Receiver<TimelineVectorDiffs>), Error> {
-        let (events, receiver) =
-            room_event_cache.subscribe_to_thread(root_event_id.clone()).await?;
+        let (events, receiver) = event_cache.subscribe().await?;
         let has_events = !events.is_empty();
 
         // For each event, we also need to find the related events, as they don't
@@ -1498,7 +1493,7 @@ impl TimelineController {
         let mut related_events = Vector::new();
         for event_id in events.iter().filter_map(|event| event.event_id()) {
             if let Some((_original, related)) =
-                room_event_cache.find_event_with_relations(&event_id, None).await?
+                event_cache.find_event_with_relations(&event_id, None).await?
             {
                 related_events.extend(related);
             }
@@ -1703,12 +1698,12 @@ impl TimelineController {
         let state = self.state.read().await;
         let filter_out_thread_events = match self.focus() {
             TimelineFocusKind::Thread { .. } => false,
-            TimelineFocusKind::Live { hide_threaded_events } => *hide_threaded_events,
+            TimelineFocusKind::Live { hide_threaded_events, .. } => *hide_threaded_events,
             TimelineFocusKind::Event { .. } => {
                 // For event-focused timelines, filtering is handled in the event cache layer.
                 false
             }
-            TimelineFocusKind::PinnedEvents => true,
+            TimelineFocusKind::PinnedEvents { .. } => true,
         };
 
         state

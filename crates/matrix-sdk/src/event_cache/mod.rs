@@ -73,7 +73,7 @@ pub use self::{
     automatic_pagination::AutomaticPagination,
     caches::{
         TimelineVectorDiffs,
-        event_focused::EventFocusThreadMode,
+        event_focused::{EventFocusThreadMode, EventFocusedCache},
         pagination::{BackPaginationOutcome, PaginationStatus},
         room::{
             RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
