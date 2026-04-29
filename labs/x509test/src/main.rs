@@ -1,9 +1,11 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use rustls::{
-    RootCertStore,
-    pki_types::{CertificateDer, UnixTime, pem::PemObject},
+    RootCertStore, SignatureScheme,
+    crypto::{CryptoProvider, aws_lc_rs},
+    pki_types::{CertificateDer, PrivateKeyDer, UnixTime, pem::PemObject},
     server::WebPkiClientVerifier,
+    sign::{Signer, SigningKey},
 };
 
 // TODO: how to load from a PKCS12 bundle? cms::encrypted_data, I think
@@ -14,6 +16,26 @@ const CERT_BUNDLE_PEM: &[u8] = include_bytes!("cert.pem");
 const PRIVATE_KEY_PEM: &[u8] = include_bytes!("key.pem");
 
 fn main() {
+    aws_lc_rs::default_provider().install_default().expect("unable to install default provider");
+    let sig = build_signature();
+    verify(sig);
+}
+
+/// upload side
+fn build_signature() -> Vec<u8> {
+    let provider = CryptoProvider::get_default().expect("unable to get default provider");
+    let private_key =
+        PrivateKeyDer::from_pem_slice(PRIVATE_KEY_PEM).expect("unable to parse private key");
+    let private_key: Arc<dyn SigningKey> =
+        provider.key_provider.load_private_key(private_key).expect("unable to load private key");
+    let signer = private_key
+        .choose_scheme(&[SignatureScheme::RSA_PSS_SHA512])
+        .expect("unable to choose signature scheme");
+    signer.sign(b"hello world").expect("unable to sign")
+}
+
+/// verifier side
+fn verify(sig: Vec<u8>) {
     // Load the trusted root certificates into a verifier. These would come from
     // local configuration.
     let mut root_store = RootCertStore::empty();
@@ -38,5 +60,5 @@ fn main() {
         .expect("Unable to verify client certificate");
 
     // TODO: verify that the end cert is valid for the user id in question
-    // TODO: verify a signature from the end cert
+    // TODO: verify signature from the end cert
 }
