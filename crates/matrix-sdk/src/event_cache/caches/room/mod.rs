@@ -169,19 +169,6 @@ impl RoomEventCache {
         state.subscribe_to_pinned_events(room).await
     }
 
-    /// Find an event `event_id` in thread `thread_root`.
-    #[cfg(test)]
-    pub(super) async fn find_event_in_thread(
-        &self,
-        thread_root: OwnedEventId,
-        event_id: &EventId,
-    ) -> Result<Option<(super::EventLocation, Event)>> {
-        let mut state = self.inner.state.write().await?;
-
-        let thread_cache = state.get_or_reload_thread(thread_root).await?;
-        thread_cache.find_event(event_id).await
-    }
-
     /// Create or get an event-focused timeline cache for this room.
     ///
     /// This creates a timeline centered around a specific event (e.g., for
