@@ -140,6 +140,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- When threads are enabled, a focused event timeline is used and the focused event is not part of a thread, 
+  hide other threaded events by default like it happens on the live focus timeline. 
+  ([#6519](https://github.com/matrix-org/matrix-rust-sdk/pull/6519))
 - Add a recursion limit attribute that raises it from the default value of 128 to 256.
   ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
 - Reject invalid edits as candidates for the latest event.
