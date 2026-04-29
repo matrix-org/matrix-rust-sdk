@@ -223,26 +223,6 @@ impl TimelineItemContent {
         }) => state)
     }
 
-    /// If `self` is of the [`MsgLike`][Self::MsgLike] variant with a
-    /// [`LiveLocation`][MsgLikeKind::LiveLocation] kind, return the inner
-    /// [`LiveLocationState`] mutably.
-    pub(in crate::timeline) fn as_live_location_state_mut(
-        &mut self,
-    ) -> Option<&mut LiveLocationState> {
-        as_variant!(self, Self::MsgLike(MsgLikeContent {
-            kind: MsgLikeKind::LiveLocation(state),
-            ..
-        }) => state)
-    }
-
-    pub(in crate::timeline) fn as_rtc_notification_mut(&mut self) -> Option<&mut Vec<OwnedUserId>> {
-        if let TimelineItemContent::RtcNotification { declined_by, .. } = self {
-            Some(declined_by)
-        } else {
-            None
-        }
-    }
-
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
     /// inner [`Message`].
     pub fn as_message(&self) -> Option<&Message> {

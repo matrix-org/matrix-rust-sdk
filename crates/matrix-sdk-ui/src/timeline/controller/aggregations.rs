@@ -39,7 +39,6 @@
 
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use as_variant::as_variant;
 use matrix_sdk::{check_validity_of_replacement_events, deserialized_responses::EncryptionInfo};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -183,41 +182,54 @@ pub(crate) struct Aggregation {
 fn poll_state_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut PollState, AggregationError> {
-    let debug_string = event.content().debug_string().to_owned();
-    as_variant!(
-        event.to_mut().content_mut(),
-        TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(s), .. }) => s
-    )
-    .ok_or_else(|| AggregationError::InvalidType {
-        expected: "a poll".to_owned(),
-        actual: debug_string,
-    })
+    let content = event.to_mut().content_mut();
+
+    if let TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(state), .. }) =
+        content
+    {
+        Ok(state)
+    } else {
+        Err(AggregationError::InvalidType {
+            expected: "a poll".to_owned(),
+            actual: content.debug_string().to_owned(),
+        })
+    }
 }
 
 /// Get the [`LiveLocationState`] from a given [`TimelineItemContent`], mutably.
 fn live_location_state_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut LiveLocationState, AggregationError> {
-    let debug_string = event.content().debug_string().to_owned();
-    event.to_mut().content_mut().as_live_location_state_mut().ok_or_else(|| {
-        AggregationError::InvalidType {
+    let content = event.to_mut().content_mut();
+
+    if let TimelineItemContent::MsgLike(MsgLikeContent {
+        kind: MsgLikeKind::LiveLocation(state),
+        ..
+    }) = content
+    {
+        Ok(state)
+    } else {
+        Err(AggregationError::InvalidType {
             expected: "a live location".to_owned(),
-            actual: debug_string,
-        }
-    })
+            actual: content.debug_string().to_owned(),
+        })
+    }
 }
 
 /// Gets the mutable list of users that did decline this notification event.
 fn rtc_notification_declinations_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut Vec<OwnedUserId>, AggregationError> {
-    let debug_string = event.content().debug_string().to_owned();
-    event.to_mut().content_mut().as_rtc_notification_mut().ok_or_else(|| {
-        AggregationError::InvalidType {
+    let content = event.to_mut().content_mut();
+
+    if let TimelineItemContent::RtcNotification { declined_by, .. } = content {
+        Ok(declined_by)
+    } else {
+        Err(AggregationError::InvalidType {
             expected: "an rtc notification".to_owned(),
-            actual: debug_string,
-        }
-    })
+            actual: content.debug_string().to_owned(),
+        })
+    }
 }
 
 impl Aggregation {
