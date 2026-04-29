@@ -303,7 +303,7 @@ impl RoomEventCache {
             .state
             .read()
             .await?
-            .find_event_with_relations(event_id, filter.clone())
+            .find_event_with_relations(event_id, filter)
             .await
             .ok()
             .flatten())
