@@ -15,7 +15,7 @@
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
-    deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
+    deserialized_responses::ThreadSummary,
     event_cache::{
         Event, Gap,
         store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},

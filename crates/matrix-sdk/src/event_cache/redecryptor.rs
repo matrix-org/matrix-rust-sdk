@@ -156,8 +156,7 @@ use tracing::{info, instrument, trace, warn};
 use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, TimelineVectorDiffs,
-    caches::room::{PostProcessingOrigin, RoomEventCacheLinkedChunkUpdate},
+    RoomEventCacheUpdate, TimelineVectorDiffs, caches::room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
