@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
@@ -392,5 +392,11 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         }
 
         Ok(Some(BackPaginationOutcome { reached_start, events }))
+    }
+}
+
+impl fmt::Debug for ThreadPagination {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("ThreadPagination").finish_non_exhaustive()
     }
 }
