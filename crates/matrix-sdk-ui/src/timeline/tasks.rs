@@ -18,8 +18,8 @@ use std::collections::BTreeSet;
 
 use matrix_sdk::{
     event_cache::{
-        EventFocusThreadMode, EventsOrigin, RoomEventCache, RoomEventCacheSubscriber,
-        RoomEventCacheUpdate, TimelineVectorDiffs,
+        EventFocusThreadMode, EventFocusedCache, EventsOrigin, RoomEventCache,
+        RoomEventCacheSubscriber, RoomEventCacheUpdate, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -97,7 +97,7 @@ pub(in crate::timeline) async fn pinned_events_task(
 pub(in crate::timeline) async fn event_focused_task(
     focused_event: OwnedEventId,
     thread_mode: EventFocusThreadMode,
-    room_event_cache: RoomEventCache,
+    event_cache: EventFocusedCache,
     timeline_controller: TimelineController,
     mut event_focused_events_recv: Receiver<TimelineVectorDiffs>,
 ) {
@@ -113,22 +113,7 @@ pub(in crate::timeline) async fn event_focused_task(
                 // The updates might have lagged, but the room event cache might have
                 // events, so retrieve them and add them back again to the timeline,
                 // after clearing it.
-                let cache = match room_event_cache
-                    .get_event_focused_cache(focused_event.clone(), thread_mode)
-                    .await
-                {
-                    Ok(Some(cache)) => cache,
-                    Ok(None) => {
-                        error!("Focused event timeline doesn't have an attached cache");
-                        break;
-                    }
-                    Err(err) => {
-                        error!(%err, "Failed to get the focused cache for the focused event");
-                        break;
-                    }
-                };
-
-                let (initial_events, _) = cache.subscribe().await;
+                let (initial_events, _) = event_cache.subscribe().await;
 
                 timeline_controller
                     .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)
@@ -152,9 +137,8 @@ pub(in crate::timeline) async fn event_focused_task(
 /// underlying thread updates.
 pub(in crate::timeline) async fn thread_updates_task(
     mut receiver: Receiver<TimelineVectorDiffs>,
-    room_event_cache: RoomEventCache,
+    event_cache: ThreadEventCache,
     timeline_controller: TimelineController,
-    root: OwnedEventId,
 ) {
     trace!("Spawned the thread event subscriber task.");
 
@@ -170,7 +154,7 @@ pub(in crate::timeline) async fn thread_updates_task(
                 // The updates might have lagged, but the room event cache might
                 // have events, so retrieve them and add them back again to the
                 // timeline, after clearing it.
-                _ = timeline_controller.init_with_thread_root(&root, &room_event_cache).await;
+                _ = timeline_controller.init_with_thread_root(&event_cache).await;
 
                 continue;
             }
