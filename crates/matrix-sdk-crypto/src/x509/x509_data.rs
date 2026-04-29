@@ -22,3 +22,15 @@ pub struct X509Data {
     /// Trusted root certificates
     pub x509_trust_root: X509TrustRoot,
 }
+
+impl X509Data {
+    pub fn from_pem_data(ca_certs_pem: &str, private_key_pem: &str, cert_chain_pem: &str) -> Self {
+        // TODO: it would be sensible to validate that the private key matches the
+        //   certificate chain here, to catch configuration errors early.
+
+        X509Data {
+            x509_key: X509Keys::new_from_pem_data(cert_chain_pem, private_key_pem),
+            x509_trust_root: X509TrustRoot::new_from_pem_data(ca_certs_pem),
+        }
+    }
+}

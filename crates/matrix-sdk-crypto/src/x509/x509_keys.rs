@@ -15,7 +15,12 @@
 use std::sync::Arc;
 
 use ruma::{UserId, canonical_json::to_canonical_value};
-use rustls::{SignatureScheme, sign::SigningKey};
+use rustls::{
+    SignatureScheme,
+    crypto::CryptoProvider,
+    pki_types::{PrivateKeyDer, pem::PemObject},
+    sign::SigningKey,
+};
 use serde::Serialize;
 use serde_json::json;
 use vodozemac::base64_encode;
@@ -28,10 +33,27 @@ use crate::{
 
 #[derive(Clone)]
 pub struct X509Keys {
+    /// The PEM-encoded certificate chain, starting with the device's own
+    /// certificate, followed by intermediate certificates.
+    certificate_chain: String,
+
+    /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
 }
 
 impl X509Keys {
+    pub(crate) fn new_from_pem_data(certificate_chain_pem: &str, private_key_pem: &str) -> Self {
+        let provider = CryptoProvider::get_default().expect("unable to get default provider");
+        let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
+            .expect("unable to parse private key");
+        let signing_key: Arc<dyn SigningKey> = provider
+            .key_provider
+            .load_private_key(private_key)
+            .expect("unable to load private key");
+
+        Self { certificate_chain: certificate_chain_pem.to_owned(), signing_key }
+    }
+
     /// Add a signature to the given cross-signing key using our private key
     pub(crate) fn sign_cross_signing_key(
         &self,
@@ -67,7 +89,7 @@ impl X509Keys {
 
         let signature = signer.sign(json.as_bytes()).expect("unable to sign");
         Ok(X509Signature {
-            certificate_chain: "TODO".to_owned(),
+            certificate_chain: self.certificate_chain.clone(),
             signature_scheme,
             signature: base64_encode(signature),
         })

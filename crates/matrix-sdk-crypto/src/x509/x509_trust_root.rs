@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 
 use ruma::UserId;
 use rustls::{
+    RootCertStore,
     crypto::CryptoProvider,
-    pki_types::{CertificateDer, SignatureVerificationAlgorithm, UnixTime, pem::PemObject},
-    server::danger::ClientCertVerifier,
+    pki_types::{CertificateDer, UnixTime, pem::PemObject},
+    server::{WebPkiClientVerifier, danger::ClientCertVerifier},
 };
 use webpki::EndEntityCert;
 
@@ -31,6 +32,21 @@ pub struct X509TrustRoot {
 
 impl X509TrustRoot {
     pub fn new(verifier: Arc<dyn ClientCertVerifier>) -> Self {
+        Self { verifier }
+    }
+
+    pub fn new_from_pem_data(ca_certs_pem: &str) -> Self {
+        let mut root_store = RootCertStore::empty();
+        for result in CertificateDer::pem_slice_iter(ca_certs_pem.as_bytes()) {
+            root_store
+                .add(result.expect("Unable to parse certificate in root store"))
+                .expect("Unable to add certificate to root store");
+        }
+        let verifier = WebPkiClientVerifier::builder(Arc::new(root_store))
+            //.with_crls(...)
+            .build()
+            .unwrap();
+
         Self { verifier }
     }
 

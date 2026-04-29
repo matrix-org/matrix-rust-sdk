@@ -25,6 +25,7 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
+use matrix_sdk_crypto::x509::X509Data;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
@@ -365,13 +366,17 @@ impl BaseClient {
         tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
-        //let olm_machine = self.olm_machine.read().await;
-        //let olm_machine = *olm_machine;
-        //let rsa_key = if let Some(olm_machine) = olm_machine {
-        //    olm_machine.rsa_key().await.map(|k| k.clone())
-        //} else {
-        //    None
-        //};
+        const CA_CERTS: &str = include_str!("cacert.pem");
+        const CERT_CHAIN_PEM: &str = include_str!("cert.pem");
+        const PRIVATE_KEY_PEM: &str = include_str!("key.pem");
+
+        // Make aws_lc_rs the default crypto provider for rustls
+        // TODO RAV: move this elsewhere? Or maybe we already have it
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .expect("unable to install default provider");
+
+        let x509data = X509Data::from_pem_data(CA_CERTS, PRIVATE_KEY_PEM, CERT_CHAIN_PEM);
 
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
@@ -380,8 +385,7 @@ impl BaseClient {
             &session_meta.device_id,
             self.crypto_store.clone(),
             custom_account,
-            // TODO: AJB: get existing x509_keys from the existing olm machine
-            None,
+            Some(x509data),
         )
         .await
         .map_err(OlmError::from)?;
