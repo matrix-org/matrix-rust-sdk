@@ -357,7 +357,7 @@ impl EventCache {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    pub(crate) async fn for_room(
+    pub async fn room(
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
@@ -748,7 +748,7 @@ mod tests {
         // If I create a room event subscriber for a room before subscribing the event
         // cache,
         let room_id = room_id!("!omelette:fromage.fr");
-        let result = event_cache.for_room(room_id).await;
+        let result = event_cache.room(room_id).await;
 
         // Then it fails, because one must explicitly call `.subscribe()` on the event
         // cache.
@@ -888,7 +888,7 @@ mod tests {
 
         // Room 0 has initial data, so it must trigger a generic update.
         {
-            let _room_event_cache = event_cache.for_room(room_id_0).await.unwrap();
+            let _room_event_cache = event_cache.room(room_id_0).await.unwrap();
 
             assert_matches!(
                 generic_stream.recv().await,
@@ -900,7 +900,7 @@ mod tests {
 
         // Room 1 has NO initial data, so nothing should happen.
         {
-            let _room_event_cache = event_cache.for_room(room_id_1).await.unwrap();
+            let _room_event_cache = event_cache.room(room_id_1).await.unwrap();
 
             assert!(generic_stream.recv().now_or_never().is_none());
         }
@@ -982,7 +982,7 @@ mod tests {
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Room is initialised, it gets one event in the timeline.
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_matches!(
             generic_stream.recv().await,
@@ -1029,7 +1029,7 @@ mod tests {
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
-            event_cache.for_room(room_id).await,
+            event_cache.room(room_id).await,
             Err(EventCacheError::RoomNotFound { room_id: not_found_room_id }) => {
                 assert_eq!(room_id, not_found_room_id);
             }
@@ -1039,7 +1039,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         // Room exists. Everything fine.
-        assert!(event_cache.for_room(room_id).await.is_ok());
+        assert!(event_cache.room(room_id).await.is_ok());
     }
 
     /// Test that the event cache does not create reference cycles or tasks that

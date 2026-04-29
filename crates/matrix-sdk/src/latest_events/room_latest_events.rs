@@ -173,7 +173,7 @@ impl RoomLatestEventsWriteGuard {
                 // It's fine to drop the `EventCacheDropHandles` here as the caller
                 // (`LatestEventState`) owns a clone of the `EventCache`.
                 let (room_event_cache, _drop_handles) =
-                    inner.event_cache.for_room(room.room_id()).await?;
+                    inner.event_cache.room(room.room_id()).await?;
 
                 Ok::<RoomEventCache, EventCacheError>(room_event_cache)
             })
@@ -223,7 +223,7 @@ impl RoomLatestEventsWriteGuard {
                 // It's fine to drop the `EventCacheDropHandles` here as the caller
                 // (`LatestEventState`) owns a clone of the `EventCache`.
                 let (room_event_cache, _drop_handles) =
-                    inner.event_cache.for_room(room.room_id()).await?;
+                    inner.event_cache.room(room.room_id()).await?;
 
                 Ok::<RoomEventCache, EventCacheError>(room_event_cache)
             })
