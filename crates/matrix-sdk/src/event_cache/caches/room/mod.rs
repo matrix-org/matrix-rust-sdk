@@ -51,7 +51,6 @@ use super::{
     super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
-    thread::pagination::ThreadPagination,
 };
 use crate::{
     client::WeakClient,
@@ -615,14 +614,6 @@ impl RoomEventCacheInner {
 
         Ok(())
     }
-}
-
-#[derive(Clone, Copy)]
-pub(in super::super) enum PostProcessingOrigin {
-    Sync,
-    Backpagination,
-    #[cfg(feature = "e2e-encryption")]
-    Redecryption,
 }
 
 #[cfg(test)]
