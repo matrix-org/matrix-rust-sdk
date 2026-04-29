@@ -363,7 +363,7 @@ impl EventCache {
         timer!("Resolving UTDs");
 
         // Get the cache for this particular room.
-        let (room_cache, _drop_handles) = self.for_room(room_id).await?;
+        let (room_cache, _drop_handles) = self.room(room_id).await?;
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
@@ -1457,7 +1457,7 @@ mod tests {
 
         let event_cache = bob.event_cache();
         let (room_cache, _) = event_cache
-            .for_room(room_id)
+            .room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
@@ -1547,7 +1547,7 @@ mod tests {
 
         let event_cache = bob.event_cache();
         let (room_cache, _) = event_cache
-            .for_room(room_id)
+            .room(room_id)
             .instrument(bob_span.clone())
             .await
             .expect("We should be able to get to the event cache for a specific room");
@@ -1685,7 +1685,7 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
         let (room_cache, _) = event_cache
-            .for_room(room_id)
+            .room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
@@ -1774,10 +1774,8 @@ mod tests {
         let (encrypted_event, room_key) = prepare_room(&server, &f, &alice, &bob, room_id).await;
 
         let event_cache = bob.event_cache();
-        let (room_cache, _drop_handles) = event_cache
-            .for_room(room_id)
-            .await
-            .expect("Bob should have an event cache for the room");
+        let (room_cache, _drop_handles) =
+            event_cache.room(room_id).await.expect("Bob should have an event cache for the room");
 
         let (_initial_events, mut subscriber) = room_cache.subscribe().await.unwrap();
 
