@@ -38,6 +38,7 @@ matrix-sdk-common = { workspace = true, features = ["uniffi"] }
 matrix-sdk-ffi-macros.workspace = true
 pbkdf2.workspace = true
 rand.workspace = true
+rsa = { version = "0.9.10", features = ["serde"] }
 ruma.workspace = true
 serde.workspace = true
 serde_json.workspace = true

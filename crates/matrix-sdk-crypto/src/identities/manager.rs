@@ -1253,7 +1253,7 @@ pub(crate) mod testing {
         let identity = PrivateCrossSigningIdentity::new(user_id.into());
         let identity = Arc::new(Mutex::new(identity));
         let user_id = user_id.to_owned();
-        let account = Account::with_device_id(&user_id, device_id);
+        let account = Account::with_device_id(&user_id, device_id, None);
         let static_account = account.static_data().clone();
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, device_id, MemoryStore::new()));
         let verification =
@@ -2195,7 +2195,7 @@ pub(crate) mod tests {
     async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2314,7 +2314,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         // Start on a non-verified session
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2448,8 +2448,8 @@ pub(crate) mod tests {
             let manager = manager_test_helper(user_id(), device_id()).await;
 
             // Given that we have lots of sessions in the store, from each of two devices
-            let account1 = Account::new(user_id());
-            let account2 = Account::new(other_user_id());
+            let account1 = Account::new(user_id(), None);
+            let account2 = Account::new(other_user_id(), None);
 
             let mut account1_sessions = Vec::new();
             for _ in 0..60 {

@@ -25,7 +25,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
-    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -40,9 +40,11 @@ use crate::{
         types::{Changes, IdentityChanges},
     },
     types::{
-        MasterPubkey, SelfSigningPubkey, UserSigningPubkey, requests::OutgoingVerificationRequest,
+        CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
+    x509,
 };
 
 /// Enum over the different user identity types we can have.
@@ -230,7 +232,29 @@ impl OwnUserIdentity {
 
         let cache = self.store.cache().await?;
         let account = cache.account().await?;
-        account.sign_master_key(&self.master_key)
+        let x509_keys = cache.x509_keys().await;
+
+        let public_key = self
+            .master_key
+            .get_first_key()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .to_base64()
+            .into();
+
+        let mut cross_signing_key: CrossSigningKey = (&*self.master_key).as_ref().clone();
+
+        cross_signing_key.signatures.clear();
+        account.sign_cross_signing_key(&mut cross_signing_key)?;
+
+        if let Some(x509_keys) = x509_keys {
+            x509_keys.sign_cross_signing_keys(&mut cross_signing_key)?;
+        }
+
+        let mut user_signed_keys = SignedKeys::new();
+        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
+
+        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Send a verification request to our other devices.
@@ -1616,7 +1640,7 @@ pub(crate) mod tests {
         assert!(!identity.is_device_signed(&first));
         assert!(identity.is_device_signed(&second));
 
-        let account = Account::with_device_id(second.user_id(), second.device_id());
+        let account = Account::with_device_id(second.user_id(), second.device_id(), None);
         let verification_machine = get_verification_machine(&account);
 
         let first = Device {
@@ -1649,7 +1673,7 @@ pub(crate) mod tests {
         let response = own_key_query();
         let (_, device) = device(&response);
 
-        let account = Account::with_device_id(device.user_id(), device.device_id());
+        let account = Account::with_device_id(device.user_id(), device.device_id(), None);
         let verification_machine = get_verification_machine(&account);
         let public_identity = verification_machine.get_own_user_identity_data().await.unwrap();
 
@@ -1754,7 +1778,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
-        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH")).await;
+        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH"), None).await;
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let my_id = machine.get_identity(my_user_id, None).await.unwrap().unwrap().own().unwrap();
@@ -1802,7 +1826,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::IdentityChangeDataSet as DataSet;
 
         let my_user_id = user_id!("@me:localhost");
-        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH")).await;
+        let machine = OlmMachine::new(my_user_id, device_id!("ABCDEFGH"), None).await;
         machine.bootstrap_cross_signing(false).await.unwrap();
 
         let keys_query = DataSet::key_query_with_identity_a();
@@ -1840,7 +1864,7 @@ pub(crate) mod tests {
     async fn test_resolve_identity_verification_violation_with_withdraw() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -1880,7 +1904,7 @@ pub(crate) mod tests {
     async fn test_reset_own_keys_creates_verification_violation() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -1921,7 +1945,7 @@ pub(crate) mod tests {
     async fn test_own_keys_update_creates_own_identity_verification_violation() {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
 
         // Start with our own identity verified
         let own_keys = DataSet::own_keys_query_response_1();
@@ -2022,8 +2046,11 @@ pub(crate) mod tests {
 
         let other_user_identity_data = get_other_identity();
 
-        let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
+        let account = Account::with_device_id(
+            user_id!("@own_user:localhost"),
+            &owned_device_id!("DEV123"),
+            None,
+        );
 
         let verification_machine = get_verification_machine(&account);
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();

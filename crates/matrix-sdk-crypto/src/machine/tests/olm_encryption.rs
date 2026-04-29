@@ -155,7 +155,7 @@ async fn test_getting_most_recent_session() {
 #[async_test]
 async fn test_get_most_recent_session_of_device_with_no_curve_key() {
     let alice_machine =
-        OlmMachine::new(user_id!("@alice:example.org"), device_id!("ALICE_DEVICE")).await;
+        OlmMachine::new(user_id!("@alice:example.org"), device_id!("ALICE_DEVICE"), None).await;
     let bob_user_id = user_id!("@bob:example.com");
     let bob_device_id = device_id!("BOB_DEVICE");
 

@@ -11,14 +11,14 @@ use crate::{
 
 #[async_test]
 async fn test_room_settings_returns_none_for_unknown_room() {
-    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id()).await;
+    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id(), None).await;
     let settings = machine.room_settings(room_id!("!test2:localhost")).await.unwrap();
     assert!(settings.is_none());
 }
 
 #[async_test]
 async fn test_stores_and_returns_room_settings() {
-    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id()).await;
+    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id(), None).await;
     let room_id = room_id!("!test:localhost");
 
     let settings = RoomSettings {
@@ -36,7 +36,7 @@ async fn test_stores_and_returns_room_settings() {
 
 #[async_test]
 async fn test_set_room_settings_rejects_invalid_algorithms() {
-    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id()).await;
+    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id(), None).await;
     let room_id = room_id!("!test:localhost");
 
     let err = machine
@@ -54,7 +54,7 @@ async fn test_set_room_settings_rejects_invalid_algorithms() {
 
 #[async_test]
 async fn test_set_room_settings_rejects_changes() {
-    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id()).await;
+    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id(), None).await;
     let room_id = room_id!("!test:localhost");
 
     // Initial settings
@@ -80,7 +80,7 @@ async fn test_set_room_settings_rejects_changes() {
 
 #[async_test]
 async fn test_set_room_settings_accepts_noop_changes() {
-    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id()).await;
+    let machine = OlmMachine::new(tests::user_id(), tests::alice_device_id(), None).await;
     let room_id = room_id!("!test:localhost");
 
     // Initial settings

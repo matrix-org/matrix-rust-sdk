@@ -21,6 +21,7 @@ use matrix_sdk_crypto::{
     store::types::{BackupDecryptionKey, Changes},
     types::{Signature, requests::ToDeviceRequest},
 };
+use rsa::RsaPrivateKey;
 use ruma::{
     DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
     UserId,
@@ -202,11 +203,13 @@ impl OlmMachine {
     pub fn new(
         user_id: String,
         device_id: String,
+        rsa_key: Option<String>,
         path: String,
         mut passphrase: Option<String>,
     ) -> Result<Arc<Self>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
         let device_id = device_id.as_str().into();
+        let rsa_key = if let Some(k) = rsa_key { serde::from_str(&k)? } else { None };
         let runtime = Runtime::new().expect("Couldn't create a tokio runtime");
 
         let store = runtime
@@ -217,6 +220,7 @@ impl OlmMachine {
         let inner = runtime.block_on(InnerMachine::with_store(
             &user_id,
             device_id,
+            rsa_key,
             Arc::new(store),
             None,
         ))?;

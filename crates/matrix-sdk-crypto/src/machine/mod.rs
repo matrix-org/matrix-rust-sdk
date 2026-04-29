@@ -34,6 +34,7 @@ use matrix_sdk_common::{
     locks::RwLock as StdRwLock,
     timer,
 };
+use rsa::RsaPrivateKey;
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::events::{AnyStateEventContent, StateEventContent};
 use ruma::{
@@ -139,6 +140,8 @@ pub struct OlmMachineInner {
     user_id: OwnedUserId,
     /// The unique device ID of the device that holds this account.
     device_id: OwnedDeviceId,
+    /// The RSA key used in X.509 to sign the MSK
+    rsa_key: Option<RsaPrivateKey>,
     /// The private part of our cross signing identity.
     /// Used to sign devices and other users, might be missing if some other
     /// device bootstrapped cross signing or cross signing isn't bootstrapped at
@@ -188,8 +191,12 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None)
+    pub async fn new(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
+    ) -> Self {
+        OlmMachine::with_store(user_id, device_id, rsa_key, MemoryStore::new(), None)
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -198,6 +205,7 @@ impl OlmMachine {
         &self,
         pickle_key: &[u8; 32],
         device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<OlmMachine, DehydrationError> {
         let account = Account::rehydrate(pickle_key, self.user_id(), device_id, device_data)?;
@@ -219,6 +227,7 @@ impl OlmMachine {
 
         Ok(Self::new_helper(
             device_id,
+            rsa_key,
             store,
             verification_machine,
             identity_manager,
@@ -243,6 +252,7 @@ impl OlmMachine {
 
     fn new_helper(
         device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
         store: Store,
         verification_machine: VerificationMachine,
         identity_manager: IdentityManager,
@@ -267,6 +277,7 @@ impl OlmMachine {
         let inner = Arc::new(OlmMachineInner {
             user_id: store.user_id().to_owned(),
             device_id: device_id.to_owned(),
+            rsa_key,
             user_identity,
             store,
             session_manager,
@@ -308,6 +319,7 @@ impl OlmMachine {
     pub async fn with_store(
         user_id: &UserId,
         device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
         store: impl IntoCryptoStore,
         custom_account: Option<vodozemac::olm::Account>,
     ) -> StoreResult<Self> {
@@ -335,9 +347,11 @@ impl OlmMachine {
 
             None => {
                 let account = if let Some(account) = custom_account {
-                    Account::new_helper(account, user_id, device_id)
+                    // TODO: AJB: because of these lines here, I think we store the RSA key in the
+                    // store, but we might want to avoid that and only have it in memory.
+                    Account::new_helper(account, user_id, device_id, rsa_key.clone())
                 } else {
-                    Account::with_device_id(user_id, device_id)
+                    Account::with_device_id(user_id, device_id, rsa_key.clone())
                 };
 
                 let static_account = account.static_data().clone();
@@ -408,6 +422,7 @@ impl OlmMachine {
 
         Ok(Self::new_helper(
             device_id,
+            rsa_key,
             store,
             verification_machine,
             identity_manager,
@@ -2959,6 +2974,10 @@ impl OlmMachine {
     #[cfg(test)]
     pub(crate) fn key_for_has_migrated_verification_latch() -> &'static str {
         Self::HAS_MIGRATED_VERIFICATION_LATCH
+    }
+
+    pub async fn rsa_key(&self) -> Option<&RsaPrivateKey> {
+        self.inner.rsa_key.as_ref()
     }
 }
 

@@ -365,11 +365,21 @@ impl BaseClient {
         tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
+        //let olm_machine = self.olm_machine.read().await;
+        //let olm_machine = *olm_machine;
+        //let rsa_key = if let Some(olm_machine) = olm_machine {
+        //    olm_machine.rsa_key().await.map(|k| k.clone())
+        //} else {
+        //    None
+        //};
+
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
         let olm_machine = OlmMachine::with_store(
             &session_meta.user_id,
             &session_meta.device_id,
+            // TODO: AJB: rsa_key,
+            None,
             self.crypto_store.clone(),
             custom_account,
         )

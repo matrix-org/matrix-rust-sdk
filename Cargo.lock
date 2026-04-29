@@ -3290,6 +3290,7 @@ dependencies = [
  "matrix-sdk-test-utils",
  "proptest",
  "regex",
+ "rsa",
  "ruma",
  "serde",
  "serde_json",
@@ -3371,6 +3372,7 @@ dependencies = [
  "rmp-serde",
  "rsa",
  "ruma",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -3405,6 +3407,7 @@ dependencies = [
  "matrix-sdk-sqlite",
  "pbkdf2",
  "rand 0.10.1",
+ "rsa",
  "ruma",
  "serde",
  "serde_json",
@@ -5124,9 +5127,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.38"
+version = "0.23.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69f9466fb2c14ea04357e91413efb882e2a6d4a406e625449bc0a5d360d53a21"
+checksum = "ef86cd5876211988985292b91c96a8f2d298df24e75989a43a3c73f2d4d8168b"
 dependencies = [
  "aws-lc-rs",
  "log",

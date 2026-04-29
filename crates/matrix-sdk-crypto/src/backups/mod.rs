@@ -748,14 +748,14 @@ mod tests {
 
     #[async_test]
     async fn test_memory_store_backups() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(alice_id(), alice_device_id(), None).await;
 
         backup_flow(machine).await
     }
 
     #[async_test]
     async fn test_verify_auth_data() -> Result<(), OlmError> {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(alice_id(), alice_device_id(), None).await;
         let backup_machine = machine.backup_machine();
 
         let auth_data = json!({
@@ -834,7 +834,7 @@ mod tests {
 
     #[async_test]
     async fn test_import_backed_up_room_keys() {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(alice_id(), alice_device_id(), None).await;
         let backup_machine = machine.backup_machine();
 
         // We set up a backup key, so that we can test `backup_machine.backup()` later.
@@ -883,7 +883,7 @@ mod tests {
 
     #[async_test]
     async fn test_sign_backup_info() {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(alice_id(), alice_device_id(), None).await;
         let backup_machine = machine.backup_machine();
 
         let decryption_key = BackupDecryptionKey::new();
@@ -918,7 +918,7 @@ mod tests {
         // Create the machine using `with_store` and without a call to enable_backup_v1,
         // like regenerate_olm would do
         let alice =
-            OlmMachine::with_store(alice_id(), alice_device_id(), store, None).await.unwrap();
+            OlmMachine::with_store(alice_id(), alice_device_id(), None, store, None).await.unwrap();
 
         let binding = alice.backup_machine().backup_key.read().await;
         let machine_backup_key = binding.as_ref().unwrap();

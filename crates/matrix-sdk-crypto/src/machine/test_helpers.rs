@@ -80,7 +80,7 @@ pub async fn get_prepared_machine_test_helper(
     user_id: &UserId,
     use_fallback_key: bool,
 ) -> (OlmMachine, OneTimeKeys) {
-    let machine = OlmMachine::new(user_id, bob_device_id()).await;
+    let machine = OlmMachine::new(user_id, bob_device_id(), None).await;
 
     let request = machine
         .store()
@@ -123,7 +123,7 @@ pub async fn get_machine_pair_using_store(
 ) -> (OlmMachine, OlmMachine, OneTimeKeys) {
     let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
 
-    let alice = OlmMachine::with_store(alice, alice_device_id, alice_store, None)
+    let alice = OlmMachine::with_store(alice, alice_device_id, None, alice_store, None)
         .await
         .expect("Failed to create OlmMachine from supplied store");
 
@@ -139,7 +139,7 @@ pub async fn get_machine_pair(
     let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
 
     let alice_device = alice_device_id();
-    let alice = OlmMachine::new(alice, alice_device).await;
+    let alice = OlmMachine::new(alice, alice_device, None).await;
 
     store_each_others_device_data(&alice, &bob).await;
     (alice, bob, otk)
@@ -401,7 +401,7 @@ pub fn bootstrap_requests_to_keys_query_response(
 /// Helper for [`create_signed_device_of_unverified_user`] and
 /// [`create_unsigned_device`].
 fn dummy_verification_machine() -> VerificationMachine {
-    let account = Account::new(user_id!("@test_user:example.com"));
+    let account = Account::new(user_id!("@test_user:example.com"), None);
     VerificationMachine::new(
         account.deref().clone(),
         Arc::new(Mutex::new(PrivateCrossSigningIdentity::new(account.user_id().to_owned()))),

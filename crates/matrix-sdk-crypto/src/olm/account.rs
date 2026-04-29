@@ -429,6 +429,7 @@ impl Account {
         mut account: InnerAccount,
         user_id: &UserId,
         device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
     ) -> Self {
         let identity_keys = account.identity_keys();
 
@@ -445,8 +446,6 @@ impl Account {
         // will be able to do so.
         account.generate_one_time_keys(account.max_number_of_one_time_keys());
 
-        let mut rng = OsRng::default();
-
         Self {
             static_data: StaticAccountData {
                 user_id: user_id.into(),
@@ -459,36 +458,38 @@ impl Account {
             shared: false,
             uploaded_signed_key_count: 0,
             fallback_creation_timestamp: None,
-            rsa_key: Some(
-                RsaPrivateKey::new(&mut rng, 2048).expect("Failed to generate new RSA private key"),
-            ),
+            rsa_key,
         }
     }
 
     /// Create a fresh new account, this will generate the identity key-pair.
-    pub fn with_device_id(user_id: &UserId, device_id: &DeviceId) -> Self {
+    pub fn with_device_id(
+        user_id: &UserId,
+        device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
+    ) -> Self {
         let account = InnerAccount::new();
 
-        Self::new_helper(account, user_id, device_id)
+        Self::new_helper(account, user_id, device_id, rsa_key)
     }
 
     /// Create a new random Olm Account, the long-term Curve25519 identity key
     /// encoded as base64 will be used for the device ID.
-    pub fn new(user_id: &UserId) -> Self {
+    pub fn new(user_id: &UserId, rsa_key: Option<RsaPrivateKey>) -> Self {
         let account = InnerAccount::new();
         let device_id: OwnedDeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
-        Self::new_helper(account, user_id, &device_id)
+        Self::new_helper(account, user_id, &device_id, rsa_key)
     }
 
     /// Create a new random Olm Account for a dehydrated device
-    pub fn new_dehydrated(user_id: &UserId) -> Self {
+    pub fn new_dehydrated(user_id: &UserId, rsa_key: Option<RsaPrivateKey>) -> Self {
         let account = InnerAccount::new();
         let device_id: OwnedDeviceId =
             base64_encode(account.identity_keys().curve25519.as_bytes()).into();
 
-        let mut ret = Self::new_helper(account, user_id, &device_id);
+        let mut ret = Self::new_helper(account, user_id, &device_id, rsa_key);
         ret.static_data.dehydrated = true;
         ret
     }
@@ -740,12 +741,12 @@ impl Account {
                 let pickle_key = expand_legacy_pickle_key(pickle_key, device_id);
                 let account =
                     InnerAccount::from_libolm_pickle(&d.device_pickle, pickle_key.as_ref())?;
-                Ok(Self::new_helper(account, user_id, device_id))
+                Ok(Self::new_helper(account, user_id, device_id, None))
             }
             DehydratedDeviceData::V2(d) => {
                 let account =
                     InnerAccount::from_dehydrated_device(&d.device_pickle, &d.nonce, pickle_key)?;
-                Ok(Self::new_helper(account, user_id, device_id))
+                Ok(Self::new_helper(account, user_id, device_id, None))
             }
             _ => Err(DehydrationError::Json(serde_json::Error::custom(format!(
                 "Unsupported dehydrated device algorithm {:?}",
@@ -882,25 +883,6 @@ impl Account {
         }
 
         Ok(())
-    }
-
-    /// Sign the given Master Key
-    pub fn sign_master_key(
-        &self,
-        master_key: &MasterPubkey,
-    ) -> Result<SignatureUploadRequest, SignatureError> {
-        let public_key =
-            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_base64().into();
-
-        let mut cross_signing_key: CrossSigningKey = master_key.as_ref().clone();
-        cross_signing_key.signatures.clear();
-        self.sign_cross_signing_key(&mut cross_signing_key)?;
-
-        let mut user_signed_keys = SignedKeys::new();
-        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
-
-        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
-        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON
@@ -1997,7 +1979,7 @@ mod tests {
 
     #[test]
     fn test_one_time_key_creation() -> Result<()> {
-        let mut account = Account::with_device_id(user_id(), device_id());
+        let mut account = Account::with_device_id(user_id(), device_id(), None);
 
         let (_, one_time_keys, _) = account.keys_for_upload();
         assert!(!one_time_keys.is_empty());
@@ -2034,7 +2016,7 @@ mod tests {
 
     #[test]
     fn test_fallback_key_creation() -> Result<()> {
-        let mut account = Account::with_device_id(user_id(), device_id());
+        let mut account = Account::with_device_id(user_id(), device_id(), None);
 
         let (_, _, fallback_keys) = account.keys_for_upload();
 
@@ -2103,7 +2085,7 @@ mod tests {
         let key = vodozemac::Curve25519PublicKey::from_base64(
             "7PUPP6Ijt5R8qLwK2c8uK5hqCNF9tOzWYgGaAay5JBs",
         )?;
-        let account = Account::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id(), None);
 
         let key = account.sign_key(key, true);
 
@@ -2127,7 +2109,7 @@ mod tests {
     #[test]
     fn test_account_and_device_creation_timestamp() -> Result<()> {
         let now = MilliSecondsSinceUnixEpoch::now();
-        let account = Account::with_device_id(user_id(), device_id());
+        let account = Account::with_device_id(user_id(), device_id(), None);
         let then = MilliSecondsSinceUnixEpoch::now();
 
         assert!(account.creation_local_time() >= now);
@@ -2212,7 +2194,7 @@ mod tests {
 
     #[async_test]
     async fn test_shared_history_set_when_creating_group_sessions() {
-        let account = Account::new(user_id());
+        let account = Account::new(user_id(), None);
         let room_id = room_id!("!room:id");
         let settings = EncryptionSettings {
             history_visibility: HistoryVisibility::Shared,

@@ -43,6 +43,7 @@
 
 use std::sync::Arc;
 
+use rsa::RsaPrivateKey;
 use ruma::{
     DeviceId,
     api::client::dehydrated_device::{DehydratedDeviceData, put_dehydrated_device},
@@ -105,7 +106,7 @@ impl DehydratedDevices {
         let user_id = self.inner.user_id();
         let user_identity = self.inner.store().private_identity();
 
-        let account = Account::new_dehydrated(user_id);
+        let account = Account::new_dehydrated(user_id, None);
         let store =
             Arc::new(CryptoStoreWrapper::new(user_id, account.device_id(), MemoryStore::new()));
 
@@ -146,10 +147,13 @@ impl DehydratedDevices {
         &self,
         pickle_key: &DehydratedDeviceKey,
         device_id: &DeviceId,
+        rsa_key: Option<RsaPrivateKey>,
         device_data: Raw<DehydratedDeviceData>,
     ) -> Result<RehydratedDevice, DehydrationError> {
-        let rehydrated =
-            self.inner.rehydrate(pickle_key.inner.as_ref(), device_id, device_data).await?;
+        let rehydrated = self
+            .inner
+            .rehydrate(pickle_key.inner.as_ref(), device_id, rsa_key, device_data)
+            .await?;
 
         Ok(RehydratedDevice { rehydrated, original: self.inner.to_owned() })
     }
@@ -569,7 +573,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &request.device_id, request.device_data)
+            .rehydrate(&pickle_key(), &request.device_id, None, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -629,7 +633,7 @@ mod tests {
 
         // Rehydrate the device.
         dehydrated_manager
-            .rehydrate(&stored_key, &request.device_id, request.device_data)
+            .rehydrate(&stored_key, &request.device_id, None, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -684,7 +688,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &device_id, request.device_data)
+            .rehydrate(&pickle_key(), &device_id, None, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 

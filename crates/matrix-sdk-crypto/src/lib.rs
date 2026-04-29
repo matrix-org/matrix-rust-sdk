@@ -33,6 +33,7 @@ pub mod store;
 pub mod types;
 mod utilities;
 mod verification;
+mod x509;
 
 #[cfg(any(test, feature = "testing"))]
 /// Testing facilities and helpers for crypto tests
