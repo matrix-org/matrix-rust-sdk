@@ -18,6 +18,7 @@
 //! [`RoomEventCache`]: super::super::super::RoomEventCache
 
 use std::{
+    fmt,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -62,8 +63,8 @@ pin_project! {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for PaginationStatusSubscriber {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for PaginationStatusSubscriber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PaginationStatusSubscriber").finish_non_exhaustive()
     }
 }
@@ -431,5 +432,11 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         }
 
         Ok(Some(BackPaginationOutcome { events, reached_start }))
+    }
+}
+
+impl fmt::Debug for RoomPagination {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_tuple("RoomPagination").finish_non_exhaustive()
     }
 }
