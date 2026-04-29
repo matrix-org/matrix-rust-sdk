@@ -329,26 +329,6 @@ impl RoomEventCache {
         self.inner.state.read().await?.find_event_relations(event_id, filter.clone()).await
     }
 
-    /// Clear all the storage for this [`RoomEventCache`].
-    ///
-    /// This will get rid of all the events from the linked chunk and persisted
-    /// storage.
-    pub async fn clear(&self) -> Result<()> {
-        // Clear the linked chunk and persisted storage.
-        let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
-
-        // Notify observers about the update.
-        self.inner.update_sender.send(
-            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            }),
-            Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
-        );
-
-        Ok(())
-    }
-
     /// Return a reference to the state.
     pub(in super::super) fn state(&self) -> &LockedRoomEventCacheState {
         &self.inner.state
