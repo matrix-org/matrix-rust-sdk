@@ -46,7 +46,7 @@ use super::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
         },
     },
-    PostProcessingOrigin, RoomEventCacheInner, RoomEventCacheUpdate,
+    RoomEventCacheInner, RoomEventCacheUpdate,
 };
 use crate::{event_cache::caches::pagination::SharedPaginationStatus, room::MessagesOptions};
 
