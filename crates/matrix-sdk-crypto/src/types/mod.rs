@@ -186,19 +186,14 @@ impl X509Signature {
             // enum to distinguish between "this is not an RSA signature" and
             // "something went wrong deserializing an RSA signature"
 
-            let certificates: Option<Vec<String>> = value
-                .get("certificates")?
-                .as_array()?
-                .iter()
-                .map(|v| v.as_str().map(|s| s.to_owned()))
-                .collect();
+            let certificates = value.get("certificates")?.as_str()?;
 
             // Signature schemes have a u16 identifier, defined at https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme.
             // If the JSON contains anything that isn't a u16, refuse to parse it.
             let signature_scheme: u16 = value.get("signature_scheme")?.as_u64()?.try_into().ok()?;
 
             Some(X509Signature {
-                certificate_chain: certificates?,
+                certificate_chain: certificates.to_owned(),
                 signature_scheme: signature_scheme.into(),
                 signature: value.get("signature")?.as_str()?.to_owned(),
             })

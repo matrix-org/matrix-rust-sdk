@@ -34,7 +34,12 @@ use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
 use tracing::{Span, field::display, instrument, trace};
 
 use super::{CryptoStoreError, CryptoStoreWrapper};
-use crate::{Account, identities::DeviceData, olm::Session, x509::X509Keys};
+use crate::{
+    Account,
+    identities::DeviceData,
+    olm::Session,
+    x509::{X509Data, X509Keys, X509TrustRoot},
+};
 
 /// In-memory store for Olm Sessions.
 #[derive(Debug, Default, Clone)]
@@ -336,7 +341,6 @@ pub(crate) struct StoreCache {
     pub(super) tracked_users: StdRwLock<BTreeSet<OwnedUserId>>,
     pub(super) loaded_tracked_users: RwLock<bool>,
     pub(super) account: Mutex<Option<Account>>,
-    pub(super) x509_keys: Option<X509Keys>,
 }
 
 impl StoreCache {
@@ -369,10 +373,6 @@ impl StoreCache {
             }
         }
     }
-
-    pub(super) async fn x509_keys(&self) -> Option<&X509Keys> {
-        self.x509_keys.as_ref()
-    }
 }
 
 /// Read-only store cache guard.
@@ -394,10 +394,6 @@ impl StoreCacheGuard {
     /// this doesn't return an `Option`.
     pub async fn account(&self) -> super::Result<impl Deref<Target = Account> + '_> {
         self.cache.account().await
-    }
-
-    pub(crate) async fn x509_keys(&self) -> Option<&X509Keys> {
-        self.cache.x509_keys().await
     }
 }
 

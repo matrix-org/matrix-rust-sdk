@@ -14,13 +14,14 @@
 
 use std::sync::Arc;
 
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, UserId, canonical_json::to_canonical_value};
+use ruma::{UserId, canonical_json::to_canonical_value};
 use rustls::{SignatureScheme, sign::SigningKey};
 use serde::Serialize;
 use serde_json::json;
 
 use crate::{SignatureError, olm::utility::to_signable_json, types::CrossSigningKey};
 
+#[derive(Clone)]
 pub struct X509Keys(Arc<dyn SigningKey>);
 
 impl X509Keys {

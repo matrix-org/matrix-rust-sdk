@@ -1163,7 +1163,6 @@ mod tests {
         let machine = OlmMachine::new(
             "@ganfra146:matrix.org".to_owned(),
             "DEWRCMENGS".to_owned(),
-            None,
             path,
             None,
             None,

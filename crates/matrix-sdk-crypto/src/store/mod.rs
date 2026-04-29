@@ -32,7 +32,7 @@
 //! # let device_id = device_id!("TEST");
 //! let store = Arc::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::with_store(user_id, device_id, store, None);
+//! let machine = OlmMachine::with_store(user_id, device_id, store, None, None);
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html
@@ -110,12 +110,13 @@ pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 use self::caches::{SequenceNumber, StoreCache, StoreCacheGuard, UsersForKeyQuery};
-use crate::types::{
-    events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle,
-};
 pub use crate::{
     dehydrated_devices::DehydrationError,
     gossiping::{GossipRequest, SecretInfo},
+};
+use crate::{
+    types::{events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle},
+    x509::{X509Data, X509TrustRoot},
 };
 
 /// A wrapper for our CryptoStore trait object.
@@ -486,6 +487,7 @@ struct StoreInner {
     cache: Arc<RwLock<StoreCache>>,
 
     verification_machine: VerificationMachine,
+    x509_data: Option<X509Data>,
 
     /// Static account data that never changes (and thus can be loaded once and
     /// for all when creating the store).
@@ -547,7 +549,7 @@ impl Store {
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
-        x509_keys: Option<X509Keys>,
+        x509_data: Option<X509Data>,
     ) -> Self {
         Self {
             inner: Arc::new(StoreInner {
@@ -555,12 +557,12 @@ impl Store {
                 identity,
                 store: store.clone(),
                 verification_machine,
+                x509_data,
                 cache: Arc::new(RwLock::new(StoreCache {
                     store,
                     tracked_users: Default::default(),
                     loaded_tracked_users: Default::default(),
                     account: Default::default(),
-                    x509_keys,
                 })),
             }),
         }
@@ -579,6 +581,14 @@ impl Store {
     /// The static data for the account associated with this store.
     pub(crate) fn static_account(&self) -> &StaticAccountData {
         &self.inner.static_account
+    }
+
+    pub(crate) fn x509_keys(&self) -> Option<&X509Keys> {
+        self.inner.x509_data.as_ref().map(|data| &data.x509_key)
+    }
+
+    pub(crate) fn x509_trust_root(&self) -> Option<&X509TrustRoot> {
+        self.inner.x509_data.as_ref().map(|data| &data.x509_trust_root)
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {

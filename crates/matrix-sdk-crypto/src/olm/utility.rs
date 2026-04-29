@@ -154,8 +154,7 @@ fn verify_signature(
 
     match s {
         Ok(Signature::Ed25519(s)) => Ok(public_key.verify(canonical_json.as_bytes(), s)?),
-        Ok(Signature::Rsa(_)) => panic!("TODO: AJB: implement verifying with RSA"),
-        Ok(Signature::Other(_)) => Err(SignatureError::UnsupportedAlgorithm),
+        Ok(_) => Err(SignatureError::UnsupportedAlgorithm),
         Err(_) => Err(SignatureError::InvalidSignature),
     }
 }

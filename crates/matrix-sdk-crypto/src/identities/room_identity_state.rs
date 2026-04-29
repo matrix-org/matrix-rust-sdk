@@ -1131,6 +1131,7 @@ mod tests {
                     MemoryStore::new(),
                 )),
             ),
+            x509_trust_root: None,
         })
     }
 

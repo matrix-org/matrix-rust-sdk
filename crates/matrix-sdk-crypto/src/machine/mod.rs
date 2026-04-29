@@ -116,7 +116,7 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    x509::X509Keys,
+    x509::{X509Data, X509Keys},
 };
 
 #[derive(Debug, Serialize)]
@@ -189,8 +189,8 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    pub async fn new(user_id: &UserId, device_id: &DeviceId, x509_keys: Option<X509Keys>) -> Self {
-        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None, x509_keys)
+    pub async fn new(user_id: &UserId, device_id: &DeviceId, x509_data: Option<X509Data>) -> Self {
+        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None, x509_data)
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -200,7 +200,6 @@ impl OlmMachine {
         pickle_key: &[u8; 32],
         device_id: &DeviceId,
         device_data: Raw<DehydratedDeviceData>,
-        x509_keys: Option<X509Keys>,
     ) -> Result<OlmMachine, DehydrationError> {
         let account = Account::rehydrate(pickle_key, self.user_id(), device_id, device_data)?;
         let static_account = account.static_data().clone();
@@ -216,12 +215,8 @@ impl OlmMachine {
             })
             .await?;
 
-        let (verification_machine, store, identity_manager) = Self::new_helper_prelude(
-            store,
-            static_account,
-            self.store().private_identity(),
-            x509_keys,
-        );
+        let (verification_machine, store, identity_manager) =
+            Self::new_helper_prelude(store, static_account, self.store().private_identity(), None);
 
         Ok(Self::new_helper(
             device_id,
@@ -237,7 +232,7 @@ impl OlmMachine {
         store_wrapper: Arc<CryptoStoreWrapper>,
         account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        x509_keys: Option<X509Keys>,
+        x509_data: Option<X509Data>,
     ) -> (VerificationMachine, Store, IdentityManager) {
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store_wrapper.clone());
@@ -247,7 +242,7 @@ impl OlmMachine {
             user_identity,
             store_wrapper,
             verification_machine.clone(),
-            x509_keys,
+            x509_data,
         );
 
         let identity_manager = IdentityManager::new(store.clone());
@@ -324,7 +319,7 @@ impl OlmMachine {
         device_id: &DeviceId,
         store: impl IntoCryptoStore,
         custom_account: Option<vodozemac::olm::Account>,
-        x509_keys: Option<X509Keys>,
+        x509_data: Option<X509Data>,
     ) -> StoreResult<Self> {
         let store = store.into_crypto_store();
 
@@ -417,7 +412,7 @@ impl OlmMachine {
         let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
 
         let (verification_machine, store, identity_manager) =
-            Self::new_helper_prelude(store, static_account, identity.clone(), x509_keys);
+            Self::new_helper_prelude(store, static_account, identity.clone(), x509_data);
 
         // FIXME: We might want in the future a more generic high-level data migration
         // mechanism (at the store wrapper layer).

@@ -218,10 +218,9 @@ impl OlmMachine {
         let inner = runtime.block_on(InnerMachine::with_store(
             &user_id,
             device_id,
-            None,
             Arc::new(store),
             None,
-            None, // TODO: AJB: make X509Keys from String
+            None, // X.509 certificates not supported in Element Classic
         ))?;
 
         Ok(Arc::new(OlmMachine { inner: ManuallyDrop::new(inner), runtime }))
@@ -1542,8 +1541,7 @@ impl OlmMachine {
                                 match v {
                                     Ok(s) => match s {
                                         Signature::Ed25519(s) => s.to_base64(),
-                                        Signature::Rsa(_s) => todo!("TODO: AJB: can't return arbitrary JSON over uniffi, so can't support RSA signatures"),
-                                        Signature::Other(s) => s.to_owned()
+                                        _ => panic!("Device key produced non-ed25519 signature"),
                                     },
                                     Err(i) => i.source,
                                 },

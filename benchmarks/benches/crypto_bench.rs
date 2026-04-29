@@ -73,7 +73,7 @@ pub fn keys_query(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
     let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), None, store, None, None))
+        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None, None))
         .unwrap();
 
     group.bench_with_input(
@@ -149,7 +149,6 @@ pub fn keys_claiming(c: &mut Criterion) {
                         .block_on(OlmMachine::with_store(
                             alice_id(),
                             alice_device_id(),
-                            None,
                             store,
                             None,
                             None,
@@ -226,7 +225,7 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
 
     let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), None, store, None, None))
+        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None, None))
         .unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
@@ -291,7 +290,7 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
 
     let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), None, store, None, None))
+        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None, None))
         .unwrap();
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();

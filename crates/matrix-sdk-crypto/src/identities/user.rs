@@ -90,7 +90,16 @@ impl UserIdentity {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                Self::Other(OtherUserIdentity { inner: i, own_identity, verification_machine })
+                // X509TrustRoot holds an Arc so cloning it gives us a reference to the single
+                // underlying ClientCertVerifier
+                let x509_trust_root = store.x509_trust_root().cloned();
+
+                Self::Other(OtherUserIdentity {
+                    inner: i,
+                    own_identity,
+                    x509_trust_root,
+                    verification_machine,
+                })
             }
         }
     }
@@ -234,7 +243,7 @@ impl OwnUserIdentity {
 
         let cache = self.store.cache().await?;
         let account = cache.account().await?;
-        let x509_keys = cache.x509_keys().await;
+        let x509_keys = self.store.x509_keys();
 
         let public_key = self
             .master_key
@@ -334,6 +343,7 @@ pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
+    pub(crate) x509_trust_root: Option<X509TrustRoot>,
 }
 
 impl Deref for OtherUserIdentity {
@@ -353,11 +363,22 @@ impl DerefMut for OtherUserIdentity {
 impl OtherUserIdentity {
     /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        // TODO: AJB: or they are signed by the X.509 CA
-
-        self.own_identity
+        if self
+            .own_identity
             .as_ref()
             .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner))
+        {
+            return true;
+        }
+
+        // If we have an X.509 trust root, we can use that to verify the user
+        if let Some(x509_trust_root) = &self.x509_trust_root {
+            if self.inner.verify_x509_signatures(x509_trust_root) {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Manually verify this user.
@@ -2067,6 +2088,7 @@ pub(crate) mod tests {
             inner: other_user_identity_data,
             own_identity: Some(own_identity_data),
             verification_machine,
+            x509_trust_root: None,
         }
     }
 

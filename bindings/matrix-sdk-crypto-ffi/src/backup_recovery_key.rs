@@ -156,7 +156,7 @@ impl BackupRecoveryKey {
                                 match v {
                                     Ok(s) => match s {
                                         Signature::Ed25519(s) => s.to_base64(),
-                                        Signature::Rsa(_s) => todo!("TODO: AJB: RSA signature not supported in MegolmV1BackupKey"),
+                                        Signature::X509(_s) => todo!("TODO: AJB: X509 signature not supported in MegolmV1BackupKey"),
                                         Signature::Other(s) => s.to_owned(),
                                     },
                                     Err(s) => s.source,

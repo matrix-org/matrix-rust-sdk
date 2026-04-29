@@ -153,12 +153,9 @@ impl DehydratedDevices {
         pickle_key: &DehydratedDeviceKey,
         device_id: &DeviceId,
         device_data: Raw<DehydratedDeviceData>,
-        x509_keys: Option<X509Keys>,
     ) -> Result<RehydratedDevice, DehydrationError> {
-        let rehydrated = self
-            .inner
-            .rehydrate(pickle_key.inner.as_ref(), device_id, device_data, x509_keys)
-            .await?;
+        let rehydrated =
+            self.inner.rehydrate(pickle_key.inner.as_ref(), device_id, device_data).await?;
 
         Ok(RehydratedDevice { rehydrated, original: self.inner.to_owned() })
     }
@@ -578,7 +575,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &request.device_id, request.device_data, None)
+            .rehydrate(&pickle_key(), &request.device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -638,7 +635,7 @@ mod tests {
 
         // Rehydrate the device.
         dehydrated_manager
-            .rehydrate(&stored_key, &request.device_id, request.device_data, None)
+            .rehydrate(&stored_key, &request.device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -693,7 +690,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &device_id, request.device_data, None)
+            .rehydrate(&pickle_key(), &device_id, request.device_data)
             .await
             .expect("We should be able to rehydrate the device");
 

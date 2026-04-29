@@ -17,13 +17,14 @@ use std::{ops::Deref, sync::Arc};
 use ruma::UserId;
 use rustls::{
     crypto::CryptoProvider,
-    pki_types::{CertificateDer, UnixTime, pem::PemObject},
+    pki_types::{CertificateDer, SignatureVerificationAlgorithm, UnixTime, pem::PemObject},
     server::danger::ClientCertVerifier,
 };
 use webpki::EndEntityCert;
 
 use crate::types::Signature;
 
+#[derive(Debug, Clone)]
 pub struct X509TrustRoot {
     verifier: Arc<dyn ClientCertVerifier>,
 }
@@ -82,8 +83,11 @@ impl X509TrustRoot {
             .signature_verification_algorithms
             .mapping
             .iter()
+            // Filter for entries with the right signature scheme
             .filter(|item| item.0 == sig.signature_scheme)
-            .filter_map(|item| item.1.get(0).map(|i| i.deref()))
+            // Filter for entries with a non-empty list of algorithm implementations, and get the
+            // first such implementation
+            .filter_map(|item| item.1.first().map(|alg| *alg))
             .next()
         else {
             tracing::warn!("Signature scheme {:?} not supported", sig.signature_scheme);

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Types and traits for verification of users and devices using X.509 keys and
-//! certificates.
+use crate::x509::{X509Keys, X509TrustRoot};
 
-mod x509_data;
-mod x509_keys;
-mod x509_trust_root;
+#[derive(Debug, Clone)]
+pub struct X509Data {
+    /// Private key for this device
+    pub x509_key: X509Keys,
 
-pub use x509_data::X509Data;
-pub use x509_keys::X509Keys;
-pub use x509_trust_root::X509TrustRoot;
+    /// Trusted root certificates
+    pub x509_trust_root: X509TrustRoot,
+}
