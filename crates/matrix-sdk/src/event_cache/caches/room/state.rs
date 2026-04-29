@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::HashMap,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicUsize, Ordering},
@@ -23,7 +23,7 @@ use std::{
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    RoomInfoNotableUpdateReasons, apply_redaction, check_validity_of_replacement_events,
+    RoomInfoNotableUpdateReasons, apply_redaction,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
@@ -32,7 +32,6 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
-    serde_helpers::{extract_edit_target, extract_thread_root},
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
@@ -70,9 +69,8 @@ use super::{
         pinned_events::PinnedEventCache,
         read_receipts::compute_unread_counts,
     },
-    EventsOrigin, PostProcessingOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, RoomEventCacheUpdateSender,
-    sort_positions_descending,
+    EventsOrigin, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
+    RoomEventCacheUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
 use crate::{Room, room::WeakRoom};
 

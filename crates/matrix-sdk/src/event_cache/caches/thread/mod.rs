@@ -31,7 +31,7 @@ use tokio::sync::{
     Notify,
     broadcast::{Receiver, Sender},
 };
-use tracing::{error, instrument, trace};
+use tracing::{instrument, trace};
 
 use self::pagination::ThreadPagination;
 pub(super) use self::{
