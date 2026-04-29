@@ -1309,7 +1309,7 @@ mod tests {
         let identity = Arc::new(Mutex::new(PrivateCrossSigningIdentity::empty(alice_id())));
         let verification =
             VerificationMachine::new(static_data.clone(), identity.clone(), store.clone());
-        let store = Store::new(static_data, identity, store, verification);
+        let store = Store::new(static_data, identity, store, verification, None);
 
         let session_cache = GroupSessionCache::new(store.clone());
         let identity_manager = IdentityManager::new(store.clone());
@@ -1352,7 +1352,7 @@ mod tests {
         let verification =
             VerificationMachine::new(account.static_data.clone(), identity.clone(), store.clone());
 
-        let store = Store::new(account.static_data().clone(), identity, store, verification);
+        let store = Store::new(account.static_data().clone(), identity, store, verification, None);
         store.save_device_data(&[device, another_device]).await.unwrap();
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         let session_cache = GroupSessionCache::new(store.clone());

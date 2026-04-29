@@ -25,27 +25,21 @@ use js_option::JsOption;
 use matrix_sdk_common::deserialized_responses::{
     AlgorithmInfo, DeviceLinkProblem, EncryptionInfo, VerificationLevel, VerificationState,
 };
-use rsa::{RsaPrivateKey, rand_core::OsRng, signature::RandomizedSigner};
+use rsa::RsaPrivateKey;
 use ruma::{
     CanonicalJsonValue, DeviceId, DeviceKeyAlgorithm, DeviceKeyId, MilliSecondsSinceUnixEpoch,
     OneTimeKeyAlgorithm, OneTimeKeyId, OwnedDeviceId, OwnedDeviceKeyId, OwnedOneTimeKeyId,
     OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
-        keys::{
-            upload_keys,
-            upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
-        },
+        keys::{upload_keys, upload_signatures::v3::Request as SignatureUploadRequest},
     },
     canonical_json::to_canonical_value,
     events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::Error};
-use serde_json::{
-    json,
-    value::{RawValue as RawJsonValue, to_raw_value},
-};
+use serde_json::value::{RawValue as RawJsonValue, to_raw_value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
@@ -68,13 +62,13 @@ use crate::{
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
-    olm::{SenderData, utility::to_signable_json},
+    olm::SenderData,
     store::{
         Store,
         types::{Changes, DeviceChanges},
     },
     types::{
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, OneTimeKey, SignedKey,
         events::{
             olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
@@ -863,25 +857,6 @@ impl Account {
             signature,
         );
 
-        //let key_name = device_id!("todo_key_id");
-
-        //let key_algorithm: DeviceKeyAlgorithm = serde_json::from_str("rsa").expect(
-        //    "Hard-coded string unexpectedly failed to deserialize as a
-        // DeviceKeyAlgorithm.",
-        //);
-
-        //let device_key_id = DeviceKeyId::from_parts(key_algorithm, key_name);
-
-        // TODO: AJB: more properly support an RSA algorithm type?
-
-        let device_key_id =
-            serde_json::from_value(json!("rsa:todo_key_id")).expect("Failed to deserialize x");
-
-        let rsa_signature = self.sign_json_rsa(canonical_json.clone())?;
-        if let Some(rsa_signature) = rsa_signature {
-            cross_signing_key.signatures.add_signature_rsa(signer, device_key_id, rsa_signature);
-        }
-
         Ok(())
     }
 
@@ -894,27 +869,6 @@ impl Account {
     ///   string.
     pub fn sign_json(&self, json: CanonicalJsonValue) -> Result<Ed25519Signature, SignatureError> {
         self.inner.sign_json(json)
-    }
-
-    /// Sign the supplied JSON string with our RSA key.
-    ///
-    /// # Arguments
-    ///
-    /// * `json` - The canonical JSON value to sign string.
-    pub fn sign_json_rsa(
-        &self,
-        json: CanonicalJsonValue,
-    ) -> Result<Option<rsa::pss::Signature>, SignatureError> {
-        let json = to_signable_json(json)?;
-
-        Ok(match &self.rsa_key {
-            Some(rsa_key) => {
-                let mut rng = OsRng::default();
-                let signing_key = rsa::pss::SigningKey::<Sha256>::new(rsa_key.clone());
-                Some(signing_key.sign_with_rng(&mut rng, json.as_bytes()))
-            }
-            None => None,
-        })
     }
 
     /// Sign and prepare one-time keys to be uploaded.

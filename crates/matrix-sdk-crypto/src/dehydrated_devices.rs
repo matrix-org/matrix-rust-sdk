@@ -63,6 +63,7 @@ use crate::{
         types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
     },
     verification::VerificationMachine,
+    x509::X509Keys,
 };
 
 /// Error type for device dehydration issues.
@@ -116,8 +117,13 @@ impl DehydratedDevices {
             store.clone(),
         );
 
-        let store =
-            Store::new(account.static_data().clone(), user_identity, store, verification_machine);
+        let store = Store::new(
+            account.static_data().clone(),
+            user_identity,
+            store,
+            verification_machine,
+            None,
+        );
         store
             .save_pending_changes(crate::store::types::PendingChanges { account: Some(account) })
             .await?;
@@ -149,10 +155,11 @@ impl DehydratedDevices {
         device_id: &DeviceId,
         rsa_key: Option<RsaPrivateKey>,
         device_data: Raw<DehydratedDeviceData>,
+        x509_keys: Option<X509Keys>,
     ) -> Result<RehydratedDevice, DehydrationError> {
         let rehydrated = self
             .inner
-            .rehydrate(pickle_key.inner.as_ref(), device_id, rsa_key, device_data)
+            .rehydrate(pickle_key.inner.as_ref(), device_id, rsa_key, device_data, x509_keys)
             .await?;
 
         Ok(RehydratedDevice { rehydrated, original: self.inner.to_owned() })
@@ -573,7 +580,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &request.device_id, None, request.device_data)
+            .rehydrate(&pickle_key(), &request.device_id, None, request.device_data, None)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -633,7 +640,7 @@ mod tests {
 
         // Rehydrate the device.
         dehydrated_manager
-            .rehydrate(&stored_key, &request.device_id, None, request.device_data)
+            .rehydrate(&stored_key, &request.device_id, None, request.device_data, None)
             .await
             .expect("We should be able to rehydrate the device");
 
@@ -688,7 +695,7 @@ mod tests {
         // Rehydrate the device.
         let rehydrated = bob
             .dehydrated_devices()
-            .rehydrate(&pickle_key(), &device_id, None, request.device_data)
+            .rehydrate(&pickle_key(), &device_id, None, request.device_data, None)
             .await
             .expect("We should be able to rehydrate the device");
 

@@ -1097,7 +1097,7 @@ mod tests {
         use KeyDistributionTestData as DataSet;
 
         // Create the local user (`@me`), and import the public identity keys
-        let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id()).await;
+        let machine = OlmMachine::new(DataSet::me_id(), DataSet::me_device_id(), None, None).await;
         let keys_query = DataSet::me_keys_query_response();
         machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
 
@@ -1872,7 +1872,7 @@ mod tests {
     async fn test_should_not_error_on_unsigned_of_unverified() {
         use VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None, None).await;
 
         // Tell the OlmMachine about our own public keys.
         let own_keys = DataSet::own_keys_query_response_1();
@@ -3186,7 +3186,7 @@ mod tests {
     async fn unsigned_of_verified_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None, None).await;
 
         // Tell the OlmMachine about our own public keys.
         let own_keys = DataSet::own_keys_query_response_1();

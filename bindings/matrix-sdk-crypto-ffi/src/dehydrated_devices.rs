@@ -93,7 +93,9 @@ impl DehydratedDevices {
             inner: ManuallyDrop::new(self.runtime.block_on(self.inner.rehydrate(
                 &key,
                 &device_id,
+                None,
                 device_data,
+                None,
             ))?),
         }
         .into();

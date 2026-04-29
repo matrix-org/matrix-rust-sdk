@@ -111,12 +111,12 @@ macro_rules! cryptostore_integration_tests {
             }
 
             fn get_account() -> Account {
-                Account::with_device_id(alice_id(), alice_device_id())
+                Account::with_device_id(alice_id(), alice_device_id(), None)
             }
 
             pub(crate) async fn get_account_and_session() -> (Account, Session) {
-                let alice = Account::with_device_id(alice_id(), alice_device_id());
-                let mut bob = Account::with_device_id(bob_id(), bob_device_id());
+                let alice = Account::with_device_id(alice_id(), alice_device_id(), None);
+                let mut bob = Account::with_device_id(bob_id(), bob_device_id(), None);
 
                 bob.generate_one_time_keys(1);
                 let one_time_key = *bob.one_time_keys().values().next().unwrap();
@@ -794,11 +794,13 @@ macro_rules! cryptostore_integration_tests {
                 let alice_device_1 = DeviceData::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "FIRSTDEVICE".into(),
+                    None,
                 ));
 
                 let alice_device_2 = DeviceData::from_account(&Account::with_device_id(
                     "@alice:localhost".try_into().unwrap(),
                     "SECONDDEVICE".into(),
+                    None,
                 ));
 
                 let json = json!({
@@ -902,7 +904,7 @@ macro_rules! cryptostore_integration_tests {
 
                 let store = get_store(dir, None, true).await;
 
-                let account = Account::with_device_id(&user_id, device_id);
+                let account = Account::with_device_id(&user_id, device_id, None);
 
                 store.save_pending_changes(PendingChanges { account: Some(account), })
                     .await

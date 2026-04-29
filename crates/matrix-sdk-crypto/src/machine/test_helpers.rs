@@ -80,7 +80,7 @@ pub async fn get_prepared_machine_test_helper(
     user_id: &UserId,
     use_fallback_key: bool,
 ) -> (OlmMachine, OneTimeKeys) {
-    let machine = OlmMachine::new(user_id, bob_device_id(), None).await;
+    let machine = OlmMachine::new(user_id, bob_device_id(), None, None).await;
 
     let request = machine
         .store()
@@ -123,7 +123,7 @@ pub async fn get_machine_pair_using_store(
 ) -> (OlmMachine, OlmMachine, OneTimeKeys) {
     let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
 
-    let alice = OlmMachine::with_store(alice, alice_device_id, None, alice_store, None)
+    let alice = OlmMachine::with_store(alice, alice_device_id, None, alice_store, None, None)
         .await
         .expect("Failed to create OlmMachine from supplied store");
 
@@ -139,7 +139,7 @@ pub async fn get_machine_pair(
     let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
 
     let alice_device = alice_device_id();
-    let alice = OlmMachine::new(alice, alice_device, None).await;
+    let alice = OlmMachine::new(alice, alice_device, None, None).await;
 
     store_each_others_device_data(&alice, &bob).await;
     (alice, bob, otk)

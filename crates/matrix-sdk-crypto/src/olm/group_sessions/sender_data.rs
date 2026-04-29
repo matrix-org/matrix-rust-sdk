@@ -753,7 +753,7 @@ mod tests {
     #[async_test]
     async fn test_from_device_for_unsigned_device() {
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"), None);
         let bob_device = create_unsigned_device(bob_account.device_keys());
 
         let sender_data = SenderData::from_device(&bob_device);
@@ -771,7 +771,7 @@ mod tests {
     async fn test_from_device_for_unverified_user() {
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"), None);
         let bob_device = create_signed_device_of_unverified_user(
             bob_account.device_keys().clone(),
             &bob_identity,
@@ -794,13 +794,16 @@ mod tests {
 
     #[async_test]
     async fn test_from_device_for_verified_user() {
-        let alice_account =
-            Account::with_device_id(user_id!("@alice:example.com"), device_id!("ALICE_DEVICE"));
+        let alice_account = Account::with_device_id(
+            user_id!("@alice:example.com"),
+            device_id!("ALICE_DEVICE"),
+            None,
+        );
         let alice_identity = PrivateCrossSigningIdentity::for_account(&alice_account);
 
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"), None);
         let bob_device = create_signed_device_of_verified_user(
             bob_account.device_keys().clone(),
             &bob_identity,
@@ -826,7 +829,7 @@ mod tests {
     async fn test_from_device_for_verification_violation_user() {
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =
-            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"));
+            Account::with_device_id(user_id!("@bob:example.com"), device_id!("BOB_DEVICE"), None);
         let bob_device =
             create_signed_device_of_unverified_user(bob_account.device_keys(), &bob_identity).await;
         bob_device

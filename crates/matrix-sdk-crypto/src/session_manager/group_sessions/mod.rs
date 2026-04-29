@@ -1202,7 +1202,7 @@ mod tests {
         let keys_query = keys_query_response();
         let txn_id = TransactionId::new();
 
-        let machine = OlmMachine::new(user_id, device_id).await;
+        let machine = OlmMachine::new(user_id, device_id, None, None).await;
 
         // complete a /keys/query and /keys/claim for @example:localhost
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -1601,7 +1601,7 @@ mod tests {
         let keys_query = keys_query_response();
         let txn_id = TransactionId::new();
 
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(alice_id(), alice_device_id(), None, None).await;
 
         machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
         machine.mark_request_as_sent(&txn_id, &bob_keys_query_response()).await.unwrap();
@@ -1655,7 +1655,7 @@ mod tests {
 
     #[async_test]
     async fn test_resend_session_after_unwedging() {
-        let machine = OlmMachine::new(alice_id(), alice_device_id()).await;
+        let machine = OlmMachine::new(alice_id(), alice_device_id(), None, None).await;
         assert_let!(Ok(Some((txn_id, device_keys_request))) = machine.upload_device_keys().await);
         let device_keys_response = upload_keys::v3::Response::new(BTreeMap::from([(
             OneTimeKeyAlgorithm::SignedCurve25519,
@@ -1666,7 +1666,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
 
         let bob_id = user_id!("@bob:localhost");
-        let bob_account = Account::new(bob_id);
+        let bob_account = Account::new(bob_id, None);
         let keys_query_data = json!({
             "device_keys": {
                 "@bob:localhost": {

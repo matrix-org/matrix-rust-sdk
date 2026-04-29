@@ -382,6 +382,8 @@ impl BaseClient {
             None,
             self.crypto_store.clone(),
             custom_account,
+            // TODO: AJB: get existing x509_keys from the existing olm machine
+            None,
         )
         .await
         .map_err(OlmError::from)?;
