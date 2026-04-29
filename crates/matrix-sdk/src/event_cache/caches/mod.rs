@@ -131,7 +131,7 @@ impl Caches {
     /// Get the [`RoomEventCache`].
     ///
     /// [`RoomEventCache`]: room::RoomEventCache
-    pub async fn room(&self) -> &room::RoomEventCache {
+    pub fn room(&self) -> &room::RoomEventCache {
         &self.room
     }
 

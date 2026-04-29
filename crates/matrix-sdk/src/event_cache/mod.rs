@@ -30,6 +30,7 @@
 use std::{
     collections::HashMap,
     fmt,
+    ops::Deref,
     sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
@@ -42,7 +43,7 @@ use matrix_sdk_base::{
     task_monitor::BackgroundTaskHandle,
     timer,
 };
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{EventId, OwnedRoomId, RoomId};
 use tokio::sync::{
     Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
@@ -64,21 +65,23 @@ mod persistence;
 mod redecryptor;
 mod tasks;
 
-use caches::{Caches, room::RoomEventCacheLinkedChunkUpdate};
-pub use caches::{
-    TimelineVectorDiffs,
-    event_focused::EventFocusThreadMode,
-    pagination::{BackPaginationOutcome, PaginationStatus},
-    room::{
-        RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
-        RoomEventCacheUpdate, pagination::RoomPagination,
-    },
-    thread::pagination::ThreadPagination,
-};
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
-pub use crate::event_cache::automatic_pagination::AutomaticPagination;
+use self::caches::{Caches, room::RoomEventCacheLinkedChunkUpdate};
+pub use self::{
+    automatic_pagination::AutomaticPagination,
+    caches::{
+        TimelineVectorDiffs,
+        event_focused::EventFocusThreadMode,
+        pagination::{BackPaginationOutcome, PaginationStatus},
+        room::{
+            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
+            RoomEventCacheUpdate, pagination::RoomPagination,
+        },
+        thread::{ThreadEventCache, pagination::ThreadPagination},
+    },
+};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Clone, Debug)]
@@ -365,9 +368,24 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.all_caches_for_room(room_id).await?.room.clone();
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((room, drop_handles))
+        Ok((caches_for_room.room().clone(), drop_handles))
+    }
+
+    /// Return a thread-specific view over the [`EventCache`].
+    pub async fn thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(ThreadEventCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
     }
 
     /// Cleanly clear all the rooms' event caches.
