@@ -172,8 +172,8 @@ pub struct X509Signature {
 
     pub signature_scheme: SignatureScheme,
 
-    /// The signature itself
-    pub signature: String, // TODO: AJB: what type here?
+    /// The base64-encoded signature itself
+    pub signature: String,
 }
 
 impl X509Signature {
@@ -211,6 +211,12 @@ impl X509Signature {
             "certificates": self.certificate_chain,
             "signature": self.signature,
         })
+    }
+}
+
+impl From<X509Signature> for Signature {
+    fn from(signature: X509Signature) -> Self {
+        Self::X509(signature)
     }
 }
 
@@ -285,29 +291,9 @@ impl Signatures {
         &mut self,
         signer: OwnedUserId,
         key_id: OwnedDeviceKeyId,
-        signature: Ed25519Signature,
+        signature: impl Into<Signature>,
     ) -> Option<Result<Signature, InvalidSignature>> {
         self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
-    }
-
-    /// Add the given signature from the given signer and the given key_id to
-    /// the collection.
-    pub fn add_signature_x509(
-        &mut self,
-        signer: OwnedUserId,
-        key_id: OwnedDeviceKeyId,
-        signature: Vec<u8>,
-    ) -> Option<Result<Signature, InvalidSignature>> {
-        // TODO
-        /*
-        self.0.entry(signer).or_default().insert(
-            key_id,
-            // TODO: AJB: hard-coded empty list of certs
-            Ok(Signature::Rsa(RsaSignature { signature, certificates: Vec::new() })),
-        )
-
-         */
-        None
     }
 
     /// Try to find an Ed25519 signature from the given signer with the given
