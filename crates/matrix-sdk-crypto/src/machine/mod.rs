@@ -2693,7 +2693,7 @@ impl OlmMachine {
     /// # use ruma::{device_id, owned_user_id};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
     /// let device = machine.get_device(&alice, device_id!("DEVICEID"), None).await;
     ///
     /// println!("{:?}", device);
@@ -2751,7 +2751,7 @@ impl OlmMachine {
     /// # use ruma::{device_id, owned_user_id};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
     /// let devices = machine.get_user_devices(&alice, None).await.unwrap();
     ///
     /// for device in devices.devices() {

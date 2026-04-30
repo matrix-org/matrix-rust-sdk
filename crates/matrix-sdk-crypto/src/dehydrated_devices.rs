@@ -249,7 +249,7 @@ impl RehydratedDevice {
     /// // Rehydrate the device.
     /// let rehydrated = machine
     ///     .dehydrated_devices()
-    ///     .rehydrate(&pickle_key, &device_id, response.device_data)
+    ///     .rehydrate(&pickle_key, &device_id, response.device_data, None)
     ///     .await?;
     ///
     /// let mut since_token = None;
