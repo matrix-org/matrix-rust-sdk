@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Added `DmRoomDefinition` as a parameter of `ClientBuilder` so we can specify it when creating a Client. 
+  Also added a `Room::is_dm` method and added some logic to use the new DM definitions in `Client::get_dm_rooms` 
+  and when using message search. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
 - Sharing encrypted history on room invite, per
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) is
   now enabled by default (though can still be disabled via

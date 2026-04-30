@@ -102,6 +102,8 @@ All notable changes to this project will be documented in this file.
   
 ### Refactor
 
+- Use `DmRoomDefinition` to check if a room should be considered part of the `RoomCategory::People` or 
+  `RoomCategory::Room` when using room list filters. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
 - [**breaking**] `AnyOtherStateEventContentChange::RoomAliases` was removed. This state event type
   was removed from the Matrix specification a while ago, and support for it has been removed in Ruma.
   ([#6414](https://github.com/matrix-org/matrix-rust-sdk/pull/6414))

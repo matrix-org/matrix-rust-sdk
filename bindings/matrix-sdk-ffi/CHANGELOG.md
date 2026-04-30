@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `ClientBuilder::dm_room_definition` to customize the DM room definition used by the `Client`, 
+  added `RoomInfo::is_dm` field based on it. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
 - Expose `HumanQrGrantLoginError::Unknown` reason in error message.
   ([#6514](https://github.com/matrix-org/matrix-rust-sdk/pull/6514))
 - Add a list of `declined_by: Vec<String>` to the `TimelineItemContent::RtcNotification`, this will contain the list
