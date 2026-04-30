@@ -116,7 +116,7 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    x509::{X509Data, X509Keys},
+    x509::X509Data,
 };
 
 #[derive(Debug, Serialize)]

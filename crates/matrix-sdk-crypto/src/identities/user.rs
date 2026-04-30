@@ -968,7 +968,7 @@ impl OtherUserIdentityData {
             return false;
         };
 
-        for (key_id, sig) in this_user_sigs {
+        for (_key_id, sig) in this_user_sigs {
             if let Ok(sig) = sig {
                 if verifier.verify_x509_signature(self.user_id(), &msg, sig) {
                     return true;

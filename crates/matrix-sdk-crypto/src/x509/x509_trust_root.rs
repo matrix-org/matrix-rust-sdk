@@ -129,7 +129,7 @@ fn map_user_id_to_email(user_id: &UserId) -> String {
     format!("{}@{}", user_id.localpart(), user_id.server_name())
 }
 
-fn get_email_address_from_certificate_subject(certificate: &CertificateDer) -> Option<String> {
+fn get_email_address_from_certificate_subject(certificate: &CertificateDer<'_>) -> Option<String> {
     use x509_parser::prelude::*;
     let (_, parsed_cert) = X509Certificate::from_der(certificate.as_ref()).ok()?;
     let email = parsed_cert.subject.iter_email().next()?;

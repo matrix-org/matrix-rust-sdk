@@ -62,7 +62,6 @@ use crate::{
         types::{Changes, DehydratedDeviceKey, RoomKeyInfo},
     },
     verification::VerificationMachine,
-    x509::X509Keys,
 };
 
 /// Error type for device dehydration issues.

@@ -34,12 +34,7 @@ use tokio::sync::{Mutex, MutexGuard, OwnedRwLockReadGuard, RwLock};
 use tracing::{Span, field::display, instrument, trace};
 
 use super::{CryptoStoreError, CryptoStoreWrapper};
-use crate::{
-    Account,
-    identities::DeviceData,
-    olm::Session,
-    x509::{X509Data, X509Keys, X509TrustRoot},
-};
+use crate::{Account, identities::DeviceData, olm::Session};
 
 /// In-memory store for Olm Sessions.
 #[derive(Debug, Default, Clone)]
