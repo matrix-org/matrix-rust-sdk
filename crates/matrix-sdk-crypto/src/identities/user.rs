@@ -257,6 +257,9 @@ impl OwnUserIdentity {
         cross_signing_key.signatures.clear();
         account.sign_cross_signing_key(&mut cross_signing_key)?;
 
+        // TODO: AJB: duplicate of
+        // matrix_sdk_crypto::olm::signing::PrivateCrossSigningIdentity::for_account
+
         if let Some(x509_keys) = x509_keys {
             x509_keys.sign_cross_signing_key(&self.user_id, &mut cross_signing_key)?;
         }
@@ -2099,7 +2102,7 @@ pub(crate) mod tests {
      * Creates a new private user identity for the account.
      */
     fn get_verification_machine(account: &Account) -> VerificationMachine {
-        let private_identity = PrivateCrossSigningIdentity::for_account(account);
+        let private_identity = PrivateCrossSigningIdentity::for_account(account, None);
         VerificationMachine::new(
             account.static_data().clone(),
             Arc::new(Mutex::new(private_identity)),

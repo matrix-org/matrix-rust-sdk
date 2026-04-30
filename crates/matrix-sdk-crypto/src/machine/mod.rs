@@ -693,7 +693,7 @@ impl OlmMachine {
             let (identity, upload_signing_keys_req, upload_signatures_req) = {
                 let cache = self.inner.store.cache().await?;
                 let account = cache.account().await?;
-                account.bootstrap_cross_signing().await
+                account.bootstrap_cross_signing(self.inner.store.x509_keys()).await
             };
 
             let public = identity.to_public_identity().await.expect(

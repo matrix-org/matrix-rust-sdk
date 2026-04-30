@@ -35,9 +35,10 @@ use crate::{
     error::SignatureError,
     store::SecretImportError,
     types::{
-        DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
         requests::UploadSigningKeysRequest,
     },
+    x509::X509Keys,
 };
 
 /// Private cross signing identity.
@@ -564,12 +565,26 @@ impl PrivateCrossSigningIdentity {
      *
      * * `account` - The Olm account that is creating the new identity.
      */
-    pub(crate) fn for_account(account: &Account) -> PrivateCrossSigningIdentity {
+    pub(crate) fn for_account(
+        account: &Account,
+        x509_keys: Option<&X509Keys>,
+    ) -> PrivateCrossSigningIdentity {
         let mut master = MasterSigning::new(account.user_id().into());
 
+        // TODO: AJB: some duplication with
+        // matrix_sdk_crypto::identities::user::OwnUserIdentity::verify
+
+        let cross_signing_key: &mut CrossSigningKey = &mut *master.public_key_mut().as_mut();
+
         account
-            .sign_cross_signing_key(master.public_key_mut().as_mut())
+            .sign_cross_signing_key(cross_signing_key)
             .expect("Can't sign our freshly created master key with our account");
+
+        if let Some(x509_keys) = x509_keys {
+            x509_keys
+                .sign_cross_signing_key(&account.user_id, cross_signing_key)
+                .expect("Can't sign our freshly created master key with our X.509 key");
+        }
 
         Self::new_helper(account.user_id(), master)
     }
@@ -749,7 +764,7 @@ mod tests {
     #[async_test]
     async fn test_private_identity_signed_by_account() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
+        let identity = PrivateCrossSigningIdentity::for_account(&account, None);
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 
@@ -772,7 +787,7 @@ mod tests {
     #[async_test]
     async fn test_sign_device() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
+        let identity = PrivateCrossSigningIdentity::for_account(&account, None);
 
         let mut device = DeviceData::from_account(&account);
         let self_signing = identity.self_signing_key.lock().await;
@@ -789,11 +804,11 @@ mod tests {
     #[async_test]
     async fn test_sign_user_identity() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
+        let identity = PrivateCrossSigningIdentity::for_account(&account, None);
 
         let bob_account =
             Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
-        let bob_private = PrivateCrossSigningIdentity::for_account(&bob_account);
+        let bob_private = PrivateCrossSigningIdentity::for_account(&bob_account, None);
         let mut bob_public = OtherUserIdentityData::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;

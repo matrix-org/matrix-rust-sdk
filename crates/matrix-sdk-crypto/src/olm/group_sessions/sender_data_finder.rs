@@ -915,7 +915,7 @@ mod tests {
             let account = Account::with_device_id(user_id, device_id);
             let user_id = user_id.to_owned();
             let private_identity =
-                Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
+                Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account, None)));
 
             let user_identity =
                 create_user_identity(&*private_identity.lock().await, is_me, is_verified, signer)

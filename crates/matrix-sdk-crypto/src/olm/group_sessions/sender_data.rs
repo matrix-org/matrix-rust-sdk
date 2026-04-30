@@ -796,7 +796,7 @@ mod tests {
     async fn test_from_device_for_verified_user() {
         let alice_account =
             Account::with_device_id(user_id!("@alice:example.com"), device_id!("ALICE_DEVICE"));
-        let alice_identity = PrivateCrossSigningIdentity::for_account(&alice_account);
+        let alice_identity = PrivateCrossSigningIdentity::for_account(&alice_account, None);
 
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));
         let bob_account =

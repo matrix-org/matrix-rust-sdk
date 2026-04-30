@@ -372,9 +372,7 @@ impl BaseClient {
 
         // Make aws_lc_rs the default crypto provider for rustls
         // TODO RAV: move this elsewhere? Or maybe we already have it
-        rustls::crypto::aws_lc_rs::default_provider()
-            .install_default()
-            .expect("unable to install default provider");
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
         let x509data = X509Data::from_pem_data(CA_CERTS, PRIVATE_KEY_PEM, CERT_CHAIN_PEM);
 
