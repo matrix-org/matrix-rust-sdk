@@ -1447,6 +1447,18 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    async fn get_custom_value(&self, _: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(None)
+    }
+
+    async fn set_custom_value(&self, _: &str, _: Vec<u8>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn remove_custom_value(&self, _: &str) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(self.vacuum().await?)
     }

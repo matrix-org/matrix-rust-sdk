@@ -1271,6 +1271,18 @@ mod tests {
             self.memory_store.save_event(room_id, event).await
         }
 
+        async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+            self.memory_store.get_custom_value(key).await
+        }
+
+        async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+            self.memory_store.set_custom_value(key, value).await
+        }
+
+        async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+            self.memory_store.remove_custom_value(key).await
+        }
+
         async fn optimize(&self) -> Result<(), Self::Error> {
             self.memory_store.optimize().await
         }

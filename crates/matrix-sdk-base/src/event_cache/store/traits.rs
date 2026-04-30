@@ -176,6 +176,16 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
+    /// Get the value (as bytes) that is associated with the provided key from
+    /// the store.
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error>;
+
+    /// Store the provided key and associated value in the store.
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error>;
+
+    /// Remove the provided key and its associated value from the store.
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error>;
+
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
     ///
@@ -292,6 +302,18 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
+    }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        self.0.get_custom_value(key).await.map_err(Into::into)
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+        self.0.set_custom_value(key, value).await.map_err(Into::into)
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+        self.0.remove_custom_value(key).await.map_err(Into::into)
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {
