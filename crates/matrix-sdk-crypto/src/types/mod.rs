@@ -381,7 +381,9 @@ impl<'de> Deserialize<'de> for Signatures {
                                 } else {
                                     Ok(Signature::Other(
                                         s.as_str()
-                                            .expect("TODO: AJB: deal with non-str JSON object")
+                                            .unwrap_or(
+                                                "<<TODO: AJB: deal with non-str JSON object>>",
+                                            )
                                             .to_owned(),
                                     ))
                                 }
