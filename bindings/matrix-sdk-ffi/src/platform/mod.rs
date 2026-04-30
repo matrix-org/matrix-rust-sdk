@@ -745,10 +745,10 @@ fn setup_multithreaded_tokio_runtime() {
 
         let mut builder = tokio::runtime::Builder::new_multi_thread();
         builder.enable_all();
-        #[cfg(target_os = "android")]
-        builder.on_thread_start(|| {
-            _ = android_platform::android_attach_current_thread_permanently();
-        });
+        // #[cfg(target_os = "android")]
+        // builder.on_thread_start(|| {
+        //     _ = android_platform::android_attach_current_thread_permanently();
+        // });
         builder
     }));
 }

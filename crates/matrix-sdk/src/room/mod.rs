@@ -30,6 +30,7 @@ use futures_util::{
     StreamExt, future::join_all, stream as futures_stream, stream::FuturesUnordered,
 };
 use http::StatusCode;
+use itertools::Itertools;
 #[cfg(feature = "e2e-encryption")]
 pub use identity_status_changes::IdentityStatusChanges;
 #[cfg(feature = "experimental-encrypted-state-events")]
@@ -613,15 +614,32 @@ impl Room {
         let http_response = self.client.send(request).await?;
 
         let push_ctx = self.push_context().await?;
+        warn!("Decrypting events: {}", http_response.chunk.len());
         let chunk = join_all(
-            http_response.chunk.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx.as_ref())),
+            http_response.chunk.into_iter().map(|ev| {
+                timeout(self.try_decrypt_event(ev, push_ctx.as_ref()), Duration::from_secs(5))
+            }),
         )
         .await;
 
+        let chunk = chunk.into_iter().filter_map(|event| {
+            match event {
+                Ok(event) => Some(event),
+                Err(e) => {
+                    error!(?e, "Failed to decrypt event (timeout)");
+                    None
+                }
+            }
+        }).collect_vec();
+
+        warn!("Saving eventsΩ");
         // Save the loaded events into the event cache, if it's set up.
         if let Ok((cache, _handles)) = self.event_cache().await {
+            warn!("Got room event cache to save events");
             cache.save_events(chunk.clone()).await;
         }
+
+        warn!("Saved events, returning from 'messages'");
 
         Ok(Messages {
             start: http_response.start,

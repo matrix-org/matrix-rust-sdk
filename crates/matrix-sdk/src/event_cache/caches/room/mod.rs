@@ -389,8 +389,11 @@ impl RoomEventCache {
     pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
         match self.inner.state.write().await {
             Ok(mut state_guard) => {
+                warn!("Got write lock in the event cache");
                 if let Err(err) = state_guard.save_events(events).await {
                     warn!("couldn't save event in the event cache: {err}");
+                } else {
+                    warn!("Successfully saved events in the event cache. Write lock is now gone.");
                 }
             }
 

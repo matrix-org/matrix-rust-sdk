@@ -1348,16 +1348,21 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         let store = self.store.clone();
         let room_id = self.state.room_id.clone();
         let events = events.into_iter().collect::<Vec<_>>();
+        let size = events.len();
+        warn!("Saving events into cache: {size}");
 
         // Spawn a task so the save is uninterrupted by task cancellation.
         spawn(async move {
-            for event in events {
+            for (idx,event) in events.into_iter().enumerate() {
                 store.save_event(&room_id, event).await?;
+                warn!("Saving item {}/{}", idx+1, size);
             }
             super::Result::Ok(())
         })
         .await
         .expect("joining failed")?;
+
+        warn!("Finished saving events: {}", size);
 
         Ok(())
     }

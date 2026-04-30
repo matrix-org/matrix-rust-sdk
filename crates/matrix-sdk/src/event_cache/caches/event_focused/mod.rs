@@ -42,7 +42,7 @@ use tokio::sync::{
     RwLock,
     broadcast::{Receiver, Sender},
 };
-use tracing::{instrument, trace};
+use tracing::{instrument, trace, warn};
 
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor::ResolvedUtd;
@@ -312,6 +312,8 @@ impl EventFocusedCacheInner {
             }
         };
 
+        warn!("received {} events from /messages endpoint", events.len());
+
         // Events are in the reverse order, per the API contracts defined in the two
         // fetch methods.
         events.reverse();
@@ -319,10 +321,13 @@ impl EventFocusedCacheInner {
         let hit_end = new_token.is_none();
         let new_gap = new_token.map(|t| Gap { token: t });
 
+        warn!("calling push_backwards_pagination_events");
         // Replace the gap and insert the new events.
         self.chunk.push_backwards_pagination_events(Some(gap_id), new_gap, &events);
 
+        warn!("calling propagate_changes");
         self.propagate_changes();
+        warn!("calling notify_subscribers");
         self.notify_subscribers(EventsOrigin::Pagination);
 
         Ok(PaginationResult { events, hit_end_of_timeline: hit_end })
