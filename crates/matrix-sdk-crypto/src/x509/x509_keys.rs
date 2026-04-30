@@ -17,7 +17,7 @@ use std::sync::Arc;
 use ruma::{UserId, canonical_json::to_canonical_value};
 use rustls::{
     SignatureScheme,
-    crypto::CryptoProvider,
+    crypto::aws_lc_rs,
     pki_types::{PrivateKeyDer, pem::PemObject},
     sign::SigningKey,
 };
@@ -43,7 +43,7 @@ pub struct X509Keys {
 
 impl X509Keys {
     pub(crate) fn new_from_pem_data(certificate_chain_pem: &str, private_key_pem: &str) -> Self {
-        let provider = CryptoProvider::get_default().expect("unable to get default provider");
+        let provider = aws_lc_rs::default_provider();
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
             .expect("unable to parse private key");
         let signing_key: Arc<dyn SigningKey> = provider

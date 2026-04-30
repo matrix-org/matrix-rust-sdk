@@ -2,7 +2,10 @@ use std::{ops::Deref, sync::Arc};
 
 use rustls::{
     RootCertStore, SignatureScheme,
-    crypto::{CryptoProvider, aws_lc_rs},
+    crypto::{
+        CryptoProvider,
+        aws_lc_rs::{self, default_provider},
+    },
     pki_types::{CertificateDer, PrivateKeyDer, UnixTime, pem::PemObject},
     server::WebPkiClientVerifier,
     sign::SigningKey,
@@ -32,14 +35,14 @@ const PRIVATE_KEY_PEM: &[u8] = include_bytes!("key.pem");
  */
 
 fn main() {
-    aws_lc_rs::default_provider().install_default().expect("unable to install default provider");
+    default_provider().install_default().expect("unable to install default provider");
     let sig = build_signature();
     verify(sig);
 }
 
 /// upload side
 fn build_signature() -> Vec<u8> {
-    let provider = CryptoProvider::get_default().expect("unable to get default provider");
+    let provider = default_provider();
     let private_key =
         PrivateKeyDer::from_pem_slice(PRIVATE_KEY_PEM).expect("unable to parse private key");
     let private_key: Arc<dyn SigningKey> =
@@ -81,7 +84,7 @@ fn verify(sig: Vec<u8>) {
     let email = parsed_cert.subject.iter_email().next().expect("No email in subject");
     dbg!(&email.as_str().unwrap());
 
-    let provider = CryptoProvider::get_default().expect("unable to get default provider");
+    let provider = default_provider();
 
     let alg = provider
         .signature_verification_algorithms
