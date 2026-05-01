@@ -29,7 +29,7 @@ use crate::timeline::{VirtualTimelineItem, traits::RoomDataProvider as _};
 
 #[async_test]
 async fn test_date_divider() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -91,7 +91,7 @@ async fn test_date_divider() {
 
 #[async_test]
 async fn test_update_read_marker() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let own_user = timeline.controller.room_data_provider.own_user_id().to_owned();

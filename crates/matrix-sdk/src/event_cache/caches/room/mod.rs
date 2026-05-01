@@ -1197,7 +1197,7 @@ mod timed_tests {
         }
 
         // After clearing,…
-        room_event_cache.clear().await.unwrap();
+        event_cache.clear_all_rooms().await.unwrap();
 
         //… we get an update that the content has been cleared.
         assert_let_timeout!(
@@ -1214,15 +1214,14 @@ mod timed_tests {
         assert_eq!(received_room_id, room_id);
         assert!(generic_stream.is_empty());
 
-        // Events individually are not forgotten by the event cache, after clearing a
-        // room.
-        assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
+        // Events are forgotten by the event cache, after clearing a room.
+        assert!(room_event_cache.find_event(event_id1).await.unwrap().is_none());
 
-        // But their presence in a linked chunk is forgotten.
+        // And their presence in a linked chunk is forgotten.
         let items = room_event_cache.events().await.unwrap();
         assert!(items.is_empty());
 
-        // The event cache store too.
+        // The event cache store is fully empty.
         let linked_chunk = from_all_chunks::<3, _, _>(
             event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
         )
