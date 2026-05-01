@@ -33,7 +33,10 @@ async fn bootstrap(client: Client, user_id: OwnedUserId, password: String) -> Re
                     you first need to approve it at {}",
                     oauth.approval_url
                 );
-                handle.auth(None).await?;
+
+                let mut oauth_data = uiaa::OAuth::new();
+                oauth_data.session = oauth.session.clone();
+                handle.auth(Some(uiaa::AuthData::OAuth(oauth_data))).await?;
             }
         }
     }

@@ -32,7 +32,9 @@ use matrix_sdk::{
     encryption::{CrossSigningResetAuthType, recovery::RecoveryState},
     room::Room,
     ruma::{
-        api::client::discovery::get_authorization_server_metadata::v1::AccountManagementActionData,
+        api::client::{
+            discovery::get_authorization_server_metadata::v1::AccountManagementActionData, uiaa,
+        },
         events::room::message::{MessageType, OriginalSyncRoomMessageEvent},
         serde::Raw,
     },
@@ -354,7 +356,10 @@ impl OAuthCli {
                         you first need to approve it at {}",
                         o.approval_url
                     );
-                    handle.auth(None).await?;
+
+                    let mut oauth_data = uiaa::OAuth::new();
+                    oauth_data.session = o.session.clone();
+                    handle.auth(Some(uiaa::AuthData::OAuth(oauth_data))).await?;
                 }
             }
         }
