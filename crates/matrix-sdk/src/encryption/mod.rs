@@ -435,6 +435,9 @@ impl CrossSigningResetAuthType {
 pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: Url,
+
+    /// Session key to use to complete the authentication.
+    pub session: Option<String>,
 }
 
 impl OAuthCrossSigningResetInfo {
@@ -443,7 +446,10 @@ impl OAuthCrossSigningResetInfo {
             return Ok(None);
         };
 
-        Ok(Some(OAuthCrossSigningResetInfo { approval_url: parameters.url.as_str().try_into()? }))
+        Ok(Some(OAuthCrossSigningResetInfo {
+            approval_url: parameters.url.as_str().try_into()?,
+            session: auth_info.session.clone(),
+        }))
     }
 }
 
@@ -1400,11 +1406,11 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use matrix_sdk::{ruma::api::client::uiaa, Client, encryption::CrossSigningResetAuthType};
-    /// # use url::Url;
+    /// use matrix_sdk::{ruma::api::client::uiaa, encryption::CrossSigningResetAuthType};
+    ///
     /// # async {
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
+    /// # let homeserver = url::Url::parse("http://example.com")?;
+    /// # let client = matrix_sdk::Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
     ///
@@ -1425,7 +1431,11 @@ impl Encryption {
     ///                 you first need to approve it at {}",
     ///                 o.approval_url
     ///             );
-    ///             handle.auth(None).await?;
+    ///
+    ///             let mut oauth = uiaa::OAuth::new();
+    ///             oauth.session = o.session;
+    ///
+    ///             handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await?;
     ///         }
     ///     }
     /// }
