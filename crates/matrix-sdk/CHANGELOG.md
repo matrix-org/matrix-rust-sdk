@@ -143,6 +143,9 @@ All notable changes to this project will be documented in this file.
 
 ### Bugfix
 
+- Add the `session` key in `OAuthCrossSigningResetInfo`, allowing to provide `AuthData::OAuth` in
+  `CrossSigningResetHandle::auth()`, to match the behavior described in the Matrix spec.
+  ([#6525](https://github.com/matrix-org/matrix-rust-sdk/pull/6525))
 - When threads are enabled, a focused event timeline is used and the focused event is not part of a thread, 
   hide other threaded events by default like it happens on the live focus timeline. 
   ([#6519](https://github.com/matrix-org/matrix-rust-sdk/pull/6519))
