@@ -27,22 +27,25 @@ use futures_core::Stream;
 use imbl::vector;
 use indexmap::IndexMap;
 use matrix_sdk::{
+    Client,
     deserialized_responses::TimelineEvent,
     paginators::{PaginableRoom, PaginatorError, thread::PaginableThread},
     room::{EventWithContextResponse, Messages, MessagesOptions, Relations},
     send_queue::RoomSendQueueUpdate,
+    test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::{RoomInfo, RoomState, crypto::types::events::CryptoContextInfo};
 use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
-    TransactionId, UInt, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId,
+    OwnedUserId, RoomId, TransactionId, UInt, UserId,
     events::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
         relation::Annotation,
     },
+    room_id,
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
@@ -110,20 +113,35 @@ impl TestTimelineBuilder {
         self
     }
 
-    fn build(self) -> TestTimeline {
+    async fn build(self) -> TestTimeline {
+        let room_data_provider = self.provider.unwrap_or_default();
+
+        // Create the room for the event cache.
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let _room = server.sync_joined_room(&client, room_data_provider.room_id()).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
         let controller = TimelineController::new(
-            self.provider.unwrap_or_default(),
-            self.focus.unwrap_or(TimelineFocus::Live { hide_threaded_events: false }),
+            room_data_provider,
+            &self.focus.unwrap_or(TimelineFocus::Live { hide_threaded_events: false }),
+            event_cache,
             self.internal_id_prefix,
             self.utd_hook,
             self.is_room_encrypted,
             self.settings.unwrap_or_default(),
-        );
-        TestTimeline { controller, factory: EventFactory::new() }
+        )
+        .await
+        .unwrap();
+
+        TestTimeline { _client: client, controller, factory: EventFactory::new() }
     }
 }
 
 struct TestTimeline {
+    _client: Client,
     controller: TimelineController<TestRoomDataProvider>,
 
     /// An [`EventFactory`] that can be used for creating events in this
@@ -132,8 +150,8 @@ struct TestTimeline {
 }
 
 impl TestTimeline {
-    fn new() -> Self {
-        TestTimelineBuilder::new().build()
+    async fn new() -> Self {
+        TestTimelineBuilder::new().build().await
     }
 
     /// Returns the associated inner data from that [`TestTimeline`].
@@ -239,6 +257,9 @@ type ReadReceiptMap =
 
 #[derive(Clone, Debug, Default)]
 struct TestRoomDataProvider {
+    /// The room ID.
+    room_id: Option<OwnedRoomId>,
+
     /// The ID of our own user.
     own_user_id: Option<OwnedUserId>,
 
@@ -304,6 +325,10 @@ impl PaginableThread for TestRoomDataProvider {
 }
 
 impl RoomDataProvider for TestRoomDataProvider {
+    fn room_id(&self) -> &RoomId {
+        self.room_id.as_deref().unwrap_or(room_id!("!r0"))
+    }
+
     fn own_user_id(&self) -> &UserId {
         self.own_user_id.as_deref().unwrap_or(&ALICE)
     }

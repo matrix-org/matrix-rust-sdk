@@ -14,7 +14,7 @@ use crate::timeline::{EventTimelineItem, event_item::PollState, tests::TestTimel
 
 #[async_test]
 async fn test_poll_is_displayed() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_state = timeline.poll_state().await;
@@ -25,7 +25,7 @@ async fn test_poll_is_displayed() {
 
 #[async_test]
 async fn test_edited_poll_is_displayed() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let event = timeline.poll_event().await;
@@ -42,7 +42,7 @@ async fn test_edited_poll_is_displayed() {
 
 #[async_test]
 async fn test_voting_adds_the_vote_to_the_results() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
@@ -56,7 +56,7 @@ async fn test_voting_adds_the_vote_to_the_results() {
 
 #[async_test]
 async fn test_ending_a_poll_sets_end_time_to_results() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
@@ -69,7 +69,7 @@ async fn test_ending_a_poll_sets_end_time_to_results() {
 
 #[async_test]
 async fn test_only_the_last_vote_from_a_user_is_counted() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
@@ -86,7 +86,7 @@ async fn test_only_the_last_vote_from_a_user_is_counted() {
 
 #[async_test]
 async fn test_votes_after_end_are_discarded() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
@@ -103,7 +103,7 @@ async fn test_votes_after_end_are_discarded() {
 
 #[async_test]
 async fn test_multiple_end_events_are_discarded() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
@@ -123,7 +123,7 @@ async fn test_multiple_end_events_are_discarded() {
 
 #[async_test]
 async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
     let poll_id = timeline.poll_event().await.event_id().unwrap().to_owned();
 
@@ -155,7 +155,7 @@ async fn test_a_somewhat_complex_voting_session_yields_the_expected_outcome() {
 
 #[async_test]
 async fn test_events_received_before_start_are_not_lost() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let poll_id: OwnedEventId = EventId::new_v1(server_name!("dummy.server"));
 
     // Alice votes
@@ -184,7 +184,7 @@ async fn test_events_received_before_start_are_not_lost() {
 
 #[async_test]
 async fn test_adding_response_doesnt_clear_latest_json_edit() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     // Alice sends the poll.
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
@@ -205,7 +205,7 @@ async fn test_adding_response_doesnt_clear_latest_json_edit() {
 
 #[async_test]
 async fn test_ending_poll_doesnt_clear_latest_json_edit() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     // Alice sends the poll.
     timeline.send_poll_start(&ALICE, fakes::poll_a()).await;
@@ -227,7 +227,7 @@ async fn test_ending_poll_doesnt_clear_latest_json_edit() {
 
 #[async_test]
 async fn test_poll_contains_relations() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     let thread_root_id = event_id!("$thread_root");
     let in_reply_to_id = event_id!("$in_reply_to");
