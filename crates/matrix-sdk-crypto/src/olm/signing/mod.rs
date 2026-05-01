@@ -38,7 +38,7 @@ use crate::{
         CrossSigningKey, DeviceKeys, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
         requests::UploadSigningKeysRequest,
     },
-    x509::X509Keys,
+    x509::X509Signer,
 };
 
 /// Private cross signing identity.
@@ -567,7 +567,7 @@ impl PrivateCrossSigningIdentity {
      */
     pub(crate) fn for_account(
         account: &Account,
-        x509_keys: Option<&X509Keys>,
+        x509_signer: Option<&X509Signer>,
     ) -> PrivateCrossSigningIdentity {
         let mut master = MasterSigning::new(account.user_id().into());
 
@@ -580,8 +580,8 @@ impl PrivateCrossSigningIdentity {
             .sign_cross_signing_key(cross_signing_key)
             .expect("Can't sign our freshly created master key with our account");
 
-        if let Some(x509_keys) = x509_keys {
-            x509_keys
+        if let Some(x509_signer) = x509_signer {
+            x509_signer
                 .sign_cross_signing_key(&account.user_id, cross_signing_key)
                 .expect("Can't sign our freshly created master key with our X.509 key");
         }

@@ -82,7 +82,6 @@ use crate::{
         SecretsBundle,
     },
     verification::VerificationMachine,
-    x509::X509Keys,
 };
 #[cfg(doc)]
 use crate::{backups::BackupMachine, identities::OwnUserIdentity};
@@ -116,7 +115,7 @@ pub use crate::{
 };
 use crate::{
     types::{events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle},
-    x509::{X509Data, X509TrustRoot},
+    x509::{X509Data, X509Signer, X509Verifier},
 };
 
 /// A wrapper for our CryptoStore trait object.
@@ -583,12 +582,12 @@ impl Store {
         &self.inner.static_account
     }
 
-    pub(crate) fn x509_keys(&self) -> Option<&X509Keys> {
-        self.inner.x509_data.as_ref().map(|data| &data.x509_key)
+    pub(crate) fn x509_signer(&self) -> Option<&X509Signer> {
+        self.inner.x509_data.as_ref().and_then(|data| data.x509_signer.as_ref())
     }
 
-    pub(crate) fn x509_trust_root(&self) -> Option<&X509TrustRoot> {
-        self.inner.x509_data.as_ref().map(|data| &data.x509_trust_root)
+    pub(crate) fn x509_verifier(&self) -> Option<&X509Verifier> {
+        self.inner.x509_data.as_ref().and_then(|data| data.x509_verifier.as_ref())
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {

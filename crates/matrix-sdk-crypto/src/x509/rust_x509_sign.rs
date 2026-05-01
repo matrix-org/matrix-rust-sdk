@@ -14,25 +14,18 @@
 
 use std::sync::Arc;
 
-use ruma::{UserId, canonical_json::to_canonical_value};
 use rustls::{
     SignatureScheme,
     crypto::aws_lc_rs,
     pki_types::{PrivateKeyDer, pem::PemObject},
     sign::SigningKey,
 };
-use serde::Serialize;
-use serde_json::json;
 use vodozemac::base64_encode;
 
-use crate::{
-    SignatureError,
-    olm::utility::to_signable_json,
-    types::{CrossSigningKey, X509Signature},
-};
+use crate::{SignatureError, types::X509Signature, x509::x509_signer::X509Sign};
 
 #[derive(Clone)]
-pub struct X509Keys {
+pub struct RustX509Sign {
     /// The PEM-encoded certificate chain, starting with the device's own
     /// certificate, followed by intermediate certificates.
     certificate_chain: String,
@@ -41,7 +34,7 @@ pub struct X509Keys {
     signing_key: Arc<dyn SigningKey>,
 }
 
-impl X509Keys {
+impl RustX509Sign {
     pub(crate) fn new_from_pem_data(certificate_chain_pem: &str, private_key_pem: &str) -> Self {
         let provider = aws_lc_rs::default_provider();
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
@@ -53,32 +46,13 @@ impl X509Keys {
 
         Self { certificate_chain: certificate_chain_pem.to_owned(), signing_key }
     }
+}
 
-    /// Add a signature to the given cross-signing key using our private key
-    pub(crate) fn sign_cross_signing_key(
-        &self,
-        signing_user_id: &UserId,
-        cross_signing_key: &mut CrossSigningKey,
-    ) -> Result<(), SignatureError> {
-        let signature = self.sign_object(&cross_signing_key)?;
-
-        // TODO RAV: key id
-        let device_key_id = serde_json::from_value(json!("x509:todo_key_id"))
-            .expect("Failed to deserialize device key id");
-
-        cross_signing_key.signatures.add_signature(
-            signing_user_id.to_owned(),
-            device_key_id,
-            signature,
-        );
-
-        Ok(())
-    }
-
-    /// Create a signature for the given object using our private key
-    fn sign_object<T: Serialize>(&self, object: &T) -> Result<X509Signature, SignatureError> {
-        let json = to_signable_json(to_canonical_value(object)?)?;
-
+impl X509Sign for RustX509Sign {
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    fn sign(&self, message: &[u8]) -> Result<(String, X509Signature), SignatureError> {
         // TODO RAV: error handling
 
         let signature_scheme = SignatureScheme::RSA_PSS_SHA512;
@@ -87,16 +61,20 @@ impl X509Keys {
             .choose_scheme(&[signature_scheme])
             .expect("unable to choose signature scheme");
 
-        let signature = signer.sign(json.as_bytes()).expect("unable to sign");
-        Ok(X509Signature {
-            certificate_chain: self.certificate_chain.clone(),
-            signature_scheme,
-            signature: base64_encode(signature),
-        })
+        let signature = signer.sign(message).expect("unable to sign");
+        // TODO RAV: key id
+        Ok((
+            "x509:todo_key_id".to_owned(),
+            X509Signature {
+                certificate_chain: self.certificate_chain.clone(),
+                signature_scheme,
+                signature: base64_encode(signature),
+            },
+        ))
     }
 }
 
-impl std::fmt::Debug for X509Keys {
+impl std::fmt::Debug for RustX509Sign {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("X509Keys").field(&"<redacted>".to_owned()).finish()
     }

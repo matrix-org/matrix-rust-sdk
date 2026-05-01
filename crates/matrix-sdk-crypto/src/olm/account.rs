@@ -77,7 +77,7 @@ use crate::{
         },
         requests::UploadSigningKeysRequest,
     },
-    x509::X509Keys,
+    x509::X509Signer,
 };
 
 #[derive(Debug)]
@@ -815,9 +815,9 @@ impl Account {
     ///   this device to the server.
     pub async fn bootstrap_cross_signing(
         &self,
-        x509_keys: Option<&X509Keys>,
+        x509_signer: Option<&X509Signer>,
     ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
-        let identity = PrivateCrossSigningIdentity::for_account(self, x509_keys);
+        let identity = PrivateCrossSigningIdentity::for_account(self, x509_signer);
 
         let signature_request = identity
             .sign_account(self.static_data())

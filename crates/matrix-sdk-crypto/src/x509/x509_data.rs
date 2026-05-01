@@ -12,15 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::x509::{X509Keys, X509TrustRoot};
+use std::{fmt::Debug, sync::Arc};
+
+use crate::x509::{
+    rust_x509_sign::RustX509Sign, rust_x509_verify::RustX509Verify, x509_signer::X509Signer,
+    x509_verify::X509Verifier,
+};
 
 #[derive(Debug, Clone)]
 pub struct X509Data {
     /// Private key for this device
-    pub x509_key: X509Keys,
+    pub x509_signer: Option<X509Signer>,
 
     /// Trusted root certificates
-    pub x509_trust_root: X509TrustRoot,
+    pub x509_verifier: Option<X509Verifier>,
 }
 
 impl X509Data {
@@ -29,8 +34,13 @@ impl X509Data {
         //   certificate chain here, to catch configuration errors early.
 
         X509Data {
-            x509_key: X509Keys::new_from_pem_data(cert_chain_pem, private_key_pem),
-            x509_trust_root: X509TrustRoot::new_from_pem_data(ca_certs_pem),
+            x509_signer: Some(X509Signer::new(Arc::new(RustX509Sign::new_from_pem_data(
+                cert_chain_pem,
+                private_key_pem,
+            )))),
+            x509_verifier: Some(X509Verifier::new(Arc::new(RustX509Verify::new_from_pem_data(
+                ca_certs_pem,
+            )))),
         }
     }
 }

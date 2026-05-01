@@ -30,7 +30,7 @@ use ruma::{
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use tracing::{error, info};
 
 use crate::{
@@ -46,7 +46,7 @@ use crate::{
         requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
-    x509::X509TrustRoot,
+    x509::{X509Signer, X509Verifier},
 };
 
 /// Enum over the different user identity types we can have.
@@ -90,14 +90,14 @@ impl UserIdentity {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                // X509TrustRoot holds an Arc so cloning it gives us a reference to the single
+                // X509Verifier holds an Arc so cloning it gives us a reference to the single
                 // underlying ClientCertVerifier
-                let x509_trust_root = store.x509_trust_root().cloned();
+                let x509_verifier = store.x509_verifier().cloned();
 
                 Self::Other(OtherUserIdentity {
                     inner: i,
                     own_identity,
-                    x509_trust_root,
+                    x509_verifier,
                     verification_machine,
                 })
             }
@@ -243,7 +243,7 @@ impl OwnUserIdentity {
 
         let cache = self.store.cache().await?;
         let account = cache.account().await?;
-        let x509_keys = self.store.x509_keys();
+        let x509_signer = self.store.x509_signer();
 
         let public_key = self
             .master_key
@@ -260,8 +260,8 @@ impl OwnUserIdentity {
         // TODO: AJB: duplicate of
         // matrix_sdk_crypto::olm::signing::PrivateCrossSigningIdentity::for_account
 
-        if let Some(x509_keys) = x509_keys {
-            x509_keys.sign_cross_signing_key(&self.user_id, &mut cross_signing_key)?;
+        if let Some(x509_signer) = x509_signer {
+            x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key)?;
         }
 
         let mut user_signed_keys = SignedKeys::new();
@@ -346,7 +346,7 @@ pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
-    pub(crate) x509_trust_root: Option<X509TrustRoot>,
+    pub(crate) x509_verifier: Option<X509Verifier>,
 }
 
 impl Deref for OtherUserIdentity {
@@ -374,9 +374,9 @@ impl OtherUserIdentity {
             return true;
         }
 
-        // If we have an X.509 trust root, we can use that to verify the user
-        if let Some(x509_trust_root) = &self.x509_trust_root {
-            if self.inner.verify_x509_signatures(x509_trust_root) {
+        // If we have an X.509 verifier, we can use that to verify the user
+        if let Some(x509_verifier) = &self.x509_verifier {
+            if self.inner.verify_x509_signatures(x509_verifier) {
                 return true;
             }
         }
@@ -957,7 +957,7 @@ impl OtherUserIdentityData {
 
     /// Check if the master key on this identity has been signed by an
     /// X509-certificated key.
-    pub(crate) fn verify_x509_signatures(&self, verifier: &X509TrustRoot) -> bool {
+    pub(crate) fn verify_x509_signatures(&self, verifier: &X509Verifier) -> bool {
         let Some(this_user_sigs) = self.master_key.signatures().get(&self.user_id) else {
             return false;
         };
@@ -2091,7 +2091,7 @@ pub(crate) mod tests {
             inner: other_user_identity_data,
             own_identity: Some(own_identity_data),
             verification_machine,
-            x509_trust_root: None,
+            x509_verifier: None,
         }
     }
 

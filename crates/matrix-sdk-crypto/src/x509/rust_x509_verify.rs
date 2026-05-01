@@ -23,14 +23,17 @@ use rustls::{
 };
 use webpki::EndEntityCert;
 
-use crate::types::Signature;
+use crate::{
+    types::{Signature, X509Signature},
+    x509::x509_verify::X509Verify,
+};
 
 #[derive(Debug, Clone)]
-pub struct X509TrustRoot {
+pub struct RustX509Verify {
     verifier: Arc<dyn ClientCertVerifier>,
 }
 
-impl X509TrustRoot {
+impl RustX509Verify {
     pub fn new(verifier: Arc<dyn ClientCertVerifier>) -> Self {
         Self { verifier }
     }
@@ -49,18 +52,10 @@ impl X509TrustRoot {
 
         Self { verifier }
     }
+}
 
-    /// Check if the given signature is a valid X.509 signature for the given
-    /// message.
-    ///
-    /// Also validates that the certificate used for the signature is issued via
-    /// one of our trusted CAs, and was issued to the given user id.
-    pub fn verify_x509_signature(&self, user_id: &UserId, message: &str, sig: &Signature) -> bool {
-        let Signature::X509(sig) = sig else {
-            // Not an error: just the wrong type of signature.
-            return false;
-        };
-
+impl X509Verify for RustX509Verify {
+    fn verify(&self, user_id: &UserId, message: &[u8], sig: &X509Signature) -> bool {
         let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
         let Some(Ok(end_cert)) = cert_iter.next() else {
             tracing::warn!("Missing or invalid first certificate");
@@ -115,7 +110,7 @@ impl X509TrustRoot {
             return false;
         };
 
-        if cert.verify_signature(alg, message.as_bytes(), sig.signature.as_bytes()).is_err() {
+        if cert.verify_signature(alg, message, sig.signature.as_bytes()).is_err() {
             tracing::warn!("Signature verification failed");
             return false;
         }

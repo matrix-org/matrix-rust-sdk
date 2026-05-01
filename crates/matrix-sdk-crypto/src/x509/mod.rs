@@ -15,10 +15,12 @@
 //! Types and traits for verification of users and devices using X.509 keys and
 //! certificates.
 
+mod rust_x509_sign;
+mod rust_x509_verify;
 mod x509_data;
-mod x509_keys;
-mod x509_trust_root;
+mod x509_signer;
+mod x509_verify;
 
 pub use x509_data::X509Data;
-pub use x509_keys::X509Keys;
-pub use x509_trust_root::X509TrustRoot;
+pub use x509_signer::{X509Sign, X509Signer};
+pub use x509_verify::{X509Verifier, X509Verify};
