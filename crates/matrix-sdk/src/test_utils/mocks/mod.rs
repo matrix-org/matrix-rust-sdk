@@ -42,6 +42,7 @@ use ruma::{
         threads::get_thread_subscriptions_changes::unstable::{
             ThreadSubscription, ThreadUnsubscription,
         },
+        uiaa,
     },
     device_id,
     directory::PublicRoomsChunk,
@@ -1923,6 +1924,14 @@ impl<'a, T> MockEndpoint<'a, T> {
         self
     }
 
+    /// Expect the given UIAA auth data in the body of the request.
+    pub fn expect_uiaa_auth_data(mut self, auth_data: &uiaa::AuthData) -> Self {
+        self.mock = self.mock.and(body_partial_json(json!({
+            "auth": auth_data,
+        })));
+        self
+    }
+
     /// Specify how to respond to a query (viz., like
     /// [`MockBuilder::respond_with`] does), when other predefined responses
     /// aren't sufficient.
@@ -3764,11 +3773,12 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
         })))
     }
 
-    /// Returns an error response with a stable OAuth 2.0 UIAA stage.
-    pub fn uiaa_stable_oauth(self) -> MatrixMock<'a> {
+    /// Returns an error response with a stable OAuth 2.0 UIAA stage with the
+    /// given session key.
+    pub fn uiaa_stable_oauth(self, session: &str) -> MatrixMock<'a> {
         let server_uri = self.server.uri();
         self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
-            "session": "dummy",
+            "session": session,
             "flows": [{
                 "stages": [ "m.oauth" ]
             }],
