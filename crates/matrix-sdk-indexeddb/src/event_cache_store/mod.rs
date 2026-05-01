@@ -608,15 +608,24 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(())
     }
 
-    async fn get_custom_value(&self, _: &str) -> Result<Option<Vec<u8>>, Self::Error> {
-        Ok(None)
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        let transaction = self.transaction(&[keys::CUSTOM_VALUES], IdbTransactionMode::Readonly)?;
+        Ok(transaction.get_custom_value(key).await?.map(|v| v.value))
     }
 
-    async fn set_custom_value(&self, _: &str, _: Vec<u8>) -> Result<(), Self::Error> {
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+        let transaction =
+            self.transaction(&[keys::CUSTOM_VALUES], IdbTransactionMode::Readwrite)?;
+        transaction.put_custom_value(key, value).await?;
+        transaction.commit().await?;
         Ok(())
     }
 
-    async fn remove_custom_value(&self, _: &str) -> Result<(), Self::Error> {
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+        let transaction =
+            self.transaction(&[keys::CUSTOM_VALUES], IdbTransactionMode::Readwrite)?;
+        transaction.delete_custom_value(key).await?;
+        transaction.commit().await?;
         Ok(())
     }
 
