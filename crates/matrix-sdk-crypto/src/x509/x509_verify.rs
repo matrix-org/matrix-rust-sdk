@@ -13,7 +13,7 @@ pub struct X509Verifier {
 }
 
 impl X509Verifier {
-    pub fn new(x509_verify: Arc<RustX509Verify>) -> X509Verifier {
+    pub fn new(x509_verify: Arc<dyn X509Verify>) -> X509Verifier {
         X509Verifier { x509_verify }
     }
 

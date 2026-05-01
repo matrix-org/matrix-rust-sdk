@@ -25,7 +25,7 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
-use matrix_sdk_crypto::x509::X509Data;
+use matrix_sdk_crypto::x509::{X509Data, X509Signer, X509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
@@ -132,6 +132,9 @@ pub struct BaseClient {
 
     /// Whether the client supports threads or not.
     pub threading_support: ThreadingSupport,
+
+    x509_signer: Option<X509Signer>,
+    x509_verifier: Option<X509Verifier>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -198,6 +201,8 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             handle_verification_events: true,
             threading_support,
+            x509_signer: None,
+            x509_verifier: None,
         }
     }
 
@@ -229,11 +234,21 @@ impl BaseClient {
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
             threading_support: self.threading_support,
+            x509_signer: self.x509_signer.clone(),
+            x509_verifier: self.x509_verifier.clone(),
         };
 
         copy.state_store.derive_from_other(&self.state_store).await?;
 
         Ok(copy)
+    }
+
+    pub fn set_x509_signer(&mut self, x509_signer: Option<X509Signer>) {
+        self.x509_signer = x509_signer;
+    }
+
+    pub fn set_x509_verifier(&mut self, x509_verifier: Option<X509Verifier>) {
+        self.x509_verifier = x509_verifier
     }
 
     /// Clones the current base client to use the same crypto store but a
@@ -366,15 +381,14 @@ impl BaseClient {
         tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
-        const CA_CERTS: &str = include_str!("cacert.pem");
-        const CERT_CHAIN_PEM: &str = include_str!("cert.pem");
-        const PRIVATE_KEY_PEM: &str = include_str!("key.pem");
-
         // Make aws_lc_rs the default crypto provider for rustls
         // TODO RAV: move this elsewhere? Or maybe we already have it
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+        // let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-        let x509data = X509Data::from_pem_data(CA_CERTS, PRIVATE_KEY_PEM, CERT_CHAIN_PEM);
+        let x509data = X509Data {
+            x509_signer: self.x509_signer.clone(),
+            x509_verifier: self.x509_verifier.clone(),
+        };
 
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.

@@ -23,7 +23,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, ThreadingSupport,
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
-    encryption::{BackupDownloadStrategy, EncryptionSettings},
+    encryption::{BackupDownloadStrategy, EncryptionSettings, SignatureError},
     event_cache::EventCacheError,
     ruma::{ServerName, UserId},
     search_index::SearchIndexStoreKind,
@@ -32,11 +32,15 @@ use matrix_sdk::{
         VersionBuilderError,
     },
 };
-use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
+use matrix_sdk_base::crypto::{
+    CollectStrategy, DecryptionSettings, TrustRequirement,
+    types::X509Signature,
+    x509::{X509Signer, X509Verifier},
+};
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
-use super::client::Client;
+use super::client::{Client, X509Sign, X509Verify};
 #[cfg(any(feature = "sqlite", feature = "indexeddb"))]
 use crate::store;
 use crate::{
@@ -152,6 +156,9 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
 
     threading_support: ThreadingSupport,
+
+    x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::X509Sign>>,
+    x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::X509Verify>>,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -196,6 +203,9 @@ impl ClientBuilder {
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
             search_index_store: None,
+
+            x509_sign: None,
+            x509_verify: None,
         })
     }
 
@@ -391,6 +401,44 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    pub fn with_x509_sign(self: Arc<Self>, x509_sign: Box<dyn X509Sign>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+
+        // Wrap the provided X509Sign impl in a shim which converts the arguments and
+        // results. We do this here rather than in build(), because the provided
+        // x509_sign doesn't implement Clone, so we can't store it in
+        // ClientBuilder (which is Clone) without wrapping it in an Arc. Since
+        // we're making an Arc anyway, we may as well wrap it now rather than
+        // have two layers of Arcs later.
+        #[derive(Debug)]
+        struct X509SignImpl(Box<dyn X509Sign>);
+        impl matrix_sdk_base::crypto::x509::X509Sign for X509SignImpl {
+            fn sign(&self, message: &[u8]) -> Result<(String, X509Signature), SignatureError> {
+                let result = self.0.sign(message.to_vec()).expect("Signing failed");
+                Ok((result.key_id, result.signature.into()))
+            }
+        }
+
+        builder.x509_sign = Some(Arc::new(X509SignImpl(x509_sign)));
+        Arc::new(builder)
+    }
+
+    pub fn with_x509_verify(self: Arc<Self>, x509_verify: Box<dyn X509Verify>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+
+        // Wrap the provided X509Verify impl in a shim which converts the arguments and
+        // results. As per with_x509_sign, easier to do it here than in build().
+        #[derive(Debug)]
+        struct X509VerifyImpl(Box<dyn X509Verify>);
+        impl matrix_sdk_base::crypto::x509::X509Verify for X509VerifyImpl {
+            fn verify(&self, user_id: &UserId, message: &[u8], sig: &X509Signature) -> bool {
+                self.0.verify(user_id.to_string(), message.to_vec(), sig.clone().into())
+            }
+        }
+        builder.x509_verify = Some(Arc::new(X509VerifyImpl(x509_verify)));
+        Arc::new(builder)
+    }
+
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
@@ -552,6 +600,14 @@ impl ClientBuilder {
         }
 
         inner_builder = inner_builder.with_threading_support(builder.threading_support);
+
+        if let Some(x509_sign) = builder.x509_sign {
+            inner_builder = inner_builder.with_x509_signer(Some(X509Signer::new(x509_sign)));
+        }
+
+        if let Some(x509_verify) = builder.x509_verify {
+            inner_builder = inner_builder.with_x509_verifier(Some(X509Verifier::new(x509_verify)));
+        }
 
         let sdk_client = inner_builder.build().await?;
 

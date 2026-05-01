@@ -28,7 +28,12 @@ use homeserver_config::*;
 use matrix_sdk_base::crypto::DecryptionSettings;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
-use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig, ttl_cache::TtlValue};
+use matrix_sdk_base::{
+    BaseClient, ThreadingSupport,
+    crypto::x509::{X509Signer, X509Verifier},
+    store::StoreConfig,
+    ttl_cache::TtlValue,
+};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
@@ -126,6 +131,9 @@ pub struct ClientBuilder {
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
     search_index_store_kind: SearchIndexStoreKind,
+
+    x509_signer: Option<X509Signer>,
+    x509_verifier: Option<X509Verifier>,
 }
 
 impl ClientBuilder {
@@ -162,6 +170,9 @@ impl ClientBuilder {
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store_kind: SearchIndexStoreKind::InMemory,
+
+            x509_signer: None,
+            x509_verifier: None,
         }
     }
 
@@ -528,6 +539,16 @@ impl ClientBuilder {
         self
     }
 
+    pub fn with_x509_signer(mut self, x509_signer: Option<X509Signer>) -> Self {
+        self.x509_signer = x509_signer;
+        self
+    }
+
+    pub fn with_x509_verifier(mut self, x509_verifier: Option<X509Verifier>) -> Self {
+        self.x509_verifier = x509_verifier;
+        self
+    }
+
     /// Create a [`Client`] with the options set on this builder.
     ///
     /// # Errors
@@ -571,6 +592,9 @@ impl ClientBuilder {
                 client.room_key_recipient_strategy = self.room_key_recipient_strategy;
                 client.decryption_settings = self.decryption_settings;
             }
+
+            client.set_x509_signer(self.x509_signer);
+            client.set_x509_verifier(self.x509_verifier);
 
             client
         };

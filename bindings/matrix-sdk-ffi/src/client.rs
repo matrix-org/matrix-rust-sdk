@@ -302,6 +302,67 @@ pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_notification(&self, notification: NotificationItem, room_id: String);
 }
 
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait X509Sign: SyncOutsideWasm + SendOutsideWasm + Debug {
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    fn sign(&self, message: Vec<u8>) -> Result<X509SignatureAndKeyId, ClientError>;
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
+    /// Check if the given signature is a valid X.509 signature for the given
+    /// message.
+    ///
+    /// Also validates that the certificate used for the signature is issued via
+    /// one of our trusted CAs, and was issued to the given user id.
+    fn verify(&self, user_id: String, message: Vec<u8>, sig: X509Signature) -> bool;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct X509SignatureAndKeyId {
+    /// The key ID of the key used to sign the message.
+    pub key_id: String,
+
+    /// The signature itself.
+    pub signature: X509Signature,
+}
+
+/// An X.509 signature and certificate chain
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct X509Signature {
+    /// The PEM-encoded certificate chain, starting with the device's own
+    /// certificate, followed by intermediate certificates.
+    pub certificate_chain: String,
+
+    /// The X.509 signature scheme, from https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme
+    pub signature_scheme: u16,
+
+    /// The base64-encoded signature itself
+    pub signature: String,
+}
+
+impl From<X509Signature> for matrix_sdk_base::crypto::types::X509Signature {
+    fn from(value: X509Signature) -> Self {
+        Self {
+            certificate_chain: value.certificate_chain,
+            signature_scheme: value.signature_scheme.into(),
+            signature: value.signature,
+        }
+    }
+}
+
+impl From<matrix_sdk_base::crypto::types::X509Signature> for X509Signature {
+    fn from(value: matrix_sdk_base::crypto::types::X509Signature) -> Self {
+        Self {
+            certificate_chain: value.certificate_chain,
+            signature_scheme: value.signature_scheme.into(),
+            signature: value.signature,
+        }
+    }
+}
+
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {
     pub current: u64,
