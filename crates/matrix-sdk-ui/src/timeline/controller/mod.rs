@@ -38,8 +38,7 @@ use matrix_sdk::{
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, RoomId, TransactionId,
-    UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -69,9 +68,9 @@ pub(super) use self::{
 };
 use super::{
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
-    MediaUploadProgress, PaginationError, Profile, TimelineDetails, TimelineEventItemId,
-    TimelineFocus, TimelineItem, TimelineItemContent, TimelineItemKind,
-    TimelineReadReceiptTracking, VirtualTimelineItem,
+    MediaUploadProgress, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus,
+    TimelineItem, TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
+    VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,

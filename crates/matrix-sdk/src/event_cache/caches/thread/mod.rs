@@ -42,7 +42,6 @@ pub(super) use self::{
 use super::{
     super::Result,
     EventsOrigin, TimelineVectorDiffs,
-    lock::Reload as _,
     room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
 };
 use crate::room::WeakRoom;
@@ -220,7 +219,7 @@ impl ThreadEventCache {
     /// It starts by looking into loaded events in `EventLinkedChunk` before
     /// looking inside the storage.
     #[cfg(test)]
-    pub async fn find_event(
+    async fn find_event(
         &self,
         event_id: &EventId,
     ) -> Result<Option<(super::EventLocation, Event)>> {
@@ -286,9 +285,7 @@ mod timed_tests {
         room_id, user_id,
     };
 
-    use super::super::{
-        super::RoomEventCacheGenericUpdate, TimelineVectorDiffs, room::RoomEventCacheUpdate,
-    };
+    use super::super::{super::RoomEventCacheGenericUpdate, TimelineVectorDiffs};
     use crate::test_utils::client::MockClientBuilder;
 
     #[async_test]
@@ -317,15 +314,11 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
-        let (thread_events, mut thread_stream) =
-            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_root).await.unwrap();
+        let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
 
-        assert!(room_events.is_empty());
         assert!(thread_events.is_empty());
 
         // Propagate an update for a message and a prev-batch token.
@@ -340,38 +333,17 @@ mod timed_tests {
             ],
         };
 
-        room_event_cache
+        thread_event_cache
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
-        // Checking the update are corrects.
-        assert_matches!(
-            generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
-                assert_eq!(expected_room_id, room_id);
-            }
-        );
-        assert!(generic_stream.is_empty());
-
-        assert_matches!(
-            room_stream.recv().await,
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) => {
-                assert_eq!(diffs.len(), 2);
-                assert_matches!(&diffs[0], VectorDiff::Clear);
-                assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
-                    assert_eq!(events.len(), 1);
-                    assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_0));
-                });
-            }
-        );
-        assert!(room_stream.is_empty());
-
         assert_matches!(
             thread_stream.recv().await,
             Ok(TimelineVectorDiffs { diffs, .. }) => {
-                assert_eq!(diffs.len(), 1);
-                assert_matches!(&diffs[0], VectorDiff::Append { values: events } => {
+                assert_eq!(diffs.len(), 2);
+                assert_matches!(&diffs[0], VectorDiff::Clear);
+                assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
                     assert_eq!(events.len(), 1);
                     assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_0));
                 });
@@ -435,10 +407,9 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_root).await.unwrap();
 
         // Propagate an update for a message with bundled relations.
         let timeline = Timeline {
@@ -453,23 +424,14 @@ mod timed_tests {
             ],
         };
 
-        room_event_cache
+        thread_event_cache
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
 
-        // Just checking the generic update is correct.
-        assert_matches!(
-            generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
-                assert_eq!(expected_room_id, room_id);
-            }
-        );
-        assert!(generic_stream.is_empty());
-
         // The in-memory linked chunk keeps the bundled relation.
         {
-            let events = room_event_cache.events().await.unwrap();
+            let (events, _) = thread_event_cache.subscribe().await.unwrap();
 
             assert_eq!(events.len(), 1);
 
@@ -484,7 +446,10 @@ mod timed_tests {
 
         // The one in storage does not.
         let linked_chunk = from_all_chunks::<3, _, _>(
-            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
+            event_cache_store
+                .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
+                .await
+                .unwrap(),
         )
         .unwrap()
         .unwrap();
@@ -588,30 +553,17 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_root).await.unwrap();
+        let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
 
-        let (thread_events, mut thread_stream) =
-            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // The thread knows about all cached events.
         {
-            assert!(
-                room_event_cache
-                    .find_event_in_thread(thread_root.to_owned(), thread_event_id_0)
-                    .await
-                    .unwrap()
-                    .is_some()
-            );
-            assert!(
-                room_event_cache
-                    .find_event_in_thread(thread_root.to_owned(), thread_event_id_1)
-                    .await
-                    .unwrap()
-                    .is_some()
-            );
+            assert!(thread_event_cache.find_event(thread_event_id_0).await.unwrap().is_some());
+            assert!(thread_event_cache.find_event(thread_event_id_1).await.unwrap().is_some());
         }
 
         // But only part of events are loaded from the store.
@@ -626,13 +578,7 @@ mod timed_tests {
 
         // Let's load more chunks to load all events.
         {
-            room_event_cache
-                .thread_pagination(thread_root.to_owned())
-                .await
-                .unwrap()
-                .run_backwards_once(20)
-                .await
-                .unwrap();
+            thread_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
             assert_matches!(
                 thread_stream.recv().await,
@@ -656,7 +602,7 @@ mod timed_tests {
         }
 
         // After clearing,…
-        room_event_cache.clear().await.unwrap();
+        event_cache.clear_all_rooms().await.unwrap();
 
         //… we get an update that the content has been cleared.
         assert_matches!(
@@ -676,29 +622,16 @@ mod timed_tests {
         );
         assert!(generic_stream.is_empty());
 
-        // Events individually are not forgotten by the event cache, after clearing a
-        // room and the threads.
-        assert!(
-            room_event_cache
-                .find_event_in_thread(thread_root.to_owned(), thread_event_id_0)
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            room_event_cache
-                .find_event_in_thread(thread_root.to_owned(), thread_event_id_1)
-                .await
-                .unwrap()
-                .is_some()
-        );
+        // Events individually are forgotten by the event cache, after clearing the
+        // threads.
+        assert!(thread_event_cache.find_event(thread_event_id_0).await.unwrap().is_none());
+        assert!(thread_event_cache.find_event(thread_event_id_1).await.unwrap().is_none());
 
-        // But their presence in a linked chunk is forgotten.
-        let (thread_events, _) =
-            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+        // And their presence in a linked chunk is forgotten.
+        let (thread_events, _) = thread_event_cache.subscribe().await.unwrap();
         assert!(thread_events.is_empty());
 
-        // The event cache store too.
+        // The event cache store is totally empty.
         let linked_chunk = from_all_chunks::<3, _, _>(
             event_cache_store
                 .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
@@ -796,13 +729,12 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
         // Let's check whether the generic updates are received for the initialisation.
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (thread_events, mut thread_stream) =
-            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_root).await.unwrap();
+        let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
 
         // The room **and** the thread have been loaded. Two generic updates must have
         // been triggered.
@@ -824,29 +756,11 @@ mod timed_tests {
 
         // The thread knows all events in the storage though, even if they aren't
         // loaded.
-        assert!(
-            room_event_cache
-                .find_event_in_thread(thread_root.to_owned(), thread_event_id_0)
-                .await
-                .unwrap()
-                .is_some()
-        );
-        assert!(
-            room_event_cache
-                .find_event_in_thread(thread_root.to_owned(), thread_event_id_1)
-                .await
-                .unwrap()
-                .is_some()
-        );
+        assert!(thread_event_cache.find_event(thread_event_id_0).await.unwrap().is_some());
+        assert!(thread_event_cache.find_event(thread_event_id_1).await.unwrap().is_some());
 
         // Let's paginate to load more events.
-        room_event_cache
-            .thread_pagination(thread_root.to_owned())
-            .await
-            .unwrap()
-            .run_backwards_once(20)
-            .await
-            .unwrap();
+        thread_event_cache.pagination().run_backwards_once(20).await.unwrap();
 
         assert_matches!(
             thread_stream.recv().await,
@@ -871,7 +785,7 @@ mod timed_tests {
         // A new update with one of these events leads to deduplication.
         let timeline = Timeline { limited: false, prev_batch: None, events: vec![thread_event_1] };
 
-        room_event_cache
+        thread_event_cache
             .handle_joined_room_update(JoinedRoomUpdate { timeline, ..Default::default() })
             .await
             .unwrap();
@@ -884,8 +798,7 @@ mod timed_tests {
         // when subscribing, to check that the events correspond to their new
         // positions. The duplicated item is removed (so it's not the first
         // element anymore), and it's added to the back of the list.
-        let (thread_events, _) =
-            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+        let (thread_events, _) = thread_event_cache.subscribe().await.unwrap();
         assert_eq!(thread_events.len(), 2);
         assert_eq!(thread_events[0].event_id().as_deref(), Some(thread_event_id_0));
         assert_eq!(thread_events[1].event_id().as_deref(), Some(thread_event_id_1));
@@ -947,11 +860,10 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
 
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let (thread_events, _) =
-            room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_root).await.unwrap();
+        let (thread_events, _) = thread_event_cache.subscribe().await.unwrap();
 
         // Because the persisted content was invalid, the thread store is reset:
         // there are no events in the cache.
@@ -1052,7 +964,7 @@ mod timed_tests {
             .unwrap();
 
         // Subscribe the event caches, and create the room.
-        let (room_event_cache_p0, room_event_cache_p1) = {
+        let (thread_event_cache_p0, thread_event_cache_p1) = {
             let event_cache_p0 = client_p0.event_cache();
             event_cache_p0.subscribe().unwrap();
 
@@ -1062,23 +974,23 @@ mod timed_tests {
             client_p0.base_client().get_or_create_room(room_id, RoomState::Joined);
             client_p1.base_client().get_or_create_room(room_id, RoomState::Joined);
 
-            let (room_event_cache_p0, _drop_handles) =
-                client_p0.get_room(room_id).unwrap().event_cache().await.unwrap();
-            let (room_event_cache_p1, _drop_handles) =
-                client_p1.get_room(room_id).unwrap().event_cache().await.unwrap();
+            let (thread_event_cache_p0, _drop_handles) =
+                event_cache_p0.thread(room_id, thread_root).await.unwrap();
+            let (thread_event_cache_p1, _drop_handles) =
+                event_cache_p1.thread(room_id, thread_root).await.unwrap();
 
-            (room_event_cache_p0, room_event_cache_p1)
+            (thread_event_cache_p0, thread_event_cache_p1)
         };
 
         // Okay. We are ready for the test!
         //
-        // First off, let's check `room_event_cache_p0` has access to the first event
+        // First off, let's check `thread_event_cache_p0` has access to the first event
         // loaded in-memory, then do a pagination, and see more events.
         let mut updates_stream_p0 = {
-            let room_event_cache = &room_event_cache_p0;
+            let thread_event_cache = &thread_event_cache_p0;
 
             let (initial_updates, mut updates_stream) =
-                room_event_cache_p0.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+                thread_event_cache_p0.subscribe().await.unwrap();
 
             // Initial updates contain `thread_event_id_1` only.
             assert_eq!(initial_updates.len(), 1);
@@ -1086,13 +998,7 @@ mod timed_tests {
             assert!(updates_stream.is_empty());
 
             // Load one more event with a backpagination.
-            room_event_cache
-                .thread_pagination(thread_root.to_owned())
-                .await
-                .unwrap()
-                .run_backwards_once(1)
-                .await
-                .unwrap();
+            thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
             // A new update for `ev_id_0` must be present.
             assert_matches!(
@@ -1111,11 +1017,11 @@ mod timed_tests {
             updates_stream
         };
 
-        // Second, let's check `room_event_cache_p1` has the same accesses.
+        // Second, let's check `thread_event_cache_p1` has the same accesses.
         let mut updates_stream_p1 = {
-            let room_event_cache = &room_event_cache_p1;
+            let thread_event_cache = &thread_event_cache_p1;
             let (initial_updates, mut updates_stream) =
-                room_event_cache_p1.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+                thread_event_cache_p1.subscribe().await.unwrap();
 
             // Initial updates contain `thread_event_id_1` only.
             assert_eq!(initial_updates.len(), 1);
@@ -1123,13 +1029,7 @@ mod timed_tests {
             assert!(updates_stream.is_empty());
 
             // Load one more event with a backpagination.
-            room_event_cache
-                .thread_pagination(thread_root.to_owned())
-                .await
-                .unwrap()
-                .run_backwards_once(1)
-                .await
-                .unwrap();
+            thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
             // A new update for `thread_event_id_0` must be present.
             assert_matches!(
@@ -1150,18 +1050,17 @@ mod timed_tests {
 
         // Do this a couple times, for the fun.
         for _ in 0..3 {
-            // Third, because `room_event_cache_p1` has locked the store, the lock
-            // is dirty for `room_event_cache_p0`, so it will shrink to its last
+            // Third, because `thread_event_cache_p1` has locked the store, the lock
+            // is dirty for `thread_event_cache_p0`, so it will shrink to its last
             // chunk for the thread!
             {
-                let room_event_cache = &room_event_cache_p0;
+                let thread_event_cache = &thread_event_cache_p0;
                 let updates_stream = &mut updates_stream_p0;
 
                 // `thread_event_id_1` must be loaded in memory, just like before.
                 // However, `thread_event_id_0` must NOT be loaded in memory. It WAS loaded, but
                 // the state has been reloaded to its last chunk.
-                let (initial_updates, _) =
-                    room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+                let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
                 assert_eq!(initial_updates.len(), 1);
                 assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
@@ -1183,13 +1082,7 @@ mod timed_tests {
                 );
 
                 // Load one more event with a backpagination.
-                room_event_cache
-                    .thread_pagination(thread_root.to_owned())
-                    .await
-                    .unwrap()
-                    .run_backwards_once(1)
-                    .await
-                    .unwrap();
+                thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
                 // `thread_event_id_0` must now be loaded in memory.
                 // The pagination can be observed via the updates.
@@ -1207,18 +1100,17 @@ mod timed_tests {
                 );
             }
 
-            // Fourth, because `room_event_cache_p0` has locked the store again, the lock
-            // is dirty for `room_event_cache_p1` too!, so it will shrink to its last
+            // Fourth, because `thread_event_cache_p0` has locked the store again, the lock
+            // is dirty for `thread_event_cache_p1` too!, so it will shrink to its last
             // chunk for the thread!
             {
-                let room_event_cache = &room_event_cache_p1;
+                let thread_event_cache = &thread_event_cache_p1;
                 let updates_stream = &mut updates_stream_p1;
 
                 // `thread_event_id_1` must be loaded in memory, just like before.
                 // However, `thread_event_id_0` must NOT be loaded in memory. It WAS loaded, but
                 // the state has shrunk to its last chunk.
-                let (initial_updates, _) =
-                    room_event_cache.subscribe_to_thread(thread_root.to_owned()).await.unwrap();
+                let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
                 assert_eq!(initial_updates.len(), 1);
                 assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
@@ -1240,13 +1132,7 @@ mod timed_tests {
                 );
 
                 // Load one more event with a backpagination.
-                room_event_cache
-                    .thread_pagination(thread_root.to_owned())
-                    .await
-                    .unwrap()
-                    .run_backwards_once(1)
-                    .await
-                    .unwrap();
+                thread_event_cache.pagination().run_backwards_once(1).await.unwrap();
 
                 // `thread_event_id_0` must now be loaded in memory.
                 // The pagination can be observed via the updates.
