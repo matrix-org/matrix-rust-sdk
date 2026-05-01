@@ -41,7 +41,7 @@ use crate::{
             INDEXED_KEY_LOWER_EVENT_POSITION, INDEXED_KEY_UPPER_CHUNK_IDENTIFIER,
             INDEXED_KEY_UPPER_EVENT_INDEX, INDEXED_KEY_UPPER_EVENT_POSITION,
         },
-        types::{Chunk, Event, Gap, Lease, Position},
+        types::{Chunk, CustomValue, Event, Gap, Lease, Position},
     },
     serializer::{
         indexed_type::{
@@ -94,6 +94,9 @@ pub type IndexedEventContent = MaybeEncrypted;
 
 /// A (possibly) encrypted representation of a [`Gap`]
 pub type IndexedGapContent = MaybeEncrypted;
+
+/// A (possibly) encrypted representation of a [`CustomValue`]
+pub type IndexedCustomValueContent = MaybeEncrypted;
 
 /// Represents the [`LEASES`][1] object store.
 ///
@@ -657,5 +660,67 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Gap, LinkedChunkId<'a>> for Indexed
         <Self as IndexedPrefixKeyComponentBounds<Chunk, _>>::upper_key_components_with_prefix(
             linked_chunk_id,
         )
+    }
+}
+
+/// Represents the [`CUSTOM_VALUES`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v5::create_custom_values_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedCustomValue {
+    /// The primary key of the object store.
+    pub id: IndexedCustomValueIdKey,
+    /// The (possibly encrypted) content - i.e., a [`CustomValue`].
+    pub content: IndexedCustomValueContent,
+}
+
+impl Indexed for CustomValue {
+    type IndexedType = IndexedCustomValue;
+
+    const OBJECT_STORE: &'static str = keys::CUSTOM_VALUES;
+
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(IndexedCustomValue {
+            id: <IndexedCustomValueIdKey as IndexedKey<CustomValue>>::encode(&self.key, serializer),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
+/// The value associated with the [primary key](IndexedCustomValue::id) of the
+/// [`CUSTOM_VALUES`][1] object store, which is constructed from the value in
+/// [`CustomValue::key`]. This value may or may not be hashed depending on the
+/// provided [`IndexeddbSerializer`].
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_custom_values_object_store
+pub type IndexedCustomValueIdKey = String;
+
+impl IndexedKey<CustomValue> for IndexedCustomValueIdKey {
+    type KeyComponents<'a> = &'a str;
+
+    fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
+        serializer.encode_key_as_string(keys::CUSTOM_VALUES, components)
+    }
+}
+
+impl IndexedKeyComponentBounds<CustomValue> for IndexedCustomValueIdKey {
+    fn lower_key_components() -> Self::KeyComponents<'static> {
+        INDEXED_KEY_LOWER_STRING.as_str()
+    }
+
+    fn upper_key_components() -> Self::KeyComponents<'static> {
+        INDEXED_KEY_UPPER_STRING.as_str()
     }
 }
