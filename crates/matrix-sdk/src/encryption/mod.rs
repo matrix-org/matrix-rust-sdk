@@ -356,7 +356,7 @@ impl CrossSigningResetHandle {
         const RETRY_EVERY: Duration = Duration::from_millis(500);
 
         // Give up after two minutes of polling.
-        const TIMEOUT: Duration = Duration::from_mins(2);
+        const TIMEOUT: Duration = Duration::from_secs(120);
 
         tokio::time::timeout(TIMEOUT, async {
             let mut upload_request = self.upload_request.clone();

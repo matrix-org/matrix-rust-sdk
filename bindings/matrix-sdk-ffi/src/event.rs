@@ -673,6 +673,7 @@ impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
 #[derive(Debug, PartialEq, Clone, uniffi::Enum)]
 pub enum RoomMessageEventMessageType {
     Audio,
+    Custom,
     Emote,
     File,
     #[cfg(feature = "unstable-msc4274")]
@@ -691,6 +692,7 @@ impl From<RumaMessageType> for RoomMessageEventMessageType {
     fn from(val: ruma::events::room::message::MessageType) -> Self {
         match val {
             RumaMessageType::Audio { .. } => Self::Audio,
+            RumaMessageType::_Custom(_) => Self::Custom,
             RumaMessageType::Emote { .. } => Self::Emote,
             RumaMessageType::File { .. } => Self::File,
             #[cfg(feature = "unstable-msc4274")]
@@ -739,5 +741,28 @@ impl TryFrom<EventOrTransactionId> for TimelineEventItemId {
                 Ok(TimelineEventItemId::TransactionId(transaction_id.into()))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn room_message_event_message_type_marks_custom_messages_as_custom() {
+        let custom_message = RumaMessageType::new(
+            "org.example.letter",
+            "Dear Alice".to_owned(),
+            serde_json::from_value(json!({
+                "letter_id": "lt-123",
+                "version": 1,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(RoomMessageEventMessageType::from(custom_message), RoomMessageEventMessageType::Custom);
     }
 }

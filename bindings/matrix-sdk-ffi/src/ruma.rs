@@ -374,6 +374,11 @@ pub enum MessageType {
     Location {
         content: LocationContent,
     },
+    Custom {
+        msgtype: String,
+        body: String,
+        data_json: String,
+    },
     Other {
         msgtype: String,
         body: String,
@@ -421,6 +426,10 @@ impl TryFrom<MessageType> for RumaMessageType {
             }
             MessageType::Location { content } => {
                 Self::Location(RumaLocationMessageEventContent::new(content.body, content.geo_uri))
+            }
+            MessageType::Custom { msgtype, body, data_json } => {
+                let data: JsonObject = serde_json::from_str(&data_json)?;
+                Self::new(&msgtype, body, data)?
             }
             MessageType::Other { msgtype, body } => {
                 Self::new(&msgtype, body, JsonObject::default())?
@@ -471,11 +480,99 @@ impl TryFrom<RumaMessageType> for MessageType {
                     },
                 }
             }
+            RumaMessageType::_Custom(_) => MessageType::Custom {
+                msgtype: value.msgtype().to_owned(),
+                body: value.body().to_owned(),
+                data_json: serde_json::to_string(&value.data())?,
+            },
             _ => MessageType::Other {
                 msgtype: value.msgtype().to_owned(),
                 body: value.body().to_owned(),
             },
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn custom_message_type_from_ruma_preserves_data_json() {
+        let data = serde_json::from_value(json!({
+            "org.example.field": "value",
+            "count": 7,
+        }))
+        .unwrap();
+        let ruma_message_type =
+            RumaMessageType::new("org.example.custom", "Fallback body".to_owned(), data).unwrap();
+
+        let message_type = MessageType::try_from(ruma_message_type).unwrap();
+
+        let MessageType::Custom { msgtype, body, data_json } = message_type else {
+            panic!("expected custom message type");
+        };
+
+        assert_eq!(msgtype, "org.example.custom");
+        assert_eq!(body, "Fallback body");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&data_json).unwrap(),
+            json!({
+                "org.example.field": "value",
+                "count": 7,
+            })
+        );
+    }
+
+    #[test]
+    fn custom_message_type_to_ruma_restores_data_json() {
+        let message_type = MessageType::Custom {
+            msgtype: "org.example.custom".to_owned(),
+            body: "Fallback body".to_owned(),
+            data_json: json!({
+                "org.example.field": "value",
+                "count": 7,
+            })
+            .to_string(),
+        };
+
+        let ruma_message_type = RumaMessageType::try_from(message_type).unwrap();
+
+        assert_eq!(ruma_message_type.msgtype(), "org.example.custom");
+        assert_eq!(ruma_message_type.body(), "Fallback body");
+        assert_eq!(
+            serde_json::to_value(ruma_message_type.data()).unwrap(),
+            json!({
+                "org.example.field": "value",
+                "count": 7,
+            })
+        );
+    }
+
+    #[test]
+    fn message_event_content_new_supports_custom_message_types() {
+        let content = message_event_content_new(MessageType::Custom {
+            msgtype: "org.example.letter".to_owned(),
+            body: "Dear Alice".to_owned(),
+            data_json: json!({
+                "letter_id": "lt-123",
+                "version": 1,
+            })
+            .to_string(),
+        })
+        .unwrap();
+
+        assert_eq!(content.msgtype.msgtype(), "org.example.letter");
+        assert_eq!(content.msgtype.body(), "Dear Alice");
+        assert_eq!(
+            serde_json::to_value(content.msgtype.data()).unwrap(),
+            json!({
+                "letter_id": "lt-123",
+                "version": 1,
+            })
+        );
     }
 }
 
