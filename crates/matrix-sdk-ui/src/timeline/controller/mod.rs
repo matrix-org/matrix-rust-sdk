@@ -296,6 +296,7 @@ pub fn default_event_filter(event: &AnySyncTimelineEvent, rules: &RoomVersionRul
                                 | MessageType::Text(_)
                                 | MessageType::Video(_)
                                 | MessageType::VerificationRequest(_) => true,
+                                _ if content.msgtype.msgtype() == "org.letro.letter" => true,
                                 #[cfg(feature = "unstable-msc4274")]
                                 MessageType::Gallery(_) => true,
                                 _ => false,
