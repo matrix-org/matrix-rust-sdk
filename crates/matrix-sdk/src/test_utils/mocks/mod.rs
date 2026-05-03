@@ -22,6 +22,7 @@ use std::{
     sync::{Arc, Mutex, atomic::AtomicU32},
 };
 
+use as_variant::as_variant;
 use js_int::UInt;
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 #[cfg(feature = "experimental-element-recent-emojis")]
@@ -34,15 +35,18 @@ use percent_encoding::{AsciiSet, CONTROLS};
 use ruma::{
     DeviceId, EventId, MilliSecondsSinceUnixEpoch, MxcUri, OwnedDeviceId, OwnedEventId,
     OwnedOneTimeKeyId, OwnedRoomId, OwnedUserId, RoomId, ServerName, UserId,
-    api::client::{
-        discovery::get_capabilities::v3::Capabilities,
-        receipt::create_receipt::v3::ReceiptType,
-        room::Visibility,
-        sync::sync_events::v5,
-        threads::get_thread_subscriptions_changes::unstable::{
-            ThreadSubscription, ThreadUnsubscription,
+    api::{
+        client::{
+            discovery::get_capabilities::v3::Capabilities,
+            receipt::create_receipt::v3::ReceiptType,
+            room::Visibility,
+            sync::sync_events::v5,
+            threads::get_thread_subscriptions_changes::unstable::{
+                ThreadSubscription, ThreadUnsubscription,
+            },
+            uiaa,
         },
-        uiaa,
+        error::StandardErrorBody,
     },
     device_id,
     directory::PublicRoomsChunk,
@@ -3774,21 +3778,38 @@ impl<'a> MockEndpoint<'a, UploadCrossSigningKeysEndpoint> {
     }
 
     /// Returns an error response with a stable OAuth 2.0 UIAA stage with the
-    /// given session key.
-    pub fn uiaa_stable_oauth(self, session: &str) -> MatrixMock<'a> {
-        let server_uri = self.server.uri();
-        self.respond_with(ResponseTemplate::new(401).set_body_json(json!({
+    /// given session key and optional extra error message.
+    pub fn uiaa_stable_oauth(
+        self,
+        session: &str,
+        extra_error: Option<&StandardErrorBody>,
+    ) -> MatrixMock<'a> {
+        let mut json = json!({
             "session": session,
             "flows": [{
                 "stages": [ "m.oauth" ]
             }],
             "params": {
                 "m.oauth": {
-                    "url": format!("{server_uri}/account/?action=org.matrix.cross_signing_reset"),
+                    "url": format!("{}/account/?action=org.matrix.cross_signing_reset", self.server.uri()),
                 }
             },
             "msg": "To reset your end-to-end encryption cross-signing identity, you first need to approve it and then try again."
-        })))
+        });
+
+        if let Some(extra_error) = extra_error {
+            let extra_json = as_variant!(
+                serde_json::to_value(extra_error)
+                    .expect("extra error should serialize successfully"),
+                Value::Object
+            )
+            .expect("extra error should be a JSON object");
+
+            let json_object = json.as_object_mut().expect("UIAA response should be a JSON object");
+            json_object.extend(extra_json);
+        }
+
+        self.respond_with(ResponseTemplate::new(401).set_body_json(json))
     }
 }
 

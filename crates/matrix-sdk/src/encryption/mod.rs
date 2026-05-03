@@ -373,7 +373,11 @@ impl CrossSigningResetHandle {
 
                 match e.as_uiaa_response() {
                     Some(uiaa_info) => {
-                        if uiaa_info.auth_error.is_some() {
+                        // Return the error except if we are at the `m.oauth` stage where we want to
+                        // keep polling.
+                        if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
+                            && uiaa_info.auth_error.is_some()
+                        {
                             return Err(e.into());
                         }
                     }

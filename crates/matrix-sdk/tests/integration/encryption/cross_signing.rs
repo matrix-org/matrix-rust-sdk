@@ -15,7 +15,10 @@
 use assert_matches2::assert_let;
 use matrix_sdk::{encryption::CrossSigningResetAuthType, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
-use ruma::api::client::uiaa;
+use ruma::api::{
+    client::uiaa,
+    error::{ErrorKind, StandardErrorBody},
+};
 use similar_asserts::assert_eq;
 
 #[async_test]
@@ -183,7 +186,7 @@ async fn test_reset_stable_oauth() {
     // request.
     server
         .mock_upload_cross_signing_keys()
-        .uiaa_stable_oauth(session)
+        .uiaa_stable_oauth(session, None)
         .mock_once()
         .named("Trying to upload the cross-signing keys with UIAA response without auth data")
         .mount()
@@ -191,10 +194,12 @@ async fn test_reset_stable_oauth() {
 
     // Then return the UIAA response 5 times while expecting the UIAA auth data in
     // the request.
+    let extra_error =
+        StandardErrorBody::new(ErrorKind::Forbidden, "Stage not completed".to_owned());
     server
         .mock_upload_cross_signing_keys()
         .expect_uiaa_auth_data(&expected_auth_data)
-        .uiaa_stable_oauth(session)
+        .uiaa_stable_oauth(session, Some(&extra_error))
         .up_to_n_times(5)
         .expect(5)
         .named("Trying to upload the cross-signing keys with UIAA response and auth data")
