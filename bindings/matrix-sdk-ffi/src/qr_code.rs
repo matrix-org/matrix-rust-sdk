@@ -745,6 +745,9 @@ impl CheckCodeSender {
     }
 }
 
+/// Struct used to let the QR code granting logic know that it can continue with
+/// the process since applications might suspend things while the verification
+/// URI is open.
 #[derive(Debug, Clone, uniffi::Object)]
 pub struct ContinuationMessageSender {
     inner: SdkContinuationMessageSender,
@@ -752,10 +755,12 @@ pub struct ContinuationMessageSender {
 
 #[matrix_sdk_ffi_macros::export]
 impl ContinuationMessageSender {
+    /// Confirm the continuation of the login granting process.
     pub async fn confirm(&self) -> Result<(), HumanQrLoginError> {
         self.inner.confirm().await.map_err(HumanQrLoginError::from)
     }
 
+    /// Cancel the the login granting process.
     pub async fn cancel(&self) -> Result<(), HumanQrLoginError> {
         self.inner.cancel().await.map_err(HumanQrLoginError::from)
     }

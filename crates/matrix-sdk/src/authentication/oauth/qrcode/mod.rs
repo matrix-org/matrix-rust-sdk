@@ -388,20 +388,27 @@ impl CheckCodeSender {
     }
 }
 
+/// The internal message of the [`ContinuationMessageSender`] to either continue
+/// the login granting process or to cancel it.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ContinuationMessage {
     Confirm,
     Cancel,
 }
 
+/// Struct used to let the QR code granting logic know that it can continue with
+/// the process since applications might suspend things while the verification
+/// URI is open.
 #[derive(Clone, Debug)]
 pub struct ContinuationMessageSender(CloneableSender<ContinuationMessage>);
 
 impl ContinuationMessageSender {
+    /// Confirm the continuation of the login granting process.
     pub async fn confirm(&self) -> Result<(), SenderError> {
         self.0.send_impl(ContinuationMessage::Confirm).await
     }
 
+    /// Cancel the the login granting process.
     pub async fn cancel(&self) -> Result<(), SenderError> {
         self.0.send_impl(ContinuationMessage::Cancel).await
     }
