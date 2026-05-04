@@ -763,6 +763,9 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(RoomMessageEventMessageType::from(custom_message), RoomMessageEventMessageType::Custom);
+        assert_eq!(
+            RoomMessageEventMessageType::from(custom_message),
+            RoomMessageEventMessageType::Custom
+        );
     }
 }
