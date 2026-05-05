@@ -15,10 +15,14 @@
 // Allow UniFFI to use methods marked as `#[deprecated]`.
 #![allow(deprecated)]
 
-use std::{fs, num::NonZeroUsize, path::PathBuf, sync::Arc, time::Duration};
+#[cfg(feature = "experimental-search")]
+use std::{fs, path::PathBuf};
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 #[cfg(not(any(target_family = "wasm", target_os = "android")))]
 use matrix_sdk::reqwest::Certificate;
+#[cfg(feature = "experimental-search")]
+use matrix_sdk::search_index::SearchIndexStoreKind;
 use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, ThreadingSupport,
@@ -26,7 +30,6 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
     ruma::{ServerName, UserId},
-    search_index::SearchIndexStoreKind,
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
@@ -141,6 +144,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
+    #[cfg(feature = "experimental-search")]
     search_index_store: Option<SearchIndexStoreKind>,
 
     #[cfg(not(target_family = "wasm"))]
@@ -200,6 +204,7 @@ impl ClientBuilder {
             enable_share_history_on_invite: false,
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
+            #[cfg(feature = "experimental-search")]
             search_index_store: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
         })
@@ -372,37 +377,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    /// Set up the search index store for this client, which is used to store
-    /// the message search index locally.
-    ///
-    /// As soon as this is enabled, messages will start to be indexed, and can
-    /// be later queried for search.
-    ///
-    /// `path` is the directory where the search index will be stored. It must
-    /// be unique per session.
-    ///
-    /// `password` is an optional password to encrypt the search index at rest.
-    /// If `None`, the search index will be stored unencrypted.
-    pub fn with_search_index_store(
-        self: Arc<Self>,
-        path: String,
-        password: Option<String>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-
-        // Note: creation of the path is deferred to later.
-        let path = PathBuf::from(path);
-
-        let kind = if let Some(password) = password {
-            SearchIndexStoreKind::EncryptedDirectory(path, password)
-        } else {
-            SearchIndexStoreKind::UnencryptedDirectory(path)
-        };
-
-        builder.search_index_store = Some(kind);
-        Arc::new(builder)
-    }
-
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
@@ -431,6 +405,7 @@ impl ClientBuilder {
             None
         };
 
+        #[cfg(feature = "experimental-search")]
         if let Some(search_index_store) = builder.search_index_store {
             // Create the search index directory.
             match search_index_store {
@@ -709,5 +684,40 @@ impl From<CrossProcessLockConfig> for SdkCrossProcessLockConfig {
             }
             CrossProcessLockConfig::SingleProcess => SdkCrossProcessLockConfig::SingleProcess,
         }
+    }
+}
+
+#[cfg(feature = "experimental-search")]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    /// Set up the search index store for this client, which is used to store
+    /// the message search index locally.
+    ///
+    /// As soon as this is enabled, messages will start to be indexed, and can
+    /// be later queried for search.
+    ///
+    /// `path` is the directory where the search index will be stored. It must
+    /// be unique per session.
+    ///
+    /// `password` is an optional password to encrypt the search index at rest.
+    /// If `None`, the search index will be stored unencrypted.
+    pub fn with_search_index_store(
+        self: Arc<Self>,
+        path: String,
+        password: Option<String>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+
+        // Note: creation of the path is deferred to later.
+        let path = PathBuf::from(path);
+
+        let kind = if let Some(password) = password {
+            SearchIndexStoreKind::EncryptedDirectory(path, password)
+        } else {
+            SearchIndexStoreKind::UnencryptedDirectory(path)
+        };
+
+        builder.search_index_store = Some(kind);
+        Arc::new(builder)
     }
 }
