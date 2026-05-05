@@ -164,54 +164,40 @@ impl BackupSecrets {
 }
 
 /// An X.509 signature and certificate chain
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct X509Signature {
     /// The PEM-encoded certificate chain, starting with the device's own
     /// certificate, followed by intermediate certificates.
     pub certificate_chain: String,
 
+    /// The scheme used for this signature.
+    #[serde(
+        serialize_with = "signature_scheme_to_u16",
+        deserialize_with = "u16_to_signature_scheme"
+    )]
     pub signature_scheme: SignatureScheme,
 
     /// The base64-encoded signature itself
     pub signature: String,
 }
 
-impl X509Signature {
-    fn from_json(value: &serde_json::Value) -> Result<Self, InvalidSignature> {
-        fn inner(value: &serde_json::Value) -> Option<X509Signature> {
-            // TODO: AJB: we silently ignore errors here. It's not particularly easy to do
-            // anything
-            // else as matrix_sdk_crypto::types::Signatures::deserialize depends on an error
-            // to know this is not an RSA signature. We could probably return an
-            // enum to distinguish between "this is not an RSA signature" and
-            // "something went wrong deserializing an RSA signature"
+/// Serialize a SignatureScheme by treating it as a u16
+fn signature_scheme_to_u16<S>(
+    signature_scheme: &SignatureScheme,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_u16(u16::from(*signature_scheme))
+}
 
-            let certificates = value.get("certificates")?.as_str()?;
-
-            // Signature schemes have a u16 identifier, defined at https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme.
-            // If the JSON contains anything that isn't a u16, refuse to parse it.
-            let signature_scheme: u16 = value.get("signature_scheme")?.as_u64()?.try_into().ok()?;
-
-            Some(X509Signature {
-                certificate_chain: certificates.to_owned(),
-                signature_scheme: signature_scheme.into(),
-                signature: value.get("signature")?.as_str()?.to_owned(),
-            })
-        }
-
-        inner(value).ok_or(InvalidSignature {
-            source: serde_json::to_string(value).unwrap_or_else(|e| e.to_string()),
-        })
-    }
-
-    fn to_json(&self) -> serde_json::Value {
-        // Can't use serde_json::to_value here because rsa::pss::Signature is not
-        // Serialize. (Also we want this to be infallible.)
-        json!({
-            "certificates": self.certificate_chain,
-            "signature": self.signature,
-        })
-    }
+/// Deserialize a SignatureScheme from a u16
+fn u16_to_signature_scheme<'de, D>(deserializer: D) -> Result<SignatureScheme, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    u16::deserialize(deserializer).map(SignatureScheme::from)
 }
 
 impl From<X509Signature> for Signature {
@@ -261,7 +247,8 @@ impl Signature {
     pub fn to_json(&self) -> serde_json::Value {
         match self {
             Signature::Ed25519(s) => json!(s.to_base64()),
-            Signature::X509(s) => s.to_json(),
+            Signature::X509(s) => serde_json::to_value(s)
+                .expect("Failed to convert an X.509 signature to a JSON value"),
             Signature::Other(s) => json!(s.to_owned()),
         }
     }
@@ -376,7 +363,7 @@ impl<'de> Deserialize<'de> for Signatures {
                                     .to_owned(),
                             }),
                             DeviceKeyAlgorithm::_Custom(_) => {
-                                if let Ok(x509_signature) = X509Signature::from_json(&s) {
+                                if let Ok(x509_signature) = serde_json::from_value(s.clone()) {
                                     Ok(Signature::X509(x509_signature))
                                 } else {
                                     Ok(Signature::Other(
