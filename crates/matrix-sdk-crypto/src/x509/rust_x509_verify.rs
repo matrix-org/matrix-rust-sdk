@@ -21,12 +21,10 @@ use rustls::{
     pki_types::{CertificateDer, UnixTime, pem::PemObject},
     server::{WebPkiClientVerifier, danger::ClientCertVerifier},
 };
+use vodozemac::base64_decode;
 use webpki::EndEntityCert;
 
-use crate::{
-    types::{Signature, X509Signature},
-    x509::x509_verify::X509Verify,
-};
+use crate::{types::X509Signature, x509::x509_verify::X509Verify};
 
 #[derive(Debug, Clone)]
 pub struct RustX509Verify {
@@ -110,8 +108,13 @@ impl X509Verify for RustX509Verify {
             return false;
         };
 
-        if cert.verify_signature(alg, message, sig.signature.as_bytes()).is_err() {
-            tracing::warn!("Signature verification failed");
+        // TODO: AJB: make it harder to forget to base64 encode/decode this?
+        let signature_bin =
+            base64_decode(&sig.signature).expect("Failed to decode base64 signature");
+        let result = cert.verify_signature(alg, message, &signature_bin);
+
+        if let Err(e) = result {
+            tracing::warn!("Signature verification failed: {e}");
             return false;
         }
 
