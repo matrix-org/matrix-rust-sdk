@@ -9,12 +9,19 @@ use crate::{
     types::{CrossSigningKey, X509Signature},
 };
 
+/// Hold one of these if you want to sign cross-signing keys, and call
+/// [`Self::sign_cross_signing_key`] to do it.
+///
+/// Internally, this holds an implementation of [`X509Sign`] that does the real
+/// work of signing things. This struct provides a convenient wrapper that e.g.
+/// converts a cross-signing key to signable canonical JSON.
 #[derive(Debug, Clone)]
 pub struct X509Signer {
     x509_sign: Arc<dyn X509Sign>,
 }
 
 impl X509Signer {
+    /// Create a new `X509Signer` that wraps the supplied `X509Sign`.
     pub fn new(x509_sign: Arc<dyn X509Sign>) -> Self {
         Self { x509_sign }
     }
