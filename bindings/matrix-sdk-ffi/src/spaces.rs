@@ -359,6 +359,10 @@ pub struct SpaceRoom {
     pub heroes: Option<Vec<RoomHero>>,
     /// The via parameters of the room.
     pub via: Vec<String>,
+    /// Whether this room is a DM, if known.
+    /// Note this value can be calculated following some assumptions and is not
+    /// guaranteed to be accurate.
+    pub is_dm: Option<bool>,
 }
 
 impl From<UISpaceRoom> for SpaceRoom {
@@ -380,6 +384,7 @@ impl From<UISpaceRoom> for SpaceRoom {
             state: room.state.map(Into::into),
             heroes: room.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
             via: room.via.into_iter().map(Into::into).collect(),
+            is_dm: room.is_dm,
         }
     }
 }
