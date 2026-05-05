@@ -24,6 +24,8 @@ use vodozemac::base64_encode;
 
 use crate::{SignatureError, types::X509Signature, x509::x509_signer::X509Sign};
 
+/// A Rust implementation of [`X509Sign`]. This does the verification itself
+/// (using `rustls`) rather than delegating the work to some external system.
 #[derive(Clone)]
 pub struct RustX509Sign {
     /// The PEM-encoded certificate chain, starting with the device's own
@@ -35,7 +37,8 @@ pub struct RustX509Sign {
 }
 
 impl RustX509Sign {
-    pub(crate) fn new_from_pem_data(certificate_chain_pem: &str, private_key_pem: &str) -> Self {
+    /// Create a new `RustX509Sign` from the supplied PEM data.
+    pub fn new_from_pem_data(certificate_chain_pem: &str, private_key_pem: &str) -> Self {
         let provider = aws_lc_rs::default_provider();
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
             .expect("unable to parse private key");

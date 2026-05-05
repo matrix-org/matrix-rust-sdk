@@ -31,11 +31,10 @@ pub struct RustX509Verify {
     verifier: Arc<dyn ClientCertVerifier>,
 }
 
+/// A Rust implementation of [`X509Verify`]. This does the verification itself
+/// (using `rustls`) rather than delegating the work to some external system.
 impl RustX509Verify {
-    pub fn new(verifier: Arc<dyn ClientCertVerifier>) -> Self {
-        Self { verifier }
-    }
-
+    /// Create a new `RustX509Verify` from the supplied CA certificates PEM.
     pub fn new_from_pem_data(ca_certs_pem: &str) -> Self {
         let mut root_store = RootCertStore::empty();
         for result in CertificateDer::pem_slice_iter(ca_certs_pem.as_bytes()) {
