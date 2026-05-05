@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Added `beacon` and `beacon_info` fields to `RoomPowerLevelChanges`, allowing callers to read
+  and update the power levels required to send beacon (live location) message events and beacon
+  info state events respectively.
+  ([#6540](https://github.com/matrix-org/matrix-rust-sdk/pull/6540))
 - Added `DmRoomDefinition` as a parameter of `ClientBuilder` so we can specify it when creating a Client. 
   Also added a `Room::is_dm` method and added some logic to use the new DM definitions in `Client::get_dm_rooms` 
   and when using message search. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
