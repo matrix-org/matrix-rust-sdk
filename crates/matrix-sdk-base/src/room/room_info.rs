@@ -1456,7 +1456,7 @@ impl Default for RoomInfoNotableUpdateReasons {
 
 #[cfg(test)]
 mod tests {
-    use std::{str::FromStr, sync::Arc, time::Duration};
+    use std::{collections::BTreeSet, str::FromStr, sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
     use futures_util::future::{self, Either};
@@ -1483,8 +1483,8 @@ mod tests {
 
     use super::{BaseRoomInfo, LatestEventValue, RoomInfo, SyncInfo};
     use crate::{
-        Room, RoomDisplayName, RoomHero, RoomInfoNotableUpdateReasons, RoomState, StateChanges,
-        StateStore,
+        RawStateEventWithKeys, Room, RoomDisplayName, RoomHero, RoomInfoNotableUpdateReasons,
+        RoomState, StateChanges, StateStore,
         notification_settings::RoomNotificationMode,
         room::{RoomNotableTags, RoomSummary},
         store::{IntoStateStore, MemoryStore, RoomLoadSettings, SaveLockedStateStore},
@@ -1857,6 +1857,100 @@ mod tests {
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());
+    }
+
+    #[test]
+    fn test_member_hints_with_different_contents_reset_computed_value() {
+        let expected = BTreeSet::from_iter([
+            owned_user_id!("@alice:example.org"),
+            owned_user_id!("@bob:example.org"),
+        ]);
+
+        let info_json = json!({
+            "room_id": "!gda78o:server.tld",
+            "room_state": "Invited",
+            "notification_counts": {
+                "highlight_count": 1,
+                "notification_count": 2,
+            },
+            "summary": {
+                "room_heroes": [{
+                    "user_id": "@somebody:example.org",
+                    "display_name": "Somebody",
+                    "avatar_url": "mxc://example.org/abc"
+                }],
+                "joined_member_count": 5,
+                "invited_member_count": 0,
+                "active_service_members": 2,
+            },
+            "members_synced": true,
+            "last_prev_batch": "pb",
+            "sync_info": "FullySynced",
+            "encryption_state_synced": true,
+            "base_info": {
+                "avatar": null,
+                "canonical_alias": null,
+                "create": null,
+                "dm_targets": [],
+                "encryption": null,
+                "guest_access": null,
+                "history_visibility": null,
+                "join_rules": null,
+                "max_power_level": 100,
+                "member_hints": {
+                    "Original": {
+                        "content": {
+                            "service_members": ["@alice:example.org", "@bob:example.org"]
+                        }
+                    }
+                },
+                "name": null,
+                "tombstone": null,
+                "topic": null,
+            },
+        });
+
+        let info: RoomInfo = serde_json::from_value(info_json.clone()).unwrap();
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
+        assert_eq!(info.summary.active_service_members, Some(2));
+
+        // We receive a new event with the same values as the stored ones
+        let mut info: RoomInfo = serde_json::from_value(info_json.clone()).unwrap();
+        let mut raw_state_event_with_keys = RawStateEventWithKeys::try_from_raw_state_event(
+            EventFactory::new()
+                .sender(user_id!("@alice:example.org"))
+                .member_hints(expected.clone())
+                .into_raw_sync_state(),
+        )
+        .expect("Expected member hints event is created");
+
+        info.handle_state_event(&mut raw_state_event_with_keys);
+
+        // Nothing changed
+        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
+        // And the computed value is kept
+        assert_eq!(info.summary.active_service_members, Some(2));
+
+        // We receive a new event with different values from the stored ones
+        let mut info: RoomInfo = serde_json::from_value(info_json).unwrap();
+        let new_member_hints = BTreeSet::from_iter([owned_user_id!("@alice:example.org")]);
+        let mut raw_state_event_with_keys = RawStateEventWithKeys::try_from_raw_state_event(
+            EventFactory::new()
+                .sender(user_id!("@alice:example.org"))
+                .member_hints(new_member_hints.clone())
+                .into_raw_sync_state(),
+        )
+        .expect("New member hints event is created");
+
+        info.handle_state_event(&mut raw_state_event_with_keys);
+
+        // The new member hints were applied
+        assert_eq!(
+            info.base_info.member_hints.unwrap().content.service_members.unwrap(),
+            new_member_hints
+        );
+        // And the computed value is reset
+        assert!(info.summary.active_service_members.is_none());
     }
 
     fn make_room_and_state_store(room_state: RoomState) -> (Room, SaveLockedStateStore) {
