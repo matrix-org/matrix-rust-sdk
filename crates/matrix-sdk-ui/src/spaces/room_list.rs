@@ -1070,6 +1070,7 @@ mod tests {
             heroes: None,
             via: vec![],
             suggested: false,
+            is_dm: None,
         }
     }
 
