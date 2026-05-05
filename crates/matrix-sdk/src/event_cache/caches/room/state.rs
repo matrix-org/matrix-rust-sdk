@@ -32,14 +32,14 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
+    serde_helpers::extract_redaction_target,
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
-        AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        MessageLikeEventType,
+        AnySyncEphemeralRoomEvent,
         receipt::{ReceiptEventContent, SyncReceiptEvent},
         relation::RelationType,
         room::redaction::SyncRoomRedactionEvent,
@@ -857,32 +857,15 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// redacted form.
     #[instrument(skip_all)]
     async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<(), EventCacheError> {
-        let raw_event = event.raw();
-
-        // Do not deserialise the entire event if we aren't certain it's a
-        // `m.room.redaction`. It saves a non-negligible amount of computations.
-        let Ok(Some(MessageLikeEventType::RoomRedaction)) =
-            raw_event.get_field::<MessageLikeEventType>("type")
+        let Some(target_event_id) =
+            extract_redaction_target(event.raw(), &self.room_version_rules.redaction)
         else {
-            return Ok(());
-        };
-
-        // It is a `m.room.redaction`! We can deserialize it entirely.
-
-        let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(
-            redaction,
-        ))) = raw_event.deserialize()
-        else {
-            return Ok(());
-        };
-
-        let Some(target_event_id) = redaction.redacts(&self.room_version_rules.redaction) else {
             warn!("missing target event id from the redaction event");
             return Ok(());
         };
 
         // Replace the redacted event by a redacted form, if we knew about it.
-        let Some((location, mut target_event)) = self.find_event(target_event_id).await? else {
+        let Some((location, mut target_event)) = self.find_event(&target_event_id).await? else {
             trace!("redacted event is missing from the linked chunk");
             return Ok(());
         };

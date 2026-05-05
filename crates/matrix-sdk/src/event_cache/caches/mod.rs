@@ -185,7 +185,7 @@ impl Caches {
 
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads, internals: _ } = &self;
+        let Self { room, threads, internals } = &self;
 
         // Room.
         {
@@ -205,6 +205,7 @@ impl Caches {
                 &updates.timeline,
                 threads.read().await.deref(),
                 room.state().read().await?,
+                &internals.room_version_rules.redaction,
             )
             .await?;
 
@@ -228,7 +229,7 @@ impl Caches {
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads, internals: _ } = &self;
+        let Self { room, threads, internals } = &self;
 
         // Room.
         {
@@ -248,6 +249,7 @@ impl Caches {
                 &updates.timeline,
                 threads.read().await.deref(),
                 room.state().read().await?,
+                &internals.room_version_rules.redaction,
             )
             .await?;
 
