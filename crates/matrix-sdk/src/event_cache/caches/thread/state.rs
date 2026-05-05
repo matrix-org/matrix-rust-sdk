@@ -337,20 +337,30 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
     /// Compute and return the [`ThreadSummary`] for this thread.
     pub async fn compute_thread_summary(&self) -> Result<Option<ThreadSummary>> {
         // Find the latest event ID.
-        //
-        // TODO(@hywan): This is inefficient. Ultimately, we want to rely on
-        // `LatestEvent` to compute the `ThreadSummary` correctly.
         let latest_event_id = {
-            // Find the last non-edit event.
+            // Find the last non-edit, non-redaction, non-redacted event.
+            //
+            // TODO(@hywan): This is inefficient. We are bending the `LatestEvent` API here.
+            // Ultimately, we want to delegate the computation of `ThreadSummary` to
+            // `LatestEvent` instead of commiting crimes like these ones.
             let mut latest_event_id = self
                 .thread_linked_chunk()
                 .revents()
-                .filter(|(_position, event)| extract_edit_target(event.raw()).is_none())
-                .next()
+                .find(|(_position, event)| {
+                    crate::latest_events::filter_timeline_event(
+                        event,
+                        None,
+                        &self.state.own_user_id,
+                        None,
+                    )
+                    .is_break()
+                })
                 .and_then(|(_position, event)| event.event_id());
 
             // If there's an edit to the latest event in the thread, use the latest edit
             // event ID as the latest event ID for the thread summary.
+            //
+            // TODO(@hywan): This is one of the inefficiency I am talking about above.
             if let Some(event_id) = latest_event_id.as_ref()
                 && let Some((original_event, edits)) = self
                     .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))

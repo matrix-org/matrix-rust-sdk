@@ -363,7 +363,7 @@ impl RoomEventCache {
     pub(super) async fn update_thread_summary(
         &self,
         thread_id: &EventId,
-        new_thread_summary: ThreadSummary,
+        new_thread_summary: Option<ThreadSummary>,
     ) -> Result<()> {
         let timeline_event_diffs = self
             .inner
