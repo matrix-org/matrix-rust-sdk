@@ -19,6 +19,8 @@ use crate::x509::{
     x509_verify::X509Verifier,
 };
 
+/// The information needed to sign keys and verify signatures using
+/// externally-provided X.509 keys and trust roots.
 #[derive(Debug, Clone)]
 pub struct X509Data {
     /// Private key for this device
@@ -29,6 +31,7 @@ pub struct X509Data {
 }
 
 impl X509Data {
+    /// Create an X509Data from the supplied PEM-format strings.
     pub fn from_pem_data(ca_certs_pem: &str, private_key_pem: &str, cert_chain_pem: &str) -> Self {
         // TODO: it would be sensible to validate that the private key matches the
         //   certificate chain here, to catch configuration errors early.
