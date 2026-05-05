@@ -15,10 +15,10 @@
 use std::collections::HashMap;
 
 use matrix_sdk_base::{
-    serde_helpers::{extract_edit_target, extract_thread_root},
+    serde_helpers::{extract_redaction_target, extract_relation, extract_thread_root},
     sync::Timeline,
 };
-use ruma::OwnedEventId;
+use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
 
 use super::{super::Result, room::RoomEventCacheStateLockReadGuard, thread::ThreadEventCache};
 
@@ -30,6 +30,7 @@ pub async fn aggregate_timeline_for_threads(
     timeline: &Timeline,
     existing_threads: &HashMap<OwnedEventId, ThreadEventCache>,
     room_event_cache: RoomEventCacheStateLockReadGuard<'_>,
+    redaction_rules: &RedactionRules,
 ) -> Result<HashMap<OwnedEventId, Timeline>> {
     let mut new_events_by_thread = HashMap::new();
 
@@ -39,38 +40,89 @@ pub async fn aggregate_timeline_for_threads(
         events: Vec::new(),
     };
 
+    // Look for in-thread events, i.e. events that are part of threads.
     for event in &timeline.events {
-        // This event is part of a thread.
-        if let Some(thread_root) = extract_thread_root(event.raw()) {
-            new_events_by_thread
-                .entry(thread_root)
-                .or_insert_with(default_timeline)
-                .events
-                .push(event.clone());
-        }
-        // This event is the root of a thread.
-        else if let Some(event_id) = event.event_id()
-            && existing_threads.contains_key(&event_id)
-        {
-            new_events_by_thread
-                .entry(event_id)
-                .or_insert_with(default_timeline)
-                .events
-                .push(event.clone());
-        }
+        match extract_relation(event.raw()) {
+            // Ohh, this event relates to another event!
+            Some((relation_type, related_event_id)) => match relation_type {
+                // `related_event` represents a thread root.
+                RelationType::Thread => {
+                    new_events_by_thread
+                        .entry(related_event_id)
+                        .or_insert_with(default_timeline)
+                        .events
+                        .push(event.clone());
+                }
 
-        // This event is an edit that may apply to a thread.
-        if let Some(edit_target) = extract_edit_target(event.raw()) {
-            // This event is known and part of a thread.
-            if let Some((_location, edited_event)) =
-                room_event_cache.find_event(&edit_target).await?
-                && let Some(thread_root) = extract_thread_root(edited_event.raw())
-            {
-                new_events_by_thread
-                    .entry(thread_root)
-                    .or_insert_with(default_timeline)
-                    .events
-                    .push(event.clone());
+                // `event` represents an annotation (e.g. reactions), a replacement (an edit), a
+                // reference or something custom. Let's see if the `related_event_id` is an
+                // in-thread event.
+                RelationType::Annotation
+                | RelationType::Replacement
+                | RelationType::Reference
+                | _ => {
+                    // TODO(@hywan): It's good to look for the related event in the memory and
+                    // store, but we MUST also look for it in `timeline`!
+                    if let Some((_location, related_event)) =
+                        room_event_cache.find_event(&related_event_id).await?
+                        && let Some(thread_root) = extract_thread_root(related_event.raw())
+                    {
+                        new_events_by_thread
+                            .entry(thread_root)
+                            .or_insert_with(default_timeline)
+                            .events
+                            .push(event.clone());
+                    }
+                }
+            },
+
+            // No explicit relation, okay, but it can still be related to a thread!
+            None => {
+                // We previously found events that are part of a thread, but we didn't see the
+                // thread root yet. And guess what? This might be this event!
+                if let Some(event_id) = event.event_id()
+                    && existing_threads.contains_key(&event_id)
+                {
+                    new_events_by_thread
+                        .entry(event_id)
+                        .or_insert_with(default_timeline)
+                        .events
+                        .push(event.clone());
+                }
+                // Otherwise, this event might be a redaction that applies to a thread.
+                else if let Some(redaction_target) =
+                    extract_redaction_target(event.raw(), redaction_rules)
+                    // TODO(@hywan): It's good to look for the redacted event in the memory and
+                    // store, but we MUST also look for it in `timeline`!
+                    && room_event_cache.find_event(&redaction_target).await?.is_some()
+                {
+                    // The redacted event exists (in the room, because it contains _all_ the
+                    // events) **but** the event has been redacted (in
+                    // the room). It's no more possible to extract its
+                    // thread root (because this information has been removed).
+                    //
+                    // But we need to know if the event is part of a thread to apply the
+                    // redaction in the thread too. No other choice than
+                    // doing a full search…
+
+                    let mut associated_thread_root = None;
+
+                    for (thread_root, thread) in existing_threads {
+                        if thread.find_event(&redaction_target).await?.is_some() {
+                            associated_thread_root = Some(thread_root.clone());
+                            break;
+                        }
+                    }
+
+                    // We've found the thread owning the event being redacted!
+                    if let Some(thread_root) = associated_thread_root {
+                        new_events_by_thread
+                            .entry(thread_root)
+                            .or_insert_with(default_timeline)
+                            .events
+                            .push(event.clone());
+                    }
+                }
             }
         }
     }
