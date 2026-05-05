@@ -161,7 +161,7 @@ impl RoomInfo {
             topic: room.topic(),
             avatar_url: room.avatar_url().map(Into::into),
             is_direct: room.is_direct().await?,
-            is_dm: room.is_dm().await?,
+            is_dm: room.compute_is_dm().await?,
             is_public: room.is_public(),
             is_space: room.is_space(),
             successor_room: room.successor_room().map(Into::into),

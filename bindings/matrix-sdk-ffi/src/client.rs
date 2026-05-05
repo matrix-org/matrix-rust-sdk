@@ -2232,6 +2232,7 @@ async fn notification_handler(
         is_encrypted: Some(room.encryption_state().is_encrypted()),
         is_direct,
         is_space: room.is_space(),
+        is_dm: room.compute_is_dm().await.ok().unwrap_or_default(),
     };
 
     listener.on_notification(
