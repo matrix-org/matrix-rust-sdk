@@ -22,6 +22,7 @@ use ruma::{
             guest_access::{GuestAccess, RoomGuestAccessEventContent},
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
             join_rules::RoomJoinRulesEventContent,
+            member::RoomMemberEvent,
             name::RoomNameEventContent,
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
@@ -2384,7 +2385,7 @@ async fn test_receive_stripped_room_topic_event_via_sync() {
 }
 
 #[async_test]
-async fn test_active_service_members() {
+async fn test_update_active_service_members() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
     let user_id = client.user_id().unwrap();
@@ -2421,6 +2422,7 @@ async fn test_active_service_members() {
     assert_eq!(active_members.len(), 1);
     assert_eq!(room.service_members().unwrap().len(), 2);
     assert!(room.update_active_service_members().await.unwrap().unwrap().is_empty());
+    assert!(room.active_service_members_count().is_none());
 
     // Now another user joined the room
     let human_user = EventFactory::new()
@@ -2441,6 +2443,7 @@ async fn test_active_service_members() {
     assert_eq!(active_members.len(), 2);
     assert_eq!(room.service_members().unwrap().len(), 2);
     assert!(room.update_active_service_members().await.unwrap().unwrap().is_empty());
+    assert!(room.active_service_members_count().is_none());
 
     // Now one of the service members in the member hints joined the room
     let service_member_1 =
@@ -2460,6 +2463,7 @@ async fn test_active_service_members() {
     assert_eq!(active_members.len(), 3);
     assert_eq!(room.service_members().unwrap().len(), 2);
     assert_eq!(room.update_active_service_members().await.unwrap().unwrap().len(), 1);
+    assert_eq!(room.active_service_members_count().unwrap_or_default(), 1);
 
     // And a second one joins too
     let service_member_2 =
@@ -2479,6 +2483,7 @@ async fn test_active_service_members() {
     assert_eq!(active_members.len(), 4);
     assert_eq!(room.service_members().unwrap().len(), 2);
     assert_eq!(room.update_active_service_members().await.unwrap().unwrap().len(), 2);
+    assert_eq!(room.active_service_members_count().unwrap_or_default(), 2);
 
     // And now the 2nd service member leaves the room
     let service_member_2_left = EventFactory::new()
@@ -2501,4 +2506,184 @@ async fn test_active_service_members() {
     assert_eq!(active_members.len(), 3);
     assert_eq!(room.service_members().unwrap().len(), 2);
     assert_eq!(room.update_active_service_members().await.unwrap().unwrap().len(), 1);
+    assert_eq!(room.active_service_members_count().unwrap_or_default(), 1);
+}
+
+#[async_test]
+async fn test_active_service_members_resets_when_member_counts_change() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let service_member_id_1 = owned_user_id!("@service_1:localhost");
+    let service_member_id_2 = owned_user_id!("@service_2:localhost");
+
+    let room_id = room_id!("!room:localhost");
+    let service_members_event = EventFactory::new()
+        .room(room_id)
+        .sender(user_id)
+        .member_hints(BTreeSet::from_iter(vec![
+            service_member_id_1.clone(),
+            service_member_id_2.clone(),
+        ]))
+        .into_raw_sync_state();
+    let own_member_event =
+        EventFactory::new().room(room_id).member(user_id).display_name("Me").into_raw_sync_state();
+    let service_member_1 =
+        EventFactory::new().room(room_id).member(&service_member_id_1).into_raw_sync_state();
+    let service_member_2 =
+        EventFactory::new().room(room_id).member(&service_member_id_2).into_raw_sync_state();
+
+    // We start with just the room and our own member event, no service events
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(own_member_event)
+                    .add_state_event(service_member_1)
+                    .add_state_event(service_member_2)
+                    .add_state_event(service_members_event),
+            ),
+        )
+        .await;
+
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 3);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+
+    // We got some computed values after update_active_service_members
+    assert_eq!(room.update_active_service_members().await.unwrap().unwrap().len(), 2);
+    assert_eq!(room.active_service_members_count().unwrap(), 2);
+
+    // But then the member counts change
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(32)),
+        )
+        .await;
+
+    // And the active service members should be reset to None
+    assert!(room.active_service_members_count().is_none());
+}
+
+#[async_test]
+async fn test_cached_active_service_members_resets_when_member_counts_change() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let service_member_id_1 = owned_user_id!("@service_1:localhost");
+    let service_member_id_2 = owned_user_id!("@service_2:localhost");
+
+    let room_id = room_id!("!room:localhost");
+    let service_members_event = EventFactory::new()
+        .room(room_id)
+        .sender(user_id)
+        .member_hints(BTreeSet::from_iter(vec![
+            service_member_id_1.clone(),
+            service_member_id_2.clone(),
+        ]))
+        .into_raw_sync_state();
+    let own_member_event =
+        EventFactory::new().room(room_id).member(user_id).display_name("Me").into_raw_sync_state();
+    let service_member_1 =
+        EventFactory::new().room(room_id).member(&service_member_id_1).into_raw();
+    let service_member_2 =
+        EventFactory::new().room(room_id).member(&service_member_id_2).into_raw();
+
+    // We start with just the room and our own member event, no service events
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(own_member_event)
+                    .add_state_event(service_member_1)
+                    .add_state_event(service_member_2)
+                    .add_state_event(service_members_event),
+            ),
+        )
+        .await;
+
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 3);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+
+    // We got some computed values after update_active_service_members
+    assert_eq!(room.update_active_service_members().await.unwrap().unwrap().len(), 2);
+    assert_eq!(room.active_service_members_count().unwrap(), 2);
+
+    // But then the member counts change
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(32)),
+        )
+        .await;
+
+    // And the active service members should be reset to None
+    assert!(room.active_service_members_count().is_none());
+}
+
+#[async_test]
+async fn test_cached_active_service_members_updates_on_sync_members() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+    let service_member_id_1 = owned_user_id!("@service_1:localhost");
+    let service_member_id_2 = owned_user_id!("@service_2:localhost");
+
+    let room_id = room_id!("!room:localhost");
+    let service_members_event = EventFactory::new()
+        .room(room_id)
+        .sender(user_id)
+        .member_hints(BTreeSet::from_iter(vec![
+            service_member_id_1.clone(),
+            service_member_id_2.clone(),
+        ]))
+        .into_raw_sync_state();
+    let own_member_event =
+        EventFactory::new().room(room_id).member(user_id).display_name("Me").into_raw_sync_state();
+    let service_member_1 = EventFactory::new()
+        .room(room_id)
+        .member(&service_member_id_1)
+        .into_raw::<RoomMemberEvent>();
+    let service_member_2 = EventFactory::new()
+        .room(room_id)
+        .member(&service_member_id_2)
+        .into_raw::<RoomMemberEvent>();
+
+    // We start with just the room and our own member event, no service events
+    let room = server
+        .sync_room(
+            &client,
+            AnyRoomBuilder::Joined(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(own_member_event)
+                    .add_state_event(service_members_event),
+            ),
+        )
+        .await;
+
+    let active_members = room.members_no_sync(RoomMemberships::ACTIVE).await.unwrap();
+    assert_eq!(active_members.len(), 1);
+    assert_eq!(room.service_members().unwrap().len(), 2);
+
+    // We don't have a computed value for active service members yet
+    assert!(room.active_service_members_count().is_none());
+
+    // But if we now sync the room members, the active service members should be
+    // updated
+    server
+        .mock_get_members()
+        .ok(vec![service_member_1, service_member_2])
+        .mock_once()
+        .mount()
+        .await;
+
+    room.sync_members().await.expect("sync_members");
+
+    // We got some computed values after sync_members
+    assert!(room.active_service_members_count().is_some());
+    assert_eq!(room.active_service_members_count().unwrap(), 2);
 }
