@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use ruma::{
     OwnedUserId,
     events::{
-        StateEventType,
+        MessageLikeEventType, StateEventType,
         room::power_levels::{
             PossiblyRedactedRoomPowerLevelsEventContent, RoomPowerLevels,
             RoomPowerLevelsEventContent,
@@ -57,6 +57,12 @@ pub struct RoomPowerLevelChanges {
     /// The level required to change the space's children.
     #[cfg_attr(feature = "uniffi", uniffi(default = None))]
     pub space_child: Option<i64>,
+    /// The level required to send a beacon (live location) message event.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub beacon: Option<i64>,
+    /// The level required to send a beacon info state event.
+    #[cfg_attr(feature = "uniffi", uniffi(default = None))]
+    pub beacon_info: Option<i64>,
 }
 
 impl RoomPowerLevelChanges {
@@ -74,6 +80,8 @@ impl RoomPowerLevelChanges {
             room_avatar: None,
             room_topic: None,
             space_child: None,
+            beacon: None,
+            beacon_info: None,
         }
     }
 }
@@ -112,6 +120,16 @@ impl From<RoomPowerLevels> for RoomPowerLevelChanges {
             space_child: value
                 .events
                 .get(&StateEventType::SpaceChild.into())
+                .map(|v| (*v).into())
+                .or(Some(value.state_default.into())),
+            beacon: value
+                .events
+                .get(&MessageLikeEventType::Beacon.into())
+                .map(|v| (*v).into())
+                .or(Some(value.events_default.into())),
+            beacon_info: value
+                .events
+                .get(&StateEventType::BeaconInfo.into())
                 .map(|v| (*v).into())
                 .or(Some(value.state_default.into())),
         }
@@ -161,6 +179,12 @@ impl RoomPowerLevelsExt for RoomPowerLevels {
         }
         if let Some(space_child) = settings.space_child {
             self.events.insert(StateEventType::SpaceChild.into(), space_child.try_into()?);
+        }
+        if let Some(beacon) = settings.beacon {
+            self.events.insert(MessageLikeEventType::Beacon.into(), beacon.try_into()?);
+        }
+        if let Some(beacon_info) = settings.beacon_info {
+            self.events.insert(StateEventType::BeaconInfo.into(), beacon_info.try_into()?);
         }
 
         Ok(())
@@ -236,6 +260,8 @@ mod tests {
             room_avatar: None,
             room_topic: None,
             space_child: None,
+            beacon: None,
+            beacon_info: None,
         };
 
         // When applying the settings to the power levels.
@@ -273,6 +299,8 @@ mod tests {
             room_avatar: Some(new_level.into()),
             room_topic: Some(new_level.into()),
             space_child: Some(new_level.into()),
+            beacon: None,
+            beacon_info: None,
         };
 
         // When applying the settings to the power levels.
@@ -324,6 +352,8 @@ mod tests {
             room_avatar: None,
             room_topic: None,
             space_child: None,
+            beacon: None,
+            beacon_info: None,
         };
 
         // When applying the settings to the power levels.
@@ -340,6 +370,52 @@ mod tests {
                 (StateEventType::RoomTopic.into(), original_level),
                 (StateEventType::SpaceChild.into(), original_level),
             ])
+        );
+        // And the rest should remain unchanged.
+        assert_eq!(power_levels.ban, original_levels.ban);
+        assert_eq!(power_levels.invite, original_levels.invite);
+        assert_eq!(power_levels.kick, original_levels.kick);
+        assert_eq!(power_levels.redact, original_levels.redact);
+        assert_eq!(power_levels.events_default, original_levels.events_default);
+        assert_eq!(power_levels.state_default, original_levels.state_default);
+        assert_eq!(power_levels.users_default, original_levels.users_default);
+    }
+
+    #[test]
+    fn test_apply_beacon_settings() {
+        // Given a set of power levels and some settings that only change the beacon
+        // and beacon_info event levels.
+        let mut power_levels = default_power_levels();
+
+        let new_level = int!(25);
+        let settings = RoomPowerLevelChanges {
+            ban: None,
+            invite: None,
+            kick: None,
+            redact: None,
+            events_default: None,
+            state_default: None,
+            users_default: None,
+            room_name: None,
+            room_avatar: None,
+            room_topic: None,
+            space_child: None,
+            beacon: Some(new_level.into()),
+            beacon_info: Some(new_level.into()),
+        };
+
+        // When applying the settings to the power levels.
+        let original_levels = power_levels.clone();
+        power_levels.apply(settings).unwrap();
+
+        // Then levels for the beacon events should be added.
+        assert_eq!(
+            power_levels.events.get(&MessageLikeEventType::Beacon.into()).copied(),
+            Some(new_level)
+        );
+        assert_eq!(
+            power_levels.events.get(&StateEventType::BeaconInfo.into()).copied(),
+            Some(new_level)
         );
         // And the rest should remain unchanged.
         assert_eq!(power_levels.ban, original_levels.ban);
