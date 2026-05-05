@@ -44,6 +44,7 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Expose `RoomMember::is_service_member` field. ([#6536](https://github.com/matrix-org/matrix-rust-sdk/pull/6536))
 - Expose `ClientBuilder::dm_room_definition` to customize the DM room definition used by the `Client`, 
   added `RoomInfo::is_dm` field based on it. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
 - Expose `HumanQrGrantLoginError::Unknown` reason in error message.

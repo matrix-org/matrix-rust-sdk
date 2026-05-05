@@ -31,6 +31,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add `RoomMember::is_service_member` that automatically checks the room info and retrieves this info. 
+  ([#6536](https://github.com/matrix-org/matrix-rust-sdk/pull/6536))
 - [**breaking**] Add `DmRoomDefinition` enum, allowing clients to specify what a DM 
   room should look like. A `Room::is_dm` method was added to check if a room is a DM room too, 
   using this definition. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
