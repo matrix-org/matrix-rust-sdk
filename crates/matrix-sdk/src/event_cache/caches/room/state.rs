@@ -808,7 +808,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub async fn update_thread_summary(
         &mut self,
         thread_id: &EventId,
-        new_thread_summary: ThreadSummary,
+        new_thread_summary: Option<ThreadSummary>,
     ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
         let Some((location, mut thread_root_event)) = self.find_event(&thread_id).await? else {
             trace!(%thread_id, "thread root event is missing from the room linked chunk");
@@ -817,7 +817,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         // Trigger an update to observers.
         trace!(%thread_id, "updating thread summary: {new_thread_summary:?}");
-        thread_root_event.thread_summary = ThreadSummaryStatus::from_opt(Some(new_thread_summary));
+        thread_root_event.thread_summary = ThreadSummaryStatus::from_opt(new_thread_summary);
         self.replace_event_at(location, thread_root_event).await?;
 
         Ok(self.room_linked_chunk.updates_as_vector_diffs())
