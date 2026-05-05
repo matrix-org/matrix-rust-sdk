@@ -69,6 +69,10 @@ pub struct SpaceRoom {
     ///
     /// Defaults to `false` if not specified in the `m.space.child` event.
     pub suggested: bool,
+    /// Whether this room is a DM, if known.
+    /// Note this value can be calculated following some assumptions and is not
+    /// guaranteed to be accurate.
+    pub is_dm: Option<bool>,
 }
 
 impl SpaceRoom {
@@ -104,9 +108,10 @@ impl SpaceRoom {
             is_direct: known_room.as_ref().map(|r| r.direct_targets_length() != 0),
             children_count,
             state: known_room.as_ref().map(|r| r.state()),
-            heroes: known_room.map(|r| r.heroes()),
+            heroes: known_room.as_ref().map(|r| r.heroes()),
             via,
             suggested,
+            is_dm: known_room.as_ref().map(|r| r.is_dm()),
         }
     }
 
@@ -143,6 +148,7 @@ impl SpaceRoom {
             heroes: Some(room_info.heroes().to_vec()),
             via: vec![],
             suggested: false,
+            is_dm: Some(known_room.is_dm()),
         }
     }
 
