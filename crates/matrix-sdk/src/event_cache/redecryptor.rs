@@ -363,72 +363,83 @@ impl EventCache {
 
         timer!("Resolving UTDs");
 
-        // Get the cache for this particular room and lock the state for the duration of
-        // the decryption.
+        // Get the cache for this particular room.
         let (room_cache, _drop_handles) = self.for_room(room_id).await?;
-        let mut state = room_cache.state().write().await?;
 
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
-        let mut new_events = Vec::with_capacity(events.len());
 
-        // Consider the pinned event linked chunk, if it's been initialized.
-        if let Some(pinned_cache) = state.pinned_event_cache() {
+        // Phase 1: under the room state write lock, collect cache handles and
+        // perform all room-linked-chunk mutations. We deliberately do NOT call
+        // replace_utds() on event-focused/pinned caches here to avoid an ABBA deadlock:
+        // pagination holds an event-focused cache lock and then tries to acquire the
+        // room state lock (via `save_events`), while this method would hold the
+        // room state lock and try to acquire event-focused cache locks.
+        let (pinned_cache, ef_caches) = {
+            let mut state = room_cache.state().write().await?;
+
+            let pinned_cache = state.pinned_event_cache().cloned();
+            let ef_caches: Vec<_> = state.event_focused_caches().cloned().collect();
+
+            // Consider the room linked chunk.
+            let mut new_events = Vec::with_capacity(events.len());
+            for (event_id, decrypted, actions) in &events {
+                if let Some((location, mut target_event)) = state.find_event(event_id).await? {
+                    target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+
+                    if let Some(actions) = actions {
+                        target_event.set_push_actions(actions.clone());
+                    }
+
+                    // TODO: `replace_event_at()` propagates changes to the store for every
+                    // event, we should probably have a bulk version of this?
+                    state.replace_event_at(location, target_event.clone()).await?;
+                    new_events.push(target_event);
+                }
+            }
+
+            // Read receipt events aren't encrypted, so we can't have decrypted a new
+            // one here. As a result, we don't have any new receipt events to
+            // post-process, so we can just pass `None` here.
+            //
+            // Note: read receipts may be updated anyhow in the post-processing step,
+            // as the redecryption may have decrypted some events that don't count as
+            // unreads.
+            let receipt_event = None;
+
+            state
+                .post_process_new_events(
+                    new_events,
+                    PostProcessingOrigin::Redecryption,
+                    receipt_event,
+                )
+                .await?;
+
+            room_cache.update_sender().send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: state.room_linked_chunk_mut().updates_as_vector_diffs(),
+                    origin: EventsOrigin::Cache,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+            );
+
+            (pinned_cache, ef_caches)
+        };
+        // Room state write lock is dropped here.
+
+        // Phase 2: replace UTDs in pinned and event-focused caches WITHOUT
+        // holding the room state lock. These caches have their own internal
+        // locks and don't need the room state lock.
+        if let Some(pinned_cache) = pinned_cache {
             pinned_cache.replace_utds(&events).await?;
         }
 
-        // Consider all the live event-focused caches too.
         // TODO: This ain't great for performance; there shouldn't be that many
         // event-focused caches alive at the same time, but they could
-        // accumulate over time. Consider keeping track of which linked chunk contain
-        // which event id, to avoid doing the linear searches here.
-        join_all(state.event_focused_caches().map(|cache| cache.replace_utds(&events))).await;
+        // accumulate over time. Consider keeping track of which linked chunk
+        // contain which event id, to avoid doing the linear searches here.
+        join_all(ef_caches.iter().map(|cache| cache.replace_utds(&events))).await;
 
-        // Consider the room linked chunk.
-        for (event_id, decrypted, actions) in events {
-            // The event isn't in the cache, nothing to replace. Realistically this can't
-            // happen since we retrieved the list of events from the cache itself and
-            // `find_event()` will look into the store as well.
-            if let Some((location, mut target_event)) = state.find_event(&event_id).await? {
-                target_event.kind = TimelineEventKind::Decrypted(decrypted);
-
-                if let Some(actions) = actions {
-                    target_event.set_push_actions(actions);
-                }
-
-                // TODO: `replace_event_at()` propagates changes to the store for every event,
-                // we should probably have a bulk version of this?
-                state.replace_event_at(location, target_event.clone()).await?;
-                new_events.push(target_event);
-            }
-        }
-
-        // Read receipt events aren't encrypted, so we can't have decrypted a new one
-        // here. As a result, we don't have any new receipt events to
-        // post-process, so we can just pass `None` here.
-        //
-        // Note: read receipts may be updated anyhow in the post-processing step, as the
-        // redecryption may have decrypted some events that don't count as unreads.
-        let receipt_event = None;
-
-        state
-            .post_process_new_events(new_events, PostProcessingOrigin::Redecryption, receipt_event)
-            .await?;
-
-        // We replaced a bunch of events, reactive updates for those replacements have
-        // been queued up. We need to send them out to our subscribers now.
-        room_cache.update_sender().send(
-            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                diffs: state.room_linked_chunk_mut().updates_as_vector_diffs(),
-                origin: EventsOrigin::Cache,
-            }),
-            Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
-        );
-
-        // We report that we resolved some UTDs, this is mainly for listeners that don't
-        // care about the actual events, just about the fact that UTDs got
-        // resolved. Not sure if we'll have more such listeners but the UTD hook
-        // is one such thing.
         let report =
             RedecryptorReport::ResolvedUtds { room_id: room_id.to_owned(), events: event_ids };
         let _ = self.inner.redecryption_channels.utd_reporter.send(report);
@@ -1105,6 +1116,7 @@ mod tests {
         locks::Mutex,
         sleep::sleep,
         store::StoreConfig,
+        timeout::timeout,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -1742,5 +1754,125 @@ mod tests {
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
+    }
+
+    /// Regression test: the redecryptor must NOT hold the room state write
+    /// lock while calling replace_utds() on event-focused caches, otherwise
+    /// an ABBA deadlock occurs with concurrent event-focused cache pagination.
+    #[async_test]
+    async fn test_redecryptor_no_deadlock_with_event_focused_cache_pagination() {
+        use crate::{
+            event_cache::EventFocusThreadMode,
+            test_utils::mocks::{RoomContextResponseTemplate, RoomMessagesResponseTemplate},
+        };
+
+        let room_id = room_id!("!test:localhost");
+        let f = EventFactory::new().room(room_id);
+        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
+
+        let (encrypted_event, room_key) = prepare_room(&server, &f, &alice, &bob, room_id).await;
+
+        let event_cache = bob.event_cache();
+        let (room_cache, _drop_handles) = event_cache
+            .for_room(room_id)
+            .await
+            .expect("Bob should have an event cache for the room");
+
+        let (_initial_events, mut subscriber) = room_cache.subscribe().await.unwrap();
+
+        // Sync the encrypted event to Bob. Without the room key, it's a UTD.
+        server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(
+                    JoinedRoomBuilder::new(room_id).add_timeline_event(encrypted_event),
+                );
+            })
+            .await;
+
+        // Consume the UTD update from the subscriber.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // Create an event-focused cache with a backward pagination gap.
+        let focused_event_id = event_id!("$focused");
+        let bob_user_id = bob.user_id().unwrap();
+
+        server
+            .mock_room_event_context()
+            .expect_any_access_token()
+            .ok(RoomContextResponseTemplate::new(
+                f.text_msg("focused msg")
+                    .sender(bob_user_id)
+                    .event_id(focused_event_id)
+                    .into_event(),
+            )
+            .start("back-token"))
+            .mock_once()
+            .mount()
+            .await;
+
+        let event_focused_cache = room_cache
+            .get_or_create_event_focused_cache(
+                focused_event_id.to_owned(),
+                20,
+                EventFocusThreadMode::Automatic,
+            )
+            .await
+            .unwrap();
+
+        // Mock /messages with a long delay, simulating a slow network.
+        server
+            .mock_room_messages()
+            .expect_any_access_token()
+            .ok(RoomMessagesResponseTemplate::default().with_delay(Duration::from_secs(5)))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Start backward pagination on the event-focused cache. This holds the cache
+        // write lock across the slow /messages network request.
+        let event_focused_cache_clone = event_focused_cache.clone();
+        let pagination_task = tokio::spawn(async move {
+            let _ = event_focused_cache_clone.paginate_backwards(20).await;
+        });
+
+        // Let the pagination task acquire the event-focused cache write lock.
+        sleep(Duration::from_millis(200)).await;
+
+        // Send the room key to Bob.
+        //
+        // The redecryptor background task will pick it up and decrypt the UTD.
+        // Previously, on_resolved_utds would hold the room state write lock
+        // while calling replace_utds on event-focused caches, creating an ABBA
+        // deadlock with pagination (which holds event-focused lock and needs
+        // room state lock via save_events).
+        server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(
+                    room_key
+                        .deserialize_as()
+                        .expect("We should be able to deserialize the room key"),
+                );
+            })
+            .await;
+
+        // Wait for the redecryptor to process the room key.
+        sleep(Duration::from_secs(1)).await;
+
+        // Subscribing requires a room state read lock (which would be awaited forever,
+        // before the fix).
+        let (_events, _subscriber) = timeout(room_cache.subscribe(), Duration::from_millis(100))
+            .await
+            .expect("subscribing shouldn't timeout")
+            .expect("subscribing should succeed");
+
+        pagination_task.abort();
     }
 }

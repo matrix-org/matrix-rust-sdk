@@ -200,6 +200,9 @@ impl PinnedEventCacheState {
 }
 
 /// All the information related to a room's pinned events cache.
+///
+/// This is cheap to clone, because it's a shallow data type.
+#[derive(Clone)]
 pub struct PinnedEventCache {
     state: Arc<PinnedEventCacheStateLock>,
 
