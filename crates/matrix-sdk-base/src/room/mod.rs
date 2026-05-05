@@ -301,9 +301,9 @@ impl Room {
         }
     }
 
-    /// Checks if the current room is a DM based on the rules from the
-    /// [`DmRoomDefinition`].
-    pub async fn is_dm(&self, dm_room_definition: &DmRoomDefinition) -> StoreResult<bool> {
+    /// Computes if the current room is a DM based on the rules from the
+    /// [`DmRoomDefinition`], updating the active service members.
+    pub async fn compute_is_dm(&self, dm_room_definition: &DmRoomDefinition) -> StoreResult<bool> {
         let is_direct = self.is_direct().await?;
 
         match *dm_room_definition {

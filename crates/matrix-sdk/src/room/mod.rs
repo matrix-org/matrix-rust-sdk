@@ -4578,6 +4578,10 @@ impl Room {
     /// Checks if the current room is a DM.
     pub async fn is_dm(&self) -> Result<bool> {
         Ok(self.inner.is_dm(self.client.dm_room_definition()).await?)
+    /// Computes if the current room is a DM, stores the loaded values, and then
+    /// returns the result.
+    pub async fn compute_is_dm(&self) -> Result<bool> {
+        Ok(self.inner.compute_is_dm(self.client.dm_room_definition()).await?)
     }
 }
 
