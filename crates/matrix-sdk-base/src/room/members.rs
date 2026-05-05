@@ -199,6 +199,7 @@ impl Room {
             max_power_level,
             users_display_names,
             ignored_users,
+            service_members: self.service_members(),
         })
     }
 }
@@ -217,6 +218,7 @@ pub struct RoomMember {
     pub(crate) max_power_level: i64,
     pub(crate) display_name_ambiguous: bool,
     pub(crate) is_ignored: bool,
+    pub(crate) is_service_member: bool,
 }
 
 impl RoomMember {
@@ -226,14 +228,21 @@ impl RoomMember {
         presence: Option<PresenceEvent>,
         room_info: &MemberRoomInfo<'_>,
     ) -> Self {
-        let MemberRoomInfo { power_levels, max_power_level, users_display_names, ignored_users } =
-            room_info;
+        let MemberRoomInfo {
+            power_levels,
+            max_power_level,
+            users_display_names,
+            ignored_users,
+            service_members,
+        } = room_info;
 
+        let user_id = event.user_id().to_owned();
         let display_name = event.display_name();
         let display_name_ambiguous = users_display_names
             .get(&display_name)
             .is_some_and(|s| is_display_name_ambiguous(&display_name, s));
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
+        let is_service_member = service_members.as_ref().is_some_and(|s| s.contains(&user_id));
 
         Self {
             event: event.into(),
@@ -243,6 +252,7 @@ impl RoomMember {
             max_power_level: *max_power_level,
             display_name_ambiguous,
             is_ignored,
+            is_service_member,
         }
     }
 
@@ -397,6 +407,11 @@ impl RoomMember {
     pub fn is_ignored(&self) -> bool {
         self.is_ignored
     }
+
+    /// Is the room member a service member.
+    pub fn is_service_member(&self) -> bool {
+        self.is_service_member
+    }
 }
 
 // Information about the room a member is in.
@@ -405,6 +420,7 @@ pub(crate) struct MemberRoomInfo<'a> {
     pub(crate) max_power_level: i64,
     pub(crate) users_display_names: HashMap<&'a DisplayName, BTreeSet<OwnedUserId>>,
     pub(crate) ignored_users: Option<BTreeSet<OwnedUserId>>,
+    pub(crate) service_members: Option<BTreeSet<OwnedUserId>>,
 }
 
 /// The kind of room member updates that just happened.
