@@ -30,7 +30,7 @@ use ruma::{
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tracing::{error, info};
 
 use crate::{
@@ -46,7 +46,7 @@ use crate::{
         requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
-    x509::{X509Signer, X509Verifier},
+    x509::X509Verifier,
 };
 
 /// Enum over the different user identity types we can have.
