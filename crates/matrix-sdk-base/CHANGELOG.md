@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Bug Fixes
 
+- Filter out service members from `Room::heroes`. This *should* be done by the homeservers, but some don't. 
+  ([#6535](https://github.com/matrix-org/matrix-rust-sdk/pull/6535))
 - Room keys are now rotated whenever the client fully reloads the member list by making a
   request to `/members`, which prevents clients using keys that may have been shared under
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) even if a gappy
