@@ -653,6 +653,7 @@ async fn test_redact_touches_threads() {
 
     s.server.sync_joined_room(&s.client, &s.room_id).await;
 
+    let (room_event_cache, _drop_handles) = event_cache.room(&s.room_id).await.unwrap();
     let (thread_event_cache, _drop_handles) =
         event_cache.thread(&s.room_id, &thread_root_id).await.unwrap();
 
@@ -669,37 +670,31 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
+    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
+
     // Sanity check: both events are present in the thread, and the thread summary
     // is correct.
-    let mut thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
-    assert_eq!(thread_events.len(), 3);
-    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_root_id));
-    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp1));
-    assert_eq!(thread_events.remove(0).event_id().as_ref(), Some(&thread_resp2));
-
-    let (room_event_cache, _drop_handles) = event_cache.room(&s.room_id).await.unwrap();
-    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
-    assert_eq!(room_events.len(), 3);
-
     {
+        assert_eq!(thread_events.len(), 3);
+        assert_eq!(thread_events[0].event_id().as_ref(), Some(&thread_root_id));
+        assert_eq!(thread_events[1].event_id().as_ref(), Some(&thread_resp1));
+        assert_eq!(thread_events[2].event_id().as_ref(), Some(&thread_resp2));
+
+        assert_eq!(room_events.len(), 3);
+
         assert_eq!(room_events[0].event_id().as_ref(), Some(&thread_root_id));
+        assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp1));
+        assert_eq!(room_events[2].event_id().as_ref(), Some(&thread_resp2));
+
+        // Thread summary.
         let summary = room_events[0].thread_summary.summary().unwrap();
         assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
         assert_eq!(summary.num_replies, 2);
-    }
 
-    // Second event.
-    {
-        assert_eq!(room_events[1].event_id().as_ref(), Some(&thread_resp1));
+        assert!(thread_stream.is_empty());
+        assert!(room_stream.is_empty());
     }
-
-    // Third event.
-    {
-        assert_eq!(room_events[2].event_id().as_ref(), Some(&thread_resp2));
-    }
-
-    assert!(thread_stream.is_empty());
-    assert!(room_stream.is_empty());
 
     // A redaction for the first reply comes through sync.
     let thread_resp1_redaction = event_id!("$redact_thread_resp1");
@@ -711,16 +706,25 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
-    // The redaction affects the thread cache: it updates the redacted event.
+    // The redaction affects the thread cache:
+    // - the redaction event is added to the “timeline”,
+    // - the redaction's target is, well, redacted.
     {
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
-        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs.len(), 2);
 
-        assert_let!(VectorDiff::Set { index: 1, value: new_event } = &diffs[0]);
+        // The redaction event is appended to the thread cache.
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 1);
+        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp1_redaction));
 
+        // The thread event is redacted.
+        assert_let!(VectorDiff::Set { index: 1, value: new_event } = &diffs[1]);
+        assert_eq!(new_event.event_id().as_ref(), Some(&thread_resp1));
         let deserialized = new_event.raw().deserialize().unwrap();
         assert!(deserialized.is_redacted());
 
+        // That's it!
         assert!(thread_stream.is_empty());
     }
 
@@ -733,7 +737,7 @@ async fn test_redact_touches_threads() {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 room_stream.recv()
         );
-        assert_eq!(diffs.len(), 3);
+        assert_eq!(diffs.len(), 2);
 
         // The redaction event is appended to the room cache.
         {
@@ -745,13 +749,20 @@ async fn test_redact_touches_threads() {
         // The room event is redacted.
         {
             assert_let!(VectorDiff::Set { index: 1, value: new_event } = &diffs[1]);
+            assert_eq!(new_event.event_id().as_ref(), Some(&thread_resp1));
             let deserialized = new_event.raw().deserialize().unwrap();
             assert!(deserialized.is_redacted());
         }
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+
         // The thread summary is updated.
         {
-            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[2]);
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
             assert_eq!(new_root.event_id().as_ref(), Some(&thread_root_id));
             let summary = new_root.thread_summary.summary().unwrap();
             assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
@@ -769,16 +780,25 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
-    // The redaction affects the thread cache: it updates the redacted event.
+    // The redaction affects the thread cache:
+    // - the redaction event is added to the “timeline”,
+    // - the redaction's target is, well, redacted.
     {
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
-        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs.len(), 2);
 
-        assert_let!(VectorDiff::Set { index: 2, value: new_event } = &diffs[0]);
+        // The redaction event is appended to the thread cache.
+        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+        assert_eq!(new_events.len(), 1);
+        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp2_redaction));
 
+        // The thread event is redacted.
+        assert_let!(VectorDiff::Set { index: 2, value: new_event } = &diffs[1]);
+        assert_eq!(new_event.event_id().as_ref(), Some(&thread_resp2));
         let deserialized = new_event.raw().deserialize().unwrap();
         assert!(deserialized.is_redacted());
 
+        // That's it!
         assert!(thread_stream.is_empty());
     }
 
@@ -791,23 +811,32 @@ async fn test_redact_touches_threads() {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 room_stream.recv()
         );
-        assert_eq!(diffs.len(), 3);
+        assert_eq!(diffs.len(), 2);
 
         // The redaction event is appended to the room cache.
-        assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
-        assert_eq!(new_events.len(), 1);
-        assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp2_redaction));
+        {
+            assert_let!(VectorDiff::Append { values: new_events } = &diffs[0]);
+            assert_eq!(new_events.len(), 1);
+            assert_eq!(new_events[0].event_id().as_deref(), Some(thread_resp2_redaction));
+        }
 
         // The room event is redacted.
         {
             assert_let!(VectorDiff::Set { index: 2, value: new_event } = &diffs[1]);
+            assert_eq!(new_event.event_id().as_ref(), Some(&thread_resp2));
             let deserialized = new_event.raw().deserialize().unwrap();
             assert!(deserialized.is_redacted());
         }
 
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+
         // The thread summary is removed.
         {
-            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[2]);
+            assert_let!(VectorDiff::Set { index: 0, value: new_root } = &diffs[0]);
             assert_eq!(new_root.event_id().as_ref(), Some(&thread_root_id));
             assert!(new_root.thread_summary.summary().is_none());
         }
