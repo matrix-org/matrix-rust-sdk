@@ -357,7 +357,7 @@ impl EstablishedSecureChannel {
         let aad = self.channel.additional_authenticated_data().unwrap_or_default();
 
         let message = self.crypto_channel.seal(message, &aad);
-        Ok(self.channel.send(message).await?)
+        self.channel.send(message).await
     }
 
     async fn receive(&mut self) -> Result<String, Error> {

@@ -440,7 +440,7 @@ impl ContinuationMessageSender {
 }
 
 /// A oneshot sender we are able to clone so we can put it into a
-/// [`SharedObservable`].
+/// observable.
 #[derive(Clone, Debug)]
 pub struct CloneableSender<T> {
     inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<T>>>>,
