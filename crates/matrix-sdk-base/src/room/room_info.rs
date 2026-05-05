@@ -924,6 +924,10 @@ impl RoomInfo {
             }
         }
 
+        if changed {
+            self.summary.active_service_members = None;
+        }
+
         changed
     }
 
