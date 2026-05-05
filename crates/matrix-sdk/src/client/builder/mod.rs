@@ -539,11 +539,15 @@ impl ClientBuilder {
         self
     }
 
+    /// The signer we will use to sign master signing keys and outgoing secret
+    /// requests.
     pub fn with_x509_signer(mut self, x509_signer: Option<X509Signer>) -> Self {
         self.x509_signer = x509_signer;
         self
     }
 
+    /// The verifier we wil use to verify master signing keys and incoming
+    /// secret requests.
     pub fn with_x509_verifier(mut self, x509_verifier: Option<X509Verifier>) -> Self {
         self.x509_verifier = x509_verifier;
         self

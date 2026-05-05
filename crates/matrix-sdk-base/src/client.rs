@@ -243,10 +243,14 @@ impl BaseClient {
         Ok(copy)
     }
 
+    /// Provide the signer we will use to sign master signing keys and outgoing
+    /// secret requests.
     pub fn set_x509_signer(&mut self, x509_signer: Option<X509Signer>) {
         self.x509_signer = x509_signer;
     }
 
+    /// Provide the verifier we will use to verify master signing keys and
+    /// incoming secret requests.
     pub fn set_x509_verifier(&mut self, x509_verifier: Option<X509Verifier>) {
         self.x509_verifier = x509_verifier
     }
