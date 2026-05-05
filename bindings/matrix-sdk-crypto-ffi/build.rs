@@ -11,6 +11,9 @@ use vergen_gitcl::{Emitter, GitclBuilder};
 /// in x86_64 devices: https://github.com/rust-lang/rust/issues/109717.
 /// The workaround is based on: https://github.com/mozilla/application-services/pull/5442
 ///
+/// TODO: I think this is obsolete with cargo-ndk 4.0.0:
+/// https://github.com/bbqsrc/cargo-ndk/commit/03c738653f935416580803b82fc6ad72c10dbebc
+///
 /// IMPORTANT: if you modify this, make sure to modify
 /// [../matrix-sdk-ffi/build.rs] too!
 fn setup_x86_64_android_workaround() {
@@ -40,6 +43,9 @@ fn setup_x86_64_android_workaround() {
 
         println!("cargo:rustc-link-search={toolchain_path}/lib/clang/{clang_version}/lib/linux/");
         println!("cargo:rustc-link-lib=static=clang_rt.builtins-x86_64-android");
+
+        // Ensure we re-run this build script if the location of the toolchain changes.
+        println!("cargo:rerun-if-env-changed=CC_x86_64-linux-android");
     }
 }
 
