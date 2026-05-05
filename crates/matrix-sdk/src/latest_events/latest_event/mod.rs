@@ -16,6 +16,7 @@ mod builder;
 
 use std::ops::{Deref, DerefMut, Not};
 
+pub use builder::filter_timeline_event;
 use builder::{BufferOfValuesForLocalEvents, Builder};
 use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{

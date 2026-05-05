@@ -619,7 +619,7 @@ impl BufferOfValuesForLocalEvents {
 
 /// The [`ControlFlow::Continue`] value used by the filters.
 #[derive(Debug)]
-struct FilterContinue {
+pub struct FilterContinue {
     /// Whether the current [`LatestEventValue`] must be erased or not.
     current_value_must_be_erased: bool,
     /// When the event is a replacement, this is the targeted event ID.
@@ -663,7 +663,7 @@ fn filter_continue_with_edit(edited_event_id: OwnedEventId) -> ControlFlow<(), F
 /// - `event` is the current event in the collection of events that is scanned.
 /// - `current_value_event_id` is the event ID of the current
 ///   [`LatestEventValue`].
-fn filter_timeline_event(
+pub fn filter_timeline_event(
     event: &TimelineEvent,
     current_value_event_id: Option<&OwnedEventId>,
     own_user_id: &UserId,
