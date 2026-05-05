@@ -823,7 +823,24 @@ impl RoomInfo {
         &mut self,
         raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     ) -> bool {
-        // Store the state event in the `BaseRoomInfo` first.
+        // When we receive a `m.room.member_hints` event
+        if raw_event.event_type == StateEventType::MemberHints
+            && let Some(AnySyncStateEvent::MemberHints(new_hints)) = raw_event.deserialize()
+            // If we have both old and new member hints events
+            && let (Some(current_hints), Some(new)) =
+                (&self.base_info.member_hints, new_hints.as_original())
+            // Then we check if their contents don't match
+            && current_hints
+                .content
+                .service_members
+                .as_ref()
+                .is_some_and(|current_members| *current_members != new.content.service_members)
+        {
+            // And reset the computed value in that case
+            self.summary.active_service_members = None;
+        }
+
+        // Store the state event in the `BaseRoomInfo`.
         let base_info_has_been_modified = self.base_info.handle_state_event(raw_event);
 
         if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
