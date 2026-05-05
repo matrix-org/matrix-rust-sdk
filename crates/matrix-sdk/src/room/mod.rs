@@ -40,8 +40,8 @@ use matrix_sdk_base::crypto::{
 };
 pub use matrix_sdk_base::store::StoredThreadSubscription;
 use matrix_sdk_base::{
-    ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
-    StateStoreDataKey, StateStoreDataValue,
+    ComposerDraft, DmRoomDefinition, EncryptionState, RoomInfoNotableUpdateReasons,
+    RoomMemberships, SendOutsideWasm, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
@@ -4575,13 +4575,39 @@ impl Room {
         }
     }
 
-    /// Checks if the current room is a DM.
-    pub async fn is_dm(&self) -> Result<bool> {
-        Ok(self.inner.is_dm(self.client.dm_room_definition()).await?)
     /// Computes if the current room is a DM, stores the loaded values, and then
     /// returns the result.
     pub async fn compute_is_dm(&self) -> Result<bool> {
         Ok(self.inner.compute_is_dm(self.client.dm_room_definition()).await?)
+    }
+
+    /// Checks if the current room is a DM in a synchronous way, without
+    /// actually checking any local stores. Note this can be either a cached or
+    /// an approximate value, since some important data may be unavailable
+    /// and we may need to make some assumptions.
+    pub fn is_dm(&self) -> bool {
+        // Note: this value may be wrong for invited rooms.
+        let is_direct = self.direct_targets_length() == 1;
+        match self.client.dm_room_definition() {
+            DmRoomDefinition::MatrixSpec => {
+                // If there is a single target, it's a DM.
+                is_direct
+            }
+            DmRoomDefinition::TwoMembers => {
+                // If there is a single target and at most 2 active members, it's a DM.
+                // Try getting the calculated active service members count from the room info.
+                let active_service_member_count =
+                    self.active_service_members_count().unwrap_or_else(|| {
+                        // Otherwise just use an approximated value based on the service members
+                        // count.
+                        self.service_members().map(|members| members.len()).unwrap_or_default()
+                            as u64
+                    });
+                let has_at_most_two_active_members =
+                    self.active_members_count().saturating_sub(active_service_member_count) <= 2;
+                is_direct && has_at_most_two_active_members
+            }
+        }
     }
 }
 
