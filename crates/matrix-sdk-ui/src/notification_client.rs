@@ -955,6 +955,9 @@ pub struct NotificationItem {
 
     /// The push actions for this notification (notify, sound, highlight, etc.).
     pub actions: Option<Vec<Action>>,
+
+    /// Whether the room this notification is from is a DM or not.
+    pub room_is_dm: bool,
 }
 
 impl NotificationItem {
@@ -1061,6 +1064,7 @@ impl NotificationItem {
             has_mention,
             thread_id,
             actions: push_actions.map(|actions| actions.to_vec()),
+            room_is_dm: room.compute_is_dm().await?,
         };
 
         Ok(item)
