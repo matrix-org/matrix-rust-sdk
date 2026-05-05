@@ -2,10 +2,7 @@ use std::{ops::Deref, sync::Arc};
 
 use rustls::{
     RootCertStore, SignatureScheme,
-    crypto::{
-        CryptoProvider,
-        aws_lc_rs::{self, default_provider},
-    },
+    crypto::aws_lc_rs::default_provider,
     pki_types::{CertificateDer, PrivateKeyDer, UnixTime, pem::PemObject},
     server::WebPkiClientVerifier,
     sign::SigningKey,
