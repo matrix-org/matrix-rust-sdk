@@ -63,7 +63,7 @@ pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
 use tokio::sync::broadcast;
 pub use tombstone::{PredecessorRoom, SuccessorRoom};
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument, trace, warn};
 
 use crate::{
     DmRoomDefinition, Error, StateStore,
@@ -313,7 +313,7 @@ impl Room {
                     return Ok(false);
                 }
                 let active_service_member_count =
-                    self.active_service_members().await?.unwrap_or_default().len() as u64;
+                    self.update_active_service_members().await?.unwrap_or_default().len() as u64;
                 let has_at_most_two_members =
                     self.active_members_count().saturating_sub(active_service_member_count) <= 2;
                 Ok(has_at_most_two_members)
@@ -541,7 +541,7 @@ impl Room {
     /// Returns the list of service members that are either in a joined or
     /// invited state in this room, checking the service member list against the
     /// locally available room members.
-    pub async fn active_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
+    pub async fn update_active_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
         if let Some(service_members) = self.service_members() {
             let mut found = Vec::new();
             for user_id in service_members {
@@ -560,8 +560,32 @@ impl Room {
                 }
             }
 
+            trace!(
+                "Updating active service members ({}) in room {:?}",
+                found.len(),
+                self.room_id()
+            );
+
+            let new_active_service_member_count = found.len() as u64;
+            let current_active_service_member_count =
+                self.info.read().summary.active_service_members.unwrap_or_default();
+            if new_active_service_member_count != current_active_service_member_count {
+                self.update_and_save_room_info(|mut info| {
+                    info.update_active_service_member_count(Some(new_active_service_member_count));
+                    (info, RoomInfoNotableUpdateReasons::ACTIVE_SERVICE_MEMBERS)
+                })
+                .await?;
+            }
+
             Ok(Some(found))
         } else {
+            if self.info.read().summary.active_service_members.is_some() {
+                self.update_and_save_room_info(|mut info| {
+                    info.update_active_service_member_count(None);
+                    (info, RoomInfoNotableUpdateReasons::ACTIVE_SERVICE_MEMBERS)
+                })
+                .await?;
+            }
             Ok(None)
         }
     }

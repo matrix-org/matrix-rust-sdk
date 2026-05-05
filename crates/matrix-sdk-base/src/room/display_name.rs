@@ -378,6 +378,10 @@ pub(crate) struct RoomSummary {
     pub joined_member_count: u64,
     /// The number of members that are considered to be invited to the room.
     pub invited_member_count: u64,
+    /// The number of active (joined/invited) service members in the room, if
+    /// known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_service_members: Option<u64>,
 }
 
 #[cfg(test)]

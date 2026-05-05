@@ -2223,7 +2223,7 @@ async fn notification_handler(
             .map(ToString::to_string)
             .collect(),
         active_service_members_count: room
-            .active_service_members()
+            .update_active_service_members()
             .await
             .ok()
             .flatten()

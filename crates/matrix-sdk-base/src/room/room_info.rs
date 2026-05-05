@@ -1410,6 +1410,9 @@ bitflags! {
         /// The display name has changed.
         const DISPLAY_NAME = 0b0010_0000;
 
+        /// The active service members have changed.
+        const ACTIVE_SERVICE_MEMBERS = 0b0100_0000;
+
         /// This is a temporary hack.
         ///
         /// So here is the thing. Ideally, we DO NOT want to emit this reason. It does not
