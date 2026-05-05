@@ -96,6 +96,7 @@ pub struct RoomMember {
     pub is_ignored: bool,
     pub suggested_role_for_power_level: RoomMemberRole,
     pub membership_change_reason: Option<String>,
+    pub is_service_member: bool,
 }
 
 impl TryFrom<SdkRoomMember> for RoomMember {
@@ -112,6 +113,7 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             is_ignored: m.is_ignored(),
             suggested_role_for_power_level: m.suggested_role_for_power_level(),
             membership_change_reason: m.event().reason().map(|s| s.to_owned()),
+            is_service_member: m.is_service_member(),
         })
     }
 }
