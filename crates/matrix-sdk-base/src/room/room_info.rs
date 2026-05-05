@@ -1285,6 +1285,18 @@ impl RoomInfo {
 
         migrated
     }
+
+    /// Returns the number of active (joined/invited) service members in the
+    /// room, if known.
+    pub fn active_service_member_count(&self) -> Option<u64> {
+        self.summary.active_service_members
+    }
+
+    /// Updates the cached value for the number of active service members in the
+    /// room.
+    pub fn update_active_service_member_count(&mut self, count: Option<u64>) {
+        self.summary.active_service_members = count;
+    }
 }
 
 /// Type to represent a `RoomInfo::recency_stamp`.
@@ -1476,6 +1488,7 @@ mod tests {
                 }],
                 joined_member_count: 5,
                 invited_member_count: 0,
+                active_service_members: None,
             },
             members_synced: true,
             last_prev_batch: Some("pb".to_owned()),

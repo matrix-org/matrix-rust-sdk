@@ -565,6 +565,12 @@ impl Room {
             Ok(None)
         }
     }
+
+    /// Returns a cached value containing the active (joined/invited) service
+    /// member count, if known.
+    pub fn active_service_members_count(&self) -> Option<u64> {
+        self.info.read().summary.active_service_members
+    }
 }
 
 // See https://github.com/matrix-org/matrix-rust-sdk/pull/3749#issuecomment-2312939823.
