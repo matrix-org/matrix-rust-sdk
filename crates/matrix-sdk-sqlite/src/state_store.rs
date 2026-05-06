@@ -37,10 +37,7 @@ use ruma::{
 };
 use rusqlite::{OptionalExtension, Transaction};
 use serde::{Deserialize, Serialize};
-use tokio::{
-    fs,
-    sync::{Mutex, OwnedMutexGuard},
-};
+use tokio::sync::{Mutex, OwnedMutexGuard};
 use tracing::{debug, instrument, warn};
 
 use crate::{
@@ -115,9 +112,7 @@ impl SqliteStateStore {
 
     /// Open the SQLite-based state store with the config open config.
     pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME)?;
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await?;
 
         let this = Self::open_with_pool(pool, config.secret).await?;
         this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
@@ -874,7 +869,8 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     async fn get_kv_blob(&self, key: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
@@ -1111,14 +1107,16 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl SqliteObjectStateStoreExt for SqliteAsyncConn {
     async fn set_kv_blob(&self, key: Key, value: Vec<u8>) -> Result<()> {
         Ok(self.interact(move |conn| conn.set_kv_blob(&key, &value)).await.unwrap()?)
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_family = "wasm", async_trait(?Send))]
+#[cfg_attr(not(target_family = "wasm"), async_trait)]
 impl StateStore for SqliteStateStore {
     type Error = Error;
 
@@ -2379,17 +2377,20 @@ struct ReceiptData {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::sync::{
         LazyLock,
         atomic::{AtomicU32, Ordering::SeqCst},
     };
 
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
-    use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
+    use crate::test_utils::{TempDirWrapper, create_tmp_dir};
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     async fn get_store() -> Result<impl StateStore, StoreError> {
@@ -2406,6 +2407,9 @@ mod tests {
 
 #[cfg(test)]
 mod encrypted_tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::{
         path::PathBuf,
         sync::{
@@ -2416,12 +2420,15 @@ mod encrypted_tests {
 
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
-    use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{
+        SqliteStoreConfig,
+        test_utils::{TempDirWrapper, create_tmp_dir},
+        utils::SqliteAsyncConnExt,
+    };
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
 
     fn new_state_store_workspace() -> PathBuf {
@@ -2489,6 +2496,9 @@ mod encrypted_tests {
 
 #[cfg(test)]
 mod migration_tests {
+    #[cfg(target_family = "wasm")]
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
     use std::{
         path::{Path, PathBuf},
         sync::{
@@ -2519,18 +2529,18 @@ mod migration_tests {
     use rusqlite::Transaction;
     use serde::{Deserialize, Serialize};
     use serde_json::json;
-    use tempfile::{TempDir, tempdir};
-    use tokio::{fs, sync::Mutex};
+    use tokio::sync::Mutex;
     use zeroize::Zeroizing;
 
     use super::{DATABASE_NAME, SqliteStateStore, init, keys};
     use crate::{
-        OpenStoreError, Secret, SqliteStoreConfig,
+        Secret, SqliteStoreConfig,
         error::{Error, Result},
+        test_utils::{TempDirWrapper, create_tmp_dir},
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     };
 
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
+    static TMP_DIR: LazyLock<TempDirWrapper> = create_tmp_dir();
     static NUM: AtomicU32 = AtomicU32::new(0);
     const SECRET: &str = "secret";
 
@@ -2542,9 +2552,7 @@ mod migration_tests {
     async fn create_fake_db(path: &Path, version: u8) -> Result<SqliteStateStore> {
         let config = SqliteStoreConfig::new(path);
 
-        fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir).unwrap();
-
-        let pool = config.build_pool_of_connections(DATABASE_NAME).unwrap();
+        let pool = config.build_pool_of_connections(DATABASE_NAME).await.unwrap();
         let conn = pool.get().await?;
 
         init(&conn).await?;

@@ -23,7 +23,10 @@ use matrix_sdk_base::media::store::MediaStoreError;
 use matrix_sdk_base::store::StoreError as StateStoreError;
 #[cfg(feature = "crypto-store")]
 use matrix_sdk_crypto::CryptoStoreError;
+#[cfg(target_family = "wasm")]
+use sqlite_wasm_vfs::sahpool::OpfsSAHError;
 use thiserror::Error;
+#[cfg(not(target_family = "wasm"))]
 use tokio::io;
 
 use crate::connection::{CreatePoolError, PoolError};
@@ -32,6 +35,7 @@ use crate::connection::{CreatePoolError, PoolError};
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum OpenStoreError {
+    #[cfg(not(target_family = "wasm"))]
     /// Failed to create the DB's parent directory.
     #[error("Failed to create the database's parent directory: {0}")]
     CreateDir(#[source] io::Error),
@@ -71,6 +75,11 @@ pub enum OpenStoreError {
     /// Failed to save the store cipher to the DB.
     #[error("Failed to save the store cipher to the DB: {0}")]
     SaveCipher(#[source] rusqlite::Error),
+
+    #[cfg(target_family = "wasm")]
+    /// Failed to setup vfs for wasm environment
+    #[error("Failed to setup vfs for WASM environment: {0}")]
+    SetupOpfs(#[from] OpfsSAHError),
 }
 
 #[derive(Debug, Error)]

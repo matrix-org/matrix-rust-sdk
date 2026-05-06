@@ -261,6 +261,15 @@ jobs:
           - name: '[m], indexeddb stores, no crypto'
             cmd: matrix-sdk-indexeddb-stores-no-crypto
 
+          - name: '[m]-sqlite'
+            cmd: sqlite
+
+          - name: '[m], sqlite stores'
+            cmd: matrix-sdk-sqlite-stores
+
+          - name: '[m], sqlite stores, no crypto'
+            cmd: matrix-sdk-sqlite-stores-no-crypto
+
     steps:
       - name: Checkout the repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6

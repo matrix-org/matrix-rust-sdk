@@ -27,6 +27,9 @@ mod event_cache_store;
 mod media_store;
 #[cfg(feature = "state-store")]
 mod state_store;
+#[cfg(test)]
+#[allow(dead_code)]
+mod test_utils;
 mod utils;
 use std::{
     cmp::max,
@@ -209,18 +212,19 @@ impl SqliteStoreConfig {
     }
 
     /// Build a pool of active connections to a particular database.
-    pub fn build_pool_of_connections(
+    pub async fn build_pool_of_connections(
         &self,
         database_name: &str,
-    ) -> Result<connection::Pool, connection::CreatePoolError> {
-        let path = self.path.join(database_name);
-        let manager = connection::Manager::new(path);
+    ) -> Result<connection::Pool, OpenStoreError> {
+        let manager = connection::Manager::new(&self.path, database_name).await?;
 
-        connection::Pool::builder(manager)
+        let pool = connection::Pool::builder(manager)
             .config(self.pool_config)
             .runtime(connection::RUNTIME)
             .build()
-            .map_err(connection::CreatePoolError::Build)
+            .map_err(connection::CreatePoolError::Build)?;
+
+        Ok(pool)
     }
 }
 
