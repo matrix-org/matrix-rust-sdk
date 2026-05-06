@@ -1447,6 +1447,34 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        let Some(serialized) = self.read().await?.get_kv(key).await? else {
+            return Ok(None);
+        };
+        let value = if let Some(cipher) = &self.store_cipher {
+            let encrypted = rmp_serde::from_slice(&serialized)?;
+            cipher.decrypt_value_data(encrypted)?
+        } else {
+            serialized
+        };
+        Ok(Some(value))
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+        let serialized = if let Some(cipher) = &self.store_cipher {
+            let encrypted = cipher.encrypt_value_data(value)?;
+            rmp_serde::to_vec_named(&encrypted)?
+        } else {
+            value
+        };
+        self.write().await?.set_kv(key, serialized).await?;
+        Ok(())
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+        self.write().await?.clear_kv(key).await.map_err(Into::into)
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(self.vacuum().await?)
     }

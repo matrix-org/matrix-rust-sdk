@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add function `MappedCrossProcessLockState::into_inner` for extracting the inner
+  value without regard for whether the lock is clean or dirty.
+  ([#6541](https://github.com/matrix-org/matrix-rust-sdk/pull/6541))
 - [**breaking**] Change to the stable identifiers for `m.history_not_shared`.
   We still support reading the unstable identifier.
   ([#6467](https://github.com/matrix-org/matrix-rust-sdk/pull/6467))

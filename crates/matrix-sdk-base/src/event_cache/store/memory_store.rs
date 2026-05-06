@@ -52,6 +52,7 @@ pub struct MemoryStore {
 struct MemoryStoreInner {
     leases: HashMap<String, Lease>,
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
+    values: HashMap<String, Vec<u8>>,
 }
 
 impl Default for MemoryStore {
@@ -60,6 +61,7 @@ impl Default for MemoryStore {
             inner: Arc::new(StdRwLock::new(MemoryStoreInner {
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
+                values: Default::default(),
             })),
         }
     }
@@ -289,6 +291,20 @@ impl EventCacheStore for MemoryStore {
             return Ok(());
         }
         self.inner.write().unwrap().events.save_item(room_id.to_owned(), event);
+        Ok(())
+    }
+
+    async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>, Self::Error> {
+        Ok(self.inner.read().unwrap().values.get(key).cloned())
+    }
+
+    async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().values.insert(key.to_owned(), value);
+        Ok(())
+    }
+
+    async fn remove_custom_value(&self, key: &str) -> Result<(), Self::Error> {
+        self.inner.write().unwrap().values.remove(key);
         Ok(())
     }
 

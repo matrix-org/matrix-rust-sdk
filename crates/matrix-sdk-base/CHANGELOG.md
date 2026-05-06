@@ -33,6 +33,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Add functions for storing custom values in `EventCacheStore`.
+  ([#6541](https://github.com/matrix-org/matrix-rust-sdk/pull/6541))
 - Add `RoomMember::is_service_member` that automatically checks the room info and retrieves this info. 
   ([#6536](https://github.com/matrix-org/matrix-rust-sdk/pull/6536))
 - [**breaking**] Add `DmRoomDefinition` enum, allowing clients to specify what a DM 

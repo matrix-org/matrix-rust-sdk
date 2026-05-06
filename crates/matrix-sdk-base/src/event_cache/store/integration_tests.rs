@@ -237,6 +237,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test multiple things related to distinguishing a thread linked chunk
     /// from a room linked chunk.
     async fn test_thread_vs_room_linked_chunk(&self);
+
+    /// Test that custom values can be stored, retrieved, and removed from the
+    /// store.
+    async fn test_custom_values(&self);
 }
 
 impl EventCacheStoreIntegrationTests for DynEventCacheStore {
@@ -2262,6 +2266,35 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(observed_items.len(), 1);
         assert_eq!(observed_items[0].event_id(), thread1_ev.event_id());
     }
+
+    async fn test_custom_values(&self) {
+        let key = "key";
+        let value = Vec::from(b"value");
+
+        // Before the value is set, it cannot be retrieved
+        let retrieved = self.get_custom_value(key).await.expect("get custom value");
+        assert_eq!(retrieved, None);
+
+        // After the value is set, it can be retrieved
+        self.set_custom_value(key, value.clone()).await.expect("set custom value");
+        let retrieved = self.get_custom_value(key).await.expect("get custom value");
+        assert_matches!(retrieved, Some(bytes) => assert_eq!(bytes, value));
+
+        // After the value is set again, the new value can be retrieved but the original
+        // value cannot
+        let new_value = Vec::from(b"new-value");
+        self.set_custom_value(key, new_value.clone()).await.expect("set custom value");
+        let retrieved = self.get_custom_value(key).await.expect("get custom value");
+        assert_matches!(retrieved, Some(bytes) => {
+            assert_ne!(bytes, value);
+            assert_eq!(bytes, new_value);
+        });
+
+        // After the value is removed, it can no longer be retrieved
+        self.remove_custom_value(key).await.expect("remove custom value");
+        let retrieved = self.get_custom_value(key).await.expect("get custom value");
+        assert_eq!(retrieved, None);
+    }
 }
 
 /// Macro building to allow your `EventCacheStore` implementation to run the
@@ -2518,6 +2551,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_thread_vs_room_linked_chunk().await;
+            }
+
+            #[async_test]
+            async fn test_custom_values() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_custom_values().await;
             }
         }
     };

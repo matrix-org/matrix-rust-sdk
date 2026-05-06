@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add implementations of `EventCacheStore` functions for storing custom values.
+  ([#6541](https://github.com/matrix-org/matrix-rust-sdk/pull/6541))
 - Implement `CryptoStore::get_pending_key_bundle_details_for_room` and
   `CryptoStore::get_all_rooms_pending_key_bundle`, and process
   `rooms_pending_key_bundle` field in `Changes`.

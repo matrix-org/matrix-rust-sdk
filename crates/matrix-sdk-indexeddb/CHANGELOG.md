@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Add implementations of `EventCacheStore` functions for storing custom values.
+  ([#6541](https://github.com/matrix-org/matrix-rust-sdk/pull/6541))
 - Add support in the implementation of `EventCacheStore` for
   having duplicate events in a room, where each duplicate is in a different
   `LinkedChunk`. This is useful, e.g., when an event is in a room and a

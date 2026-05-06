@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v4};
+    use super::{Version, v5};
 
-    pub const VERSION: Version = Version::V4;
-    pub use v4::keys;
+    pub const VERSION: Version = Version::V5;
+    pub use v5::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -60,6 +60,8 @@ pub enum Version {
     V3 = 3,
     /// Version 4 of the database, for details see [`v4`].
     V4 = 4,
+    /// Version 5 of the database, for details see [`v5`].
+    V5 = 5,
 }
 
 impl Version {
@@ -70,7 +72,8 @@ impl Version {
             Self::V1 => v1::upgrade(transaction).map(Some),
             Self::V2 => v2::upgrade(transaction).map(Some),
             Self::V3 => v3::upgrade(transaction).map(Some),
-            Self::V4 => Ok(None),
+            Self::V4 => v4::upgrade(transaction).map(Some),
+            Self::V5 => Ok(None),
         }
     }
 }
@@ -89,6 +92,7 @@ impl TryFrom<u32> for Version {
             2 => Ok(Version::V2),
             3 => Ok(Version::V3),
             4 => Ok(Version::V4),
+            5 => Ok(Version::V5),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -330,6 +334,43 @@ mod v4 {
         let events = transaction.object_store(keys::EVENTS)?;
         events.clear()?;
 
+        Ok(())
+    }
+
+    /// Upgrade database from `v4` to `v5`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v5::create_custom_values_object_store(transaction)?;
+        Ok(Version::V5)
+    }
+}
+
+pub mod v5 {
+    use indexed_db_futures::Build;
+
+    use super::*;
+
+    pub mod keys {
+        // Re-use all the same keys from [`v4`], and add another
+        // for the custom values object store.
+        pub use super::v4::keys::*;
+
+        pub const CUSTOM_VALUES: &str = "custom-values";
+        pub const CUSTOM_VALUES_KEY_PATH: &str = "id";
+    }
+
+    /// Create an object store for tracking custom values.
+    ///
+    /// * Primary Key - `id`
+    ///
+    /// Note that this object store expects binary data values - e.g.,
+    /// [`Vec<u8>`]. It is intended to hold any individual values that are
+    /// not appropriate for storing in other parts of the database.
+    pub fn create_custom_values_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let _ = transaction
+            .db()
+            .create_object_store(keys::CUSTOM_VALUES)
+            .with_key_path(keys::CUSTOM_VALUES_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 }

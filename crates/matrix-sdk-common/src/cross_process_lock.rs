@@ -591,6 +591,14 @@ impl<G> MappedCrossProcessLockState<G> {
             Self::Dirty(_) => None,
         }
     }
+
+    /// Map this value into the inner type, ignoring whether
+    /// it is clean or dirty.
+    pub fn into_inner(self) -> G {
+        match self {
+            Self::Clean(inner) | Self::Dirty(inner) => inner,
+        }
+    }
 }
 
 /// Represent an unsuccessful result of a lock attempt, either by

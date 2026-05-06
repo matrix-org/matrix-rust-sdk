@@ -26,11 +26,12 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
-            IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedCustomValue, IndexedCustomValueIdKey,
+            IndexedEvent, IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
+            IndexedNextChunkIdKey,
         },
-        types::{Chunk, ChunkType, Event, Gap, Lease, Position},
+        types::{Chunk, ChunkType, CustomValue, Event, Gap, Lease, Position},
     },
     serializer::indexed_type::{
         IndexedTypeSerializer,
@@ -528,5 +529,31 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(), TransactionError> {
         self.delete_items_by_linked_chunk_id::<Gap, IndexedGapIdKey>(linked_chunk_id).await
+    }
+
+    /// Query IndexedDB for the custom value that matches the given key. If
+    /// more than one custom value is found, an error is returned.
+    pub async fn get_custom_value(
+        &self,
+        key: &str,
+    ) -> Result<Option<CustomValue>, TransactionError> {
+        self.get_item_by_key_components::<CustomValue, IndexedCustomValueIdKey>(key).await
+    }
+
+    /// Puts a custom value into IndexedDB. If a custom value with the same key
+    /// already exists, it will be overwritten. When the custom value is
+    /// successfully put, the function returns the intermediary type
+    /// [`IndexedCustomValue`] in case inspection is needed.
+    pub async fn put_custom_value(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+    ) -> Result<IndexedCustomValue, TransactionError> {
+        self.put_item(&CustomValue { key: key.to_owned(), value }).await
+    }
+
+    /// Delete custom value that matches the given key
+    pub async fn delete_custom_value(&self, key: &str) -> Result<(), TransactionError> {
+        self.delete_item_by_key::<CustomValue, IndexedCustomValueIdKey>(key).await
     }
 }

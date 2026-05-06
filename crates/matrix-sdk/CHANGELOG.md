@@ -8,6 +8,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Store `SlidingSyncPositionMarkers` in `EventCacheStore` rather than `CryptoStore`, allowing
+  position markers to be stored even when end-to-end encryption is disabled.
+  ([#6541](https://github.com/matrix-org/matrix-rust-sdk/pull/6541))
 - Added `DmRoomDefinition` as a parameter of `ClientBuilder` so we can specify it when creating a Client. 
   Also added a `Room::is_dm` method and added some logic to use the new DM definitions in `Client::get_dm_rooms` 
   and when using message search. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))

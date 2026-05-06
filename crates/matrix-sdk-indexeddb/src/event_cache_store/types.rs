@@ -232,3 +232,13 @@ pub struct Gap {
     #[serde(alias = "prev_token")]
     pub token: String,
 }
+
+/// An arbitrary key-value pair where the value is unstructured binary data
+/// which can be stored in IndexedDB.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CustomValue {
+    /// The key associated with [`Self::value`].
+    pub key: String,
+    /// The value associated with [`Self::key`].
+    pub value: Vec<u8>,
+}
