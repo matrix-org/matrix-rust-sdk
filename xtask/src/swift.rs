@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    env,
     fs::{copy, create_dir_all, remove_dir_all, remove_file, rename},
 };
 
@@ -387,15 +386,6 @@ fn build_targets(
         ios_deployment_target.map(|target| sh.push_env("IPHONEOS_DEPLOYMENT_TARGET", target));
     let _env_guard4 =
         watchos_deployment_target.map(|target| sh.push_env("WATCHOS_DEPLOYMENT_TARGET", target));
-    let stable_toolchain =
-        env::var("MATRIX_SDK_XTASK_STABLE_TOOLCHAIN").unwrap_or_else(|_| "stable".to_owned());
-    let nightly_toolchain =
-        env::var("MATRIX_SDK_XTASK_NIGHTLY_TOOLCHAIN").unwrap_or_else(|_| "nightly".to_owned());
-    let ffi_features =
-        env::var("MATRIX_SDK_XTASK_FFI_FEATURES").unwrap_or_else(|_| FFI_FEATURES.to_owned());
-    let cargo_extra_args = env::var("MATRIX_SDK_XTASK_CARGO_ARGS")
-        .map(|args| args.split_whitespace().map(ToOwned::to_owned).collect::<Vec<_>>())
-        .unwrap_or_default();
 
     if sequentially {
         for target in &targets {
@@ -403,30 +393,11 @@ fn build_targets(
 
             println!("-- Building for {}", target.description);
             if target.status == TargetStatus::TopTier {
-                let mut cmd = cmd!(sh, "rustup run {stable_toolchain} cargo build -p matrix-sdk-ffi");
-                cmd = cmd
-                    .arg("--target")
-                    .arg(triple)
-                    .arg("--profile")
-                    .arg(profile);
-                if !ffi_features.is_empty() {
-                    cmd = cmd.arg("--features").arg(&ffi_features);
-                }
-                cmd = cmd.args(&cargo_extra_args);
-                cmd.run()?;
+                cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi --target {triple} --profile {profile} --features {FFI_FEATURES}")
+                    .run()?;
             } else {
-                let mut cmd = cmd!(sh, "rustup run {nightly_toolchain} cargo build -p matrix-sdk-ffi");
-                cmd = cmd
-                    .arg("-Zbuild-std")
-                    .arg("--target")
-                    .arg(triple)
-                    .arg("--profile")
-                    .arg(profile);
-                if !ffi_features.is_empty() {
-                    cmd = cmd.arg("--features").arg(&ffi_features);
-                }
-                cmd = cmd.args(&cargo_extra_args);
-                cmd.run()?;
+                cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std --target {triple} --profile {profile} --features {FFI_FEATURES}")
+                    .run()?;
             }
         }
     } else {
@@ -435,15 +406,11 @@ fn build_targets(
 
         if !stable_targets.is_empty() {
             let triples = stable_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!(sh, "rustup run {stable_toolchain} cargo build -p matrix-sdk-ffi");
+            let mut cmd = cmd!(sh, "rustup run stable cargo build -p matrix-sdk-ffi");
             for triple in &triples {
                 cmd = cmd.arg("--target").arg(triple);
             }
-            cmd = cmd.arg("--profile").arg(profile);
-            if !ffi_features.is_empty() {
-                cmd = cmd.arg("--features").arg(&ffi_features);
-            }
-            cmd = cmd.args(&cargo_extra_args);
+            cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
 
             println!("-- Building for {} targets", triples.len());
             cmd.run()?;
@@ -451,16 +418,11 @@ fn build_targets(
 
         if !tier3_targets.is_empty() {
             let triples = tier3_targets.iter().map(|target| target.triple).collect::<Vec<_>>();
-            let mut cmd = cmd!(sh, "rustup run {nightly_toolchain} cargo build -p matrix-sdk-ffi");
-            cmd = cmd.arg("-Zbuild-std");
+            let mut cmd = cmd!(sh, "rustup run nightly cargo build -p matrix-sdk-ffi -Zbuild-std");
             for triple in &triples {
                 cmd = cmd.arg("--target").arg(triple);
             }
-            cmd = cmd.arg("--profile").arg(profile);
-            if !ffi_features.is_empty() {
-                cmd = cmd.arg("--features").arg(&ffi_features);
-            }
-            cmd = cmd.args(&cargo_extra_args);
+            cmd = cmd.arg("--profile").arg(profile).arg("--features").arg(FFI_FEATURES);
 
             println!("-- Building for {} targets with nightly -Zbuild-std", triples.len());
             cmd.run()?;
