@@ -14,7 +14,6 @@
 
 use std::sync::Arc;
 
-use ruma::UserId;
 use rustls::{
     RootCertStore,
     crypto::CryptoProvider,
@@ -52,7 +51,7 @@ impl RustX509Verify {
 }
 
 impl X509Verify for RustX509Verify {
-    fn verify(&self, user_id: &UserId, message: &[u8], sig: &X509Signature) -> bool {
+    fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
         let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
         let Some(Ok(end_cert)) = cert_iter.next() else {
             tracing::warn!("Missing or invalid first certificate");
@@ -70,17 +69,6 @@ impl X509Verify for RustX509Verify {
             .is_err()
         {
             // Not an error: could happen if some certificate has expired.
-            return false;
-        }
-
-        // Check that the certificate is valid for the given user_id
-        let Some(certificate_email) = get_email_address_from_certificate_subject(&end_cert) else {
-            tracing::warn!("Certificate subject does not contain an email address");
-            return false;
-        };
-
-        if certificate_email != map_user_id_to_email(user_id) {
-            tracing::warn!("Certificate not valid for this user");
             return false;
         }
 
@@ -119,16 +107,4 @@ impl X509Verify for RustX509Verify {
 
         true
     }
-}
-
-fn map_user_id_to_email(user_id: &UserId) -> String {
-    // TODO RAV: this is not a reliable way to map from user_ids to email addresses.
-    format!("{}@{}", user_id.localpart(), user_id.server_name())
-}
-
-fn get_email_address_from_certificate_subject(certificate: &CertificateDer<'_>) -> Option<String> {
-    use x509_parser::prelude::*;
-    let (_, parsed_cert) = X509Certificate::from_der(certificate.as_ref()).ok()?;
-    let email = parsed_cert.subject.iter_email().next()?;
-    email.as_str().ok().map(ToOwned::to_owned)
 }

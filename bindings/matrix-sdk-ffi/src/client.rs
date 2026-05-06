@@ -316,8 +316,8 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// message.
     ///
     /// Also validates that the certificate used for the signature is issued via
-    /// one of our trusted CAs, and was issued to the given user id.
-    fn verify(&self, user_id: String, message: Vec<u8>, sig: X509Signature) -> bool;
+    /// one of our trusted CAs.
+    fn verify(&self, message: Vec<u8>, sig: X509Signature) -> bool;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
@@ -337,6 +337,10 @@ pub struct X509Signature {
     pub certificate_chain: String,
 
     /// The X.509 signature scheme, from https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme
+    ///
+    /// TODO: It might make more sense to use X.509 AlgorithmIdentifiers
+    /// here, as defined in [RFC3279](https://www.rfc-editor.org/rfc/rfc3279),
+    /// [RFC4055](https://www.rfc-editor.org/rfc/rfc4055), etc.
     pub signature_scheme: u16,
 
     /// The base64-encoded signature itself
