@@ -94,14 +94,45 @@ that is, just the branch name.)
 
 ## Writing changelog entries
 
-Our goal is to maintain clear, concise, and informative changelogs that
-accurately document changes in the project. Changelog entries should be written
-manually for each crate in the `/crates/$CRATE_NAME/Changelog.md` file.
+We use towncrier to generate changelogs from individual fragment files. Each
+change must be documented as a changelog fragment in the appropriate crate:
 
-Be sure to include a link to the pull request for additional context. A
-well-written changelog entry should be understandable even to those who may not
-be deeply familiar with the project. Provide enough context to ensure clarity
-and ease of understanding.
+```
+/crates/<crate-name>/changelog.d/
+```
+
+Each changelog fragment must include **both the pull request number and the
+fragment type** in its filename:
+
+```
+<PR number>.<fragment type>.md
+```
+
+For example:
+
+```
+4357.added.md
+4357.fixed.md
+4357.changed.md
+```
+
+The pull request link is automatically added during changelog generation, so it
+must not be included manually.
+
+We use standard towncrier fragment types to categorize changes. Common types include:
+
+* `added` – new features or functionality
+* `changed` – changes in existing behavior
+* `fixed` – bug fixes
+* `removed` – removed features or APIs
+* `security` – security-related fixes
+* `internal` – changes that do not affect users (refactoring, CI, tooling)
+
+Choose the type that best matches the nature of the change.
+
+A well-written changelog entry should be understandable even to those who may
+not be deeply familiar with the project. Provide enough context to ensure
+clarity and ease of understanding.
 
 A couple of examples of bad changelog entry would look like:
 
@@ -120,7 +151,6 @@ A good example of a changelog entry could look like the following:
   fallback values for the via parameter when requesting the room summary from
   the homeserver. This ensures requests succeed even when the room being
   previewed is hosted on a federated server.
-  ([#4357](https://github.com/matrix-org/matrix-rust-sdk/pull/4357))
 ```
 
 For security-related changelog entries, please include the following additional
@@ -135,7 +165,6 @@ details alongside the pull request number:
 ```markdown
 - Use a constant-time Base64 encoder for secret key material to mitigate
   side-channel attacks leaking secret key material
-  ([#156](https://github.com/matrix-org/vodozemac/pull/156)) (Low,
   [CVE-2024-40640](https://www.cve.org/CVERecord?id=CVE-2024-40640),
   [GHSA-j8cm-g7r6-hfpq](https://github.com/matrix-org/vodozemac/security/advisories/GHSA-j8cm-g7r6-hfpq)).
 ```
