@@ -33,6 +33,9 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- Ensure any `SaveLockedStateStore` functions which may interfere with its implementation
+  of `StateStore::save_changes` are synchronized using the underlying lock.
+  [#6547](https://github.com/matrix-org/matrix-rust-sdk/pull/6547)
 - [**breaking**] Add `RoomSummary::active_service_members` field to act as a cached value that will be computed 
   when we sync members. Rename `Room::is_dm` to `Room::compute_is_dm` since it will now also store the computed 
   active service members count in the new cached field. `Room::active_service_members` is now 
