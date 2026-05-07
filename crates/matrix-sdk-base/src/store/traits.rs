@@ -2448,6 +2448,7 @@ mod tests {
         use gloo_timers::future::sleep;
         use matrix_sdk_common::executor::spawn;
         use matrix_sdk_test::async_test;
+        use ruma::room_id;
         use tokio::sync::Mutex;
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         use tokio::time::sleep;
@@ -2464,7 +2465,7 @@ mod tests {
         statestore_integration_tests!();
 
         #[async_test]
-        async fn test_state_store_only_accepts_guard_for_underlying_mutex() {
+        async fn test_save_changes_only_accepts_guard_for_underlying_mutex() {
             let state_store = SaveLockedStateStore::new(MemoryStore::new());
             let state_changes = StateChanges::default();
             state_store
@@ -2475,6 +2476,22 @@ mod tests {
             let mutex = Mutex::new(());
             state_store
                 .save_changes_with_guard(&mutex.lock().await, &state_changes)
+                .await
+                .expect_err("state store does not accept guard for unknown mutex");
+        }
+
+        #[async_test]
+        async fn test_remove_room_only_accepts_guard_for_underlying_mutex() {
+            let state_store = SaveLockedStateStore::new(MemoryStore::new());
+            let room_id = room_id!("!room");
+            state_store
+                .remove_room_with_guard(&state_store.lock().lock().await, room_id)
+                .await
+                .expect("state store accepts guard for underlying mutex");
+
+            let mutex = Mutex::new(());
+            state_store
+                .remove_room_with_guard(&mutex.lock().await, room_id)
                 .await
                 .expect_err("state store does not accept guard for unknown mutex");
         }
@@ -2521,6 +2538,36 @@ mod tests {
             // completed and therefore release the save lock
             assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
                 timeout(Duration::from_millis(100), save_task)
+                    .await
+                    .expect("task completes before timeout")
+                    .expect("task completes successfully")
+                    .expect("task saves changes");
+            });
+        }
+
+        #[async_test]
+        async fn test_state_store_waits_to_acquire_lock_before_removing_room() {
+            let state_store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
+
+            // Acquire lock and hold it for 5 seconds
+            let lock_task = spawn({
+                let state_store = state_store.clone();
+                async move {
+                    let lock = state_store.lock();
+                    let _guard = lock.lock().await;
+                    sleep(Duration::from_secs(5)).await;
+                }
+            });
+
+            // Try to remove room from the state store while the lock is held by another
+            // task
+            let remove_task =
+                spawn(async move { state_store.remove_room(room_id!("!room")).await });
+
+            // Ensure that the second task does not progress until the first task has
+            // completed and therefore release the save lock
+            assert_matches!(future::select(lock_task, remove_task).await, Either::Left((_, remove_task)) => {
+                timeout(Duration::from_millis(100), remove_task)
                     .await
                     .expect("task completes before timeout")
                     .expect("task completes successfully")
