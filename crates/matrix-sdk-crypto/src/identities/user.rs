@@ -958,27 +958,7 @@ impl OtherUserIdentityData {
     /// Check if the master key on this identity has been signed by an
     /// X509-certificated key.
     pub(crate) fn verify_x509_signatures(&self, verifier: &X509Verifier) -> bool {
-        let Some(this_user_sigs) = self.master_key.signatures().get(&self.user_id) else {
-            return false;
-        };
-
-        let Ok(json) = to_canonical_value(&self.master_key) else {
-            tracing::warn!("Unable to serialize master key");
-            return false;
-        };
-        let Ok(msg) = to_signable_json(json) else {
-            tracing::warn!("Unable to serialize master key");
-            return false;
-        };
-
-        for (_key_id, sig) in this_user_sigs {
-            if let Ok(sig) = sig {
-                if verifier.verify_x509_signature(self.user_id(), &msg, sig) {
-                    return true;
-                }
-            }
-        }
-        false
+        verifier.verify_signed_object(self.user_id(), self.master_key.deref().as_ref())
     }
 }
 

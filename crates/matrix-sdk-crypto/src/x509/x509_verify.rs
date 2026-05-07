@@ -1,10 +1,13 @@
 use std::{fmt::Debug, sync::Arc};
 
-use ruma::UserId;
+use ruma::{UserId, canonical_json::to_canonical_value};
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tracing::info;
 
-use crate::types::{Signature, X509Signature};
+use crate::{
+    olm::{SignedJsonObject, utility::to_signable_json},
+    types::{CrossSigningKey, MasterPubkey, Signature, X509Signature},
+};
 
 /// Hold one of these if you want to verify X.509 signatures, and call
 /// [`Self::verify_x509_signature`] to do it.
@@ -20,6 +23,41 @@ impl X509Verifier {
     /// Create a new `X509Verifier` that wraps the supplied [`X509Verify`].
     pub fn new(x509_verify: Arc<dyn X509Verify>) -> X509Verifier {
         X509Verifier { x509_verify }
+    }
+
+    pub(crate) fn verify_signed_object(
+        &self,
+        user_id: &UserId,
+        cross_signing_key: &impl SignedJsonObject,
+    ) -> bool {
+        info!("X509: verify_signed_object()");
+
+        let Some(this_user_sigs) = cross_signing_key.signatures().get(user_id) else {
+            info!("X509: verify_signed_object(): no signatures on object");
+            return false;
+        };
+
+        let Ok(json) = to_canonical_value(&cross_signing_key) else {
+            tracing::warn!("Unable to serialize object");
+            return false;
+        };
+        let Ok(msg) = to_signable_json(json) else {
+            tracing::warn!("Unable to serialize object");
+            return false;
+        };
+
+        for (_key_id, sig) in this_user_sigs {
+            if let Ok(sig) = sig {
+                info!(
+                    "X509: verify_signed_object(): calling verifier.verify_signature() for {}",
+                    _key_id
+                );
+                if self.verify_x509_signature(user_id, &msg, sig) {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     /// Check if the given signature is a valid X.509 signature for the given
