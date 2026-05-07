@@ -466,20 +466,33 @@ impl Client {
         Ok(self.inner.optimize_stores().await?)
     }
 
-    /// Pause the client, releasing all database connections and file locks.
+    /// Pause the client for background suspension.
     ///
-    /// Call this when the app enters the background on iOS to prevent
-    /// `0xdead10cc` terminations. Waits for all in-flight database
-    /// operations to complete before returning.
+    /// This method:
+    /// 1. Disables all send queues (prevents new message sends).
+    /// 2. Pauses all database stores, waiting for in-flight operations and
+    ///    releasing all connections and file locks.
     ///
-    /// Call `resume()` when the app returns to the foreground.
+    /// Call [`Client::resume()`] when the app returns to the foreground.
+    ///
+    /// # iOS
+    ///
+    /// Call this before the app is suspended to avoid `0xdead10cc` kills.
+    /// Typically called from
+    /// [`applicationDidEnterBackground`](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidenterbackground(_:))
+    /// or an equivalent SwiftUI lifecycle event, *after* stopping the
+    /// `matrix_sdk_ui::sync_service::SyncService`.
     pub async fn pause(&self) -> Result<(), ClientError> {
         Ok(self.inner.pause().await?)
     }
 
-    /// Resume the client after a `pause()`, re-opening database connections.
+    /// Resume the client after a [`Client::pause()`].
     ///
-    /// Call this when the app returns to the foreground.
+    /// Re-acquires store resources and re-enables send queues.
+    ///
+    /// If your app stopped the `matrix_sdk_ui::sync_service::SyncService`
+    /// before pausing, restart it separately as appropriate for your app
+    /// lifecycle.
     pub async fn resume(&self) -> Result<(), ClientError> {
         Ok(self.inner.resume().await?)
     }
