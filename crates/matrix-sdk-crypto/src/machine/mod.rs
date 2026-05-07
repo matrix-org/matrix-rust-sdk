@@ -71,7 +71,7 @@ use crate::error::SecretPushError;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
 use crate::{
-    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
+    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, GossipRequest, LocalTrust,
     RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
@@ -1998,18 +1998,11 @@ impl OlmMachine {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn query_missing_secrets_from_other_sessions(&self) -> StoreResult<bool> {
-        let identity = self.inner.user_identity.lock().await;
-        let mut secrets = identity.get_missing_secrets().await;
-
-        if self.store().load_backup_keys().await?.decryption_key.is_none() {
-            secrets.push(SecretName::RecoveryKey);
-        }
-
+        let secrets = self.get_missing_secrets().await?;
         if secrets.is_empty() {
             debug!("No missing requests to query");
             return Ok(false);
         }
-
         let secret_requests = GossipMachine::request_missing_secrets(self.user_id(), secrets);
 
         // Check if there are already in-flight requests for these secrets?
@@ -2030,6 +2023,16 @@ impl OlmMachine {
             self.store().save_changes(changes).await?;
             Ok(true)
         }
+    }
+
+    /// TODO: AJB
+    pub async fn get_missing_secrets(&self) -> Result<Vec<SecretName>, CryptoStoreError> {
+        let identity = self.inner.user_identity.lock().await;
+        let mut secrets = identity.get_missing_secrets().await;
+        if self.store().load_backup_keys().await?.decryption_key.is_none() {
+            secrets.push(SecretName::RecoveryKey);
+        }
+        Ok(secrets)
     }
 
     /// Push a secret to all of our other verified devices.

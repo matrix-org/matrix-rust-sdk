@@ -85,6 +85,11 @@ pub struct Account {
 }
 
 impl Account {
+    /// TODO: AJB
+    pub async fn send_signed_secret_requests(&self) {
+        self.client.encryption().send_signed_secret_requests().await;
+    }
+
     /// The maximum number of visited room identifiers to keep in the state
     /// store.
     const VISITED_ROOMS_LIMIT: usize = 20;

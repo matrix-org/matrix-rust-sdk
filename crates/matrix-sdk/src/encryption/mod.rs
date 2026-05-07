@@ -74,13 +74,29 @@ use ruma::{
         error::{ErrorBody, StandardErrorBody},
     },
     assign,
-    events::room::{
-        MediaSource, ThumbnailInfo,
-        member::{MembershipChange, OriginalSyncRoomMemberEvent},
+    events::{
+        ToDeviceEventContent,
+        room::{
+            MediaSource, ThumbnailInfo,
+            member::{MembershipChange, OriginalSyncRoomMemberEvent},
+        },
     },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
+use ruma::{
+    //DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
+    events::{
+        //        AnyToDeviceEventContent, ToDeviceEventType,
+        //        room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
+        secret::request::{
+            RequestAction, SecretRequestAction, ToDeviceSecretRequestEvent,
+            ToDeviceSecretRequestEventContent,
+        },
+    },
+    //    serde::Raw,
+    //    to_device::DeviceIdOrAllDevices,
+};
 use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
@@ -888,6 +904,45 @@ pub struct Encryption {
 }
 
 impl Encryption {
+    /// TODO: AJB
+    pub async fn send_signed_secret_requests(&self) {
+        // Sign our device with the X.509 key (maybe as part of encrypting the message)
+
+        // Get list of devices
+        let own_user_id = self.client.user_id().unwrap();
+        let own_user_devices: Vec<Device> =
+            self.get_user_devices(own_user_id).await.unwrap().devices().collect();
+        let own_user_devices: Vec<&Device> = own_user_devices.iter().collect();
+
+        let own_device_id = self.client.device_id().unwrap().to_owned();
+
+        let olm_machine = self.client.olm_machine().await;
+        let secrets = olm_machine.as_ref().unwrap().get_missing_secrets().await.unwrap();
+        for secret in secrets {
+            let content =
+                AnyToDeviceEventContent::SecretRequest(ToDeviceSecretRequestEventContent::new(
+                    RequestAction::Request(SecretRequestAction::new(secret.clone())),
+                    own_device_id.clone(),
+                    TransactionId::new(),
+                ));
+
+            let content_raw: Raw<AnyToDeviceEventContent> = Raw::new(&content).unwrap();
+
+            self.encrypt_and_send_raw_to_device(
+                own_user_devices.clone(),
+                &content.event_type().to_string(),
+                content_raw,
+                CollectStrategy::AllDevices,
+            )
+            .await
+            .unwrap();
+        }
+        // Encrypt a secret request to each device and send it
+        // - Create a secret request
+        // This handles waiting for a valid keys claim for any devices we don't
+        // yet have one-time keys for.
+    }
+
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }
@@ -2088,7 +2143,6 @@ impl Encryption {
     ///
     /// # Returns
     /// A list of failures. The list of devices that couldn't get the messages.
-    #[cfg(feature = "experimental-send-custom-to-device")]
     pub async fn encrypt_and_send_raw_to_device(
         &self,
         recipient_devices: Vec<&Device>,

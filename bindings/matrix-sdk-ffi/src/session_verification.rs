@@ -129,11 +129,16 @@ impl SessionVerificationController {
 
     /// Request verification for the current device
     pub async fn request_device_verification(&self) -> Result<(), ClientError> {
-        let methods = vec![VerificationMethod::SasV1];
-        let verification_request =
-            self.user_identity.request_verification_with_methods(methods).await?;
+        //let methods = vec![VerificationMethod::SasV1];
+        //let verification_request =
+        //    self.user_identity.request_verification_with_methods(methods).await?;
 
-        self.set_ongoing_verification_request(verification_request)
+        //self.set_ongoing_verification_request(verification_request)
+
+        // TODO: AJB: replaced with directly sending a secret request for now
+
+        self.account.send_signed_secret_requests().await;
+        Ok(())
     }
 
     /// Request verification for the given user
