@@ -560,11 +560,7 @@ impl Room {
                 }
             }
 
-            trace!(
-                "Updating active service members ({}) in room {:?}",
-                found.len(),
-                self.room_id()
-            );
+            trace!("Updating active service members ({}) in room {}", found.len(), self.room_id());
 
             let new_active_service_member_count = found.len() as u64;
             let current_active_service_member_count =
