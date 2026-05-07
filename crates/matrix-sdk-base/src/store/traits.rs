@@ -1504,6 +1504,22 @@ impl<T: StateStore> SaveLockedStateStore<T> {
             self.store.save_changes(changes).await.map_err(Into::into)
         }
     }
+
+    /// Provides a means of calling [`StateStore::remove_room`] when the caller
+    /// has already acquired the underlying [`Mutex`]. Returns an error if
+    /// the [`MutexGuard`] provided does not reference the underlying
+    /// [`Mutex`].
+    pub async fn remove_room_with_guard(
+        &self,
+        guard: &MutexGuard<'_, ()>,
+        room_id: &RoomId,
+    ) -> Result<(), StoreError> {
+        if !std::ptr::eq(MutexGuard::mutex(guard), self.lock()) {
+            Err(IncorrectMutexGuardError.into())
+        } else {
+            self.store.remove_room(room_id).await.map_err(Into::into)
+        }
+    }
 }
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
@@ -1674,6 +1690,7 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
     }
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        let _guard = self.lock.lock().await;
         self.store.remove_room(room_id).await
     }
 
