@@ -23,6 +23,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
+#[cfg(feature = "sqlite")]
+use futures_util::try_join;
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
@@ -44,8 +46,6 @@ use thiserror::Error;
 #[cfg(feature = "experimental-search")]
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
-#[cfg(feature = "sqlite")]
-use tokio::try_join;
 use tracing::{Span, debug, field::debug, instrument};
 
 use super::{Client, ClientInner};
@@ -691,7 +691,7 @@ async fn build_store_config(
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { config, cache_path } => {
-            let caches_config = if let Some(ref cache_path) = cache_path {
+            let config_with_cache_path = if let Some(ref cache_path) = cache_path {
                 config.clone().path(cache_path)
             } else {
                 config.clone()
@@ -700,14 +700,14 @@ async fn build_store_config(
             #[cfg(feature = "e2e-encryption")]
             let (state_store, event_cache_store, media_store, crypto_store) = try_join!(
                 matrix_sdk_sqlite::SqliteStateStore::open_with_config(&config),
-                matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(&caches_config),
-                matrix_sdk_sqlite::SqliteMediaStore::open_with_config(&caches_config),
+                matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(&config_with_cache_path),
+                matrix_sdk_sqlite::SqliteMediaStore::open_with_config(&config_with_cache_path),
                 matrix_sdk_sqlite::SqliteCryptoStore::open_with_config(&config),
             )?;
             #[cfg(not(feature = "e2e-encryption"))]
             let (state_store, event_cache_store, media_store) = try_join!(
                 matrix_sdk_sqlite::SqliteStateStore::open_with_config(&config),
-                matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(&caches_config),
+                matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(&config_with_cache_path),
                 matrix_sdk_sqlite::SqliteMediaStore::open_with_config(&config),
             )?;
             let store_config = StoreConfig::new(cross_process_store_config.clone())

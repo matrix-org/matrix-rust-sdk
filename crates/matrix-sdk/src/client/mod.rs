@@ -26,7 +26,7 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, join};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
@@ -472,19 +472,16 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_tasks(&client);
 
-        let _ = client
-            .event_cache
-            .get_or_init(|| async {
-                EventCache::new(&client, client.base_client.event_cache_store().clone())
-            })
-            .await;
+        let init_event_cache = client.event_cache.get_or_init(|| async {
+            EventCache::new(&client, client.base_client.event_cache_store().clone())
+        });
 
-        let _ = client
-            .thread_subscription_catchup
-            .get_or_init(|| async {
+        let init_thread_subscription_catchup =
+            client.thread_subscription_catchup.get_or_init(|| async {
                 ThreadSubscriptionCatchup::new(Client { inner: client.clone() })
-            })
-            .await;
+            });
+
+        let _ = join!(init_event_cache, init_thread_subscription_catchup);
 
         client
     }
