@@ -538,9 +538,9 @@ impl Room {
         self.info.read().pinned_event_ids()
     }
 
-    /// Returns the list of service members that are either in a joined or
-    /// invited state in this room, checking the service member list against the
-    /// locally available room members.
+    /// Computes and stores the list of service members that are either in a
+    /// joined or invited state in this room, checking the service member
+    /// list against the locally available room members.
     pub async fn update_active_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
         if let Some(service_members) = self.service_members() {
             let mut found = Vec::new();
