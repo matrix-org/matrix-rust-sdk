@@ -2035,9 +2035,6 @@ impl Room {
         // but before the /sync request could fetch the membership change event.
         self.mark_members_missing();
 
-        // Re-calculate active service members
-        self.update_active_service_members().await?;
-
         Ok(())
     }
 
