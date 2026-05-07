@@ -33,6 +33,11 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- [**breaking**] Add `RoomSummary::active_service_members` field to act as a cached value that will be computed 
+  when we sync members. Rename `Room::is_dm` to `Room::compute_is_dm` since it will now also store the computed 
+  active service members count in the new cached field. `Room::active_service_members` is now 
+  `Room::update_active_service_members` for the same reason.
+  ([#6537](https://github.com/matrix-org/matrix-rust-sdk/pull/6537))
 - [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires 
   `StateStore::save_changes` to acquire state store lock and replaces `Room::set_room_info` 
   with an atomic version, `Room::update_room_info`, which is also synchronized by

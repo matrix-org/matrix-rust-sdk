@@ -44,6 +44,8 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
+- `RoomNotificationInfo`, `NotificationItem` and `SpaceRoom` now have `is_dm` fields. 
+  ([#6537](https://github.com/matrix-org/matrix-rust-sdk/pull/6537))
 - Expose `RoomMember::is_service_member` field. ([#6536](https://github.com/matrix-org/matrix-rust-sdk/pull/6536))
 - Expose `beacon` and `beacon_info` fields in `RoomPowerLevelsValues` and `RoomPowerLevelChanges`,
   allowing clients to read and update the power levels required to send beacon (live location)
