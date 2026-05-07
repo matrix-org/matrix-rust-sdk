@@ -76,7 +76,7 @@ use crate::{
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
-    gossiping::GossipMachine,
+    gossiping::{GossipMachine, SecretRequestEventAndTrust},
     identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
@@ -358,7 +358,10 @@ impl OlmMachine {
                     .record("ed25519_key", display(account.identity_keys().ed25519))
                     .record("curve25519_key", display(account.identity_keys().curve25519));
 
-                let device = DeviceData::from_account(&account);
+                let device = DeviceData::from_account_and_x509(
+                    &account,
+                    x509_data.as_ref().and_then(|d| d.x509_signer.as_ref()),
+                );
 
                 // We just created this device from our own Olm `Account`. Since we are the
                 // owners of the private keys of this device we can safely mark
@@ -1474,7 +1477,12 @@ impl OlmMachine {
     /// plaintext, handle it.
     ///
     /// Here, we only process events that are allowed to arrive in plaintext.
-    async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
+    async fn handle_to_device_event(
+        &self,
+        changes: &mut Changes,
+        event: &ToDeviceEvents,
+        from_x509_signed_device: bool,
+    ) {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
@@ -1484,7 +1492,9 @@ impl OlmMachine {
             // Note: this list should match the allowed types in
             // check_to_device_is_from_verified_device_or_allowed_type
             RoomKeyRequest(e) => self.inner.key_request_machine.receive_incoming_key_request(e),
-            SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(e),
+            SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(
+                &SecretRequestEventAndTrust { event: e.clone(), from_x509_signed_device },
+            ),
             RoomKeyWithheld(e) => self.add_withheld_info(changes, e),
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
@@ -1573,7 +1583,8 @@ impl OlmMachine {
                 .await
             }
             e => {
-                self.handle_to_device_event(changes, &e).await;
+                self.handle_to_device_event(changes, &e, false /* unencrypted, so no trust */)
+                    .await;
                 Some(ProcessedToDeviceEvent::PlainText(raw_event))
             }
         }
@@ -1646,7 +1657,12 @@ impl OlmMachine {
 
         match decrypted.result.raw_event.deserialize_as() {
             Ok(event) => {
-                self.handle_to_device_event(changes, &event).await;
+                self.handle_to_device_event(
+                    changes,
+                    &event,
+                    decrypted.result.from_x509_signed_device,
+                )
+                .await;
 
                 raw_event = event
                     .serialize_zeroized()

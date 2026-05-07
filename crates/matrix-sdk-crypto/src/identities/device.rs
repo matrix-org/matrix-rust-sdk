@@ -57,6 +57,7 @@ use crate::{
         requests::{OutgoingVerificationRequest, ToDeviceRequest},
     },
     verification::VerificationMachine,
+    x509::{X509Sign, X509Signer},
 };
 
 pub enum MaybeEncryptedRoomKey {
@@ -972,7 +973,18 @@ impl DeviceData {
     /// users/devices might add signatures to our own device, which can't be
     /// replicated locally.
     pub fn from_account(account: &Account) -> DeviceData {
-        let device_keys = account.device_keys();
+        Self::from_account_and_x509(account, None)
+    }
+
+    /// TODO: AJB
+    pub fn from_account_and_x509(
+        account: &Account,
+        x509_signer: Option<&X509Signer>,
+    ) -> DeviceData {
+        let mut device_keys = account.device_keys();
+        if let Some(x509_signer) = x509_signer {
+            x509_signer.sign_device_keys(account.user_id(), &mut device_keys).unwrap();
+        }
         let mut device = DeviceData::try_from(&device_keys)
             .expect("Creating a device from our own account should always succeed");
         device.first_time_seen_ts = account.creation_local_time();

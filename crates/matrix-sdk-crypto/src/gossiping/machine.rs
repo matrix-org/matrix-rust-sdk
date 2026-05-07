@@ -47,6 +47,7 @@ use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInf
 use crate::{
     Device, MegolmError,
     error::{EventError, OlmError, OlmResult},
+    gossiping::SecretRequestEventAndTrust,
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
     session_manager::GroupSessionCache,
@@ -224,8 +225,8 @@ impl GossipMachine {
         }
     }
 
-    pub fn receive_incoming_secret_request(&self, event: &SecretRequestEvent) {
-        self.receive_event(event.clone().into())
+    pub fn receive_incoming_secret_request(&self, event_and_trust: &SecretRequestEventAndTrust) {
+        self.receive_event(event_and_trust.clone().into())
     }
 
     /// Handle all the incoming key requests that are queued up and empty our
@@ -390,8 +391,9 @@ impl GossipMachine {
     async fn handle_secret_request(
         &self,
         cache: &StoreCache,
-        event: &SecretRequestEvent,
+        event_and_trust: &SecretRequestEventAndTrust,
     ) -> OlmResult<Option<Session>> {
+        let event = &event_and_trust.event;
         let secret_name = match &event.content.action {
             RequestAction::Request(r) => &r.name,
             // We ignore cancellations here since there's nothing to serve.
@@ -432,7 +434,10 @@ impl GossipMachine {
                                 "Secret request is missing an Olm session, \
                                 putting the request in the wait queue",
                             );
-                            self.handle_key_share_without_session(device, event.clone().into());
+                            self.handle_key_share_without_session(
+                                device,
+                                event_and_trust.clone().into(),
+                            );
 
                             Ok(None)
                         }
@@ -1235,6 +1240,7 @@ mod tests {
     use super::GossipMachine;
     use crate::{
         DecryptionSettings, TrustRequirement,
+        gossiping::SecretRequestEventAndTrust,
         identities::{DeviceData, IdentityManager, LocalTrust},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,
@@ -2046,7 +2052,7 @@ mod tests {
 
         // No secret found
         assert!(alice_machine.inner.outgoing_requests.read().is_empty());
-        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.receive_incoming_secret_request(&event.clone().into());
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2055,7 +2061,7 @@ mod tests {
 
         // No device found
         alice_machine.inner.store.reset_cross_signing_identity().await;
-        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.receive_incoming_secret_request(&event.clone().into());
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2066,7 +2072,7 @@ mod tests {
 
         // The device doesn't belong to us
         alice_machine.inner.store.reset_cross_signing_identity().await;
-        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.receive_incoming_secret_request(&event.clone().into());
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2083,7 +2089,7 @@ mod tests {
         );
 
         // The device isn't trusted
-        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.receive_incoming_secret_request(&event.clone().into());
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2095,7 +2101,7 @@ mod tests {
         let devices = std::slice::from_ref(&alice_device);
         alice_machine.inner.store.save_device_data(devices).await.unwrap();
 
-        alice_machine.receive_incoming_secret_request(&event);
+        alice_machine.receive_incoming_secret_request(&event.clone().into());
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2167,7 +2173,7 @@ mod tests {
             .save_decryption_key(Some(decryption_key), None)
             .await
             .unwrap();
-        alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event);
+        alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event.into());
         {
             let alice_cache = alice_machine.store().cache().await.unwrap();
             alice_machine

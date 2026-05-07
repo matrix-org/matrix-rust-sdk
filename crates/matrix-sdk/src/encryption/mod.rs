@@ -906,6 +906,7 @@ pub struct Encryption {
 impl Encryption {
     /// TODO: AJB
     pub async fn send_signed_secret_requests(&self) {
+        error!("AJB send_signed_secret_requests");
         // Sign our device with the X.509 key (maybe as part of encrypting the message)
 
         // Get list of devices
@@ -918,6 +919,7 @@ impl Encryption {
 
         let olm_machine = self.client.olm_machine().await;
         let secrets = olm_machine.as_ref().unwrap().get_missing_secrets().await.unwrap();
+        error!("AJB secrets={secrets:?}");
         for secret in secrets {
             let content =
                 AnyToDeviceEventContent::SecretRequest(ToDeviceSecretRequestEventContent::new(
@@ -928,6 +930,7 @@ impl Encryption {
 
             let content_raw: Raw<AnyToDeviceEventContent> = Raw::new(&content).unwrap();
 
+            error!("AJB sending secret {secret}, {own_user_devices:?}");
             self.encrypt_and_send_raw_to_device(
                 own_user_devices.clone(),
                 &content.event_type().to_string(),

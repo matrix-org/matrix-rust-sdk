@@ -61,7 +61,7 @@ use crate::{
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
-    olm::SenderData,
+    olm::{SenderData, SignedJsonObject},
     store::{
         Store,
         types::{Changes, DeviceChanges},
@@ -127,6 +127,7 @@ pub(crate) struct DecryptionResult {
     pub raw_event: Raw<AnyToDeviceEvent>,
     pub sender_key: Curve25519PublicKey,
     pub encryption_info: EncryptionInfo,
+    pub from_x509_signed_device: bool,
 }
 
 /// A hash of a successfully decrypted Olm message.
@@ -1473,6 +1474,15 @@ impl Account {
         decryption_settings: &DecryptionSettings,
     ) -> OlmResult<DecryptionResult> {
         let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
+
+        let from_x509_signed_device = if let Some(x509_verifier) = store.x509_verifier()
+            && let Some(sender_device_keys) = event.sender_device_keys()
+        {
+            x509_verifier.verify_signed_object(sender, sender_device_keys)
+        } else {
+            false
+        };
+
         let identity_keys = &self.static_data.identity_keys;
 
         if event.recipient() != self.static_data.user_id {
@@ -1501,6 +1511,7 @@ impl Account {
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
                 sender_key,
                 encryption_info,
+                from_x509_signed_device,
             };
 
             // Return an error if the sender is unverified (and we care)
