@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Check the user ID in the `sender_device_keys` property of Olm-encrypted
+to-device events to prevent sender spoofing by homeserver owners.
+([#6553](https://github.com/matrix-org/matrix-rust-sdk/pull/6553))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
