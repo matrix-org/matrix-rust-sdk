@@ -125,13 +125,20 @@ impl managed::Manager for Manager {
     }
 }
 
-/// Gracefully close a write connection.
+/// Gracefully close the store-owned write connection.
+///
+/// Callers are expected to remove the enclosing [`SqliteConnections`] from the
+/// store before calling this helper so no new write acquisitions can happen
+/// through the store API.
 ///
 /// 1. Waits for any in-flight write to complete by acquiring the lock.
 /// 2. Runs a WAL checkpoint (TRUNCATE) to flush pending data to the main
 ///    database file and release WAL locks.
-/// 3. Drops the connection on a blocking thread, awaiting completion so the
-///    caller knows the file descriptor has been released.
+/// 3. Drops the store-owned `Arc` on a blocking thread.
+///
+/// This is still best effort: if another cloned `Arc` or an
+/// `OwnedMutexGuard<Connection>` is still alive elsewhere, the underlying
+/// SQLite connection may remain alive until that handle is dropped.
 pub async fn close_connection(write_connection: Arc<Mutex<Connection>>) {
     // Acquire the lock to wait for any in-flight write to complete.
     let guard = write_connection.lock().await;
@@ -146,8 +153,7 @@ pub async fn close_connection(write_connection: Arc<Mutex<Connection>>) {
 
     drop(guard);
 
-    // Drop on a blocking thread, awaiting the join handle so we know the
-    // file descriptor has been released.
+    // Drop the store-owned Arc on a blocking thread.
     let _ = tokio::task::spawn_blocking(move || drop(write_connection)).await;
 }
 
@@ -157,15 +163,19 @@ pub async fn close_connection(write_connection: Arc<Mutex<Connection>>) {
 /// store; `Some` means the store is active, `None` means it is paused.
 pub(crate) struct SqliteConnections {
     /// The pool of read connections.
-    pub(crate) pool: Pool,
+    pub pool: Pool,
     /// The dedicated write connection.
-    pub(crate) write_connection: Arc<Mutex<Connection>>,
+    ///
+    /// This lives behind `Arc<Mutex<_>>` so stores can clone the `Arc` and
+    /// obtain an `OwnedMutexGuard<Connection>` without holding the outer
+    /// `connections` mutex across await points.
+    pub write_connection: Arc<Mutex<Connection>>,
 }
 
 /// Pause a store by taking its connections out.
 ///
-/// After this returns, any call to `read()` or `write()` on the store will
-/// fail with [`crate::error::Error::StorePaused`] until
+/// After this returns, any new call to `read()` or `write()` through the
+/// store will fail with [`crate::error::Error::StorePaused`] until
 /// [`resume_connections`] is called.
 ///
 /// Idempotent: if the store is already paused this is a no-op.
@@ -221,8 +231,6 @@ pub(crate) async fn pause_connections(connections: &Mutex<Option<SqliteConnectio
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-
-    drop(pool);
 }
 
 /// Resume a store by rebuilding its connections.
