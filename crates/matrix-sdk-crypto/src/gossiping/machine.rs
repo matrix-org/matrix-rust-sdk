@@ -414,7 +414,7 @@ impl GossipMachine {
 
         if let Some(device) = device {
             if device.user_id() == self.user_id() {
-                if device.is_verified() {
+                if device.is_verified() || event_and_trust.from_x509_signed_device {
                     info!(
                         user_id = ?device.user_id(),
                         device_id = ?device.device_id(),
