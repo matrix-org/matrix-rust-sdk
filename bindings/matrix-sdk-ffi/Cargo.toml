@@ -133,8 +133,10 @@ once_cell = "1.21.4"
 jvm-getter = "0.1.0"
 
 [dev-dependencies]
+matrix-sdk = { workspace = true, features = ["testing"] }
 similar-asserts.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
