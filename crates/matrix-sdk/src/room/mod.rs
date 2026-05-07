@@ -1178,7 +1178,16 @@ impl Room {
             return Ok(());
         }
 
-        if !self.are_members_synced() { self.request_members().await } else { Ok(()) }
+        if !self.are_members_synced() {
+            self.request_members().await?;
+
+            // While we're at it, calculate the active service members
+            self.update_active_service_members().await?;
+
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     /// Get a specific member of this room.
@@ -2025,6 +2034,9 @@ impl Room {
         // that can happen when some event is sent after a room member has been invited
         // but before the /sync request could fetch the membership change event.
         self.mark_members_missing();
+
+        // Re-calculate active service members
+        self.update_active_service_members().await?;
 
         Ok(())
     }
