@@ -133,7 +133,7 @@ impl SqliteCryptoStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+        Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
     /// Open the SQLite-based crypto store at the given path using the given
@@ -142,17 +142,17 @@ impl SqliteCryptoStore {
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
+        Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
 
     /// Open the SQLite-based crypto store with the config open config.
-    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: &SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let this = Self::open_with_pool(pool, config.secret).await?;
-        this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret.clone()).await?;
+        this.pool.get().await?.apply_runtime_config(config.runtime_config.clone()).await?;
 
         Ok(this)
     }
@@ -1873,7 +1873,7 @@ mod tests {
         let store_open_config =
             SqliteStoreConfig::new(TMP_DIR.path().join("test_pool_size")).pool_max_size(42);
 
-        let store = SqliteCryptoStore::open_with_config(store_open_config).await.unwrap();
+        let store = SqliteCryptoStore::open_with_config(&store_open_config).await.unwrap();
 
         assert_eq!(store.pool.status().max_size, 42);
     }
@@ -2280,7 +2280,7 @@ mod tests {
             .unwrap();
 
         // After we open the store, the data will be migrated
-        let store = SqliteCryptoStore::open_with_config(config).await.unwrap();
+        let store = SqliteCryptoStore::open_with_config(&config).await.unwrap();
 
         // and we should be able to read the secrets from the inbox
         let secrets =
