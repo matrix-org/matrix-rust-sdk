@@ -1,0 +1,44 @@
+[package]
+name = "matrix-sdk-rtc-livekit"
+description = "LiveKit SDK integration for matrix-rust-sdk."
+version = "0.16.0"
+edition = "2024"
+repository = "https://github.com/matrix-org/matrix-rust-sdk"
+license = "Apache-2.0"
+rust-version.workspace = true
+build = "build.rs"
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--generate-link-to-definition"]
+
+[features]
+default = ["rustls-tls"]
+
+rustls-tls = ["matrix-sdk/rustls-tls", "livekit/rustls-tls-native-roots"]
+native-tls = ["matrix-sdk/native-tls", "livekit/native-tls"]
+js = ["matrix-sdk/js"]
+experimental-widgets = ["matrix-sdk/experimental-widgets"]
+
+[dependencies]
+async-trait.workspace = true
+base64.workspace = true
+livekit = { git = "https://github.com/onestacked/livekit-rust-sdks", branch = "EC-compat-changes" }
+matrix-sdk = { workspace = true, features = ["e2e-encryption", "experimental-send-custom-to-device"] }
+matrix-sdk-base.workspace = true
+matrix-sdk-crypto.workspace = true
+rand.workspace = true
+ruma.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+reqwest.workspace = true
+futures-util.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true
