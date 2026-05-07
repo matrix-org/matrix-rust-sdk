@@ -1475,6 +1475,11 @@ impl Account {
     ) -> OlmResult<DecryptionResult> {
         let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
 
+        info!(
+            "X509: received decrypted event, verifier {}, sender_device_keys {}",
+            store.x509_verifier().is_some(),
+            event.sender_device_keys().is_some()
+        );
         let from_x509_signed_device = if let Some(x509_verifier) = store.x509_verifier()
             && let Some(sender_device_keys) = event.sender_device_keys()
         {

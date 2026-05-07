@@ -31,9 +31,9 @@ impl X509Verifier {
     pub(crate) fn verify_signed_object(
         &self,
         user_id: &UserId,
-        signed_object: &impl SignedJsonObject,
+        signed_object: &(impl SignedJsonObject + Debug),
     ) -> bool {
-        info!("X509: verify_signed_object()");
+        info!(?signed_object, "X509: verify_signed_object()");
 
         let Some(this_user_sigs) = signed_object.signatures().get(user_id) else {
             info!("X509: verify_signed_object(): no signatures on object");

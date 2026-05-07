@@ -432,7 +432,10 @@ impl ClientBuilder {
         struct X509VerifyImpl(Box<dyn X509Verify>);
         impl matrix_sdk_base::crypto::x509::X509Verify for X509VerifyImpl {
             fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
-                self.0.verify(message.to_vec(), sig.clone().into())
+                tracing::info!("X509VerifyImpl::verify");
+                let r = self.0.verify(message.to_vec(), sig.clone().into());
+                tracing::info!("X509VerifyImpl::verify: result {}", r);
+                r
             }
         }
         builder.x509_verify = Some(Arc::new(X509VerifyImpl(x509_verify)));

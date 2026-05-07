@@ -1177,6 +1177,12 @@ impl CryptoStore for SqliteCryptoStore {
                     let user_id = this.encode_key("device", device.user_id().as_bytes());
                     let device_id = this.encode_key("device", device.device_id().as_bytes());
                     let data = this.serialize_value(&device)?;
+                    tracing::info!(
+                        "X509: updating stored device {}:{}. Sig count {}",
+                        device.user_id(),
+                        device.device_id(),
+                        device.as_device_keys().signatures.signature_count(),
+                    );
                     txn.set_device(&user_id, &device_id, &data)?;
                 }
 
