@@ -101,7 +101,7 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+        Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
     /// Open the SQLite-based state store at the given path using the given
@@ -110,17 +110,17 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
+        Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
 
     /// Open the SQLite-based state store with the config open config.
-    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: &SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let this = Self::open_with_pool(pool, config.secret).await?;
-        this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret.clone()).await?;
+        this.pool.get().await?.apply_runtime_config(config.runtime_config.clone()).await?;
 
         Ok(this)
     }
@@ -2444,7 +2444,7 @@ mod encrypted_tests {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).pool_max_size(42);
 
-        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+        let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
 
         assert_eq!(store.pool.status().max_size, 42);
     }
@@ -2454,7 +2454,7 @@ mod encrypted_tests {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).cache_size(1500);
 
-        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+        let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
 
         let conn = store.pool.get().await.unwrap();
         let cache_size =
@@ -2471,7 +2471,7 @@ mod encrypted_tests {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).journal_size_limit(1500);
 
-        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
+        let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
 
         let conn = store.pool.get().await.unwrap();
         let journal_size_limit = conn

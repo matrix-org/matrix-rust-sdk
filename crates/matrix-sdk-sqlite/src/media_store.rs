@@ -96,7 +96,7 @@ impl SqliteMediaStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
+        Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
     /// Open the SQLite-based media store at the given path using the given
@@ -105,12 +105,12 @@ impl SqliteMediaStore {
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
+        Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
     }
 
     /// Open the SQLite-based media store with the config open config.
     #[instrument(skip(config), fields(path = ?config.path))]
-    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: &SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         debug!(?config);
 
         let _timer = timer!("open_with_config");
@@ -119,8 +119,8 @@ impl SqliteMediaStore {
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let this = Self::open_with_pool(pool, config.secret).await?;
-        this.write().await?.apply_runtime_config(config.runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret.clone()).await?;
+        this.write().await?.apply_runtime_config(config.runtime_config.clone()).await?;
 
         Ok(this)
     }
@@ -722,7 +722,7 @@ mod tests {
         let tmpdir_path = new_media_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).pool_max_size(42);
 
-        let store = SqliteMediaStore::open_with_config(store_open_config).await.unwrap();
+        let store = SqliteMediaStore::open_with_config(&store_open_config).await.unwrap();
 
         assert_eq!(store.pool.status().max_size, 42);
     }
