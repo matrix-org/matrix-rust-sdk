@@ -3281,4 +3281,51 @@ mod tests {
         assert_eq!(token.matrix_server_name, "example.com");
         assert_eq!(token.expires_in_seconds, 3_600);
     }
+
+    /// Dropping an FFI [`Client`] on a non-tokio thread must not panic.
+    ///
+    /// Regression test: `Client.inner` is wrapped in [`AsyncRuntimeDropped`]
+    /// precisely because dropping a sqlite-backed [`MatrixClient`] outside a
+    /// tokio runtime context causes `SyncWrapper<rusqlite::Connection>::drop`
+    /// to call `tokio::task::spawn_blocking`, which panics and triggers
+    /// SIGABRT. This test guards against accidentally removing that wrapper.
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn client_drop_on_non_tokio_thread_does_not_panic() {
+        use std::time::Duration;
+
+        use matrix_sdk::{Client, config::RequestConfig};
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+        use tempfile::tempdir;
+
+        let dir = tempdir().unwrap();
+
+        // SingleProcess lock avoids the session-delegate requirement in
+        // `Client::new`, keeping the test self-contained.
+        let sdk_client = Client::builder()
+            .homeserver_url("https://example.com")
+            .request_config(RequestConfig::new().disable_retry())
+            .sqlite_store(dir.path(), None)
+            .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+            .build()
+            .await
+            .unwrap();
+
+        // Allow background init tasks to complete; after this the only strong
+        // reference to `ClientInner` is the local `sdk_client` variable.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let ffi_client = super::Client::new(sdk_client.clone(), None, None).await.unwrap();
+
+        // Dropping `sdk_client` leaves `ffi_client` as the sole Arc holder of
+        // `ClientInner` — mirroring what happens when the last JS reference to
+        // a Client is garbage-collected on the Hermes JS thread.
+        drop(sdk_client);
+
+        // Simulate Hermes GC on the JS thread (a non-tokio thread).
+        // Without `AsyncRuntimeDropped` wrapping `Client.inner` this SIGABRT.
+        std::thread::spawn(move || drop(ffi_client))
+            .join()
+            .expect("Client::drop panicked on a non-tokio thread");
+    }
 }
