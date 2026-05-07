@@ -36,9 +36,7 @@ use ruma::{
     DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
-    events::secret::request::{
-        RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
-    },
+    events::secret::request::{RequestAction, SecretName},
 };
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
 use vodozemac::Curve25519PublicKey;
@@ -1240,7 +1238,6 @@ mod tests {
     use super::GossipMachine;
     use crate::{
         DecryptionSettings, TrustRequirement,
-        gossiping::SecretRequestEventAndTrust,
         identities::{DeviceData, IdentityManager, LocalTrust},
         olm::{Account, PrivateCrossSigningIdentity},
         session_manager::GroupSessionCache,

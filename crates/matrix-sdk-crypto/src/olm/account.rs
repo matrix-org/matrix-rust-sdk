@@ -61,7 +61,7 @@ use crate::{
     dehydrated_devices::DehydrationError,
     error::{EventError, OlmResult, SessionCreationError},
     identities::DeviceData,
-    olm::{SenderData, SignedJsonObject},
+    olm::SenderData,
     store::{
         Store,
         types::{Changes, DeviceChanges},

@@ -57,7 +57,7 @@ use crate::{
         requests::{OutgoingVerificationRequest, ToDeviceRequest},
     },
     verification::VerificationMachine,
-    x509::{X509Sign, X509Signer},
+    x509::X509Signer,
 };
 
 pub enum MaybeEncryptedRoomKey {

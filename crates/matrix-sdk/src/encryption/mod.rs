@@ -80,23 +80,11 @@ use ruma::{
             MediaSource, ThumbnailInfo,
             member::{MembershipChange, OriginalSyncRoomMemberEvent},
         },
+        secret::request::{RequestAction, SecretRequestAction, ToDeviceSecretRequestEventContent},
     },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
 use ruma::{events::AnyToDeviceEventContent, serde::Raw, to_device::DeviceIdOrAllDevices};
-use ruma::{
-    //DeviceId, OwnedDeviceId, OwnedTransactionId, OwnedUserId, TransactionId, UserId,
-    events::{
-        //        AnyToDeviceEventContent, ToDeviceEventType,
-        //        room_key_request::{Action, ToDeviceRoomKeyRequestEventContent},
-        secret::request::{
-            RequestAction, SecretRequestAction, ToDeviceSecretRequestEvent,
-            ToDeviceSecretRequestEventContent,
-        },
-    },
-    //    serde::Raw,
-    //    to_device::DeviceIdOrAllDevices,
-};
 use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};

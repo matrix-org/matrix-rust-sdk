@@ -71,7 +71,7 @@ use crate::error::SecretPushError;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
 use crate::{
-    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, GossipRequest, LocalTrust,
+    CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
     RoomEventDecryptionResult, SignatureError, TrustRequirement,
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
