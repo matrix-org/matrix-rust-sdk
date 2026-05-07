@@ -25,6 +25,9 @@ impl X509Verifier {
         X509Verifier { x509_verify }
     }
 
+    /// Verify that the given object is signed with a certificate issued by a
+    /// trusted CA, and that the certificate was issued to the given user
+    /// ID.
     pub(crate) fn verify_signed_object(
         &self,
         user_id: &UserId,
