@@ -26,7 +26,6 @@ use matrix_sdk_common::locks::RwLock;
 use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
     api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
-    canonical_json::to_canonical_value,
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -36,7 +35,6 @@ use tracing::{error, info};
 use crate::{
     CryptoStoreError, DeviceData, VerificationRequest,
     error::SignatureError,
-    olm::utility::to_signable_json,
     store::{
         Store,
         types::{Changes, IdentityChanges},
@@ -376,7 +374,9 @@ impl OtherUserIdentity {
 
         // If we have an X.509 verifier, we can use that to verify the user
         if let Some(x509_verifier) = &self.x509_verifier {
-            if self.inner.verify_x509_signatures(x509_verifier) {
+            if x509_verifier
+                .verify_signed_object(&self.user_id, self.inner.master_key.deref().as_ref())
+            {
                 return true;
             }
         }
@@ -953,12 +953,6 @@ impl OtherUserIdentityData {
     /// Returns `true` if the signature check succeeded, otherwise `false`.
     pub(crate) fn is_device_signed(&self, device: &DeviceData) -> bool {
         self.user_id() == device.user_id() && self.self_signing_key.verify_device(device).is_ok()
-    }
-
-    /// Check if the master key on this identity has been signed by an
-    /// X509-certificated key.
-    pub(crate) fn verify_x509_signatures(&self, verifier: &X509Verifier) -> bool {
-        verifier.verify_signed_object(self.user_id(), self.master_key.deref().as_ref())
     }
 }
 
