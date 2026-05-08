@@ -309,7 +309,7 @@ pub async fn find_event_with_relations(
     store: &EventCacheStoreLockGuard,
 ) -> Result<Option<(Event, Vec<Event>)>> {
     // First, hit storage to get the target event and its related events.
-    let found = store.find_event(&room_id, event_id).await?;
+    let found = store.find_event(room_id, event_id).await?;
 
     let Some(target) = found else {
         // We haven't found the event: return early.
@@ -344,7 +344,7 @@ pub async fn find_event_relations(
 ) -> Result<Vec<Event>> {
     // Initialize the stack with all the related events, to find the
     // transitive closure of all the related events.
-    let mut related = store.find_event_relations(&room_id, event_id, filters.as_deref()).await?;
+    let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
     let mut stack = related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
 
     // Also keep track of already seen events, in case there's a loop in the
