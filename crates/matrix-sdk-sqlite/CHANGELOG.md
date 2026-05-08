@@ -33,6 +33,10 @@ All notable changes to this project will be documented in this file.
   `kv` table, as this is tracked in `lease_locks` table.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 
+## [0.16.1] - 2026-05-08
+
+No notable changes in this release.
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

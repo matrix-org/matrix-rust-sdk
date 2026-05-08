@@ -238,6 +238,10 @@ All notable changes to this project will be documented in this file.
   `top_level_joined_spaces` and `subscribe_to_joined_spaces` to `space_service.subscribe_to_top_level_joined_spaces`
   ([#5972](https://github.com/matrix-org/matrix-rust-sdk/pull/5972))
 
+## [0.16.1] - 2026-05-08
+
+No notable changes in this release.
+
 ## [0.16.0] - 2025-12-04
 
 ### Breaking changes

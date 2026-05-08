@@ -55,6 +55,13 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] Remove `ttl_cache::TtlCache` because it is now unused.
   ([#6484](https://github.com/matrix-org/matrix-rust-sdk/pull/6484))
 
+## [0.16.1] - 2026-05-08
+
+### Features
+
+- Add a method to check the validity of edits.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
