@@ -345,8 +345,6 @@ impl OlmMachine {
 
             None => {
                 let account = if let Some(account) = custom_account {
-                    // TODO: AJB: because of these lines here, I think we store the RSA key in the
-                    // store, but we might want to avoid that and only have it in memory.
                     Account::new_helper(account, user_id, device_id)
                 } else {
                     Account::with_device_id(user_id, device_id)
@@ -358,10 +356,7 @@ impl OlmMachine {
                     .record("ed25519_key", display(account.identity_keys().ed25519))
                     .record("curve25519_key", display(account.identity_keys().curve25519));
 
-                let device = DeviceData::from_account_and_x509(
-                    &account,
-                    x509_data.as_ref().and_then(|d| d.x509_signer.as_ref()),
-                );
+                let device = DeviceData::from_account(&account);
 
                 // We just created this device from our own Olm `Account`. Since we are the
                 // owners of the private keys of this device we can safely mark
