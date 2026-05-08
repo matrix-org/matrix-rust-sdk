@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Bug Fixes
 
 - Check the user ID in the `sender_device_keys` property of Olm-encrypted

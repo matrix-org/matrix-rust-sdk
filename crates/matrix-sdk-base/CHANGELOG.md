@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Bug Fixes
 
 - Filter out service members from `Room::heroes`. This *should* be done by the homeservers, but some don't. 

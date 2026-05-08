@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Features
 
 - Add support in the implementation of `EventCacheStore` for

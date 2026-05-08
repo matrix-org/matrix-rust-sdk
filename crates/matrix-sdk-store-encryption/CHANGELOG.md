@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Refactor
 
 - **breaking** The `Random` error variant has been removed. An infallible random

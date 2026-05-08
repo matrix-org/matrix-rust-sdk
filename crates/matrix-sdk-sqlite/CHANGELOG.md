@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Features
 
 - Implement `CryptoStore::get_pending_key_bundle_details_for_room` and

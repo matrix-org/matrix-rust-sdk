@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Features
 
 - [**breaking**] `Room::is_dm` was renamed to `Room::compute_is_dm` to match its behavior, since it'll now compute 

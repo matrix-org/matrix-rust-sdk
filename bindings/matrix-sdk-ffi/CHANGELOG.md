@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Bug Fixes
 
 - Add `Client::set_avatar_url` to manually set the avatar URL of the user to a provided MXC one.

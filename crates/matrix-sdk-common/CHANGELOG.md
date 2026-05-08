@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.17.0] - 2026-05-08
+
 ### Features
 
 - [**breaking**] Change to the stable identifiers for `m.history_not_shared`.
