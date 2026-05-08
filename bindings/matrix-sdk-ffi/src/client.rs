@@ -117,7 +117,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 use url::Url;
 
 use super::{
@@ -1492,6 +1492,60 @@ impl Client {
             .into_iter()
             .map(|room| Arc::new(Room::new(room, self.utd_hook_manager.get().cloned())))
             .collect()
+    }
+
+    /// Mark all joined rooms as read by sending public, private and fully-read
+    /// receipts on each room's latest event.
+    ///
+    /// This is a best-effort operation — per-room errors are logged and
+    /// skipped. Receipts are sent unthreaded, which per the Matrix spec
+    /// covers all events in a room including those inside threads.
+    ///
+    /// This is useful to mitigate backend led wrong iOS app badges and work
+    /// around https://github.com/element-hq/element-x-ios/issues/3151
+    pub async fn mark_all_rooms_as_read(&self) -> Result<(), ClientError> {
+        use matrix_sdk::room::Receipts;
+        use matrix_sdk_base::RoomStateFilter;
+        use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
+
+        for sdk_room in self.inner.rooms_filtered(RoomStateFilter::JOINED) {
+            let timeline = match TimelineBuilder::new(&sdk_room)
+                .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+                .build()
+                .await
+            {
+                Ok(tl) => tl,
+                Err(err) => {
+                    warn!(
+                        "mark_all_rooms_as_read: failed to build timeline for {}: {err}",
+                        sdk_room.room_id()
+                    );
+                    continue;
+                }
+            };
+
+            if let Some(event_id) = timeline.latest_event_id().await {
+                let receipts = Receipts::new()
+                    .fully_read_marker(event_id.clone())
+                    .private_read_receipt(event_id);
+                if let Err(err) = sdk_room.send_multiple_receipts(receipts).await {
+                    warn!(
+                        "mark_all_rooms_as_read: failed to send receipts for {}: {err}",
+                        sdk_room.room_id()
+                    );
+                }
+            } else {
+                // Room has no events; just clear any stale explicit unread flag.
+                if let Err(err) = sdk_room.set_unread_flag(false).await {
+                    warn!(
+                        "mark_all_rooms_as_read: failed to clear unread flag for {}: {err}",
+                        sdk_room.room_id()
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Get a room by its ID.
