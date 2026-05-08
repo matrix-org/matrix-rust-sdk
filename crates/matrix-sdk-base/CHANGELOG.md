@@ -72,6 +72,9 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
+- `Client::sync_once` acquires the state store lock when processing a sync and response and holds it 
+  until processing has completed. This mimics the behavior of `SlidingSync::sync_once`.
+  ([#6555](https://github.com/matrix-org/matrix-rust-sdk/pull/6555)) 
 - [**breaking**] `TtlStoreValue` was moved and renamed to `matrix_sdk_common::ttl::TtlValue`.
   ([#6463](https://github.com/matrix-org/matrix-rust-sdk/pull/6463),
   [#6484](https://github.com/matrix-org/matrix-rust-sdk/pull/6484))
