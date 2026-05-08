@@ -47,12 +47,13 @@ impl X509Verifier {
 
         for (_key_id, sig) in this_user_sigs {
             if let Ok(sig) = sig {
-                info!(
-                    "X509: verify_signed_object(): calling verifier.verify_signature() for {}",
-                    _key_id
-                );
                 if self.verify_x509_signature(user_id, &msg, sig) {
+                    info!("X509: verify_signed_object(): verified X509 signature");
                     return true;
+                } else {
+                    tracing::warn!(
+                        "X509: verify_signed_object(): X509 signature failed verification"
+                    );
                 }
             }
         }
@@ -67,7 +68,6 @@ impl X509Verifier {
     pub fn verify_x509_signature(&self, user_id: &UserId, message: &str, sig: &Signature) -> bool {
         let Signature::X509(sig) = sig else {
             // Not an error: just the wrong type of signature.
-            info!("X509: verify_x509_signature(): not an x509 sig");
             return false;
         };
 

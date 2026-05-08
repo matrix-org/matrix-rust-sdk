@@ -527,6 +527,7 @@ impl SessionManager {
                     && let Some(x509_signer) = self.store.x509_signer()
                 {
                     info!(
+                        ?device_id,
                         "X509: signing device keys when creating outbound session to our own device"
                     );
                     x509_signer.sign_device_keys(self.store.user_id(), &mut device_keys).unwrap();
