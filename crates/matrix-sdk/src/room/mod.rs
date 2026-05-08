@@ -1815,7 +1815,7 @@ impl Room {
                 }
             }
         } else {
-            for (_, list) in content.iter_mut() {
+            for list in content.values_mut() {
                 list.retain(|room_id| *room_id != this_room_id);
             }
 
