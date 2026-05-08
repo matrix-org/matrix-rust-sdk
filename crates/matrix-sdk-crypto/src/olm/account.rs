@@ -1357,7 +1357,17 @@ impl Account {
                     }
                 }
 
-                let device_keys = store.get_own_device().await?.as_device_keys().clone();
+                let mut device_keys = store.get_own_device().await?.as_device_keys().clone();
+
+                if sender == self.user_id
+                    && let Some(x509_signer) = store.x509_signer()
+                {
+                    info!(
+                        "X509: signing device keys when creating inbound session with our own device"
+                    );
+                    x509_signer.sign_device_keys(&self.user_id, &mut device_keys).unwrap();
+                }
+
                 let result =
                     match self.create_inbound_session(sender_key, device_keys, prekey_message) {
                         Ok(r) => r,

@@ -521,7 +521,17 @@ impl SessionManager {
                 };
 
                 let account = store_transaction.account().await?;
-                let device_keys = self.store.get_own_device().await?.as_device_keys().clone();
+                let mut device_keys = self.store.get_own_device().await?.as_device_keys().clone();
+
+                if user_id == self.store.user_id()
+                    && let Some(x509_signer) = self.store.x509_signer()
+                {
+                    info!(
+                        "X509: signing device keys when creating outbound session to our own device"
+                    );
+                    x509_signer.sign_device_keys(self.store.user_id(), &mut device_keys).unwrap();
+                }
+
                 let session = match account.create_outbound_session(&device, key_map, device_keys) {
                     Ok(s) => s,
                     Err(e) => {
