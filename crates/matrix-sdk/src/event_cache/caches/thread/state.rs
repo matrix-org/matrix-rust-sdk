@@ -166,7 +166,7 @@ impl ThreadEventCacheState {
         let linked_chunk_id =
             OwnedLinkedChunkId::Thread(self.room_id.clone(), self.thread_id.clone());
 
-        send_updates_to_store(&store, linked_chunk_id, &self.linked_chunk_update_sender, updates)
+        send_updates_to_store(store, linked_chunk_id, &self.linked_chunk_update_sender, updates)
             .await
     }
 }
@@ -549,7 +549,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             && deserialized.is_redacted()
         {
             return Ok(());
-        };
+        }
 
         if let Some(redacted_event) = apply_redaction(
             target_event_raw,
