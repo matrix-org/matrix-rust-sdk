@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.16.1] - 2026-05-08
+
 ### Features
 
 - Add a method to check the validity of edits.
