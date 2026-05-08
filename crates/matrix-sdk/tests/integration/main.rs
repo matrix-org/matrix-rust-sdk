@@ -9,6 +9,7 @@ use wiremock::{
 
 mod account;
 mod client;
+mod edit_validation;
 #[cfg(feature = "e2e-encryption")]
 mod encryption;
 mod event_cache;

@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bugfix
+
+- Add a recursion limit attribute that raises it from the default value of 128 to 256.
+  ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
+- Reject invalid edits as candidates for the latest event.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
+
 ## [0.16.0] - 2025-12-04
 
 ### Features

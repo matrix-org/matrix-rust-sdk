@@ -19,10 +19,14 @@ use futures_core::Stream;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use matrix_sdk_test::async_test;
-use ruma::{room_id, user_id, RoomId, TransactionId, UserId};
+use ruma::{
+    canonical_json::to_canonical_value, owned_user_id, room_id, user_id, DeviceKeyAlgorithm,
+    DeviceKeyId, RoomId, TransactionId, UserId,
+};
 use serde::Serialize;
 use serde_json::json;
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use vodozemac::Curve25519SecretKey;
 
 use crate::{
     machine::{
@@ -34,9 +38,12 @@ use crate::{
     },
     olm::{InboundGroupSession, SenderData},
     store::types::RoomKeyInfo,
-    types::events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
-    DecryptionSettings, DeviceData, EncryptionSettings, EncryptionSyncChanges, OlmMachine, Session,
-    TrustRequirement,
+    types::{
+        events::{room::encrypted::ToDeviceEncryptedEventContent, EventType, ToDeviceEvent},
+        DeviceKey, DeviceKeys,
+    },
+    Account, DecryptionSettings, DeviceData, EncryptionSettings, EncryptionSyncChanges, EventError,
+    OlmError, OlmMachine, Session, TrustRequirement,
 };
 
 /// Test the behaviour when a megolm session is received from an unknown device,
@@ -54,7 +61,7 @@ async fn test_receive_megolm_session_from_unknown_device() {
     // When Alice starts a megolm session and shares the key with Bob, *without*
     // sending the sender data.
     let room_id = room_id!("!test:example.org");
-    let event = create_and_share_session_without_sender_data(&alice, &bob, room_id).await;
+    let event = create_and_share_session_with_custom_sender_data(&alice, &bob, room_id, None).await;
 
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -73,6 +80,112 @@ async fn test_receive_megolm_session_from_unknown_device() {
             assert!(!legacy_session);
             assert!(!owner_check_failed);
         }
+    );
+}
+
+/// Test the behaviour when a megolm session is received, and the device keys in
+/// the to-device message are incorrect.
+#[async_test]
+async fn test_receive_megolm_session_with_bad_device_keys() {
+    // In this test, Alice sends Bob several encrypted events, with various
+    // contents for the device keys embedded in the encrypted data.
+    let (alice, bob) = get_machine_pair().await;
+
+    let room_id = room_id!("!test:example.org");
+    let decryption_settings =
+        DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+    let alice_account = alice.store().load_account().await.unwrap().unwrap();
+    let alice_device_keys = alice_account.device_keys();
+    let alice_unsigned_device_keys = {
+        let mut device_keys = alice_device_keys.clone();
+        device_keys.signatures.clear();
+        device_keys
+    };
+    let bob_store = bob.store();
+    let mut bob_account = bob_store.load_account().await.unwrap().unwrap();
+
+    // Using Alice's correct device keys should succeed
+    let sender_device_keys = serde_json::to_value(&alice_device_keys).unwrap();
+    let event = create_and_share_session_with_custom_sender_data(
+        &alice,
+        &bob,
+        room_id,
+        Some(sender_device_keys),
+    )
+    .await;
+    bob_account
+        .decrypt_to_device_event(bob_store, &event, &decryption_settings)
+        .await
+        .expect("using Alice's correct device keys should succeed");
+
+    // An unsigned device key should error.
+    let sender_device_keys = serde_json::to_value(&alice_unsigned_device_keys).unwrap();
+    let event = create_and_share_session_with_custom_sender_data(
+        &alice,
+        &bob,
+        room_id,
+        Some(sender_device_keys),
+    )
+    .await;
+    assert_matches!(
+        bob_account.decrypt_to_device_event(bob_store, &event, &decryption_settings).await,
+        Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys))
+    );
+
+    // Having the wrong user ID in the device key should error.
+    let wrong_user_device_keys = {
+        let mut device_keys = alice_unsigned_device_keys.clone();
+        device_keys.user_id = owned_user_id!("@wrong_user:example.org");
+        sign_device_keys(&alice_account, &mut device_keys);
+        device_keys
+    };
+    let sender_device_keys = serde_json::to_value(&wrong_user_device_keys).unwrap();
+    let event = create_and_share_session_with_custom_sender_data(
+        &alice,
+        &bob,
+        room_id,
+        Some(sender_device_keys),
+    )
+    .await;
+    assert_matches!(
+        bob_account.decrypt_to_device_event(bob_store, &event, &decryption_settings).await,
+        Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys))
+    );
+
+    // Having the wrong ed25519 key in the device key should error.
+    let wrong_ed25519_device_keys = {
+        let mut device_keys = alice_unsigned_device_keys.clone();
+        let secret_key = Curve25519SecretKey::new();
+        device_keys.keys.insert(
+            DeviceKeyId::from_parts(DeviceKeyAlgorithm::Curve25519, &device_keys.device_id),
+            DeviceKey::Curve25519((&secret_key).into()),
+        );
+        sign_device_keys(&alice_account, &mut device_keys);
+        device_keys
+    };
+    let sender_device_keys = serde_json::to_value(&wrong_ed25519_device_keys).unwrap();
+    let event = create_and_share_session_with_custom_sender_data(
+        &alice,
+        &bob,
+        room_id,
+        Some(sender_device_keys),
+    )
+    .await;
+    assert_matches!(
+        bob_account.decrypt_to_device_event(bob_store, &event, &decryption_settings).await,
+        Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys))
+    );
+}
+
+fn sign_device_keys(account: &Account, device_keys: &mut DeviceKeys) {
+    let json_device_keys = to_canonical_value(&device_keys).unwrap();
+    let signature = account.sign_json(json_device_keys.into()).unwrap();
+
+    device_keys.signatures.add_signature(
+        device_keys.user_id.to_owned(),
+        DeviceKeyId::from_parts(DeviceKeyAlgorithm::Ed25519, &device_keys.device_id),
+        signature,
     );
 }
 
@@ -131,7 +244,7 @@ async fn test_update_unknown_device_senderdata_on_keys_query() {
     // Alice starts a megolm session and shares the key with Bob, *without* sending
     // the sender data.
     let room_id = room_id!("!test:example.org");
-    let event = create_and_share_session_without_sender_data(&alice, &bob, room_id).await;
+    let event = create_and_share_session_with_custom_sender_data(&alice, &bob, room_id, None).await;
 
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -241,17 +354,20 @@ async fn forget_devices_for_user(machine: &OlmMachine, other_user: &UserId) {
 }
 
 /// Create a new [`OutboundGroupSession`], and build a to-device event to share
-/// it with another [`OlmMachine`], *without* sending the MSC4147 sender data.
+/// it with another [`OlmMachine`], using custom MSC4147 sender data.
 ///
 /// # Arguments
 ///
 /// * `alice` - sending device.
 /// * `bob` - receiving device.
 /// * `room_id` - room to create a session for.
-async fn create_and_share_session_without_sender_data(
+/// * `sender_device_keys` - the MSC4147 sender data to include, or `None` to
+///   omit the sender data
+async fn create_and_share_session_with_custom_sender_data(
     alice: &OlmMachine,
     bob: &OlmMachine,
     room_id: &RoomId,
+    sender_device_keys: Option<serde_json::Value>,
 ) -> ToDeviceEvent<ToDeviceEncryptedEventContent> {
     let (outbound_session, _) = alice
         .inner
@@ -277,7 +393,7 @@ async fn create_and_share_session_without_sender_data(
     let mut olm_session: Session = olm_sessions.lock().await[0].clone();
 
     let room_key_content = outbound_session.as_content().await;
-    let plaintext = serde_json::to_string(&json!({
+    let mut plaintext_value = json!({
         "sender": alice.user_id(),
         "sender_device": alice.device_id(),
         "keys": { "ed25519": alice.identity_keys().ed25519.to_base64() },
@@ -287,8 +403,14 @@ async fn create_and_share_session_without_sender_data(
         "recipient_keys": { "ed25519": bob.identity_keys().ed25519.to_base64() },
         "type": room_key_content.event_type(),
         "content": room_key_content,
-    }))
-    .unwrap();
+    });
+    if let Some(sender_device_keys) = sender_device_keys {
+        plaintext_value
+            .as_object_mut()
+            .unwrap()
+            .insert("org.matrix.msc4147.device_keys".to_owned(), sender_device_keys);
+    }
+    let plaintext = serde_json::to_string(&plaintext_value).unwrap();
 
     let ciphertext = olm_session.encrypt_helper(&plaintext).await;
     ToDeviceEvent::new(

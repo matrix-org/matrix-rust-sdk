@@ -323,13 +323,13 @@ impl RoomEventCache {
     /// event.
     ///
     /// The `predicate` receives two arguments: the current event, and the
-    /// ID of the _previous_ (older) event.
+    /// _previous_ (older) event.
     ///
     /// **Warning**! It looks into the loaded events from the in-memory linked
     /// chunk **only**. It doesn't look inside the storage.
     pub async fn rfind_map_event_in_memory_by<O, P>(&self, predicate: P) -> Result<Option<O>>
     where
-        P: FnMut(&Event, Option<OwnedEventId>) -> Option<O>,
+        P: FnMut(&Event, Option<&Event>) -> Option<O>,
     {
         Ok(self.inner.state.read().await?.rfind_map_event_in_memory_by(predicate))
     }
@@ -648,7 +648,7 @@ mod private {
     use eyeball_im::VectorDiff;
     use itertools::Itertools;
     use matrix_sdk_base::{
-        apply_redaction,
+        apply_redaction, check_validity_of_replacement_events,
         deserialized_responses::{ThreadSummary, ThreadSummaryStatus, TimelineEventKind},
         event_cache::{
             Event, Gap,
@@ -1119,7 +1119,7 @@ mod private {
         /// contrary to [`Self::find_event`].
         pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
         where
-            P: FnMut(&Event, Option<OwnedEventId>) -> Option<O>,
+            P: FnMut(&Event, Option<&Event>) -> Option<O>,
         {
             self.state
                 .room_linked_chunk
@@ -1127,11 +1127,7 @@ mod private {
                 .peekable()
                 .batching(|iter| {
                     iter.next().map(|(_position, event)| {
-                        (
-                            event,
-                            iter.peek()
-                                .and_then(|(_next_position, next_event)| next_event.event_id()),
-                        )
+                        (event, iter.peek().map(|(_next_position, next_event)| *next_event))
                     })
                 })
                 .find_map(|(event, next_event_id)| predicate(event, next_event_id))
@@ -1890,12 +1886,28 @@ mod private {
                 // If there's an edit to the latest event in the thread, use the latest edit
                 // event id as the latest event id for the thread summary.
                 if let Some(event_id) = latest_event_id.as_ref()
-                    && let Some((_, edits)) = self
+                    && let Some((original_event, edits)) = self
                         .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
                         .await?
-                    && let Some(latest_edit) = edits.last()
                 {
-                    latest_event_id = latest_edit.event_id();
+                    let latest_valid_edit = edits.into_iter().rfind(|edit| {
+                        let original_json = original_event.raw();
+                        let original_encryption_info = original_event.encryption_info();
+                        let replacement_json = edit.raw();
+                        let replacement_encryption_info = edit.encryption_info();
+
+                        check_validity_of_replacement_events(
+                            original_json,
+                            original_encryption_info.map(|v| &**v),
+                            replacement_json,
+                            replacement_encryption_info.map(|v| &**v),
+                        )
+                        .is_ok()
+                    });
+
+                    if let Some(latest_valid_edit) = latest_valid_edit {
+                        latest_event_id = latest_valid_edit.event_id();
+                    }
                 }
 
                 self.maybe_update_thread_summary(thread_root, latest_event_id).await?;
@@ -3819,8 +3831,8 @@ mod timed_tests {
         // Look for an event from `BOB`: it must be `event_0`.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| (event.event_id(), previous_event_id))
+                .rfind_map_event_in_memory_by(|event, previous_event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*BOB)).then(|| (event.event_id(), previous_event.and_then(|e| e.event_id())))
                 })
                 .await,
             Ok(Some((event_id, previous_event_id))) => {
@@ -3833,8 +3845,8 @@ mod timed_tests {
         // because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event, previous_event_id| {
-                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| (event.event_id(), previous_event_id))
+                .rfind_map_event_in_memory_by(|event, previous_event| {
+                    (event.raw().get_field::<OwnedUserId>("sender").unwrap().as_deref() == Some(*ALICE)).then(|| (event.event_id(), previous_event.and_then(|e| e.event_id())))
                 })
                 .await,
             Ok(Some((event_id, previous_event_id))) => {
