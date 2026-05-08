@@ -998,7 +998,29 @@ impl GossipMachine {
     ) -> Result<(), CryptoStoreError> {
         if secret.secret_name != SecretName::RecoveryKey {
             match self.inner.store.import_secret(&secret).await {
-                Ok(_) => self.mark_as_done(&secret.gossip_request).await?,
+                Ok(_) => {
+                    self.mark_as_done(&secret.gossip_request).await?;
+
+                    if secret.secret_name == SecretName::CrossSigningSelfSigningKey {
+                        info!("X509: signing device with just-received SSK");
+                        // TODO RAV: don't do this unless the device is unsigned.
+                        let private_identity_mutex = self.inner.store.private_identity();
+                        let private_identity = private_identity_mutex.lock().await;
+                        let signature_upload_request = private_identity
+                            .sign_account(self.inner.store.static_account())
+                            .await
+                            .unwrap();
+                        let request = OutgoingRequest {
+                            request_id: TransactionId::new(),
+                            request: Arc::new(signature_upload_request.into()),
+                        };
+                        self.inner
+                            .outgoing_requests
+                            .write()
+                            .insert(request.request_id.clone(), request);
+                    }
+                }
+
                 // If this is a store error propagate it up the call stack.
                 Err(SecretImportError::Store(e)) => return Err(e),
                 // Otherwise warn that there was something wrong with the
