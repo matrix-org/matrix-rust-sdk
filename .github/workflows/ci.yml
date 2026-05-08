@@ -3,9 +3,9 @@ name: Rust tests
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
   pull_request:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
 
 permissions: {}
 

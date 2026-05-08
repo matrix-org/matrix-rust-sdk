@@ -3,9 +3,9 @@ name: Bindings tests
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
   pull_request:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
     types:
       - opened
       - reopened
