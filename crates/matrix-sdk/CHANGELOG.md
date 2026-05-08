@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## [0.16.1] - 2026-05-08
+
 ### Bugfix
 
 - Add a recursion limit attribute that raises it from the default value of 128 to 256.
