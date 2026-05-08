@@ -639,6 +639,7 @@ impl OlmMachine {
             }
             AnyIncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
+                self.inner.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
             }
             AnyIncomingResponse::RoomMessage(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
