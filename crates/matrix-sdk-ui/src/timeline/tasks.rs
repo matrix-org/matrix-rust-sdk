@@ -239,9 +239,8 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
 
                 if matches!(timeline_focus, TimelineFocus::Live { .. }) {
                     timeline_controller.handle_remote_events_with_diffs(diffs, origin).await;
-                } else if !matches!(timeline_focus, TimelineFocus::PinnedEvents) {
-                    // Only handle the remote aggregation for a non-live timeline, that's not the
-                    // pinned events one (since the latter handles remote aggregations on its own).
+                } else if matches!(timeline_focus, TimelineFocus::Event { .. }) {
+                    // Only handle the remote aggregation for an event-focused timeline.
                     timeline_controller.handle_remote_aggregations(diffs, origin).await;
                 }
 
