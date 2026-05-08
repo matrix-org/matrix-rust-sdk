@@ -84,8 +84,11 @@ impl X509Verifier {
             return false;
         };
 
-        if certificate_email != map_user_id_to_email(user_id) {
-            tracing::warn!("Certificate not valid for this user");
+        let mapped_email = map_user_id_to_email(user_id);
+        if certificate_email != mapped_email {
+            tracing::warn!(
+                "Certificate not valid for this user. Certificate email: {certificate_email}, mapped email: {mapped_email}, user_id: {user_id}",
+            );
             return false;
         }
 
