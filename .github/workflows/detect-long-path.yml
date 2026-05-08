@@ -6,7 +6,7 @@ name: Detect long path among changed files
 on:
   workflow_dispatch:
   pull_request: # focus on the changed files in current PR
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
 
 permissions: {}
 
