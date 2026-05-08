@@ -128,6 +128,7 @@ pub use matrix_sdk_base::crypto::{
     },
     vodozemac,
 };
+use matrix_sdk_base::crypto::{GossipRequest, SecretInfo, store::types::Changes};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 
 #[cfg(feature = "experimental-send-custom-to-device")]
@@ -905,15 +906,19 @@ impl Encryption {
 
         let own_device_id = self.client.device_id().unwrap().to_owned();
 
-        let olm_machine = self.client.olm_machine().await;
-        let secrets = olm_machine.as_ref().unwrap().get_missing_secrets().await.unwrap();
+        let olm_machine_guard = self.client.olm_machine().await;
+        let olm_machine = olm_machine_guard.as_ref().unwrap();
+        let secrets = olm_machine.get_missing_secrets().await.unwrap();
         error!("AJB secrets={secrets:?}");
+
         for secret in secrets {
+            let transaction_id = TransactionId::new();
+
             let content =
                 AnyToDeviceEventContent::SecretRequest(ToDeviceSecretRequestEventContent::new(
                     RequestAction::Request(SecretRequestAction::new(secret.clone())),
                     own_device_id.clone(),
-                    TransactionId::new(),
+                    transaction_id.clone(),
                 ));
 
             let content_raw: Raw<AnyToDeviceEventContent> = Raw::new(&content).unwrap();
@@ -927,11 +932,16 @@ impl Encryption {
             )
             .await
             .unwrap();
+
+            let mut store_changes = Changes::default();
+            store_changes.key_requests.push(GossipRequest {
+                request_recipient: own_user_id.to_owned(),
+                request_id: transaction_id,
+                info: SecretInfo::SecretRequest(secret),
+                sent_out: true,
+            });
+            olm_machine.store().save_changes(store_changes).await.unwrap();
         }
-        // Encrypt a secret request to each device and send it
-        // - Create a secret request
-        // This handles waiting for a valid keys claim for any devices we don't
-        // yet have one-time keys for.
     }
 
     pub(crate) fn new(client: Client) -> Self {

@@ -1029,6 +1029,7 @@ impl GossipMachine {
         &self,
         cache: &StoreCache,
         sender_key: Curve25519PublicKey,
+        from_x509_signed_device: bool,
         secret: GossippedSecret,
         changes: &mut Changes,
     ) -> Result<(), CryptoStoreError> {
@@ -1038,7 +1039,9 @@ impl GossipMachine {
             self.inner.store.get_device_from_curve_key(&secret.event.sender, sender_key).await?
         {
             // Only accept secrets from one of our own trusted devices.
-            if device.user_id() == self.user_id() && device.is_verified() {
+            if device.user_id() == self.user_id()
+                && (device.is_verified() || from_x509_signed_device)
+            {
                 self.accept_secret(secret, changes).await?;
             } else {
                 warn!("Received a m.secret.send event from another user or from unverified device");
@@ -1062,6 +1065,7 @@ impl GossipMachine {
         &self,
         cache: &StoreCache,
         sender_key: Curve25519PublicKey,
+        from_x509_signed_device: bool,
         event: &DecryptedSecretSendEvent,
         changes: &mut Changes,
     ) -> Result<Option<SecretName>, CryptoStoreError> {
@@ -1089,7 +1093,14 @@ impl GossipMachine {
                         gossip_request: request,
                     };
 
-                    self.receive_secret(cache, sender_key, secret, changes).await?;
+                    self.receive_secret(
+                        cache,
+                        sender_key,
+                        from_x509_signed_device,
+                        secret,
+                        changes,
+                    )
+                    .await?;
 
                     Some(secret_name)
                 }

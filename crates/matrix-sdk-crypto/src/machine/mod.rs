@@ -1396,7 +1396,13 @@ impl OlmMachine {
                 let name = self
                     .inner
                     .key_request_machine
-                    .receive_secret_event(cache, decrypted.result.sender_key, e, changes)
+                    .receive_secret_event(
+                        cache,
+                        decrypted.result.sender_key,
+                        decrypted.result.from_x509_signed_device,
+                        e,
+                        changes,
+                    )
                     .await?;
 
                 // Set the secret name so other consumers of the event know
