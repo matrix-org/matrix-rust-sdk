@@ -749,6 +749,11 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
 
         for event in events {
             self.maybe_apply_new_redaction(&event).await?;
+
+            // Save a bundled thread event, if there was one.
+            if let Some(bundled_thread) = event.bundled_latest_thread_event {
+                self.save_events([*bundled_thread]).await?;
+            }
         }
 
         self.update_read_receipts(receipt_event.as_ref()).await?;
