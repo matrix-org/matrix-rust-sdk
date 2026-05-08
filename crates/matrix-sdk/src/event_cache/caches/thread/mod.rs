@@ -83,6 +83,7 @@ impl fmt::Debug for ThreadEventCache {
 
 impl ThreadEventCache {
     /// Create a new empty thread event cache.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,

@@ -815,7 +815,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         thread_id: &EventId,
         new_thread_summary: Option<ThreadSummary>,
     ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-        let Some((location, mut thread_root_event)) = self.find_event(&thread_id).await? else {
+        let Some((location, mut thread_root_event)) = self.find_event(thread_id).await? else {
             trace!(%thread_id, "thread root event is missing from the room linked chunk");
             return Ok(Vec::new());
         };
