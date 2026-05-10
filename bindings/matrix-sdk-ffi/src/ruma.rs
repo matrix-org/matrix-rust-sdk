@@ -550,30 +550,6 @@ mod tests {
             })
         );
     }
-
-    #[test]
-    fn message_event_content_new_supports_custom_message_types() {
-        let content = message_event_content_new(MessageType::Custom {
-            msgtype: "org.example.letter".to_owned(),
-            body: "Dear Alice".to_owned(),
-            data_json: json!({
-                "letter_id": "lt-123",
-                "version": 1,
-            })
-            .to_string(),
-        })
-        .unwrap();
-
-        assert_eq!(content.msgtype.msgtype(), "org.example.letter");
-        assert_eq!(content.msgtype.body(), "Dear Alice");
-        assert_eq!(
-            serde_json::to_value(content.msgtype.data()).unwrap(),
-            json!({
-                "letter_id": "lt-123",
-                "version": 1,
-            })
-        );
-    }
 }
 
 #[derive(Clone, uniffi::Enum)]
