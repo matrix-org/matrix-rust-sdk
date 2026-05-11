@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Bug Fixes
+
+- Remove the ability to reply to live location events.
+  ([#6563](https://github.com/matrix-org/matrix-rust-sdk/pull/6563))
+
 ### Refactor
 
 - [**breaking**] `SpaceRoom::new_from_known`  and `SpaceRoom::new_from_summary` are now asynchronous so we can 
