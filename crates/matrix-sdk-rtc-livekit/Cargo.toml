@@ -13,7 +13,6 @@ rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
 default = ["rustls-tls"]
-
 rustls-tls = ["matrix-sdk/rustls-tls", "livekit/rustls-tls-native-roots"]
 native-tls = ["matrix-sdk/native-tls", "livekit/native-tls"]
 js = ["matrix-sdk/js"]
@@ -26,11 +25,11 @@ livekit = { git = "https://github.com/onestacked/livekit-rust-sdks", branch = "E
 matrix-sdk = { workspace = true, features = ["e2e-encryption", "experimental-send-custom-to-device"] }
 matrix-sdk-base.workspace = true
 matrix-sdk-crypto.workspace = true
-rand.workspace = true
+rand = { version = "0.8.5", features = ["std", "std_rng"] }
 ruma.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-reqwest.workspace = true
+reqwest = { version = "0.12", features = ["json", "native-tls"] }
 futures-util.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

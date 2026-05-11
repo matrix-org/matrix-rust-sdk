@@ -334,6 +334,7 @@ pub fn element_call_capabilities(own_user_id: &UserId, own_device_id: &DeviceId)
         requires_client: true,
         update_delayed_event: true,
         send_delayed_event: true,
+        download_file: false,
     }
 }
 

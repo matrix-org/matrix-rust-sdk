@@ -72,6 +72,8 @@ experimental-push-secrets = [
 ]
 
 markdown = ["ruma/markdown"]
+native-tls = ["reqwest/native-tls"]
+rustls-tls = ["reqwest/native-tls"]
 socks = ["reqwest/socks"]
 local-server = ["dep:axum", "dep:rand", "dep:tower"]
 sso-login = ["local-server"]

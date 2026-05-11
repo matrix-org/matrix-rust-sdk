@@ -39,6 +39,30 @@ pub trait CapabilitiesProvider: SendOutsideWasm + SyncOutsideWasm + 'static {
     ) -> impl Future<Output = Capabilities> + SendOutsideWasm;
 }
 
+/// A [`CapabilitiesProvider`] that always returns a static capability set.
+#[derive(Clone, Debug)]
+pub struct StaticCapabilitiesProvider {
+    capabilities: Capabilities,
+}
+
+impl StaticCapabilitiesProvider {
+    /// Create a new static capabilities provider.
+    pub fn new(capabilities: Capabilities) -> Self {
+        Self { capabilities }
+    }
+
+    /// Get the configured capabilities.
+    pub fn capabilities(&self) -> &Capabilities {
+        &self.capabilities
+    }
+}
+
+impl CapabilitiesProvider for StaticCapabilitiesProvider {
+    async fn acquire_capabilities(&self, _capabilities: Capabilities) -> Capabilities {
+        self.capabilities.clone()
+    }
+}
+
 /// Capabilities that a widget can request from a client.
 #[derive(Clone, Debug, Default)]
 #[cfg_attr(test, derive(PartialEq))]

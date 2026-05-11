@@ -41,11 +41,14 @@ ELEMENT_CALL_URL=https://webclient.matrix.example.org
 ### Optional Variables for Connection
 
 ```bash
+MATRIX_DEVICE_ID="iABCdef"
 MATRIX_RECOVERY_KEY="recov ery key client exam ple"
 LIVEKIT_TOKEN=your-token \
 LIVEKIT_SFU_GET_URL=https://demo.call.bundesmessenger.info/sfu/get \
 LIVEKIT_SERVICE_URL=wss://livekit.example.org \
 ```
+
+When defining static `MATRIX_DEVICE_ID` it is necessary to use the local crypto store (needs to compile sqlite feature). Otherwise the Device ID needs to be changed for every run because the same Device ID won't work twice. (It's a feature, not a bug)
 
 ### Optional Variables for Video Feeding
 
