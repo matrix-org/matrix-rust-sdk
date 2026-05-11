@@ -318,7 +318,7 @@ impl SpaceService {
             {
                 let room_id = room.room_id();
                 editable_spaces
-                    .push(SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64));
+                    .push(SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64).await);
             }
         }
 
@@ -334,14 +334,22 @@ impl SpaceService {
     pub async fn joined_parents_of_child(&self, child_id: &RoomId) -> Vec<SpaceRoom> {
         let graph = &self.space_state.lock().await.graph;
 
-        graph
+        let rooms = graph
             .parents_of(child_id)
             .into_iter()
-            .filter_map(|parent_id| self.client.get_room(parent_id))
-            .map(|room| {
-                SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64)
-            })
-            .collect()
+            .filter_map(|parent_id| self.client.get_room(parent_id));
+
+        Self::space_rooms_from_known_rooms(rooms, graph).await
+    }
+
+    async fn space_rooms_from_known_rooms(iter: impl Iterator<Item = Room>, graph: &SpaceGraph) -> Vec<SpaceRoom> {
+        let mut result = Vec::new();
+
+        for room in iter {
+            result.push(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await);
+        }
+
+        result
     }
 
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
@@ -352,7 +360,7 @@ impl SpaceService {
         if graph.has_node(room_id)
             && let Some(room) = self.client.get_room(room_id)
         {
-            Some(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64))
+            Some(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await)
         } else {
             None
         }
@@ -583,15 +591,14 @@ impl SpaceService {
             })
             .collect::<Vec<_>>();
 
-        let top_level_spaces = top_level_space_rooms
-            .iter()
-            .map(|room| {
-                SpaceRoom::new_from_known(room, graph.children_of(room.room_id()).len() as u64)
-            })
-            .collect();
+        let mut top_level_spaces = Vec::new();
+
+        for room in &top_level_space_rooms {
+            top_level_spaces.push(SpaceRoom::new_from_known(room, graph.children_of(room.room_id()).len() as u64).await);
+        }
 
         let space_filters =
-            Self::build_space_filters(client, &graph, top_level_space_rooms, space_child_states);
+            Self::build_space_filters(client, &graph, top_level_space_rooms, space_child_states).await;
 
         (top_level_spaces, space_filters, graph)
     }
@@ -604,7 +611,7 @@ impl SpaceService {
     /// and second level ones so while the former are already sorted at this
     /// point the latter need to be manually taken care of here though the use
     /// of the collected `m.space.child` state event details.
-    fn build_space_filters(
+    async fn build_space_filters(
         client: &Client,
         graph: &SpaceGraph,
         top_level_space_rooms: Vec<&Room>,
@@ -619,22 +626,14 @@ impl SpaceService {
                 .collect::<Vec<_>>();
 
             filters.push(SpaceFilter {
-                space_room: SpaceRoom::new_from_known(top_level_space, children.len() as u64),
+                space_room: SpaceRoom::new_from_known(top_level_space, children.len() as u64).await,
                 level: 0,
                 descendants: children.clone(),
             });
 
             filters.append(
-                &mut children
-                    .iter()
-                    .filter_map(|id| client.get_room(id))
-                    .filter(|room| room.is_space())
-                    .map(|room| {
-                        SpaceRoom::new_from_known(
-                            &room,
-                            graph.children_of(room.room_id()).len() as u64,
-                        )
-                    })
+                &mut children_rooms(&client, &children, graph).await
+                    .into_iter()
                     .sorted_by(|a, b| {
                         let a_state = space_child_states.get(&a.room_id).cloned();
                         let b_state = space_child_states.get(&b.room_id).cloned();
@@ -655,6 +654,23 @@ impl SpaceService {
 
         filters
     }
+}
+
+async fn children_rooms(client: &Client, children: &[OwnedRoomId], graph: &SpaceGraph) -> Vec<SpaceRoom> {
+    let mut result = Vec::new();
+    for child_room_id in children {
+        let Some(room) = client.get_room(child_room_id) else {
+            continue;
+        };
+
+        if !room.is_space() {
+            continue;
+        }
+
+        let space_room = SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await;
+        result.push(space_room);
+    }
+    result
 }
 
 // MSC3230: lexicographically by `order` and then by room ID

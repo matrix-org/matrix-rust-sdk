@@ -116,14 +116,14 @@ impl SpaceRoom {
     }
 
     /// Build a `SpaceRoom` from a room already known to this client.
-    pub(crate) fn new_from_known(known_room: &Room, children_count: u64) -> Self {
+    pub(crate) async fn new_from_known(known_room: &Room, children_count: u64) -> Self {
         let room_info = known_room.clone_info();
 
         let name = room_info.name().map(ToOwned::to_owned);
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             name.clone(),
             room_info.canonical_alias(),
-            room_info.heroes().to_vec(),
+            known_room.heroes(),
             known_room.joined_members_count(),
         )
         .to_string();
@@ -145,10 +145,10 @@ impl SpaceRoom {
             is_direct: Some(known_room.direct_targets_length() != 0),
             children_count,
             state: Some(known_room.state()),
-            heroes: Some(room_info.heroes().to_vec()),
+            heroes: Some(known_room.heroes()),
             via: vec![],
             suggested: false,
-            is_dm: Some(known_room.is_dm()),
+            is_dm: known_room.compute_is_dm().await.ok(),
         }
     }
 

@@ -144,24 +144,32 @@ impl SpaceRoomList {
                                     continue;
                                 }
 
-                                let mut mutable_rooms = rooms.lock();
-
-                                updates.iter_all_room_ids().for_each(|updated_room_id| {
+                                let mut to_set = Vec::new();
+                                for updated_room_id in updates.iter_all_room_ids() {
+                                    let mutable_rooms = rooms.lock();
                                     if let Some((position, room)) = mutable_rooms
-                                        .clone()
                                         .iter()
                                         .find_position(|room| &room.room_id == updated_room_id)
-                                        && let Some(updated_room) = client.get_room(updated_room_id)
                                     {
-                                        mutable_rooms.set(
-                                            position,
-                                            SpaceRoom::new_from_known(
-                                                &updated_room,
-                                                room.children_count,
-                                            ),
-                                        );
+                                        to_set.push((position, room.clone()));
                                     }
-                                })
+                                    drop(mutable_rooms);
+                                }
+
+                                for (pos, room) in to_set {
+                                    let Some(updated_room) = client.get_room(&room.room_id) else {
+                                        continue
+                                    };
+                                    let space_room = SpaceRoom::new_from_known(
+                                        &updated_room,
+                                        room.children_count,
+                                    ).await;
+                                    let mut mutable_rooms = rooms.lock();
+                                    mutable_rooms.set(
+                                        pos,
+                                        space_room,
+                                    );
+                                }
                             }
                             Err(err) => {
                                 error!("error when listening to room updates: {err}");
@@ -191,14 +199,14 @@ impl SpaceRoomList {
                         while subscriber.next().await.is_some() {
                             if let Some(room) = client.get_room(&space_id) {
                                 space_observable
-                                    .set(Some(SpaceRoom::new_from_known(&room, children_count)));
+                                    .set(Some(SpaceRoom::new_from_known(&room, children_count).await));
                             }
                         }
                     }
                 })
                 .abort_on_drop();
 
-            (Some(SpaceRoom::new_from_known(&parent, children_count)), Some(space_update_handle))
+            (Some(SpaceRoom::new_from_known(&parent, children_count).await), Some(space_update_handle))
         } else {
             (None, None)
         };
