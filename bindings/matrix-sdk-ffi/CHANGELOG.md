@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+## Refactor
+
+- [**breaking**] `SpaceRoomList::rooms` and `SpaceRoomList::subscribe_to_room_updates` are now asynchronous.
+  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pull/6561))
+
 ## [0.17.0] - 2026-05-08
 
 ### Bug Fixes

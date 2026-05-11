@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Add `Room::compute_joined_service_members` to compute the number of joined service members in a room. 
+  This is needed for calculating display names of `SpaceRoom`s with service members. 
+  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pull/6561))
+
 ## [0.17.0] - 2026-05-08
 
 ### Bug Fixes
