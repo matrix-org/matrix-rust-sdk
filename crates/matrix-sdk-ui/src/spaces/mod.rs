@@ -30,7 +30,7 @@
 use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
-use futures_util::pin_mut;
+use futures_util::{future::join_all, pin_mut};
 use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{
@@ -317,8 +317,9 @@ impl SpaceService {
                 && power_levels.user_can_send_state(user_id, StateEventType::SpaceChild)
             {
                 let room_id = room.room_id();
-                editable_spaces
-                    .push(SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64).await);
+                editable_spaces.push(
+                    SpaceRoom::new_from_known(room, graph.children_of(room_id).len() as u64).await,
+                );
             }
         }
 
@@ -339,17 +340,10 @@ impl SpaceService {
             .into_iter()
             .filter_map(|parent_id| self.client.get_room(parent_id));
 
-        Self::space_rooms_from_known_rooms(rooms, graph).await
-    }
-
-    async fn space_rooms_from_known_rooms(iter: impl Iterator<Item = Room>, graph: &SpaceGraph) -> Vec<SpaceRoom> {
-        let mut result = Vec::new();
-
-        for room in iter {
-            result.push(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await);
-        }
-
-        result
+        join_all(rooms.map(|room| async move {
+            SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await
+        }))
+        .await
     }
 
     /// Returns the corresponding `SpaceRoom` for the given room ID, or `None`
@@ -360,7 +354,10 @@ impl SpaceService {
         if graph.has_node(room_id)
             && let Some(room) = self.client.get_room(room_id)
         {
-            Some(SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await)
+            Some(
+                SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64)
+                    .await,
+            )
         } else {
             None
         }
@@ -594,11 +591,15 @@ impl SpaceService {
         let mut top_level_spaces = Vec::new();
 
         for room in &top_level_space_rooms {
-            top_level_spaces.push(SpaceRoom::new_from_known(room, graph.children_of(room.room_id()).len() as u64).await);
+            top_level_spaces.push(
+                SpaceRoom::new_from_known(room, graph.children_of(room.room_id()).len() as u64)
+                    .await,
+            );
         }
 
         let space_filters =
-            Self::build_space_filters(client, &graph, top_level_space_rooms, space_child_states).await;
+            Self::build_space_filters(client, &graph, top_level_space_rooms, space_child_states)
+                .await;
 
         (top_level_spaces, space_filters, graph)
     }
@@ -631,8 +632,22 @@ impl SpaceService {
                 descendants: children.clone(),
             });
 
+            let children_rooms = join_all(
+                children
+                    .iter()
+                    .filter_map(|child| client.get_room(child))
+                    .filter(|room| room.is_space())
+                    .map(|room| async move {
+                        SpaceRoom::new_from_known(
+                            &room,
+                            graph.children_of(room.room_id()).len() as u64,
+                        )
+                        .await
+                    }),
+            )
+            .await;
             filters.append(
-                &mut children_rooms(&client, &children, graph).await
+                &mut children_rooms
                     .into_iter()
                     .sorted_by(|a, b| {
                         let a_state = space_child_states.get(&a.room_id).cloned();
@@ -654,23 +669,6 @@ impl SpaceService {
 
         filters
     }
-}
-
-async fn children_rooms(client: &Client, children: &[OwnedRoomId], graph: &SpaceGraph) -> Vec<SpaceRoom> {
-    let mut result = Vec::new();
-    for child_room_id in children {
-        let Some(room) = client.get_room(child_room_id) else {
-            continue;
-        };
-
-        if !room.is_space() {
-            continue;
-        }
-
-        let space_room = SpaceRoom::new_from_known(&room, graph.children_of(room.room_id()).len() as u64).await;
-        result.push(space_room);
-    }
-    result
 }
 
 // MSC3230: lexicographically by `order` and then by room ID
@@ -859,12 +857,13 @@ mod tests {
 
         assert_eq!(
             initial_values,
-            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)].into()
+            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await]
+                .into()
         );
 
         assert_eq!(
             space_service.top_level_joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await]
         );
 
         // And the stream is still pending as the initial values were
@@ -893,8 +892,8 @@ mod tests {
         assert_eq!(
             space_service.top_level_joined_spaces().await,
             vec![
-                SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
+                SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await,
+                SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1).await
             ]
         );
 
@@ -904,8 +903,10 @@ mod tests {
                 VectorDiff::Clear,
                 VectorDiff::Append {
                     values: vec![
-                        SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0),
+                        SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)
+                            .await,
                         SpaceRoom::new_from_known(&client.get_room(second_space_id).unwrap(), 1)
+                            .await
                     ]
                     .into()
                 },
@@ -920,10 +921,10 @@ mod tests {
             vec![
                 VectorDiff::Clear,
                 VectorDiff::Append {
-                    values: vec![SpaceRoom::new_from_known(
-                        &client.get_room(first_space_id).unwrap(),
-                        0
-                    )]
+                    values: vec![
+                        SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)
+                            .await
+                    ]
                     .into()
                 },
             ]
@@ -942,7 +943,7 @@ mod tests {
         assert_pending!(joined_spaces_subscriber);
         assert_eq!(
             space_service.top_level_joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await]
         );
     }
 
@@ -1083,10 +1084,10 @@ mod tests {
         assert_eq!(
             space_service.top_level_joined_spaces().await,
             vec![
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!1:a.b")).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!2:a.b")).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0),
-                SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0),
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!1:a.b")).unwrap(), 0).await,
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!2:a.b")).unwrap(), 0).await,
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!3:a.b")).unwrap(), 0).await,
+                SpaceRoom::new_from_known(&client.get_room(room_id!("!4:a.b")).unwrap(), 0).await,
             ]
         );
     }
@@ -1245,7 +1246,7 @@ mod tests {
         let found = space_service.get_space_room(space_id).await;
         assert!(found.is_some());
 
-        let expected = SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0);
+        let expected = SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0).await;
         assert_eq!(found.unwrap(), expected);
     }
 
@@ -1645,12 +1646,12 @@ mod tests {
 
         assert_eq!(
             initial_values,
-            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0)].into()
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0).await].into()
         );
 
         assert_eq!(
             space_service.top_level_joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0)]
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 0).await]
         );
 
         // Two children are added.
@@ -1674,15 +1675,17 @@ mod tests {
         // And expect the list to update.
         assert_eq!(
             space_service.top_level_joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2)]
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2).await]
         );
         assert_next_eq!(
             joined_spaces_subscriber,
             vec![
                 VectorDiff::Clear,
                 VectorDiff::Append {
-                    values: vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2)]
-                        .into()
+                    values: vec![
+                        SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 2).await
+                    ]
+                    .into()
                 },
             ]
         );
@@ -1707,15 +1710,17 @@ mod tests {
         // And expect the list to update.
         assert_eq!(
             space_service.top_level_joined_spaces().await,
-            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1)]
+            vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1).await]
         );
         assert_next_eq!(
             joined_spaces_subscriber,
             vec![
                 VectorDiff::Clear,
                 VectorDiff::Append {
-                    values: vec![SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1)]
-                        .into()
+                    values: vec![
+                        SpaceRoom::new_from_known(&client.get_room(space_id).unwrap(), 1).await
+                    ]
+                    .into()
                 },
             ]
         );
