@@ -252,16 +252,16 @@ impl SpaceRoomList {
     }
 
     /// Return the current list of rooms.
-    pub fn rooms(&self) -> Vec<SpaceRoom> {
-        self.inner.rooms().into_iter().map(Into::into).collect()
+    pub async fn rooms(&self) -> Vec<SpaceRoom> {
+        self.inner.rooms().await.into_iter().map(Into::into).collect()
     }
 
     /// Subscribes to room list updates.
-    pub fn subscribe_to_room_update(
+    pub async fn subscribe_to_room_update(
         &self,
         listener: Box<dyn SpaceRoomListEntriesListener>,
     ) -> Arc<TaskHandle> {
-        let (initial_values, mut stream) = self.inner.subscribe_to_room_updates();
+        let (initial_values, mut stream) = self.inner.subscribe_to_room_updates().await;
 
         listener.on_update(vec![SpaceListUpdate::Reset {
             values: initial_values.into_iter().map(Into::into).collect(),
