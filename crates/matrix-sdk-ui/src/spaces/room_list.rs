@@ -70,7 +70,7 @@ pub enum SpaceRoomListPaginationState {
 ///     .await;
 ///
 /// // Start off with an empty and idle list
-/// room_list.rooms().is_empty();
+/// room_list.rooms().await.is_empty();
 ///
 /// assert_eq!(
 ///     room_list.pagination_state(),
@@ -82,7 +82,7 @@ pub enum SpaceRoomListPaginationState {
 ///     room_list.subscribe_to_pagination_state_updates();
 ///
 /// // And to room list updates
-/// let (_, room_stream) = room_list.subscribe_to_room_updates();
+/// let (_, room_stream) = room_list.subscribe_to_room_updates().await;
 ///
 /// // Run this in a background task so it doesn't block
 /// while let Some(pagination_state) = pagination_state_stream.next().await {
@@ -114,7 +114,7 @@ pub struct SpaceRoomList {
 
     pagination_state: SharedObservable<SpaceRoomListPaginationState>,
 
-    rooms: Arc<Mutex<ObservableVector<SpaceRoom>>>,
+    rooms: Arc<AsyncMutex<ObservableVector<SpaceRoom>>>,
 
     _space_update_handle: Option<BackgroundTaskHandle>,
 
@@ -124,7 +124,7 @@ pub struct SpaceRoomList {
 impl SpaceRoomList {
     /// Creates a new `SpaceRoomList` for the given space identifier.
     pub async fn new(client: Client, space_id: OwnedRoomId) -> Self {
-        let rooms = Arc::new(Mutex::new(ObservableVector::<SpaceRoom>::new()));
+        let rooms = Arc::new(AsyncMutex::new(ObservableVector::<SpaceRoom>::new()));
 
         let all_room_updates_receiver = client.subscribe_to_all_room_updates();
 
@@ -144,34 +144,24 @@ impl SpaceRoomList {
                                     continue;
                                 }
 
-                                // Given the MutexGuard used by `rooms`, we need to drop any
-                                // possible guard before calling `.await`, otherwise the compiler
-                                // will complain.
-                                let mut rooms_to_update_with_index = Vec::new();
-                                {
-                                    let mutable_rooms = rooms.lock();
-                                    for updated_room_id in updates.iter_all_room_ids() {
-                                        if let Some((position, room)) = mutable_rooms
-                                            .iter()
-                                            .find_position(|room| &room.room_id == updated_room_id)
-                                        {
-                                            rooms_to_update_with_index
-                                                .push((position, room.clone()));
-                                        }
-                                    }
-                                }
+                                let mut mutable_rooms = rooms.lock().await;
 
-                                for (idx, room) in rooms_to_update_with_index {
-                                    let Some(updated_room) = client.get_room(&room.room_id) else {
-                                        continue;
-                                    };
-                                    let space_room = SpaceRoom::new_from_known(
-                                        &updated_room,
-                                        room.children_count,
-                                    )
-                                    .await;
-                                    let mut mutable_rooms = rooms.lock();
-                                    mutable_rooms.set(idx, space_room);
+                                for updated_room_id in updates.iter_all_room_ids() {
+                                    if let Some((position, room)) = mutable_rooms
+                                        .clone()
+                                        .iter()
+                                        .find_position(|room| &room.room_id == updated_room_id)
+                                        && let Some(updated_room) = client.get_room(updated_room_id)
+                                    {
+                                        mutable_rooms.set(
+                                            position,
+                                            SpaceRoom::new_from_known(
+                                                &updated_room,
+                                                room.children_count,
+                                            )
+                                            .await,
+                                        );
+                                    }
                                 }
                             }
                             Err(err) => {
@@ -258,15 +248,15 @@ impl SpaceRoomList {
     }
 
     /// Return the current list of rooms.
-    pub fn rooms(&self) -> Vec<SpaceRoom> {
-        self.rooms.lock().iter().cloned().collect_vec()
+    pub async fn rooms(&self) -> Vec<SpaceRoom> {
+        self.rooms.lock().await.iter().cloned().collect_vec()
     }
 
     /// Subscribes to room list updates.
-    pub fn subscribe_to_room_updates(
+    pub async fn subscribe_to_room_updates(
         &self,
     ) -> (Vector<SpaceRoom>, VectorSubscriberBatchedStream<SpaceRoom>) {
-        self.rooms.lock().subscribe().into_values_and_batched_stream()
+        self.rooms.lock().await.subscribe().into_values_and_batched_stream()
     }
 
     /// Ask the list to retrieve the next page if the end hasn't been reached
@@ -340,10 +330,9 @@ impl SpaceRoomList {
                 }
 
                 let children_state = (*self.children_state.lock()).clone().unwrap_or_default();
+                let mut rooms = self.rooms.lock().await;
 
-                // Because of the `MutexGuard` used by `SpaceRoomList::rooms`, we need to
-                // perform all calls that involve `.await` before acquiring the lock.
-                let children_space_rooms = join_all(children.into_iter().map(|room| {
+                join_all(children.into_iter().map(|room| {
                     let children_state = children_state.clone();
                     async move {
                         let child_state = children_state.get(&room.summary.room_id);
@@ -361,13 +350,10 @@ impl SpaceRoomList {
                         .await
                     }
                 }))
-                .await;
-
-                let mut rooms = self.rooms.lock();
-                children_space_rooms
-                    .into_iter()
-                    .sorted_by(|a, b| Self::compare_rooms(a, b, &children_state))
-                    .for_each(|room| rooms.push_back(room));
+                .await
+                .into_iter()
+                .sorted_by(|a, b| Self::compare_rooms(a, b, &children_state))
+                .for_each(|room| rooms.push_back(room));
 
                 self.pagination_state.set(SpaceRoomListPaginationState::Idle {
                     end_reached: result.next_batch.is_none(),
@@ -395,7 +381,7 @@ impl SpaceRoomList {
         let mut pagination_token = self.token.lock().await;
         *pagination_token = None.into();
 
-        self.rooms.lock().clear();
+        self.rooms.lock().await.clear();
         self.children_state.lock().take();
 
         self.pagination_state.set(SpaceRoomListPaginationState::Idle { end_reached: false });
@@ -488,7 +474,7 @@ mod tests {
         );
 
         // without any rooms
-        assert_eq!(room_list.rooms(), vec![]);
+        assert_eq!(room_list.rooms().await, vec![]);
 
         // and with pending subscribers
 
@@ -496,7 +482,7 @@ mod tests {
         pin_mut!(pagination_state_subscriber);
         assert_pending!(pagination_state_subscriber);
 
-        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
         pin_mut!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
 
@@ -579,14 +565,14 @@ mod tests {
         room_list.paginate().await.unwrap();
 
         // This space contains 2 rooms
-        assert_eq!(room_list.rooms().first().unwrap().room_id, child_room_id_1);
-        assert_eq!(room_list.rooms().last().unwrap().room_id, child_room_id_2);
+        assert_eq!(room_list.rooms().await.first().unwrap().room_id, child_room_id_1);
+        assert_eq!(room_list.rooms().await.last().unwrap().room_id, child_room_id_2);
 
         // and we don't know about either of them
-        assert_eq!(room_list.rooms().first().unwrap().state, None);
-        assert_eq!(room_list.rooms().last().unwrap().state, None);
+        assert_eq!(room_list.rooms().await.first().unwrap().state, None);
+        assert_eq!(room_list.rooms().await.last().unwrap().state, None);
 
-        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
         pin_mut!(rooms_subscriber);
         assert_pending!(rooms_subscriber);
 
@@ -595,21 +581,21 @@ mod tests {
 
         // Results in an update being pushed through
         assert_ready!(rooms_subscriber);
-        assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Joined));
-        assert_eq!(room_list.rooms().last().unwrap().state, None);
+        assert_eq!(room_list.rooms().await.first().unwrap().state, Some(RoomState::Joined));
+        assert_eq!(room_list.rooms().await.last().unwrap().state, None);
 
         // Same for the second one
         server.sync_room(&client, JoinedRoomBuilder::new(child_room_id_2)).await;
         assert_ready!(rooms_subscriber);
-        assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Joined));
-        assert_eq!(room_list.rooms().last().unwrap().state, Some(RoomState::Joined));
+        assert_eq!(room_list.rooms().await.first().unwrap().state, Some(RoomState::Joined));
+        assert_eq!(room_list.rooms().await.last().unwrap().state, Some(RoomState::Joined));
 
         // And when leaving them
         server.sync_room(&client, LeftRoomBuilder::new(child_room_id_1)).await;
         server.sync_room(&client, LeftRoomBuilder::new(child_room_id_2)).await;
         assert_ready!(rooms_subscriber);
-        assert_eq!(room_list.rooms().first().unwrap().state, Some(RoomState::Left));
-        assert_eq!(room_list.rooms().last().unwrap().state, Some(RoomState::Left));
+        assert_eq!(room_list.rooms().await.first().unwrap().state, Some(RoomState::Left));
+        assert_eq!(room_list.rooms().await.last().unwrap().state, Some(RoomState::Left));
     }
 
     #[async_test]
@@ -735,7 +721,7 @@ mod tests {
 
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
-        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
         pin_mut!(rooms_subscriber);
 
         // When retrieving the parent and children via /hierarchy
@@ -807,7 +793,7 @@ mod tests {
 
         let room_list = space_service.space_room_list(parent_space_id.to_owned()).await;
 
-        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates();
+        let (_, rooms_subscriber) = room_list.subscribe_to_room_updates().await;
         pin_mut!(rooms_subscriber);
 
         // Mock a /hierarchy response where one child is suggested and the other is not.
@@ -1048,13 +1034,13 @@ mod tests {
         room_list.paginate().await.unwrap();
 
         // This space contains 1 room
-        assert_eq!(room_list.rooms().len(), 1);
+        assert_eq!(room_list.rooms().await.len(), 1);
 
         // Resetting the room list
         room_list.reset().await;
 
         // Clears the rooms and pagination token
-        assert_eq!(room_list.rooms().len(), 0);
+        assert_eq!(room_list.rooms().await.len(), 0);
         assert_matches!(
             room_list.pagination_state(),
             SpaceRoomListPaginationState::Idle { end_reached: false }
@@ -1062,7 +1048,7 @@ mod tests {
 
         // Allows paginating again
         room_list.paginate().await.unwrap();
-        assert_eq!(room_list.rooms().len(), 1);
+        assert_eq!(room_list.rooms().await.len(), 1);
     }
 
     fn make_space_room(

@@ -134,7 +134,7 @@ struct SpaceState {
 ///     .await;
 ///
 /// // Which can be used to retrieve information about the children rooms
-/// let children = room_list.rooms();
+/// let children = room_list.rooms().await;
 /// # anyhow::Ok(()) };
 /// ```
 pub struct SpaceService {
