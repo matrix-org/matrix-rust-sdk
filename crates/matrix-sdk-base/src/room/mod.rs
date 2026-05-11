@@ -586,6 +586,39 @@ impl Room {
         }
     }
 
+    /// Computes the joined service members in this room.
+    ///
+    /// This result is useful for computing a room's display name, i.e.
+    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    pub async fn compute_joined_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
+        if !self.are_members_synced() {
+            trace!("Tried to compute joined service members in a room that is not synced");
+            return Ok(None);
+        }
+        if let Some(service_member_ids) = self.service_members() {
+            let mut ret = vec![];
+            for user_id in service_member_ids.iter() {
+                if let Some(member) = self.get_member(user_id).await.unwrap()
+                    && matches!(member.membership(), MembershipState::Join)
+                {
+                    trace!("Found a joined service member ({})", user_id);
+                    ret.push(member);
+                } else {
+                    trace!("Did not find a joined service member ({})", user_id);
+                }
+            }
+            trace!(
+                "Computed joined service members ({}) for service member count {}",
+                ret.len(),
+                service_member_ids.len()
+            );
+            Ok(Some(ret))
+        } else {
+            trace!("Tried to compute joined service members in a room that has no service members",);
+            Ok(None)
+        }
+    }
+
     /// Returns a cached value containing the active (joined/invited) service
     /// member count, if known.
     pub fn active_service_members_count(&self) -> Option<u64> {

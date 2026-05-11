@@ -16,7 +16,7 @@ use std::{cmp::Ordering, collections::HashMap, sync::Arc};
 
 use eyeball::{ObservableWriteGuard, SharedObservable, Subscriber};
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
-use futures_util::pin_mut;
+use futures_util::{future::join_all, pin_mut};
 use imbl::Vector;
 use itertools::Itertools;
 use matrix_sdk::{
@@ -144,31 +144,34 @@ impl SpaceRoomList {
                                     continue;
                                 }
 
-                                let mut to_set = Vec::new();
-                                for updated_room_id in updates.iter_all_room_ids() {
+                                // Given the MutexGuard used by `rooms`, we need to drop any
+                                // possible guard before calling `.await`, otherwise the compiler
+                                // will complain.
+                                let mut rooms_to_update_with_index = Vec::new();
+                                {
                                     let mutable_rooms = rooms.lock();
-                                    if let Some((position, room)) = mutable_rooms
-                                        .iter()
-                                        .find_position(|room| &room.room_id == updated_room_id)
-                                    {
-                                        to_set.push((position, room.clone()));
+                                    for updated_room_id in updates.iter_all_room_ids() {
+                                        if let Some((position, room)) = mutable_rooms
+                                            .iter()
+                                            .find_position(|room| &room.room_id == updated_room_id)
+                                        {
+                                            rooms_to_update_with_index
+                                                .push((position, room.clone()));
+                                        }
                                     }
-                                    drop(mutable_rooms);
                                 }
 
-                                for (pos, room) in to_set {
+                                for (idx, room) in rooms_to_update_with_index {
                                     let Some(updated_room) = client.get_room(&room.room_id) else {
-                                        continue
+                                        continue;
                                     };
                                     let space_room = SpaceRoom::new_from_known(
                                         &updated_room,
                                         room.children_count,
-                                    ).await;
+                                    )
+                                    .await;
                                     let mut mutable_rooms = rooms.lock();
-                                    mutable_rooms.set(
-                                        pos,
-                                        space_room,
-                                    );
+                                    mutable_rooms.set(idx, space_room);
                                 }
                             }
                             Err(err) => {
@@ -198,15 +201,19 @@ impl SpaceRoomList {
                     async move {
                         while subscriber.next().await.is_some() {
                             if let Some(room) = client.get_room(&space_id) {
-                                space_observable
-                                    .set(Some(SpaceRoom::new_from_known(&room, children_count).await));
+                                space_observable.set(Some(
+                                    SpaceRoom::new_from_known(&room, children_count).await,
+                                ));
                             }
                         }
                     }
                 })
                 .abort_on_drop();
 
-            (Some(SpaceRoom::new_from_known(&parent, children_count).await), Some(space_update_handle))
+            (
+                Some(SpaceRoom::new_from_known(&parent, children_count).await),
+                Some(space_update_handle),
+            )
         } else {
             (None, None)
         };
@@ -297,8 +304,6 @@ impl SpaceRoomList {
                     None => PaginationToken::HitEnd,
                 };
 
-                let mut rooms = self.rooms.lock();
-
                 // The space is part of the /hierarchy response. Partition the room array
                 // so we can use its details but also filter it out of the room list
                 let (space, children): (Vec<_>, Vec<_>) =
@@ -319,32 +324,33 @@ impl SpaceRoomList {
                     }
                     *self.children_state.lock() = Some(children_state);
 
-                    let mut space = self.space.write();
-                    if space.is_none() {
-                        ObservableWriteGuard::set(
-                            &mut space,
-                            Some(SpaceRoom::new_from_summary(
-                                &room.summary,
-                                self.client.get_room(&room.summary.room_id),
-                                room.children_state.len() as u64,
-                                vec![],
-                                false,
-                            )),
-                        );
+                    let space_is_none = self.space.read().is_none();
+                    if space_is_none {
+                        let space_room = SpaceRoom::new_from_summary(
+                            &room.summary,
+                            self.client.get_room(&room.summary.room_id),
+                            room.children_state.len() as u64,
+                            vec![],
+                            false,
+                        )
+                        .await;
+                        let mut space = self.space.write();
+                        ObservableWriteGuard::set(&mut space, Some(space_room));
                     }
                 }
 
                 let children_state = (*self.children_state.lock()).clone().unwrap_or_default();
 
-                children
-                    .iter()
-                    .map(|room| {
+                // Because of the `MutexGuard` used by `SpaceRoomList::rooms`, we need to
+                // perform all calls that involve `.await` before acquiring the lock.
+                let children_space_rooms = join_all(children.into_iter().map(|room| {
+                    let children_state = children_state.clone();
+                    async move {
                         let child_state = children_state.get(&room.summary.room_id);
                         let via =
                             child_state.map(|state| state.content.via.clone()).unwrap_or_default();
                         let suggested =
                             child_state.map(|state| state.content.suggested).unwrap_or(false);
-
                         SpaceRoom::new_from_summary(
                             &room.summary,
                             self.client.get_room(&room.summary.room_id),
@@ -352,7 +358,14 @@ impl SpaceRoomList {
                             via,
                             suggested,
                         )
-                    })
+                        .await
+                    }
+                }))
+                .await;
+
+                let mut rooms = self.rooms.lock();
+                children_space_rooms
+                    .into_iter()
                     .sorted_by(|a, b| Self::compare_rooms(a, b, &children_state))
                     .for_each(|room| rooms.push_back(room));
 
@@ -523,6 +536,7 @@ mod tests {
                         vec![],
                         false,
                     )
+                    .await
                 },
                 VectorDiff::PushBack {
                     value: SpaceRoom::new_from_summary(
@@ -537,7 +551,8 @@ mod tests {
                         1,
                         vec![],
                         false,
-                    ),
+                    )
+                    .await,
                 }
             ]
         );
@@ -756,6 +771,7 @@ mod tests {
                         vec![owned_server_name!("matrix-client.example.org")],
                         false,
                     )
+                    .await
                 },
                 VectorDiff::PushBack {
                     value: SpaceRoom::new_from_summary(
@@ -770,7 +786,8 @@ mod tests {
                         2,
                         vec![owned_server_name!("other-matrix-client.example.org")],
                         false,
-                    ),
+                    )
+                    .await,
                 }
             ]
         );
