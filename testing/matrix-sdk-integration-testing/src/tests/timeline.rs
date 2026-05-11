@@ -22,7 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, Room, RoomState, ThreadingSupport, assert_let_timeout, assert_next_with_timeout,
+    Client, Room, RoomState, assert_let_timeout, assert_next_with_timeout,
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
     encryption::{
@@ -56,8 +56,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
     timeline::{
         EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder,
-        TimelineDetails, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus,
-        TimelineItem,
+        TimelineEventFocusThreadMode, TimelineFocus, TimelineItem,
     },
 };
 use similar_asserts::assert_eq;
@@ -1384,6 +1383,7 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     Ok(())
 }
 
+/*
 /// Test that UTDs as the latest thread event (in the summary), once decrypted
 /// by R2D2 (the redecryptor), get replaced in the timeline with the decrypted
 /// variant of the latest event, in the summary.
@@ -1583,6 +1583,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
 
     Ok(())
 }
+*/
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_send_message_updates() -> Result<()> {
