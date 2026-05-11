@@ -21,6 +21,7 @@ experimental-widgets = ["matrix-sdk/experimental-widgets"]
 [dependencies]
 async-trait.workspace = true
 base64.workspace = true
+#livekit = { version = "0.7.38"}
 livekit = { git = "https://github.com/onestacked/livekit-rust-sdks", branch = "EC-compat-changes" }
 matrix-sdk = { workspace = true, features = ["e2e-encryption", "experimental-send-custom-to-device"] }
 matrix-sdk-base.workspace = true

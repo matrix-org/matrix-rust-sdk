@@ -1,4 +1,4 @@
-# LiveKit call join (skeleton)
+# LiveKit call join
 
 This example shows how to use `matrix-sdk-rtc-livekit` to
 join/leave a LiveKit room with Element-Call based SFrame Encryption based on MatrixRTC call memberships.
