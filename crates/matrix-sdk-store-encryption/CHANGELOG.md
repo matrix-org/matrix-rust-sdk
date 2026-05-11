@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
   number generator is used in the crate.
   ([#5502](https://github.com/matrix-org/matrix-rust-sdk/pull/5502))
 
+## [0.16.1] - 2026-05-08
+
+No notable changes in this release.
+
 ## [0.16.0] - 2025-12-04
 
 No notable changes in this release.

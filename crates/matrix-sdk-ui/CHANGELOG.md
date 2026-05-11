@@ -136,6 +136,10 @@ All notable changes to this project will be documented in this file.
 - `RoomListService::subscribe_to_rooms` now forgets previous subscriptions.
   ([#6012](https://github.com/matrix-org/matrix-rust-sdk/pull/6012))
 
+## [0.16.1] - 2026-05-08
+
+No notable changes in this release.
+
 ## [0.16.0] - 2025-12-04
 
 ### Features
