@@ -670,7 +670,36 @@ async fn test_redact_touches_threads() {
         )
         .await;
 
-    let (room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    let (mut room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Wait for initial events of `room_events`.
+    if room_events.is_empty() {
+        // Wait for a first update.
+        let mut vector = Vector::new();
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
+        );
+
+        for diff in diffs {
+            diff.apply(&mut vector);
+        }
+
+        while !room_stream.is_empty() {
+            assert_let_timeout!(
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                    room_stream.recv()
+            );
+
+            for diff in diffs {
+                diff.apply(&mut vector);
+            }
+        }
+
+        room_events.extend(vector)
+    }
+
     let thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
 
     // Sanity check: both events are present in the thread, and the thread summary
