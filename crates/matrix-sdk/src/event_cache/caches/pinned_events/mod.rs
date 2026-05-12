@@ -16,6 +16,7 @@ mod updates;
 
 use std::{cmp::Ordering, collections::BTreeSet, fmt, sync::Arc};
 
+use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
     event_cache::{Event, store::EventCacheStoreLock},
@@ -109,6 +110,29 @@ impl<'a> lock::Reload for PinnedEventsCacheStateLockWriteGuard<'a> {
 }
 
 impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
+    /// Reset this data structure as if it were brand new.
+    ///
+    /// However, pinned-events are not only stored here. They are also coming at
+    /// a state-event containing all the pinned-events ID list in the `Room`.
+    /// This is a best-effort here: we are resetting the events stored in this
+    /// cache only.
+    ///
+    /// Return a single diff update that is a clear of all events; as a
+    /// result, the caller may override any pending diff updates
+    /// with the result of this function.
+    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+        self.state.chunk.reset();
+        self.propagate_changes().await?;
+
+        let diff_updates = self.state.chunk.updates_as_vector_diffs();
+
+        // Ensure the contract defined in the doc comment is true:
+        debug_assert_eq!(diff_updates.len(), 1);
+        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
+
+        Ok(diff_updates)
+    }
+
     /// Reload all the pinned events from storage, replacing the current linked
     /// chunk.
     async fn reload_from_storage(&mut self) -> Result<()> {
@@ -260,6 +284,16 @@ impl PinnedEventsCache {
             .abort_on_drop();
 
         Ok(Self { inner: Arc::new(PinnedEventsCacheInner { state, update_sender, _task: task }) })
+    }
+
+    /// Return a reference to the state.
+    pub(super) fn state(&self) -> &LockedPinnedEventsCacheState {
+        &self.inner.state
+    }
+
+    /// Get a reference to the [`RoomEventCacheUpdateSender`].
+    pub(in super::super) fn update_sender(&self) -> &PinnedEventsCacheUpdateSender {
+        &self.inner.update_sender
     }
 
     /// Subscribe to live events from this room's pinned events cache.
