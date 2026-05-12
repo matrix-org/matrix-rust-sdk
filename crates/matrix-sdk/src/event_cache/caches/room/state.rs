@@ -66,7 +66,7 @@ use super::{
         event_linked_chunk::EventLinkedChunk,
         lock,
         pagination::SharedPaginationStatus,
-        pinned_events::PinnedEventCache,
+        pinned_events::PinnedEventsCache,
         read_receipts::compute_unread_counts,
     },
     EventsOrigin, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
@@ -111,7 +111,7 @@ pub struct RoomEventCacheState {
     event_focused_caches: HashMap<EventFocusedCacheKey, EventFocusedCache>,
 
     /// Cache for pinned events in this room, initialized on-demand.
-    pinned_event_cache: OnceLock<PinnedEventCache>,
+    pinned_events_cache: OnceLock<PinnedEventsCache>,
 
     pagination_status: SharedObservable<SharedPaginationStatus>,
 
@@ -260,7 +260,7 @@ impl LockedRoomEventCacheState {
             room_version_rules,
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
-            pinned_event_cache: OnceLock::new(),
+            pinned_events_cache: OnceLock::new(),
             automatic_pagination,
         }))
     }
@@ -282,8 +282,8 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
         self.shrink_to_last_chunk().await?;
 
         // Reload the pinned-events.
-        if let Some(pinned_event_cache) = self.pinned_event_cache.get_mut() {
-            pinned_event_cache.reload().await?;
+        if let Some(pinned_events_cache) = self.pinned_events_cache.get_mut() {
+            pinned_events_cache.reload().await?;
         }
 
         let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
@@ -375,15 +375,15 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         &self,
         room: Room,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
-            PinnedEventCache::new(
+        let pinned_events_cache = self.state.pinned_events_cache.get_or_init(|| {
+            PinnedEventsCache::new(
                 room,
                 self.state.linked_chunk_update_sender.clone(),
                 self.state.store.clone(),
             )
         });
 
-        pinned_event_cache.subscribe().await
+        pinned_events_cache.subscribe().await
     }
 
     /// Get an event-focused cache for this event and thread mode, if it
@@ -405,11 +405,11 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         &mut self.state.room_linked_chunk
     }
 
-    /// Get a reference to the [`pinned_event_cache`] if it has been
+    /// Get a reference to the [`pinned_events_cache`] if it has been
     /// initialized.
     #[cfg(any(feature = "e2e-encryption", test))]
-    pub fn pinned_event_cache(&self) -> Option<&PinnedEventCache> {
-        self.state.pinned_event_cache.get()
+    pub fn pinned_events_cache(&self) -> Option<&PinnedEventsCache> {
+        self.state.pinned_events_cache.get()
     }
 
     /// Get a reference to all the live [`event_focused_caches`].
@@ -741,8 +741,8 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // below.
         let state = &mut *self.state;
 
-        if let Some(pinned_event_cache) = state.pinned_event_cache.get_mut() {
-            pinned_event_cache
+        if let Some(pinned_events_cache) = state.pinned_events_cache.get_mut() {
+            pinned_events_cache
                 .maybe_add_live_related_events(&events, &state.room_version_rules.redaction)
                 .await?;
         }
