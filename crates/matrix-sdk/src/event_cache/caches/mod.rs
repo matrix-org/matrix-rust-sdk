@@ -366,7 +366,7 @@ impl<'c> ResetCaches<'c> {
                 );
             }
 
-            // Now we can release the exclusive acces over the threads.
+            // Now we can release the exclusive access over the threads.
             drop(threads_lock);
         }
 
