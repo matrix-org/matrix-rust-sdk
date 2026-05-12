@@ -15,7 +15,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc, OnceLock,
+        Arc,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -36,6 +36,7 @@ use matrix_sdk_base::{
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
+use once_cell::sync::OnceCell;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
@@ -72,7 +73,7 @@ use super::{
     EventsOrigin, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
     RoomEventCacheUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
-use crate::{Room, room::WeakRoom};
+use crate::room::WeakRoom;
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -111,7 +112,7 @@ pub struct RoomEventCacheState {
     event_focused_caches: HashMap<EventFocusedCacheKey, EventFocusedCache>,
 
     /// Cache for pinned events in this room, initialized on-demand.
-    pinned_events_cache: OnceLock<PinnedEventsCache>,
+    pinned_events_cache: OnceCell<PinnedEventsCache>,
 
     pagination_status: SharedObservable<SharedPaginationStatus>,
 
@@ -260,7 +261,7 @@ impl LockedRoomEventCacheState {
             room_version_rules,
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
-            pinned_events_cache: OnceLock::new(),
+            pinned_events_cache: OnceCell::new(),
             automatic_pagination,
         }))
     }
@@ -373,15 +374,15 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
     /// This requires the room's event cache to be initialized.
     pub async fn subscribe_to_pinned_events(
         &self,
-        room: Room,
+        weak_room: &WeakRoom,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        let pinned_events_cache = self.state.pinned_events_cache.get_or_init(|| {
+        let pinned_events_cache = self.state.pinned_events_cache.get_or_try_init(|| {
             PinnedEventsCache::new(
-                room,
+                weak_room,
                 self.state.linked_chunk_update_sender.clone(),
                 self.state.store.clone(),
             )
-        });
+        })?;
 
         pinned_events_cache.subscribe().await
     }
