@@ -164,7 +164,7 @@ impl ThreadEventCache {
         &self.inner.state
     }
 
-    /// Get a reference to the [`RoomEventCacheUpdateSender`].
+    /// Get a reference to the [`ThreadEventCacheUpdateSender`].
     pub(in super::super) fn update_sender(&self) -> &ThreadEventCacheUpdateSender {
         &self.inner.update_sender
     }
