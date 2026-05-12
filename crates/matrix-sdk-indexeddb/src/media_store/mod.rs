@@ -277,6 +277,14 @@ impl MediaStore for IndexeddbMediaStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         Ok(None)
     }
+
+    async fn pause(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg(target_family = "wasm")]

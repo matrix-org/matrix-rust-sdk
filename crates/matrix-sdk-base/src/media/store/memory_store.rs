@@ -226,6 +226,14 @@ impl MediaStore for MemoryMediaStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         Ok(None)
     }
+
+    async fn pause(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]

@@ -615,6 +615,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         Ok(None)
     }
+
+    async fn pause(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[cfg(all(test, target_family = "wasm"))]
