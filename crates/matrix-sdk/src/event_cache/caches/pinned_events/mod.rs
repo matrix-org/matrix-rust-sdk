@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
@@ -77,8 +77,8 @@ impl lock::Store for PinnedEventCacheState {
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for PinnedEventCacheState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for PinnedEventCacheState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PinnedEventCacheState")
             .field("room_id", &self.room_id)
             .field("chunk", &self.chunk)
@@ -552,5 +552,11 @@ impl PinnedEventCache {
     // the cross-process lock instead of being dispatched in each cache.
     pub(super) async fn reload(&self) -> Result<()> {
         self.state.write().await?.reload().await
+    }
+}
+
+impl fmt::Debug for PinnedEventCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PinnedEventCache").finish_non_exhaustive()
     }
 }
