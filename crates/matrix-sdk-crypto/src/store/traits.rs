@@ -423,19 +423,11 @@ pub trait CryptoStore: AsyncTraitDeps {
     ///
     /// In-flight operations complete before this method returns. After it
     /// returns, operations will fail until [`Self::resume()`] is called.
-    ///
-    /// The default implementation is a no-op (suitable for in-memory stores).
-    async fn pause(&self) -> Result<(), Self::Error> {
-        Ok(())
-    }
+    async fn pause(&self) -> Result<(), Self::Error>;
 
     /// Resume the store after a [`Self::pause()`], re-acquiring database
     /// connections.
-    ///
-    /// The default implementation is a no-op.
-    async fn resume(&self) -> Result<(), Self::Error> {
-        Ok(())
-    }
+    async fn resume(&self) -> Result<(), Self::Error>;
 
     /// Returns the size of the store in bytes, if known.
     async fn get_size(&self) -> Result<Option<usize>, Self::Error>;

@@ -77,6 +77,14 @@ impl MemoryStore {
 impl EventCacheStore for MemoryStore {
     type Error = EventCacheStoreError;
 
+    async fn pause(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     async fn try_take_leased_lock(
         &self,
         lease_duration_ms: u32,

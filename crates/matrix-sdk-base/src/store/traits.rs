@@ -522,19 +522,11 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// In-flight operations complete before this method returns. After it
     /// returns, operations will fail until [`Self::resume()`] is called.
-    ///
-    /// The default implementation is a no-op (suitable for in-memory stores).
-    async fn pause(&self) -> Result<(), Self::Error> {
-        Ok(())
-    }
+    async fn pause(&self) -> Result<(), Self::Error>;
 
     /// Resume the store after a [`Self::pause()`], re-acquiring database
     /// connections.
-    ///
-    /// The default implementation is a no-op.
-    async fn resume(&self) -> Result<(), Self::Error> {
-        Ok(())
-    }
+    async fn resume(&self) -> Result<(), Self::Error>;
 
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
@@ -839,6 +831,14 @@ impl<T: StateStore> StateStore for &T {
         (*self).load_thread_subscription(room, thread_id).await
     }
 
+    async fn pause(&self) -> Result<(), Self::Error> {
+        (*self).pause().await
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        (*self).resume().await
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         (*self).optimize().await
     }
@@ -1137,6 +1137,14 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.deref().load_thread_subscription(room, thread_id).await
+    }
+
+    async fn pause(&self) -> Result<(), Self::Error> {
+        self.deref().pause().await
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        self.deref().resume().await
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {
@@ -1809,6 +1817,14 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         self.store.upsert_thread_subscriptions(updates).await
     }
 
+    async fn load_thread_subscription(
+        &self,
+        room: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
+        self.store.load_thread_subscription(room, thread_id).await
+    }
+
     async fn remove_thread_subscription(
         &self,
         room: &RoomId,
@@ -1817,12 +1833,12 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         self.store.remove_thread_subscription(room, thread_id).await
     }
 
-    async fn load_thread_subscription(
-        &self,
-        room: &RoomId,
-        thread_id: &EventId,
-    ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
-        self.store.load_thread_subscription(room, thread_id).await
+    async fn pause(&self) -> Result<(), Self::Error> {
+        self.store.pause().await
+    }
+
+    async fn resume(&self) -> Result<(), Self::Error> {
+        self.store.resume().await
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

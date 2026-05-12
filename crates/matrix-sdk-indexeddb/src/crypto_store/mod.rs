@@ -1738,6 +1738,14 @@ impl_crypto_store! {
     async fn get_size(&self) -> Result<Option<usize>> {
         Ok(None)
     }
+
+    async fn pause(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn resume(&self) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl Drop for IndexeddbCryptoStore {
