@@ -457,10 +457,6 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
 
         if !duplicates.is_empty() {
-            #[cfg(any(debug_assertions, test))]
-            panic!("duplicate read receipts in this timeline: {duplicates:?}\n{:?}", self.items);
-
-            #[cfg(not(any(debug_assertions, test)))]
             tracing::error!(
                 ?duplicates,
                 items = ?self.items,
