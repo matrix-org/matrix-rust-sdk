@@ -212,13 +212,14 @@ pub struct PinnedEventsCache {
 impl PinnedEventsCache {
     /// Creates a new [`PinnedEventsCache`] for the given room.
     pub(in super::super) fn new(
-        room: Room,
+        weak_room: &WeakRoom,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
-    ) -> Self {
-        let sender = Sender::new(32);
-
+    ) -> Result<Self> {
+        let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let room_id = room.room_id().to_owned();
+
+        let sender = Sender::new(32);
 
         let chunk = EventLinkedChunk::new();
 
@@ -236,7 +237,7 @@ impl PinnedEventsCache {
                 .abort_on_drop(),
         );
 
-        Self { state, _task: task }
+        Ok(Self { state, _task: task })
     }
 
     /// Subscribe to live events from this room's pinned events cache.
