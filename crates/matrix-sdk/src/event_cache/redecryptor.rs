@@ -377,7 +377,7 @@ impl EventCache {
         let (pinned_cache, ef_caches) = {
             let mut state = room_cache.state().write().await?;
 
-            let pinned_cache = state.pinned_event_cache().cloned();
+            let pinned_cache = state.pinned_events_cache().cloned();
             let ef_caches: Vec<_> = state.event_focused_caches().cloned().collect();
 
             // Consider the room linked chunk.
