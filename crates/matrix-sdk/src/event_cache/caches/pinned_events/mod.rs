@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod updates;
+
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
@@ -32,6 +34,7 @@ use ruma::{
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
+pub(super) use self::updates::PinnedEventsCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::{
@@ -49,7 +52,7 @@ pub(in super::super) struct PinnedEventsCacheState {
     room_id: OwnedRoomId,
 
     /// A sender for live events updates in this room's pinned events list.
-    sender: Sender<TimelineVectorDiffs>,
+    update_sender: PinnedEventsCacheUpdateSender,
 
     /// The linked chunk representing this room's pinned events.
     ///
@@ -185,7 +188,7 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
     fn notify_subscribers(&mut self, origin: EventsOrigin) {
         let diffs = self.state.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.state.sender.send(TimelineVectorDiffs { diffs, origin });
+            let _ = self.state.update_sender.send(TimelineVectorDiffs { diffs, origin });
         }
     }
 }
@@ -219,12 +222,17 @@ impl PinnedEventsCache {
         let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let room_id = room.room_id().to_owned();
 
-        let sender = Sender::new(32);
+        let update_sender = PinnedEventsCacheUpdateSender::new();
 
         let chunk = EventLinkedChunk::new();
 
-        let state =
-            PinnedEventsCacheState { room_id, chunk, sender, linked_chunk_update_sender, store };
+        let state = PinnedEventsCacheState {
+            room_id,
+            chunk,
+            update_sender,
+            linked_chunk_update_sender,
+            store,
+        };
         let state = Arc::new(LockedPinnedEventsCacheState::new_inner(state));
 
         let task = Arc::new(
@@ -245,7 +253,7 @@ impl PinnedEventsCache {
         let guard = self.state.read().await?;
         let events = guard.state.chunk.events().map(|(_position, item)| item.clone()).collect();
 
-        let recv = guard.state.sender.subscribe();
+        let recv = guard.state.update_sender.new_pinned_events_receiver();
 
         Ok((events, recv))
     }
