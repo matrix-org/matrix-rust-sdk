@@ -191,7 +191,7 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
         // Get the room event cache and subscribe to pinned events.
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Subscribe to pinned events - this triggers PinnedEventCache::new() which
+        // Subscribe to pinned events - this triggers PinnedEventsCache::new() which
         // spawns a task that calls reload_from_storage() first.
         let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
         let mut events = events.into();
@@ -237,7 +237,7 @@ async fn test_pinned_events_are_loaded_from_network_then_are_reloaded_from_stora
     // Get the room event cache and subscribe to pinned events.
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
+    // Subscribe to pinned events - this triggers PinnedEventsCache::new() which
     // spawns a task that calls reload_from_storage() first.
     let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
     let mut events = events.into();
@@ -313,7 +313,7 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
     // Get the room event cache and subscribe to pinned events.
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
+    // Subscribe to pinned events - this triggers PinnedEventsCache::new() which
     // spawns a task that calls reload_from_storage() first.
     let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
     let mut events = events.into();
@@ -389,7 +389,7 @@ async fn test_pinned_events_dont_include_thread_responses() {
     // Get the room event cache and subscribe to pinned events.
     let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-    // Subscribe to pinned events - this triggers PinnedEventCache::new() which
+    // Subscribe to pinned events - this triggers PinnedEventsCache::new() which
     // spawns a task that calls reload_from_storage() first.
     let (events, mut subscriber) = room_event_cache.subscribe_to_pinned_events().await.unwrap();
     let mut events = events.into();
