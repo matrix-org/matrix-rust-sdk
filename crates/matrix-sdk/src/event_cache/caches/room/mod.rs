@@ -162,10 +162,9 @@ impl RoomEventCache {
     pub async fn subscribe_to_pinned_events(
         &self,
     ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let state = self.inner.state.read().await?;
 
-        state.subscribe_to_pinned_events(room).await
+        state.subscribe_to_pinned_events(&self.inner.weak_room).await
     }
 
     /// Create or get an event-focused timeline cache for this room.
