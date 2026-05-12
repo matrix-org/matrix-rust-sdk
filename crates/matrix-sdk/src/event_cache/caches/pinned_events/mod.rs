@@ -60,7 +60,6 @@ pub(in super::super) struct PinnedEventCacheState {
     chunk: EventLinkedChunk,
 
     /// Reference to the underlying backing store.
-    // TODO: can be removed?
     store: EventCacheStoreLock,
 
     /// A sender for the globally observable linked chunk updates that happened
