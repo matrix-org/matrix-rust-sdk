@@ -89,7 +89,7 @@ impl fmt::Debug for PinnedEventsCacheState {
 ///
 /// This contains all the inner mutable states that ought to be updated at
 /// the same time.
-pub type PinnedEventsCacheStateLock = lock::StateLock<PinnedEventsCacheState>;
+pub type LockedPinnedEventsCacheState = lock::StateLock<PinnedEventsCacheState>;
 
 pub type PinnedEventsCacheStateLockWriteGuard<'a> =
     lock::StateLockWriteGuard<'a, PinnedEventsCacheState>;
@@ -202,7 +202,7 @@ impl PinnedEventsCacheState {
 /// This is cheap to clone, because it's a shallow data type.
 #[derive(Clone)]
 pub struct PinnedEventsCache {
-    state: Arc<PinnedEventsCacheStateLock>,
+    state: Arc<LockedPinnedEventsCacheState>,
 
     /// The task handling the refreshing of pinned events for this specific
     /// room.
@@ -225,7 +225,7 @@ impl PinnedEventsCache {
 
         let state =
             PinnedEventsCacheState { room_id, chunk, sender, linked_chunk_update_sender, store };
-        let state = Arc::new(PinnedEventsCacheStateLock::new_inner(state));
+        let state = Arc::new(LockedPinnedEventsCacheState::new_inner(state));
 
         let task = Arc::new(
             room.client()
@@ -357,7 +357,7 @@ impl PinnedEventsCache {
     }
 
     #[instrument(fields(%room_id = room.room_id()), skip(room, state))]
-    async fn pinned_event_listener_task(room: Room, state: Arc<PinnedEventsCacheStateLock>) {
+    async fn pinned_event_listener_task(room: Room, state: Arc<LockedPinnedEventsCacheState>) {
         debug!("pinned events listener task started");
 
         let reload_from_network = async |room: Room| {
