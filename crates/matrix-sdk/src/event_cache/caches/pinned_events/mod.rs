@@ -51,9 +51,6 @@ pub(in super::super) struct PinnedEventsCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 
-    /// A sender for live events updates in this room's pinned events list.
-    update_sender: PinnedEventsCacheUpdateSender,
-
     /// The linked chunk representing this room's pinned events.
     ///
     /// This linked chunk also contains related events. The events are sorted in
@@ -64,6 +61,12 @@ pub(in super::super) struct PinnedEventsCacheState {
 
     /// Reference to the underlying backing store.
     store: EventCacheStoreLock,
+
+    /// A clone of [`PinnedEventsCacheInner::update_sender`].
+    ///
+    /// This is used only by the [`LockedPinnedEventsCacheState::read`] and
+    /// [`LockedPinnedEventsCacheState::write`] when the state must be reset.
+    update_sender: PinnedEventsCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
     /// during a sync or a back-pagination.
@@ -187,8 +190,9 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
     /// Notify subscribers of timeline updates.
     fn notify_subscribers(&mut self, origin: EventsOrigin) {
         let diffs = self.state.chunk.updates_as_vector_diffs();
+
         if !diffs.is_empty() {
-            let _ = self.state.update_sender.send(TimelineVectorDiffs { diffs, origin });
+            let _ = self.update_sender.send(TimelineVectorDiffs { diffs, origin });
         }
     }
 }
@@ -215,6 +219,9 @@ struct PinnedEventsCacheInner {
     /// It is behind an `Arc` because it is shared with the task.
     state: Arc<LockedPinnedEventsCacheState>,
 
+    /// Update sender for this pinned events cache.
+    update_sender: PinnedEventsCacheUpdateSender,
+
     /// The task handling the refreshing of pinned events for this specific
     /// room.
     _task: BackgroundTaskHandle,
@@ -237,7 +244,7 @@ impl PinnedEventsCache {
         let state = PinnedEventsCacheState {
             room_id,
             chunk,
-            update_sender,
+            update_sender: update_sender.clone(),
             linked_chunk_update_sender,
             store,
         };
@@ -252,7 +259,7 @@ impl PinnedEventsCache {
             )
             .abort_on_drop();
 
-        Ok(Self { inner: Arc::new(PinnedEventsCacheInner { state, _task: task }) })
+        Ok(Self { inner: Arc::new(PinnedEventsCacheInner { state, update_sender, _task: task }) })
     }
 
     /// Subscribe to live events from this room's pinned events cache.
