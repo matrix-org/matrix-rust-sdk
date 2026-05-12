@@ -129,14 +129,14 @@ impl MediaStoreLock {
         Self { cross_process_lock, store }
     }
 
-    /// Pause the store, releasing database connections and file locks.
-    pub async fn pause(&self) -> Result<(), MediaStoreError> {
-        self.store.pause().await
+    /// Close the store, releasing database connections and file locks.
+    pub async fn close(&self) -> Result<(), MediaStoreError> {
+        self.store.close().await
     }
 
-    /// Resume the store after a pause.
-    pub async fn resume(&self) -> Result<(), MediaStoreError> {
-        self.store.resume().await
+    /// Reopen the store after a close.
+    pub async fn reopen(&self) -> Result<(), MediaStoreError> {
+        self.store.reopen().await
     }
 
     /// Acquire a spin lock (see [`CrossProcessLock::spin_lock`]).

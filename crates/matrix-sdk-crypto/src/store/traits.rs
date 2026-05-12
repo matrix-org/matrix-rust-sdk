@@ -418,16 +418,16 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// Load the next-batch token for a to-device query, if any.
     async fn next_batch_token(&self) -> Result<Option<String>, Self::Error>;
 
-    /// Pause the store, releasing all held resources (database connections,
+    /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
     /// In-flight operations complete before this method returns. After it
-    /// returns, operations will fail until [`Self::resume()`] is called.
-    async fn pause(&self) -> Result<(), Self::Error>;
+    /// returns, operations will fail until [`Self::reopen()`] is called.
+    async fn close(&self) -> Result<(), Self::Error>;
 
-    /// Resume the store after a [`Self::pause()`], re-acquiring database
+    /// Reopen the store after a [`Self::close()`], re-acquiring database
     /// connections.
-    async fn resume(&self) -> Result<(), Self::Error>;
+    async fn reopen(&self) -> Result<(), Self::Error>;
 
     /// Returns the size of the store in bytes, if known.
     async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
@@ -698,12 +698,12 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
         self.0.next_batch_token().await.map_err(Into::into)
     }
 
-    async fn pause(&self) -> Result<(), Self::Error> {
-        self.0.pause().await.map_err(Into::into)
+    async fn close(&self) -> Result<(), Self::Error> {
+        self.0.close().await.map_err(Into::into)
     }
 
-    async fn resume(&self) -> Result<(), Self::Error> {
-        self.0.resume().await.map_err(Into::into)
+    async fn reopen(&self) -> Result<(), Self::Error> {
+        self.0.reopen().await.map_err(Into::into)
     }
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {

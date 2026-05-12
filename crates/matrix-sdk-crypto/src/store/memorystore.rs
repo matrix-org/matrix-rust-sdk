@@ -197,11 +197,11 @@ type Result<T> = std::result::Result<T, Infallible>;
 impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
-    async fn pause(&self) -> Result<()> {
+    async fn close(&self) -> Result<()> {
         Ok(())
     }
 
-    async fn resume(&self) -> Result<()> {
+    async fn reopen(&self) -> Result<()> {
         Ok(())
     }
 
@@ -1400,12 +1400,12 @@ mod integration_tests {
     impl CryptoStore for PersistentMemoryStore {
         type Error = <MemoryStore as CryptoStore>::Error;
 
-        async fn pause(&self) -> Result<(), Self::Error> {
-            self.0.pause().await
+        async fn close(&self) -> Result<(), Self::Error> {
+            self.0.close().await
         }
 
-        async fn resume(&self) -> Result<(), Self::Error> {
-            self.0.resume().await
+        async fn reopen(&self) -> Result<(), Self::Error> {
+            self.0.reopen().await
         }
 
         async fn load_account(&self) -> Result<Option<Account>, Self::Error> {

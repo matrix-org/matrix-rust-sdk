@@ -1598,8 +1598,8 @@ async fn test_client_pause_resume_with_sqlite_store() {
 
     let read_err = client.state_store().get_custom_value(b"pause_resume_key").await.unwrap_err();
     assert!(
-        read_err.to_string().contains("paused"),
-        "read while paused should mention 'paused', got: {read_err}"
+        read_err.to_string().contains("closed"),
+        "read while client is paused should mention 'closed', got: {read_err}"
     );
 
     let write_err = client
@@ -1608,8 +1608,8 @@ async fn test_client_pause_resume_with_sqlite_store() {
         .await
         .unwrap_err();
     assert!(
-        write_err.to_string().contains("paused"),
-        "write while paused should mention 'paused', got: {write_err}"
+        write_err.to_string().contains("closed"),
+        "write while client is paused should mention 'closed', got: {write_err}"
     );
 
     client.resume().await.unwrap();
@@ -1672,10 +1672,10 @@ async fn test_client_pause_waits_for_held_state_store_write() {
         .expect("pause should complete after the held write finishes")
         .unwrap();
 
-    let paused_err = client.state_store().get_custom_value(b"held_write_key").await.unwrap_err();
+    let closed_err = client.state_store().get_custom_value(b"held_write_key").await.unwrap_err();
     assert!(
-        paused_err.to_string().contains("paused"),
-        "store should be paused after pause completes, got: {paused_err}"
+        closed_err.to_string().contains("closed"),
+        "store should be closed after client pause completes, got: {closed_err}"
     );
 
     client.resume().await.unwrap();

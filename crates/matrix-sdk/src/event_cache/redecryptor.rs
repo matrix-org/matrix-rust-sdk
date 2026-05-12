@@ -1179,12 +1179,12 @@ mod tests {
     impl EventCacheStore for DelayingStore {
         type Error = EventCacheStoreError;
 
-        async fn pause(&self) -> Result<(), EventCacheStoreError> {
-            self.memory_store.pause().await
+        async fn close(&self) -> Result<(), EventCacheStoreError> {
+            self.memory_store.close().await
         }
 
-        async fn resume(&self) -> Result<(), EventCacheStoreError> {
-            self.memory_store.resume().await
+        async fn reopen(&self) -> Result<(), EventCacheStoreError> {
+            self.memory_store.reopen().await
         }
 
         async fn try_take_leased_lock(

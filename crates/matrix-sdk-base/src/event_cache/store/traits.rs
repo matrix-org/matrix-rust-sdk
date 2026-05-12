@@ -176,16 +176,16 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
-    /// Pause the store, releasing all held resources (database connections,
+    /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
     /// In-flight operations complete before this method returns. After it
-    /// returns, operations will fail until [`Self::resume()`] is called.
-    async fn pause(&self) -> Result<(), Self::Error>;
+    /// returns, operations will fail until [`Self::reopen()`] is called.
+    async fn close(&self) -> Result<(), Self::Error>;
 
-    /// Resume the store after a [`Self::pause()`], re-acquiring database
+    /// Reopen the store after a [`Self::close()`], re-acquiring database
     /// connections.
-    async fn resume(&self) -> Result<(), Self::Error>;
+    async fn reopen(&self) -> Result<(), Self::Error>;
 
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
@@ -305,12 +305,12 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
     }
 
-    async fn pause(&self) -> Result<(), Self::Error> {
-        self.0.pause().await.map_err(Into::into)
+    async fn close(&self) -> Result<(), Self::Error> {
+        self.0.close().await.map_err(Into::into)
     }
 
-    async fn resume(&self) -> Result<(), Self::Error> {
-        self.0.resume().await.map_err(Into::into)
+    async fn reopen(&self) -> Result<(), Self::Error> {
+        self.0.reopen().await.map_err(Into::into)
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

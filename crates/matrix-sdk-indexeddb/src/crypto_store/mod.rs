@@ -1739,11 +1739,13 @@ impl_crypto_store! {
         Ok(None)
     }
 
-    async fn pause(&self) -> Result<()> {
+    #[allow(clippy::unused_async)]
+    async fn close(&self) -> Result<()> {
         Ok(())
     }
 
-    async fn resume(&self) -> Result<()> {
+    #[allow(clippy::unused_async)]
+    async fn reopen(&self) -> Result<()> {
         Ok(())
     }
 }
