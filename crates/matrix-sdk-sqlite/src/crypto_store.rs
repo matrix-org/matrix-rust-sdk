@@ -70,17 +70,17 @@ const DATABASE_NAME: &str = "matrix-sdk-crypto.sqlite3";
 pub struct SqliteCryptoStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
-    /// `Some` when active, `None` when paused.
-    /// The outer `Mutex` serialises pause/resume with connection access.
+    /// `Some` when active, `None` when closed.
+    /// The outer `Mutex` serialises close/reopen with connection access.
     connections: Arc<Mutex<Option<SqliteConnections>>>,
 
-    /// Retained so we can rebuild the pool on resume.
+    /// Retained so we can rebuild the pool on reopen.
     db_path: PathBuf,
 
-    /// Retained so we can rebuild the pool on resume.
+    /// Retained so we can rebuild the pool on reopen.
     pool_config: PoolConfig,
 
-    /// Retained so we can re-apply runtime config on resume.
+    /// Retained so we can re-apply runtime config on reopen.
     runtime_config: RuntimeConfig,
 
     // DB values cached in memory
@@ -231,7 +231,7 @@ impl SqliteCryptoStore {
     async fn read(&self) -> Result<SqliteAsyncConn> {
         let pool = {
             let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StorePaused)?;
+            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
             conns.pool.clone()
         };
         Ok(pool.get().await?)
@@ -242,7 +242,7 @@ impl SqliteCryptoStore {
     pub(crate) async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
         let write_connection = {
             let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StorePaused)?;
+            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
             conns.write_connection.clone()
         };
         Ok(write_connection.lock_owned().await)
@@ -1840,13 +1840,13 @@ impl CryptoStore for SqliteCryptoStore {
         }
     }
 
-    async fn pause(&self) -> Result<()> {
-        connection::pause_connections(&self.connections, "Crypto store").await;
+    async fn close(&self) -> Result<()> {
+        connection::close_connections(&self.connections, "Crypto store").await;
         Ok(())
     }
 
-    async fn resume(&self) -> Result<()> {
-        connection::resume_connections(
+    async fn reopen(&self) -> Result<()> {
+        connection::reopen_connections(
             &self.connections,
             self.db_path.clone(),
             self.pool_config,
@@ -2398,7 +2398,7 @@ mod encrypted_tests {
 }
 
 #[cfg(test)]
-mod pause_resume_tests {
+mod close_reopen_tests {
     use std::sync::LazyLock;
 
     use matrix_sdk_crypto::store::CryptoStore;
@@ -2415,119 +2415,119 @@ mod pause_resume_tests {
     }
 
     #[async_test]
-    async fn test_pause_completes_without_timeout() {
-        let store = new_store("pause_no_timeout").await;
+    async fn test_close_completes_without_timeout() {
+        let store = new_store("close_no_timeout").await;
 
-        // Pause should complete quickly without hitting the 5s timeout.
+        // Close should complete quickly without hitting the 5s timeout.
         let start = std::time::Instant::now();
-        store.pause().await.unwrap();
+        store.close().await.unwrap();
         let elapsed = start.elapsed();
 
         assert!(
             elapsed < std::time::Duration::from_secs(2),
-            "pause() took {elapsed:?}, expected < 2s (no timeout)"
+            "close() took {elapsed:?}, expected < 2s (no timeout)"
         );
 
-        // Connections should be None after pause.
+        // Connections should be None after close.
         let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "connections should be None after pause");
+        assert!(guard.is_none(), "connections should be None after close");
     }
 
     #[async_test]
-    async fn test_resume_restores_connections() {
-        let store = new_store("resume_restores").await;
+    async fn test_reopen_restores_connections() {
+        let store = new_store("reopen_restores").await;
 
-        store.pause().await.unwrap();
+        store.close().await.unwrap();
 
         {
             let guard = store.connections.lock().await;
             assert!(guard.is_none());
         }
 
-        store.resume().await.unwrap();
+        store.reopen().await.unwrap();
 
         {
             let guard = store.connections.lock().await;
-            assert!(guard.is_some(), "connections should be Some after resume");
+            assert!(guard.is_some(), "connections should be Some after reopen");
         }
     }
 
     #[async_test]
-    async fn test_pause_is_idempotent() {
-        let store = new_store("pause_idempotent").await;
+    async fn test_close_is_idempotent() {
+        let store = new_store("close_idempotent").await;
 
-        store.pause().await.unwrap();
-        // Second pause should be a no-op.
-        store.pause().await.unwrap();
+        store.close().await.unwrap();
+        // Second close should be a no-op.
+        store.close().await.unwrap();
 
         let guard = store.connections.lock().await;
         assert!(guard.is_none());
     }
 
     #[async_test]
-    async fn test_resume_is_idempotent() {
-        let store = new_store("resume_idempotent").await;
+    async fn test_reopen_is_idempotent() {
+        let store = new_store("reopen_idempotent").await;
 
-        // Resume on an active store should be a no-op.
-        store.resume().await.unwrap();
+        // Reopen on an active store should be a no-op.
+        store.reopen().await.unwrap();
 
         let guard = store.connections.lock().await;
         assert!(guard.is_some());
     }
 
     #[async_test]
-    async fn test_read_fails_when_paused() {
-        let store = new_store("read_fails_paused").await;
-        store.pause().await.unwrap();
+    async fn test_read_fails_when_closed() {
+        let store = new_store("read_fails_closed").await;
+        store.close().await.unwrap();
 
         let err = store.load_account().await;
-        assert!(err.is_err(), "read should fail when paused");
+        assert!(err.is_err(), "read should fail when closed");
 
         let err_msg = err.unwrap_err().to_string();
-        assert!(err_msg.contains("paused"), "error should mention 'paused', got: {err_msg}");
+        assert!(err_msg.contains("closed"), "error should mention 'closed', got: {err_msg}");
     }
 
     #[async_test]
-    async fn test_operations_work_after_resume() {
-        let store = new_store("ops_after_resume").await;
+    async fn test_operations_work_after_reopen() {
+        let store = new_store("ops_after_reopen").await;
 
-        store.pause().await.unwrap();
-        store.resume().await.unwrap();
+        store.close().await.unwrap();
+        store.reopen().await.unwrap();
 
-        // A read operation should work immediately after resume.
+        // A read operation should work immediately after reopen.
         let account = store.load_account().await;
-        assert!(account.is_ok(), "load_account should succeed after resume");
+        assert!(account.is_ok(), "load_account should succeed after reopen");
         // No account was saved, so this should be None.
         assert!(account.unwrap().is_none());
     }
 
     #[async_test]
-    async fn test_multiple_pause_resume_cycles() {
+    async fn test_multiple_close_reopen_cycles() {
         let store = new_store("multi_cycles").await;
 
         for _ in 0..5 {
-            store.pause().await.unwrap();
-            store.resume().await.unwrap();
+            store.close().await.unwrap();
+            store.reopen().await.unwrap();
 
             // After each cycle, the store should be fully operational.
             let account = store.load_account().await;
-            assert!(account.is_ok(), "store should work after pause/resume cycle");
+            assert!(account.is_ok(), "store should work after close/reopen cycle");
         }
     }
 
     #[async_test]
-    async fn test_pool_is_fully_drained_after_pause() {
+    async fn test_pool_is_fully_drained_after_close() {
         let store = new_store("pool_drained").await;
 
         // Do a few reads to exercise the pool.
         let _ = store.load_account().await;
         let _ = store.load_account().await;
 
-        store.pause().await.unwrap();
+        store.close().await.unwrap();
 
-        // After pause, the connections field should be None.
+        // After close, the connections field should be None.
         let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "all connections should be released after pause");
+        assert!(guard.is_none(), "all connections should be released after close");
     }
 
     #[async_test]

@@ -160,7 +160,7 @@ pub async fn close_connection(write_connection: Arc<Mutex<Connection>>) {
 /// Live database connections held by each SQLite store.
 ///
 /// Wrapped in `Option<SqliteConnections>` guarded by a `Mutex` inside each
-/// store; `Some` means the store is active, `None` means it is paused.
+/// store; `Some` means the store is active, `None` means it is closed.
 pub(crate) struct SqliteConnections {
     /// The pool of read connections.
     pub pool: Pool,
@@ -172,17 +172,17 @@ pub(crate) struct SqliteConnections {
     pub write_connection: Arc<Mutex<Connection>>,
 }
 
-/// Pause a store by taking its connections out.
+/// Close a store by taking its connections out.
 ///
 /// After this returns, any new call to `read()` or `write()` through the
-/// store will fail with [`crate::error::Error::StorePaused`] until
-/// [`resume_connections`] is called.
+/// store will fail with [`crate::error::Error::StoreClosed`] until
+/// [`reopen_connections`] is called.
 ///
-/// Idempotent: if the store is already paused this is a no-op.
-pub(crate) async fn pause_connections(connections: &Mutex<Option<SqliteConnections>>, label: &str) {
+/// Idempotent: if the store is already closed this is a no-op.
+pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnections>>, label: &str) {
     let mut guard = connections.lock().await;
     let Some(conns) = guard.take() else {
-        // Already paused — idempotent.
+        // Already closed — idempotent.
         return;
     };
 
@@ -236,7 +236,7 @@ pub(crate) async fn pause_connections(connections: &Mutex<Option<SqliteConnectio
 /// Resume a store by rebuilding its connections.
 ///
 /// Idempotent: if the store is already active this is a no-op.
-pub(crate) async fn resume_connections(
+pub(crate) async fn reopen_connections(
     connections: &Mutex<Option<SqliteConnections>>,
     db_path: PathBuf,
     pool_config: PoolConfig,
@@ -246,7 +246,7 @@ pub(crate) async fn resume_connections(
 
     let mut guard = connections.lock().await;
     if guard.is_some() {
-        // Not paused — idempotent.
+        // Not closed — idempotent.
         return Ok(());
     }
 

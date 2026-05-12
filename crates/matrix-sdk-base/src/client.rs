@@ -1150,28 +1150,28 @@ impl BaseClient {
         Ok(result)
     }
 
-    /// Pause all stores, releasing database connections and file locks.
+    /// Close all stores, releasing database connections and file locks.
     ///
     /// In-flight operations will complete before this returns.
-    pub async fn pause_stores(&self) -> Result<()> {
-        self.state_store.pause().await?;
-        self.event_cache_store.pause().await.map_err(Error::EventCacheStore)?;
-        self.media_store.pause().await.map_err(Error::MediaStore)?;
+    pub async fn close_stores(&self) -> Result<()> {
+        self.state_store.close().await?;
+        self.event_cache_store.close().await.map_err(Error::EventCacheStore)?;
+        self.media_store.close().await.map_err(Error::MediaStore)?;
 
         #[cfg(feature = "e2e-encryption")]
-        self.crypto_store.pause().await.map_err(Error::CryptoStore)?;
+        self.crypto_store.close().await.map_err(Error::CryptoStore)?;
 
         Ok(())
     }
 
-    /// Resume all stores after a pause, re-opening database connections.
-    pub async fn resume_stores(&self) -> Result<()> {
+    /// Reopen all stores after a close, re-opening database connections.
+    pub async fn reopen_stores(&self) -> Result<()> {
         #[cfg(feature = "e2e-encryption")]
-        self.crypto_store.resume().await.map_err(Error::CryptoStore)?;
+        self.crypto_store.reopen().await.map_err(Error::CryptoStore)?;
 
-        self.media_store.resume().await.map_err(Error::MediaStore)?;
-        self.event_cache_store.resume().await.map_err(Error::EventCacheStore)?;
-        self.state_store.resume().await?;
+        self.media_store.reopen().await.map_err(Error::MediaStore)?;
+        self.event_cache_store.reopen().await.map_err(Error::EventCacheStore)?;
+        self.state_store.reopen().await?;
 
         Ok(())
     }

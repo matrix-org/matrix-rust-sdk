@@ -3426,8 +3426,8 @@ impl Client {
         // Disable send queues so no new sends hit the stores.
         self.send_queue().set_enabled(false).await;
 
-        // Pause all stores (waits for in-flight ops, closes connections).
-        self.base_client().pause_stores().await?;
+        // Close all stores (waits for in-flight ops, closes connections).
+        self.base_client().close_stores().await?;
 
         info!("Client::pause — complete, all database connections released");
         Ok(())
@@ -3443,8 +3443,8 @@ impl Client {
     pub async fn resume(&self) -> Result<()> {
         info!("Client::resume — re-acquiring database resources");
 
-        // Resume stores (creates new connection pools).
-        self.base_client().resume_stores().await?;
+        // Reopen stores (creates new connection pools).
+        self.base_client().reopen_stores().await?;
 
         // Re-enable send queues.
         self.send_queue().set_enabled(true).await;

@@ -227,11 +227,11 @@ impl MediaStore for MemoryMediaStore {
         Ok(None)
     }
 
-    async fn pause(&self) -> Result<(), Self::Error> {
+    async fn close(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    async fn resume(&self) -> Result<(), Self::Error> {
+    async fn reopen(&self) -> Result<(), Self::Error> {
         Ok(())
     }
 }
