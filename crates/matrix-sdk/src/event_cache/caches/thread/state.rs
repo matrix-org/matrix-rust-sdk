@@ -342,7 +342,7 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
             //
             // TODO(@hywan): This is inefficient. We are bending the `LatestEvent` API here.
             // Ultimately, we want to delegate the computation of `ThreadSummary` to
-            // `LatestEvent` instead of commiting crimes like these ones.
+            // `LatestEvent` instead of committing crimes like these ones.
             let mut latest_event_id = self
                 .thread_linked_chunk()
                 .revents()

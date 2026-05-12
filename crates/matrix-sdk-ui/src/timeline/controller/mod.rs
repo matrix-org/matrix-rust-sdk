@@ -391,7 +391,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             }
 
             TimelineFocus::Thread { root_event_id, .. } => TimelineFocusKind::Thread {
-                event_cache: event_cache.thread(room_id, &root_event_id).await?.0,
+                event_cache: event_cache.thread(room_id, root_event_id).await?.0,
                 root_event_id: root_event_id.clone(),
             },
 
