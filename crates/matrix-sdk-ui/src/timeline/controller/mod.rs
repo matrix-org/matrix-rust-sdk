@@ -1463,7 +1463,7 @@ impl TimelineController {
                     .client()
                     .task_monitor()
                     .spawn_infinite_task(
-                        "timeline::pinned_event_cache_updates",
+                        "timeline::pinned_events_cache_updates",
                         pinned_events_task(event_cache.clone(), self.clone(), pinned_events_recv),
                     )
                     .abort_on_drop();
