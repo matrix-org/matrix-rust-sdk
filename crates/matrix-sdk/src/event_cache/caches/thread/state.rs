@@ -75,8 +75,8 @@ pub struct ThreadEventCacheState {
 
     /// A clone of [`super::ThreadEventCacheInner::update_sender`].
     ///
-    /// This is used only by the [`ThreadEventCacheStateLock::read`] and
-    /// [`ThreadEventCacheStateLock::write`] when the state must be reset.
+    /// This is used only by the [`LockedThreadEventCacheState::read`] and
+    /// [`LockedThreadEventCacheState::write`] when the state must be reset.
     update_sender: ThreadEventCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
