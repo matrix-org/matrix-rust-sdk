@@ -110,7 +110,7 @@ jobs:
       - name: Install libsqlite
         run: |
           sudo apt-get update
-          sudo apt-get install libsqlite3-dev
+          sudo apt-get install libsqlite3-dev libglib2.0-dev libva-dev
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
 

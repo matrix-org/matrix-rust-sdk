@@ -36,13 +36,19 @@ use self::{
 use crate::{Result, room::Room, widget::machine::DownloadFileResponse};
 
 mod capabilities;
+mod element_call;
 mod filter;
 mod machine;
 mod matrix;
 mod settings;
 
 pub use self::{
-    capabilities::{Capabilities, CapabilitiesProvider},
+    capabilities::{Capabilities, CapabilitiesProvider, StaticCapabilitiesProvider},
+    element_call::{
+        element_call_capabilities, element_call_member_content, element_call_send_event_message,
+        publish_call_membership_via_widget, send_hangup_via_widget, start_element_call_widget,
+        ElementCallWidget, ElementCallWidgetOptions,
+    },
     filter::{Filter, MessageLikeEventFilter, StateEventFilter, ToDeviceEventFilter},
     settings::{
         ClientProperties, EncryptionSystem, Intent, VirtualElementCallWidgetConfig,
