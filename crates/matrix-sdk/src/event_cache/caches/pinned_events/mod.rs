@@ -200,16 +200,24 @@ impl PinnedEventsCacheState {
     }
 }
 
-/// All the information related to a room's pinned events cache.
+/// All the information related to room's pinned events..
 ///
-/// This is cheap to clone, because it's a shallow data type.
+/// Cloning is shallow, and thus is cheap to do.
 #[derive(Clone)]
 pub struct PinnedEventsCache {
+    inner: Arc<PinnedEventsCacheInner>,
+}
+
+/// The (non-cloneable) details of the `PinnedEventsCache`.
+struct PinnedEventsCacheInner {
+    /// State of this `PinnedEventsCache`.
+    ///
+    /// It is behind an `Arc` because it is shared with the task.
     state: Arc<LockedPinnedEventsCacheState>,
 
     /// The task handling the refreshing of pinned events for this specific
     /// room.
-    _task: Arc<BackgroundTaskHandle>,
+    _task: BackgroundTaskHandle,
 }
 
 impl PinnedEventsCache {
@@ -235,22 +243,21 @@ impl PinnedEventsCache {
         };
         let state = Arc::new(LockedPinnedEventsCacheState::new_inner(state));
 
-        let task = Arc::new(
-            room.client()
-                .task_monitor()
-                .spawn_infinite_task(
-                    "pinned_event_listener_task",
-                    Self::pinned_event_listener_task(room, state.clone()),
-                )
-                .abort_on_drop(),
-        );
+        let task = room
+            .client()
+            .task_monitor()
+            .spawn_infinite_task(
+                "pinned_event_listener_task",
+                Self::pinned_event_listener_task(room, state.clone()),
+            )
+            .abort_on_drop();
 
-        Ok(Self { state, _task: task })
+        Ok(Self { inner: Arc::new(PinnedEventsCacheInner { state, _task: task }) })
     }
 
     /// Subscribe to live events from this room's pinned events cache.
     pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let guard = self.state.read().await?;
+        let guard = self.inner.state.read().await?;
         let events = guard.state.chunk.events().map(|(_position, item)| item.clone()).collect();
 
         let recv = guard.state.update_sender.new_pinned_events_receiver();
@@ -263,7 +270,7 @@ impl PinnedEventsCache {
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
     pub(in crate::event_cache) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
-        let mut guard = self.state.write().await?;
+        let mut guard = self.inner.state.write().await?;
 
         if guard.state.chunk.replace_utds(events) {
             guard.propagate_changes().await?;
@@ -319,7 +326,7 @@ impl PinnedEventsCache {
         room_redaction_rules: &RedactionRules,
     ) -> Result<()> {
         trace!("checking live events for relations to pinned events");
-        let mut guard = self.state.write().await?;
+        let mut guard = self.inner.state.write().await?;
 
         let pinned_event_ids: BTreeSet<OwnedEventId> =
             guard.state.current_event_ids().into_iter().collect();
@@ -559,7 +566,7 @@ impl PinnedEventsCache {
     // TODO(@hywan): Temporary fix. All the states must be in a single struct behind
     // the cross-process lock instead of being dispatched in each cache.
     pub(super) async fn reload(&self) -> Result<()> {
-        self.state.write().await?.reload().await
+        self.inner.state.write().await?.reload().await
     }
 }
 
