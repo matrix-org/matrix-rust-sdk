@@ -21,7 +21,7 @@ use ruma::{
     events::{
         Mentions,
         room::{
-            ImageInfo, ThumbnailInfo,
+            ImageInfo, MediaSource, ThumbnailInfo,
             message::{AudioInfo, FileInfo, TextMessageEventContent, VideoInfo},
         },
     },
@@ -175,6 +175,16 @@ impl Thumbnail {
         });
         (self.data, self.content_type, Box::new(thumbnail_info))
     }
+}
+
+/// The uploaded sources for an attachment and its optional thumbnail.
+#[derive(Debug, Clone)]
+pub struct UploadedAttachment {
+    /// The uploaded source for the primary attachment.
+    pub source: MediaSource,
+
+    /// The uploaded source and info for the thumbnail, if any.
+    pub thumbnail: Option<(MediaSource, Box<ThumbnailInfo>)>,
 }
 
 /// Configuration for sending an attachment.

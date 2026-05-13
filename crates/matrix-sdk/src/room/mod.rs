@@ -170,7 +170,7 @@ use crate::event_cache::EventCache;
 use crate::room::futures::{SendRawStateEvent, SendStateEvent};
 use crate::{
     BaseRoom, Client, Error, HttpResult, Result, RoomState, TransmissionProgress,
-    attachment::{AttachmentConfig, AttachmentInfo},
+    attachment::{AttachmentConfig, AttachmentInfo, UploadedAttachment},
     client::WeakClient,
     config::RequestConfig,
     error::{BeaconError, WrongRoomState},
@@ -2683,6 +2683,27 @@ impl Room {
         SendAttachment::new(self, filename.into(), content_type, data, config)
     }
 
+    /// Upload an attachment to this room without sending a media event.
+    ///
+    /// This uses the same encrypted/plain upload logic as [`Self::send_attachment`]
+    /// but stops after the media and optional thumbnail have been uploaded.
+    #[instrument(skip_all)]
+    pub async fn upload_attachment(
+        &self,
+        content_type: &Mime,
+        data: Vec<u8>,
+        thumbnail: Option<crate::attachment::Thumbnail>,
+    ) -> Result<UploadedAttachment> {
+        self.prepare_attachment_upload(
+            content_type,
+            data,
+            thumbnail,
+            SharedObservable::new(TransmissionProgress::default()),
+            false,
+        )
+        .await
+    }
+
     /// Prepare and send an attachment to this room.
     ///
     /// This will upload the given data that the reader produces using the
@@ -2720,83 +2741,17 @@ impl Room {
         send_progress: SharedObservable<TransmissionProgress>,
         store_in_cache: bool,
     ) -> Result<send_message_event::v3::Response> {
-        self.ensure_room_joined()?;
-
         let txn_id = config.txn_id.take();
         let mentions = config.mentions.take();
-
-        let thumbnail = config.thumbnail.take();
-
-        // If necessary, store caching data for the thumbnail ahead of time.
-        let thumbnail_cache_info = if store_in_cache {
-            thumbnail
-                .as_ref()
-                .map(|thumbnail| (thumbnail.data.clone(), thumbnail.height, thumbnail.width))
-        } else {
-            None
-        };
-
-        #[cfg(feature = "e2e-encryption")]
-        let (media_source, thumbnail) = if self.latest_encryption_state().await?.is_encrypted() {
-            self.client
-                .upload_encrypted_media_and_thumbnail(&data, thumbnail, send_progress)
-                .await?
-        } else {
-            self.client
-                .media()
-                .upload_plain_media_and_thumbnail(
-                    content_type,
-                    // TODO: get rid of this clone; wait for Ruma to use `Bytes` or something
-                    // similar.
-                    data.clone(),
-                    thumbnail,
-                    send_progress,
-                )
-                .await?
-        };
-
-        #[cfg(not(feature = "e2e-encryption"))]
-        let (media_source, thumbnail) = self
-            .client
-            .media()
-            .upload_plain_media_and_thumbnail(content_type, data.clone(), thumbnail, send_progress)
+        let UploadedAttachment { source: media_source, thumbnail } = self
+            .prepare_attachment_upload(
+                content_type,
+                data,
+                config.thumbnail.take(),
+                send_progress,
+                store_in_cache,
+            )
             .await?;
-
-        if store_in_cache {
-            let media_store_lock_guard = self.client.media_store().lock().await?;
-
-            // A failure to cache shouldn't prevent the whole upload from finishing
-            // properly, so only log errors during caching.
-
-            debug!("caching the media");
-            let request =
-                MediaRequestParameters { source: media_source.clone(), format: MediaFormat::File };
-
-            if let Err(err) = media_store_lock_guard
-                .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
-                .await
-            {
-                warn!("unable to cache the media after uploading it: {err}");
-            }
-
-            if let Some(((data, height, width), source)) =
-                thumbnail_cache_info.zip(thumbnail.as_ref().map(|tuple| &tuple.0))
-            {
-                debug!("caching the thumbnail");
-
-                let request = MediaRequestParameters {
-                    source: source.clone(),
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
-                };
-
-                if let Err(err) = media_store_lock_guard
-                    .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
-                    .await
-                {
-                    warn!("unable to cache the media after uploading it: {err}");
-                }
-            }
-        }
 
         let content = self
             .make_media_event(
@@ -2819,6 +2774,90 @@ impl Room {
         }
 
         fut.await.map(|result| result.response)
+    }
+
+    #[instrument(skip_all)]
+    async fn prepare_attachment_upload(
+        &self,
+        content_type: &Mime,
+        data: Vec<u8>,
+        thumbnail: Option<crate::attachment::Thumbnail>,
+        send_progress: SharedObservable<TransmissionProgress>,
+        store_in_cache: bool,
+    ) -> Result<UploadedAttachment> {
+        self.ensure_room_joined()?;
+
+        // If necessary, store caching data for the thumbnail ahead of time.
+        let thumbnail_cache_info = if store_in_cache {
+            thumbnail
+                .as_ref()
+                .map(|thumbnail| (thumbnail.data.clone(), thumbnail.height, thumbnail.width))
+        } else {
+            None
+        };
+
+        #[cfg(feature = "e2e-encryption")]
+        let (source, thumbnail) = if self.latest_encryption_state().await?.is_encrypted() {
+            self.client
+                .upload_encrypted_media_and_thumbnail(&data, thumbnail, send_progress)
+                .await?
+        } else {
+            self.client
+                .media()
+                .upload_plain_media_and_thumbnail(
+                    content_type,
+                    // TODO: get rid of this clone; wait for Ruma to use `Bytes` or something
+                    // similar.
+                    data.clone(),
+                    thumbnail,
+                    send_progress,
+                )
+                .await?
+        };
+
+        #[cfg(not(feature = "e2e-encryption"))]
+        let (source, thumbnail) = self
+            .client
+            .media()
+            .upload_plain_media_and_thumbnail(content_type, data.clone(), thumbnail, send_progress)
+            .await?;
+
+        if store_in_cache {
+            let media_store_lock_guard = self.client.media_store().lock().await?;
+
+            // A failure to cache shouldn't prevent the whole upload from finishing
+            // properly, so only log errors during caching.
+
+            debug!("caching the media");
+            let request = MediaRequestParameters { source: source.clone(), format: MediaFormat::File };
+
+            if let Err(err) = media_store_lock_guard
+                .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
+                .await
+            {
+                warn!("unable to cache the media after uploading it: {err}");
+            }
+
+            if let Some(((data, height, width), thumbnail_source)) =
+                thumbnail_cache_info.zip(thumbnail.as_ref().map(|tuple| &tuple.0))
+            {
+                debug!("caching the thumbnail");
+
+                let request = MediaRequestParameters {
+                    source: thumbnail_source.clone(),
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(width, height)),
+                };
+
+                if let Err(err) = media_store_lock_guard
+                    .add_media_content(&request, data, IgnoreMediaRetentionPolicy::No)
+                    .await
+                {
+                    warn!("unable to cache the media after uploading it: {err}");
+                }
+            }
+        }
+
+        Ok(UploadedAttachment { source, thumbnail })
     }
 
     /// Creates the inner [`MessageType`] for an already-uploaded media file

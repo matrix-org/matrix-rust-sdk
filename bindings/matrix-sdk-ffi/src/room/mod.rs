@@ -21,6 +21,7 @@ use matrix_sdk::{
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
     SuccessorRoom as SdkSuccessorRoom,
+    attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo, Thumbnail as SdkThumbnail},
     encryption::LocalTrust,
     room::{
         Room as SdkRoom, RoomMemberRole, edit::EditedContent, power_levels::RoomPowerLevelChanges,
@@ -62,7 +63,10 @@ use crate::{
     live_locations_observer::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
+    ruma::{
+        AudioInfo, AudioMessageContent, FileInfo, FileMessageContent, ImageInfo,
+        ImageMessageContent, MediaSource, ThumbnailInfo, VideoInfo, VideoMessageContent,
+    },
     runtime::get_runtime_handle,
     timeline::{
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
@@ -105,6 +109,32 @@ pub struct Room {
 impl Room {
     pub(crate) fn new(inner: SdkRoom, utd_hook_manager: Option<Arc<UtdHookManager>>) -> Self {
         Room { inner, utd_hook_manager }
+    }
+
+    async fn upload_attachment_source(
+        &self,
+        source: UploadSource,
+        mime_type: Option<String>,
+        thumbnail: Option<SdkThumbnail>,
+    ) -> Result<(String, Arc<MediaSource>, Option<Arc<MediaSource>>), ClientError> {
+        let mime_str = mime_type
+            .as_ref()
+            .ok_or(RoomError::InvalidAttachmentMimeType)
+            .map_err(ClientError::from)?;
+        let mime_type = mime_str.parse::<Mime>().map_err(|_| RoomError::InvalidAttachmentMimeType)?;
+
+        let (data, filename) = read_upload_source(source)?;
+        let uploaded = self.inner.upload_attachment(&mime_type, data, thumbnail).await?;
+
+        let source = Arc::new(uploaded.source.try_into()?);
+        let thumbnail_source = uploaded
+            .thumbnail
+            .as_ref()
+            .map(|(source, _)| MediaSource::try_from(source))
+            .transpose()?
+            .map(Arc::new);
+
+        Ok((filename, source, thumbnail_source))
     }
 }
 
@@ -436,6 +466,96 @@ impl Room {
         self.inner.send_raw(&event_type, content_json).await?;
 
         Ok(())
+    }
+
+    /// Upload image media for later use in a custom event without sending a media event.
+    pub async fn upload_image(
+        &self,
+        source: UploadSource,
+        thumbnail_source: Option<UploadSource>,
+        mut image_info: ImageInfo,
+    ) -> Result<ImageMessageContent, ClientError> {
+        BaseImageInfo::try_from(&image_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let thumbnail = build_upload_thumbnail(image_info.thumbnail_info.clone(), thumbnail_source)?;
+        let (filename, source, uploaded_thumbnail_source) =
+            self.upload_attachment_source(source, image_info.mimetype.clone(), thumbnail).await?;
+
+        image_info.thumbnail_source = uploaded_thumbnail_source;
+
+        Ok(ImageMessageContent {
+            filename,
+            caption: None,
+            formatted_caption: None,
+            source,
+            info: Some(image_info),
+        })
+    }
+
+    /// Upload video media for later use in a custom event without sending a media event.
+    pub async fn upload_video(
+        &self,
+        source: UploadSource,
+        thumbnail_source: Option<UploadSource>,
+        mut video_info: VideoInfo,
+    ) -> Result<VideoMessageContent, ClientError> {
+        BaseVideoInfo::try_from(&video_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let thumbnail = build_upload_thumbnail(video_info.thumbnail_info.clone(), thumbnail_source)?;
+        let (filename, source, uploaded_thumbnail_source) =
+            self.upload_attachment_source(source, video_info.mimetype.clone(), thumbnail).await?;
+
+        video_info.thumbnail_source = uploaded_thumbnail_source;
+
+        Ok(VideoMessageContent {
+            filename,
+            caption: None,
+            formatted_caption: None,
+            source,
+            info: Some(video_info),
+        })
+    }
+
+    /// Upload audio media for later use in a custom event without sending a media event.
+    pub async fn upload_audio(
+        &self,
+        source: UploadSource,
+        audio_info: AudioInfo,
+    ) -> Result<AudioMessageContent, ClientError> {
+        BaseAudioInfo::try_from(&audio_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let (filename, source, _) =
+            self.upload_attachment_source(source, audio_info.mimetype.clone(), None).await?;
+
+        Ok(AudioMessageContent {
+            filename,
+            caption: None,
+            formatted_caption: None,
+            source,
+            info: Some(audio_info),
+            audio: None,
+            voice: None,
+        })
+    }
+
+    /// Upload file media for later use in a custom event without sending a media event.
+    pub async fn upload_file(
+        &self,
+        source: UploadSource,
+        file_info: FileInfo,
+    ) -> Result<FileMessageContent, ClientError> {
+        BaseFileInfo::try_from(&file_info).map_err(|_| RoomError::InvalidAttachmentData)?;
+
+        let (filename, source, _) =
+            self.upload_attachment_source(source, file_info.mimetype.clone(), None).await?;
+
+        Ok(FileMessageContent {
+            filename,
+            caption: None,
+            formatted_caption: None,
+            source,
+            info: Some(file_info),
+        })
     }
 
     /// Send a raw state event to the room.
@@ -1630,6 +1750,79 @@ fn read_upload_source(source: UploadSource) -> Result<(Vec<u8>, String), ClientE
 
             Ok((bytes, filename))
         }
+    }
+}
+
+fn build_upload_thumbnail(
+    thumbnail_info: Option<ThumbnailInfo>,
+    thumbnail_source: Option<UploadSource>,
+) -> Result<Option<SdkThumbnail>, ClientError> {
+    match (thumbnail_info, thumbnail_source) {
+        (Some(info), Some(source)) => {
+            let mime_type = info
+                .mimetype
+                .as_ref()
+                .ok_or(RoomError::InvalidThumbnailData)
+                .map_err(ClientError::from)?
+                .parse::<Mime>()
+                .map_err(|_| RoomError::InvalidThumbnailData)?;
+            let height = u64_to_uint(info.height.ok_or(RoomError::InvalidThumbnailData)?);
+            let width = u64_to_uint(info.width.ok_or(RoomError::InvalidThumbnailData)?);
+            let size = u64_to_uint(info.size.ok_or(RoomError::InvalidThumbnailData)?);
+            let (data, _) = read_upload_source(source)?;
+
+            Ok(Some(SdkThumbnail { data, content_type: mime_type, height, width, size }))
+        }
+        (None, None) => Ok(None),
+        _ => Err(ClientError::from(RoomError::InvalidThumbnailData)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn thumbnail_info() -> ThumbnailInfo {
+        ThumbnailInfo {
+            height: Some(60),
+            width: Some(80),
+            mimetype: Some("image/jpeg".to_owned()),
+            size: Some(128),
+        }
+    }
+
+    fn thumbnail_source() -> UploadSource {
+        UploadSource::Data {
+            bytes: vec![1, 2, 3],
+            filename: "thumb.jpg".to_owned(),
+        }
+    }
+
+    #[test]
+    fn build_upload_thumbnail_rejects_missing_thumbnail_source() {
+        let result = build_upload_thumbnail(Some(thumbnail_info()), None);
+
+        assert!(matches!(result, Err(ClientError::Generic { msg, .. }) if msg.contains("Invalid thumbnail data")));
+    }
+
+    #[test]
+    fn build_upload_thumbnail_rejects_missing_thumbnail_info() {
+        let result = build_upload_thumbnail(None, Some(thumbnail_source()));
+
+        assert!(matches!(result, Err(ClientError::Generic { msg, .. }) if msg.contains("Invalid thumbnail data")));
+    }
+
+    #[test]
+    fn build_upload_thumbnail_returns_thumbnail_when_inputs_are_complete() {
+        let result = build_upload_thumbnail(Some(thumbnail_info()), Some(thumbnail_source()))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.data, vec![1, 2, 3]);
+        assert_eq!(result.content_type, "image/jpeg".parse::<Mime>().unwrap());
+        assert_eq!(result.height, u64_to_uint(60));
+        assert_eq!(result.width, u64_to_uint(80));
+        assert_eq!(result.size, u64_to_uint(128));
     }
 }
 
