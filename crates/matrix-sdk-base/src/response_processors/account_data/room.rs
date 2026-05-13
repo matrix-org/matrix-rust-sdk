@@ -14,7 +14,10 @@
 
 use ruma::{
     RoomId,
-    events::{AnyRoomAccountDataEvent, marked_unread::MarkedUnreadEventContent},
+    events::{
+        AnyRoomAccountDataEvent, fully_read::FullyReadEventContent,
+        marked_unread::MarkedUnreadEventContent,
+    },
     serde::Raw,
 };
 use tracing::{instrument, warn};
@@ -85,6 +88,21 @@ pub fn for_room(
                             },
                         );
                     }
+                    AnyRoomAccountDataEvent::FullyRead(event) => {
+                        on_room_info(
+                            room_id,
+                            &mut context.state_changes,
+                            state_store,
+                            |room_info| {
+                                on_fully_read_marker(
+                                    room_id,
+                                    &event.content,
+                                    room_info,
+                                    &mut context.room_info_notable_updates,
+                                );
+                            },
+                        );
+                    }
 
                     // Nothing.
                     _ => {}
@@ -126,6 +144,25 @@ fn on_room_info<F>(
         // Update the `RoomInfo` via `StateChanges`.
         state_changes.add_room(room_info);
     }
+}
+
+// Helper to update the fully-read marker event id on the `RoomInfo` and
+// notify subscribers when the value changes.
+fn on_fully_read_marker(
+    room_id: &RoomId,
+    content: &FullyReadEventContent,
+    room_info: &mut RoomInfo,
+    room_info_notable_updates: &mut RoomInfoNotableUpdates,
+) {
+    if room_info.base_info.fully_read_event_id.as_ref() == Some(&content.event_id) {
+        return;
+    }
+
+    room_info.base_info.fully_read_event_id = Some(content.event_id.clone());
+    room_info_notable_updates
+        .entry(room_id.to_owned())
+        .or_default()
+        .insert(RoomInfoNotableUpdateReasons::FULLY_READ);
 }
 
 // Helper to update the unread marker for stable and unstable prefixes.

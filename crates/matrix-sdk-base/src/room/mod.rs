@@ -513,6 +513,12 @@ impl Room {
         self.info.read().base_info.is_marked_unread
     }
 
+    /// Returns the event ID of the user's `m.fully_read` marker for this room,
+    /// if any.
+    pub fn fully_read_event_id(&self) -> Option<OwnedEventId> {
+        self.info.read().fully_read_event_id().map(ToOwned::to_owned)
+    }
+
     /// Returns the [`RoomVersionId`] of the room, if known.
     pub fn version(&self) -> Option<RoomVersionId> {
         self.info.read().room_version().cloned()

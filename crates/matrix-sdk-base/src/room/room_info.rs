@@ -220,6 +220,9 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
+    /// The event ID of the user's `m.fully_read` marker for this room, if any.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub(crate) fully_read_event_id: Option<OwnedEventId>,
     /// The `m.room.pinned_events` of this room.
     pub(crate) pinned_events: Option<PossiblyRedactedRoomPinnedEventsEventContent>,
 }
@@ -557,6 +560,7 @@ impl Default for BaseRoomInfo {
             is_marked_unread: false,
             is_marked_unread_source: AccountDataSource::Unstable,
             notable_tags: RoomNotableTags::empty(),
+            fully_read_event_id: None,
             pinned_events: None,
         }
     }
@@ -1223,6 +1227,12 @@ impl RoomInfo {
     /// Returns the current pinned event ids for this room.
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.base_info.pinned_events.clone().and_then(|c| c.pinned)
+    }
+
+    /// Returns the event ID of the user's `m.fully_read` marker for this room,
+    /// if any.
+    pub fn fully_read_event_id(&self) -> Option<&EventId> {
+        self.base_info.fully_read_event_id.as_deref()
     }
 
     /// Checks if an `EventId` is currently pinned.
