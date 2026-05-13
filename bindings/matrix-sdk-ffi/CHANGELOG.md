@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Add `RoomInfo::fully_read_event_id` to expose the user's `m.fully_read` event ID.
+  ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pull/6569))
+
 ## Refactor
 
 - [**breaking**] `SpaceRoomList::rooms` and `SpaceRoomList::subscribe_to_room_updates` are now asynchronous.
