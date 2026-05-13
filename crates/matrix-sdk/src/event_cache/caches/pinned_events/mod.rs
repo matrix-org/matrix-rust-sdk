@@ -223,7 +223,7 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
 
 impl PinnedEventsCacheState {
     /// Return a list of the current event IDs in this linked chunk.
-    fn current_event_ids(&self) -> Vec<OwnedEventId> {
+    pub(super) fn current_event_ids(&self) -> Vec<OwnedEventId> {
         self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
     }
 }
