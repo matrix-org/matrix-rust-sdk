@@ -107,6 +107,8 @@ pub struct RoomInfo {
     /// Events causing mentions/highlights for the user, according to their
     /// notification settings.
     num_unread_mentions: u64,
+    /// Event ID of the user's `m.fully_read` marker for this room, if any.
+    fully_read_event_id: Option<String>,
     /// The currently pinned event ids.
     pinned_event_ids: Vec<String>,
     /// The join rule for this room, if known.
@@ -206,6 +208,7 @@ impl RoomInfo {
             num_unread_messages: room.num_unread_messages(),
             num_unread_notifications: room.num_unread_notifications(),
             num_unread_mentions: room.num_unread_mentions(),
+            fully_read_event_id: room.fully_read_event_id().map(|id| id.to_string()),
             pinned_event_ids,
             join_rule,
             history_visibility: room.history_visibility_or_default().try_into()?,
