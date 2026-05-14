@@ -225,7 +225,7 @@ use self::{
 };
 use super::{AuthData, SessionTokens};
 use crate::{
-    Client, HttpError, RefreshTokenError, Result,
+    Client, RefreshTokenError, Result,
     client::{SessionChange, caches::CachedValue},
     executor::spawn,
     utils::UrlOrQuery,
@@ -521,17 +521,11 @@ impl OAuth {
     async fn server_metadata_inner(
         &self,
     ) -> Result<AuthorizationServerMetadata, OAuthDiscoveryError> {
-        let is_endpoint_unsupported = |error: &HttpError| {
-            error
-                .as_client_api_error()
-                .is_some_and(|err| err.status_code == http::StatusCode::NOT_FOUND)
-        };
-
         let response =
             self.client.send(get_authorization_server_metadata::v1::Request::new()).await.map_err(
                 |error| {
-                    // If the endpoint returns a 404, i.e. the server doesn't support the endpoint.
-                    if is_endpoint_unsupported(&error) {
+                    // If the server doesn't support the endpoint.
+                    if error.is_endpoint_not_implemented() {
                         OAuthDiscoveryError::NotSupported
                     } else {
                         error.into()
