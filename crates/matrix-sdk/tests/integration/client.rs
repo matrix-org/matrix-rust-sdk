@@ -8,6 +8,7 @@ use matrix_sdk::{
     assert_let_timeout,
     authentication::oauth::{OAuthError, error::OAuthTokenRevocationError},
     config::{RequestConfig, StoreConfig, SyncSettings, SyncToken},
+    event_cache::RoomEventCacheUpdate,
     live_locations_observer::BeaconInfoUpdate,
     sleep::sleep,
     store::{RoomLoadSettings, ThreadSubscriptionStatus},
@@ -55,7 +56,7 @@ use ruma::{
         },
         tag::{TagInfo, TagName, Tags},
     },
-    owned_device_id, owned_event_id, owned_room_id, owned_user_id,
+    owned_device_id, owned_event_id, owned_mxc_uri, owned_room_id, owned_user_id,
     room::JoinRule,
     room_id,
     serde::Raw,
@@ -1264,6 +1265,138 @@ async fn test_test_ambiguity_changes() {
     assert!(changes.is_empty());
 
     assert_pending!(updates);
+}
+
+#[async_test]
+async fn test_avatar_url_changes() {
+    let (client, server) = logged_in_client_with_server().await;
+
+    let example_id = user_id!("@example:localhost");
+    let example_2_id = user_id!("@example_2:localhost");
+
+    let mut updates = BroadcastStream::new(client.subscribe_to_room_updates(&DEFAULT_TEST_ROOM_ID));
+    assert_pending!(updates);
+
+    // Initial sync, adds 2 members.
+    mock_sync(&server, &*test_json::SYNC, None).await;
+    let response =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+    server.reset().await;
+
+    // No changes since the users didn't have any avatar URLs.
+    assert!(response.rooms.joined.get(*DEFAULT_TEST_ROOM_ID).unwrap().avatar_changes.is_none());
+
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes);
+    assert!(changes.is_none());
+
+    // Subscribe to the event cache to receive RoomEventCacheUpdate
+    client.event_cache().subscribe().expect("event cache subscription");
+    let room = client.get_room(&DEFAULT_TEST_ROOM_ID).expect("room");
+    let (room_cache, _handle) = room.event_cache().await.expect("room cache");
+    let (_, mut subscriber) = room_cache.subscribe().await.expect("subscription");
+
+    // Now we sync a room member with an avatar URL.
+    let mut sync_builder = SyncResponseBuilder::new();
+    let joined_room = JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([
+        sync_state_event!({
+            "content": {
+                "avatar_url": "mxc://localhost/avatar",
+                "displayname": "the first example",
+                "membership": "join"
+            },
+            "event_id": event_id!("$example_avatar"),
+            "origin_server_ts": 151800140,
+            "sender": example_id,
+            "state_key": example_id,
+            "type": "m.room.member",
+        }),
+        sync_state_event!({
+            "content": {
+                "avatar_url": "mxc://localhost/avatar2",
+                "displayname": "the second example",
+                "membership": "join"
+            },
+            "event_id": event_id!("$example_avatar_2"),
+            "origin_server_ts": 151800140,
+            "sender": example_2_id,
+            "state_key": example_2_id,
+            "type": "m.room.member",
+        }),
+    ]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+    server.reset().await;
+
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes.expect("avatar changes") );
+    assert_eq!(changes.len(), 2);
+    assert_let!(Some(Some(avatar_url)) = changes.get(example_id));
+    assert_eq!(avatar_url, "mxc://localhost/avatar");
+    assert_let!(Some(Some(avatar_url)) = changes.get(example_2_id));
+    assert_eq!(avatar_url, "mxc://localhost/avatar2");
+
+    // The room event cache emits a RoomEventCacheUpdate when the avatar URL
+    // changes. This will trigger a timeline item refresh.
+    let changes = subscriber.recv().await.expect("subscription event");
+    assert_let!(RoomEventCacheUpdate::UpdateMembers { avatar_changes, .. } = changes);
+    assert!(avatar_changes.is_some());
+    assert_eq!(
+        avatar_changes.unwrap(),
+        BTreeMap::from([
+            (example_id.to_owned(), Some(owned_mxc_uri!("mxc://localhost/avatar"))),
+            (example_2_id.to_owned(), Some(owned_mxc_uri!("mxc://localhost/avatar2")))
+        ])
+    );
+
+    // And after that, receive the first room member without an avatar URL.
+    let joined_room =
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "the first example",
+                "membership": "join"
+            },
+            "event_id": event_id!("$example_avatar_removal"),
+            "origin_server_ts": 151800141,
+            "sender": example_id,
+            "state_key": example_id,
+            "type": "m.room.member",
+        })]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+    server.reset().await;
+
+    // There is a single change: the avatar is now None
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes.expect("avatar changes") );
+    assert_eq!(changes.len(), 1);
+    assert_let!(Some(None) = changes.get(example_id));
+
+    // If we receive the same event again, nothing should happen
+    let joined_room =
+        JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID).add_state_bulk([sync_state_event!({
+            "content": {
+                "avatar_url": null,
+                "displayname": "the first example",
+                "membership": "join"
+            },
+            "event_id": event_id!("$example_avatar_removal"),
+            "origin_server_ts": 151800141,
+            "sender": example_id,
+            "state_key": example_id,
+            "type": "m.room.member",
+        })]);
+    sync_builder.add_joined_room(joined_room);
+
+    mock_sync(&server, sync_builder.build_json_sync_response(), None).await;
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+    server.reset().await;
+
+    // There aren't any changes
+    let changes = assert_next_matches!(updates, Ok(RoomUpdate::Joined { updates, .. }) => updates.avatar_changes );
+    assert!(changes.is_none());
 }
 
 #[cfg(not(target_family = "wasm"))]

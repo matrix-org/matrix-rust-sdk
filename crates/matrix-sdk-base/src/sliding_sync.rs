@@ -29,7 +29,7 @@ use crate::{
     RequestedRequiredStates,
     error::Result,
     response_processors as processors,
-    store::ambiguity_map::AmbiguityCache,
+    store::{AvatarCache, ambiguity_map::AmbiguityCache},
     sync::{RoomUpdates, SyncResponse},
 };
 
@@ -120,6 +120,7 @@ impl BaseClient {
 
         let state_store = self.state_store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(state_store.inner.clone());
+        let mut avatar_cache = AvatarCache::new(state_store.inner.clone());
 
         let global_account_data_processor =
             processors::account_data::global(&extensions.account_data.global);
@@ -142,6 +143,7 @@ impl BaseClient {
                     room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
+                    &mut avatar_cache,
                 ),
                 room_response,
                 &extensions.account_data.rooms,
