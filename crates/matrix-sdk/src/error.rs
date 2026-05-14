@@ -180,6 +180,12 @@ impl HttpError {
             _ => RetryKind::Permanent,
         }
     }
+
+    /// If this is a server error, returns whether it matches the expected
+    /// format for an endpoint that is not implemented.
+    pub fn is_endpoint_not_implemented(&self) -> bool {
+        self.as_client_api_error().is_some_and(|error| error.is_endpoint_not_implemented())
+    }
 }
 
 impl From<FromHttpResponseError<RumaApiError>> for HttpError {
