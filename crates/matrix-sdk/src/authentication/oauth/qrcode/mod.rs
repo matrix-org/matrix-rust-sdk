@@ -33,7 +33,7 @@ pub use oauth2::{
     RequestTokenError, StandardErrorResponse,
     basic::{BasicErrorResponse, BasicRequestTokenError},
 };
-use ruma::api::error::{ErrorKind, FromHttpResponseError};
+use ruma::api::error::ErrorKind;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
@@ -125,11 +125,8 @@ pub enum QRCodeLoginError {
 impl From<SecureChannelError> for QRCodeLoginError {
     fn from(e: SecureChannelError) -> Self {
         match e {
-            SecureChannelError::RendezvousChannel(HttpError::Api(ref boxed)) => {
-                if let FromHttpResponseError::Server(api_error) = boxed.as_ref()
-                    && let Some(ErrorKind::NotFound) =
-                        api_error.as_client_api_error().and_then(|e| e.error_kind())
-                {
+            SecureChannelError::RendezvousChannel(ref http_error) => {
+                if let Some(ErrorKind::NotFound) = http_error.client_api_error_kind() {
                     return Self::NotFound;
                 }
                 Self::SecureChannel(e)
@@ -195,11 +192,8 @@ pub enum QRCodeGrantLoginError {
 impl From<SecureChannelError> for QRCodeGrantLoginError {
     fn from(e: SecureChannelError) -> Self {
         match e {
-            SecureChannelError::RendezvousChannel(HttpError::Api(ref boxed)) => {
-                if let FromHttpResponseError::Server(api_error) = boxed.as_ref()
-                    && let Some(ErrorKind::NotFound) =
-                        api_error.as_client_api_error().and_then(|e| e.error_kind())
-                {
+            SecureChannelError::RendezvousChannel(ref http_error) => {
+                if let Some(ErrorKind::NotFound) = http_error.client_api_error_kind() {
                     return Self::NotFound;
                 }
                 Self::SecureChannel(e)

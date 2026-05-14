@@ -97,7 +97,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
@@ -753,8 +753,8 @@ impl Client {
                 let response = self.keys_upload(r.request_id(), request).await;
 
                 if let Err(e) = &response {
-                    match e.as_ruma_api_error() {
-                        Some(RumaApiError::ClientApi(e)) if e.status_code == 400 => {
+                    match e.as_client_api_error() {
+                        Some(e) if e.status_code == 400 => {
                             if let ErrorBody::Standard(StandardErrorBody { message, .. }) = &e.body
                             {
                                 // This is one of the nastiest errors we can have. The server
