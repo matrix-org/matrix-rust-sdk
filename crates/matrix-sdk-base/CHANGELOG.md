@@ -14,9 +14,6 @@ All notable changes to this project will be documented in this file.
   This is needed for calculating display names of `SpaceRoom`s with service members. 
   ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pull/6561))
 
-- [**breaking**] `RoomInfoNotableUpdateReasons` is now a `u16` to include a `FULLY_READ` flag to notify on changes of the `m.fully_read` marker.
-  ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pull/6569))
-
 - Add `RoomInfo::fully_read_event_id` and `Room::fully_read_event_id` to expose the user's `m.fully_read` event ID.
   ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pull/6569))
 
