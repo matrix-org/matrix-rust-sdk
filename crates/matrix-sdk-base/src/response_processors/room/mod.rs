@@ -14,7 +14,10 @@
 
 use ruma::RoomId;
 
-use crate::{RequestedRequiredStates, store::ambiguity_map::AmbiguityCache};
+use crate::{
+    RequestedRequiredStates,
+    store::{AvatarCache, ambiguity_map::AmbiguityCache},
+};
 
 pub mod display_name;
 pub mod msc4186;
@@ -25,6 +28,7 @@ pub struct RoomCreationData<'a> {
     room_id: &'a RoomId,
     requested_required_states: &'a RequestedRequiredStates,
     ambiguity_cache: &'a mut AmbiguityCache,
+    avatar_cache: &'a mut AvatarCache,
 }
 
 impl<'a> RoomCreationData<'a> {
@@ -32,7 +36,8 @@ impl<'a> RoomCreationData<'a> {
         room_id: &'a RoomId,
         requested_required_states: &'a RequestedRequiredStates,
         ambiguity_cache: &'a mut AmbiguityCache,
+        avatar_cache: &'a mut AvatarCache,
     ) -> Self {
-        Self { room_id, requested_required_states, ambiguity_cache }
+        Self { room_id, requested_required_states, ambiguity_cache, avatar_cache }
     }
 }

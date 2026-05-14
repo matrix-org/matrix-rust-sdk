@@ -65,9 +65,9 @@ use crate::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
-        BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult, RoomLoadSettings,
-        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, StoreConfig,
-        ambiguity_map::AmbiguityCache,
+        AvatarCache, BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult,
+        RoomLoadSettings, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        StoreConfig, ambiguity_map::AmbiguityCache,
     },
     sync::{RoomUpdates, SyncResponse},
 };
@@ -644,6 +644,7 @@ impl BaseClient {
             .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
+        let mut avatar_cache = AvatarCache::new(self.state_store.inner.clone());
 
         let global_account_data_processor =
             processors::account_data::global(&response.account_data.events);
@@ -670,6 +671,7 @@ impl BaseClient {
                     &room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
+                    &mut avatar_cache,
                 ),
                 joined_room,
                 &mut updated_members_in_room,
@@ -693,6 +695,7 @@ impl BaseClient {
                     &room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
+                    &mut avatar_cache,
                 ),
                 left_room,
                 processors::notification::Notification::new(

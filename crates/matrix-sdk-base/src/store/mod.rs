@@ -77,9 +77,12 @@ use crate::{
 };
 
 pub(crate) mod ambiguity_map;
+mod avatar_cache;
 mod memory_store;
 pub mod migration_helpers;
 mod send_queue;
+
+pub use avatar_cache::AvatarCache;
 
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::StateStoreIntegrationTests;
