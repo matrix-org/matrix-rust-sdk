@@ -3046,3 +3046,108 @@ async fn test_backpaginate_on_a_single_event_inserted_via_send_queue_from_an_emp
     // assume so.
     assert!(reached_start.not());
 }
+
+#[async_test]
+async fn test_sync_remote_echo_of_send_queue_event_replaces_in_place() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("hello").event_id(event_id!("$1"))),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(events.len(), 1);
+
+    let event_id_2 = event_id!("$2");
+    let event_id_3 = event_id!("$3");
+    server.mock_room_state_encryption().plain().mount().await;
+    server.mock_room_send().ok(event_id_2).mock_once().mount().await;
+
+    // We send an event with the send queue.
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Hello, World!").into())
+        .await
+        .unwrap();
+
+    // It's inserted in the room's event cache.
+    assert_matches!(
+        room_stream.recv().await,
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) => {
+            assert_eq!(diffs.len(), 1);
+            assert_let!(VectorDiff::Append { values } = &diffs[0]);
+            assert_eq!(values.len(), 1);
+            assert_eq!(values[0].event_id().as_deref(), Some(event_id_2));
+        }
+    );
+
+    // Then we send a second message in this room.
+    server.mock_room_send().ok(event_id_3).mock_once().mount().await;
+    room.send_queue()
+        .send(RoomMessageEventContent::text_plain("Bonjour, Monde!").into())
+        .await
+        .unwrap();
+
+    // It's saved in the room's event cache too.
+    assert_matches!(
+        room_stream.recv().await,
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) => {
+            assert_eq!(diffs.len(), 1);
+            assert_let!(VectorDiff::Append { values } = &diffs[0]);
+            assert_eq!(values.len(), 1);
+            assert_eq!(values[0].event_id().as_deref(), Some(event_id_3));
+        }
+    );
+
+    let f = EventFactory::new().room(room_id).sender(&own_user_id);
+
+    // Then sync comes back with the first event.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Hello, World!").event_id(event_id_2)),
+        )
+        .await;
+
+    // The event is replaced in place, not removed and appended again.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: event } = &diffs[0]);
+    assert_eq!(event.event_id().as_deref(), Some(event_id_2));
+
+    // Then a second sync comes back with the second event.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("Bonjour, Monde!").event_id(event_id_3)),
+        )
+        .await;
+
+    // And the next event is replaced in place too.
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_let!(VectorDiff::Set { index: 2, value: event } = &diffs[0]);
+    assert_eq!(event.event_id().as_deref(), Some(event_id_3));
+
+    // That's all, folks!
+}

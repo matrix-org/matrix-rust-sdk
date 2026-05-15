@@ -322,6 +322,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             all_events: new_events,
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
+            in_place_replacements: Vec::new(),
             non_empty_all_duplicates,
         }
     }

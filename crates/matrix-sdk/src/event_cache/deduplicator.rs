@@ -15,7 +15,7 @@
 //! Simple but efficient types to find duplicated events. See [`Deduplicator`]
 //! to learn more.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 
 use matrix_sdk_base::{
     event_cache::store::EventCacheStoreLockGuard,
@@ -25,7 +25,10 @@ use ruma::{OwnedEventId, UserId};
 
 use super::{
     EventCacheError,
-    caches::event_linked_chunk::{Event, EventLinkedChunk},
+    caches::{
+        EventLocation,
+        event_linked_chunk::{Event, EventLinkedChunk},
+    },
 };
 
 /// Find duplicates in the given collection of new events, and return relevant
@@ -36,6 +39,7 @@ pub async fn filter_duplicate_events(
     store_guard: &EventCacheStoreLockGuard,
     linked_chunk_id: LinkedChunkId<'_>,
     linked_chunk: &EventLinkedChunk,
+    replaceable_event_ids: &HashSet<OwnedEventId>,
     mut new_events: Vec<Event>,
 ) -> Result<DeduplicationOutcome, EventCacheError> {
     // Remove all events with no ID, or that are duplicated among the new events,
@@ -61,23 +65,46 @@ pub async fn filter_duplicate_events(
 
     // Separate duplicated events in two collections: ones that are in-memory, ones
     // that are in the store.
-    let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids) = {
+    let (in_memory_duplicated_event_ids, in_store_duplicated_event_ids, in_place_replacements) = {
         // Collect all in-memory chunk identifiers.
         let in_memory_chunk_identifiers =
             linked_chunk.chunks().map(|chunk| chunk.identifier()).collect::<Vec<_>>();
 
         let mut in_memory = vec![];
         let mut in_store = vec![];
+        let mut in_place_replacements = vec![];
 
         for (duplicated_event_id, position) in duplicated_event_ids {
-            if in_memory_chunk_identifiers.contains(&position.chunk_identifier()) {
+            if replaceable_event_ids.contains(&duplicated_event_id) {
+                // The event is replaceable: find the new content of the event in `new_events`.
+                let Some(event) = new_events
+                    .iter()
+                    .find(|ev| ev.event_id().as_ref() == Some(&duplicated_event_id))
+                else {
+                    continue;
+                };
+
+                let location = if in_memory_chunk_identifiers.contains(&position.chunk_identifier())
+                {
+                    EventLocation::Memory(position)
+                } else {
+                    EventLocation::Store
+                };
+
+                in_place_replacements.push(ReplaceableDuplicate {
+                    event_id: duplicated_event_id,
+                    position,
+                    location,
+                    event: event.clone(),
+                });
+            } else if in_memory_chunk_identifiers.contains(&position.chunk_identifier()) {
                 in_memory.push((duplicated_event_id, position));
             } else {
                 in_store.push((duplicated_event_id, position));
             }
         }
 
-        (in_memory, in_store)
+        (in_memory, in_store, in_place_replacements)
     };
 
     // See comment of `DeduplicationOutcome::non_empty_all_duplicates` for the
@@ -86,7 +113,8 @@ pub async fn filter_duplicate_events(
         new_events.iter().any(|ev| ev.sender().is_some_and(|sender| sender != own_user_id));
 
     let all_duplicates = (in_memory_duplicated_event_ids.len()
-        + in_store_duplicated_event_ids.len())
+        + in_store_duplicated_event_ids.len()
+        + in_place_replacements.len())
         == new_events.len();
 
     let non_empty_all_duplicates = at_least_one_event_not_sent_by_me && all_duplicates;
@@ -95,6 +123,7 @@ pub async fn filter_duplicate_events(
         all_events: new_events,
         in_memory_duplicated_event_ids,
         in_store_duplicated_event_ids,
+        in_place_replacements,
         non_empty_all_duplicates,
     })
 }
@@ -121,6 +150,10 @@ pub(super) struct DeduplicationOutcome {
     /// Events are sorted by their position, from the newest to the oldest
     /// (position is descending).
     pub in_store_duplicated_event_ids: Vec<(OwnedEventId, Position)>,
+
+    /// Duplicates that can be replaced in place instead of being removed and
+    /// reinserted.
+    pub in_place_replacements: Vec<ReplaceableDuplicate>,
 
     /// Whether there's at least one new event sent by some other user, and all
     /// new events are duplicate.
@@ -151,11 +184,27 @@ pub(super) struct DeduplicationOutcome {
     pub non_empty_all_duplicates: bool,
 }
 
+/// A duplicate event that can be replaced in place, instead of being removed
+/// and reinserted.
+pub(super) struct ReplaceableDuplicate {
+    /// The ID of the duplicated event.
+    pub event_id: OwnedEventId,
+    /// The previous position of the event in the linked chunk.
+    pub position: Position,
+    /// The location of the duplicated event in the linked chunk (memory or
+    /// store).
+    pub location: EventLocation,
+    /// The new version of the duplicated event that can be used as a
+    /// replacement.
+    pub event: Event,
+}
+
 #[cfg(test)]
 #[cfg(not(target_family = "wasm"))] // These tests uses the cross-process lock, so need time support.
 mod tests {
-    use std::ops::Not as _;
+    use std::{collections::HashSet, ops::Not as _};
 
+    use assert_matches2::assert_let;
     use matrix_sdk_base::{
         deserialized_responses::TimelineEvent, event_cache::store::EventCacheStoreLock,
         linked_chunk::ChunkIdentifier,
@@ -254,6 +303,7 @@ mod tests {
                 event_cache_store_guard,
                 LinkedChunkId::Room(room_id),
                 &linked_chunk,
+                &HashSet::new(),
                 vec![event_0.clone(), event_1.clone(), event_2.clone(), event_3.clone()],
             )
             .await
@@ -270,6 +320,7 @@ mod tests {
             event_cache_store_guard,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
+            &HashSet::new(),
             vec![event_0, event_1, event_2, event_3, event_4],
         )
         .await
@@ -311,6 +362,7 @@ mod tests {
             outcome.in_store_duplicated_event_ids[1],
             (event_id_1, Position::new(ChunkIdentifier::new(42), 1))
         );
+        assert!(outcome.in_place_replacements.is_empty());
     }
 
     #[async_test]
@@ -384,12 +436,14 @@ mod tests {
             all_events: events,
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
+            in_place_replacements,
             non_empty_all_duplicates,
         } = filter_duplicate_events(
             user_id,
             event_cache_store_guard,
             LinkedChunkId::Room(room_id),
             &linked_chunk,
+            &HashSet::new(),
             vec![ev1, ev2, ev3, ev4],
         )
         .await
@@ -403,6 +457,7 @@ mod tests {
         assert_eq!(events[2].event_id().as_deref(), Some(eid3));
 
         assert!(in_memory_duplicated_event_ids.is_empty());
+        assert!(in_place_replacements.is_empty());
 
         assert_eq!(in_store_duplicated_event_ids.len(), 2);
         assert_eq!(
@@ -413,5 +468,84 @@ mod tests {
             in_store_duplicated_event_ids[1],
             (eid2.to_owned(), Position::new(ChunkIdentifier::new(43), 0))
         );
+    }
+
+    #[async_test]
+    async fn test_in_place_replaceable_duplicates() {
+        use std::sync::Arc;
+
+        use matrix_sdk_base::{
+            event_cache::store::{EventCacheStore, MemoryStore},
+            linked_chunk::Update,
+        };
+        use ruma::room_id;
+
+        let user_id = user_id!("@user:example.com");
+        let room_id = room_id!("!fondue:raclette.ch");
+
+        // Simulate an event that's been saved in the send queue already, and that could
+        // be replaced later.
+        let event_id = owned_event_id!("$ev0");
+        let event = timeline_event(&event_id);
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache_store = EventCacheStoreLock::new(
+            event_cache_store,
+            CrossProcessLockConfig::multi_process("hodor"),
+        );
+        let event_cache_store = event_cache_store.lock().await.unwrap();
+        let event_cache_store_guard = event_cache_store.as_clean().unwrap();
+
+        let mut linked_chunk = EventLinkedChunk::new();
+        linked_chunk.push_events([event.clone()]);
+
+        // Indicate that the event is replaceable, for example because it's been
+        // inserted by the send queue earlier.
+        let replaceable_event_ids = HashSet::from([event_id.clone()]);
+
+        let outcome = filter_duplicate_events(
+            user_id,
+            event_cache_store_guard,
+            LinkedChunkId::Room(room_id),
+            &linked_chunk,
+            &replaceable_event_ids,
+            vec![event],
+        )
+        .await
+        .unwrap();
+
+        assert!(outcome.in_memory_duplicated_event_ids.is_empty());
+        assert!(outcome.in_store_duplicated_event_ids.is_empty());
+
+        // The event can be replaced in-place.
+        assert_eq!(outcome.in_place_replacements.len(), 1);
+
+        let replacement = &outcome.in_place_replacements[0];
+        assert_eq!(replacement.event_id, event_id);
+
+        assert_let!(EventLocation::Memory(pos) = &replacement.location);
+        assert_eq!(*pos, Position::new(ChunkIdentifier::new(0), 0));
+
+        assert_eq!(replacement.position, Position::new(ChunkIdentifier::new(0), 0));
+
+        assert_eq!(replacement.event.event_id().unwrap(), event_id);
     }
 }

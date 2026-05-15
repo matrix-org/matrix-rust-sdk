@@ -18,6 +18,7 @@
 //! [`RoomEventCache`]: super::super::super::RoomEventCache
 
 use std::{
+    collections::HashSet,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -360,19 +361,33 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             all_events: mut events,
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
+            in_place_replacements,
             non_empty_all_duplicates: all_duplicates,
         } = {
             let room_linked_chunk = state.room_linked_chunk();
+
+            // Don't try to replace events in-place when back-paginating, as we want to make
+            // sure that our sent events are moved at their correct, final
+            // topological position in the room (and not left at their sync
+            // ordering position, which is less precise and correct).
+            let replacement_event_ids = &HashSet::new();
 
             filter_duplicate_events(
                 &state.state.own_user_id,
                 &state.store,
                 LinkedChunkId::Room(&state.state.room_id),
                 room_linked_chunk,
+                replacement_event_ids,
                 events,
             )
             .await?
         };
+
+        // See comment above about `replacement_event_ids`.
+        assert!(
+            in_place_replacements.is_empty(),
+            "we don't expect any in-place replacement when back-paginating."
+        );
 
         // If not all the events have been back-paginated, we need to remove the
         // previous ones, otherwise we can end up with misordered events.
