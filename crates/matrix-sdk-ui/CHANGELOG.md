@@ -4,21 +4,6 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
-<!-- next-header -->
-
-## [Unreleased] - ReleaseDate
-
-### Bug Fixes
-
-- Remove the ability to reply to live location events.
-  ([#6563](https://github.com/matrix-org/matrix-rust-sdk/pull/6563))
-
-### Refactor
-
-- [**breaking**] `SpaceRoom::new_from_known`  and `SpaceRoom::new_from_summary` are now asynchronous so we can 
-  properly check if they are DMs on demand instead of trusting the pre-computed value. Some other related functions 
-  are now `async` too. ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pull/6561))
-
 ## [0.17.0] - 2026-05-08
 
 ### Bug Fixes
