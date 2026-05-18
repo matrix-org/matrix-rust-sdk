@@ -64,6 +64,7 @@ mod sqlite {
     pub struct SqliteStoreBuilder {
         paths: StorePaths,
         passphrase: Zeroizing<Option<String>>,
+        key: Zeroizing<Option<Vec<u8>>>,
         pool_max_size: Option<usize>,
         cache_size: Option<u32>,
         journal_size_limit: Option<u32>,
@@ -75,6 +76,7 @@ mod sqlite {
             Self {
                 paths: StorePaths { data_path, cache_path },
                 passphrase: Zeroizing::new(None),
+                key: Zeroizing::new(None),
                 pool_max_size: None,
                 cache_size: None,
                 journal_size_limit: None,
@@ -100,6 +102,14 @@ mod sqlite {
         pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
             let mut builder = unwrap_or_clone_arc(self);
             builder.passphrase = Zeroizing::new(passphrase);
+            Arc::new(builder)
+        }
+
+        /// Set the raw key for the stores. Takes precedence over
+        /// [`Self::passphrase`].
+        pub fn key(self: Arc<Self>, key: Option<Vec<u8>>) -> Arc<Self> {
+            let mut builder = unwrap_or_clone_arc(self);
+            builder.key = Zeroizing::new(key);
             Arc::new(builder)
         }
 
@@ -182,7 +192,14 @@ mod sqlite {
                 SqliteStoreConfig::new(data_path)
             };
 
-            sqlite_store_config = sqlite_store_config.passphrase(self.passphrase.as_deref());
+            if let Some(key) = self.key.as_deref() {
+                match key.try_into() {
+                    Ok(data) => sqlite_store_config = sqlite_store_config.key(Some(&data)),
+                    Err(_) => return Err(ClientBuildError::InvalidRawKey),
+                }
+            } else if let Some(passphrase) = self.passphrase.as_deref() {
+                sqlite_store_config = sqlite_store_config.passphrase(Some(passphrase));
+            }
 
             if let Some(size) = self.pool_max_size {
                 sqlite_store_config = sqlite_store_config.pool_max_size(size);
