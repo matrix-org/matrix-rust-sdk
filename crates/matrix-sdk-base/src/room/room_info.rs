@@ -220,6 +220,9 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
+    /// The event ID of the user's `m.fully_read` marker for this room, if any.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub(crate) fully_read_event_id: Option<OwnedEventId>,
     /// The `m.room.pinned_events` of this room.
     pub(crate) pinned_events: Option<PossiblyRedactedRoomPinnedEventsEventContent>,
 }
@@ -557,6 +560,7 @@ impl Default for BaseRoomInfo {
             is_marked_unread: false,
             is_marked_unread_source: AccountDataSource::Unstable,
             notable_tags: RoomNotableTags::empty(),
+            fully_read_event_id: None,
             pinned_events: None,
         }
     }
@@ -1225,6 +1229,12 @@ impl RoomInfo {
         self.base_info.pinned_events.clone().and_then(|c| c.pinned)
     }
 
+    /// Returns the event ID of the user's `m.fully_read` marker for this room,
+    /// if any.
+    pub fn fully_read_event_id(&self) -> Option<&EventId> {
+        self.base_info.fully_read_event_id.as_deref()
+    }
+
     /// Checks if an `EventId` is currently pinned.
     /// It avoids having to clone the whole list of event ids to check a single
     /// value.
@@ -1412,27 +1422,27 @@ pub struct RoomInfoNotableUpdate {
 bitflags! {
     /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub struct RoomInfoNotableUpdateReasons: u8 {
+    pub struct RoomInfoNotableUpdateReasons: u16 {
         /// The recency stamp of the `Room` has changed.
-        const RECENCY_STAMP = 0b0000_0001;
+        const RECENCY_STAMP = 0b0000_0000_0000_0001;
 
         /// The latest event of the `Room` has changed.
-        const LATEST_EVENT = 0b0000_0010;
+        const LATEST_EVENT = 0b0000_0000_0000_0010;
 
         /// A read receipt has changed.
-        const READ_RECEIPT = 0b0000_0100;
+        const READ_RECEIPT = 0b0000_0000_0000_0100;
 
         /// The user-controlled unread marker value has changed.
-        const UNREAD_MARKER = 0b0000_1000;
+        const UNREAD_MARKER = 0b0000_0000_0000_1000;
 
         /// A membership change happened for the current user.
-        const MEMBERSHIP = 0b0001_0000;
+        const MEMBERSHIP = 0b0000_0000_0001_0000;
 
         /// The display name has changed.
-        const DISPLAY_NAME = 0b0010_0000;
+        const DISPLAY_NAME = 0b0000_0000_0010_0000;
 
         /// The active service members have changed.
-        const ACTIVE_SERVICE_MEMBERS = 0b0100_0000;
+        const ACTIVE_SERVICE_MEMBERS = 0b0000_0000_0100_0000;
 
         /// This is a temporary hack.
         ///
@@ -1444,7 +1454,10 @@ bitflags! {
         /// identified, we are likely to miss particular updates, and it can feel broken.
         /// Ultimately, we want to clearly identify all the notable update reasons, and
         /// remove this one.
-        const NONE = 0b1000_0000;
+        const NONE = 0b0000_0000_1000_0000;
+
+        /// The user's `m.fully_read` marker has changed.
+        const FULLY_READ = 0b0000_0001_0000_0000;
     }
 }
 
