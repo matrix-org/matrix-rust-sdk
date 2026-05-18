@@ -19,14 +19,18 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
+    apply_redaction,
     event_cache::{Event, Gap, store::EventCacheStoreLock},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update},
+    serde_helpers::extract_redaction_target,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
     task_monitor::BackgroundTaskHandle,
 };
+use matrix_sdk_common::executor::spawn;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
-    events::relation::RelationType,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
+    events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
+    room_version_rules::RoomVersionRules,
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
@@ -47,8 +51,9 @@ use crate::{
     client::WeakClient,
     config::RequestConfig,
     event_cache::{
-        caches::event_linked_chunk::sort_positions_descending,
+        caches::{EventLocation, event_linked_chunk::sort_positions_descending},
         deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+        persistence::find_event,
     },
     room::WeakRoom,
 };
@@ -59,6 +64,9 @@ pub(in super::super) struct PinnedEventsCacheState {
 
     /// The user's own user id.
     own_user_id: OwnedUserId,
+
+    /// The rules for the version of this room.
+    room_version_rules: RoomVersionRules,
 
     /// The linked chunk representing this room's pinned events.
     ///
@@ -174,6 +182,12 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
         self.propagate_changes().await?;
         self.notify_subscribers(EventsOrigin::Sync);
 
+        // Do stuff for each event.
+        for event in &events {
+            // Handle redaction.
+            self.maybe_apply_new_redaction(&event).await?;
+        }
+
         Ok(())
     }
 
@@ -228,6 +242,106 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
     async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
         self.state.chunk.order_tracker.map_updates(&updates);
         self.send_updates_to_store(updates).await
+    }
+
+    /// If the given event is a redaction, try to retrieve the
+    /// to-be-redacted event in the chunk, and replace it by the
+    /// redacted form.
+    #[instrument(skip_all)]
+    async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<()> {
+        let Some(event_id) =
+            extract_redaction_target(event.raw(), &self.room_version_rules.redaction)
+        else {
+            return Ok(());
+        };
+
+        // Replace the redacted event by a redacted form, if we knew about it.
+        let Some((location, mut target_event)) = self.find_event(&event_id).await? else {
+            trace!("redacted event is missing from the linked chunk");
+            return Ok(());
+        };
+
+        let target_event_raw = target_event.raw();
+
+        // Don't redact already redacted events.
+        if let Ok(deserialized) = target_event_raw.deserialize()
+            && deserialized.is_redacted()
+        {
+            return Ok(());
+        }
+
+        if let Some(redacted_event) = apply_redaction(
+            target_event_raw,
+            event.raw().cast_ref_unchecked::<SyncRoomRedactionEvent>(),
+            &self.room_version_rules.redaction,
+        ) {
+            // It's safe to cast `redacted_event` here:
+            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+            //   when calling .raw(), so it's still one under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            target_event.replace_raw(redacted_event.cast_unchecked());
+
+            self.replace_event_at(location, target_event.clone()).await?;
+        }
+
+        Ok(())
+    }
+
+    /// See documentation of [`find_event`].
+    pub(super) async fn find_event(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Option<(EventLocation, Event)>> {
+        find_event(event_id, &self.room_id, &self.chunk, &self.store).await
+    }
+
+    /// Replaces a single event, be it saved in memory or in the store.
+    ///
+    /// If it was saved in memory, this will emit a notification to
+    /// observers that a single item has been replaced. Otherwise,
+    /// such a notification is not emitted, because observers are
+    /// unlikely to observe the store updates directly.
+    pub async fn replace_event_at(
+        &mut self,
+        location: EventLocation,
+        new_event: Event,
+    ) -> Result<()> {
+        match location {
+            EventLocation::Memory(position) => {
+                self.state
+                    .chunk
+                    .replace_event_at(position, new_event)
+                    .expect("should have been a valid position of an item");
+                // We just changed the in-memory representation; synchronize this with
+                // the store.
+                self.propagate_changes().await?;
+            }
+            EventLocation::Store => {
+                self.save_events([new_event]).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Save events into the database, without notifying observers.
+    pub async fn save_events(&mut self, events: impl IntoIterator<Item = Event>) -> Result<()> {
+        let store = self.store.clone();
+        let room_id = self.state.room_id.clone();
+        let events = events.into_iter().collect::<Vec<_>>();
+
+        // Spawn a task so the save is uninterrupted by task cancellation.
+        spawn(async move {
+            for event in events {
+                store.save_event(&room_id, event).await?;
+            }
+
+            Result::Ok(())
+        })
+        .await
+        .expect("joining failed")?;
+
+        Ok(())
     }
 
     /// Reload all the pinned events from storage, replacing the current linked
@@ -362,6 +476,7 @@ impl PinnedEventsCache {
     pub(in super::super) fn new(
         weak_room: &WeakRoom,
         own_user_id: OwnedUserId,
+        room_version_rules: RoomVersionRules,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
     ) -> Result<Self> {
@@ -375,6 +490,7 @@ impl PinnedEventsCache {
         let state = PinnedEventsCacheState {
             room_id: room_id.clone(),
             own_user_id,
+            room_version_rules,
             chunk,
             update_sender: update_sender.clone(),
             linked_chunk_update_sender,
