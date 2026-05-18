@@ -380,6 +380,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
             PinnedEventsCache::new(
                 weak_room,
                 self.own_user_id.clone(),
+                self.room_version_rules.clone(),
                 self.state.linked_chunk_update_sender.clone(),
                 self.state.store.clone(),
             )
