@@ -201,6 +201,16 @@ impl Caches {
         })
     }
 
+    /// Get a [`PinnedEventsCache`] if it has been initialised.
+    ///
+    /// [`PinnedEventsCache`]: pinned_events::PinnedEventsCache
+    #[cfg(feature = "e2e-encryption")]
+    pub(super) fn pinned_events_without_initialisation(
+        &self,
+    ) -> Option<&pinned_events::PinnedEventsCache> {
+        self.pinned_events.get()
+    }
+
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         let Self { room, threads, pinned_events, internals } = &self;
