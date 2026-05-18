@@ -402,6 +402,19 @@ impl EventCache {
 
         Ok((caches_for_room.pinned_events()?.clone(), drop_handles))
     }
+
+    /// Return a pinned-events-specific view over the [`EventCache`] if it has
+    /// been initialised.
+    #[cfg(feature = "e2e-encryption")]
+    async fn pinned_events_without_initialisation(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<PinnedEventsCache>> {
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok(caches_for_room.pinned_events_without_initialisation().cloned())
+    }
+
     /// Cleanly clear all the rooms' event caches.
     ///
     /// This will notify any live observers that the room has been cleared.

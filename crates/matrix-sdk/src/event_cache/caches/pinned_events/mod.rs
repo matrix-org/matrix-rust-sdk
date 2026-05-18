@@ -530,7 +530,7 @@ impl PinnedEventsCache {
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
-    pub(in crate::event_cache) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
         let mut guard = self.inner.state.write().await?;
 
         if guard.state.chunk.replace_utds(events) {
