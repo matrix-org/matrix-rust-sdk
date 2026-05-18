@@ -75,6 +75,7 @@ pub use self::{
         TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache},
         pagination::{BackPaginationOutcome, PaginationStatus},
+        pinned_events::PinnedEventsCache,
         room::{
             RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
             RoomEventCacheUpdate, pagination::RoomPagination,
@@ -386,6 +387,32 @@ impl EventCache {
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
         Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
+    }
+
+    /// Return a pinned-events-specific view over the [`EventCache`].
+    pub async fn pinned_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(PinnedEventsCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((caches_for_room.pinned_events()?.clone(), drop_handles))
+    }
+
+    /// Return a pinned-events-specific view over the [`EventCache`] if it has
+    /// been initialised.
+    #[cfg(feature = "e2e-encryption")]
+    async fn pinned_events_without_initialisation(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Option<PinnedEventsCache>> {
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok(caches_for_room.pinned_events_without_initialisation().cloned())
     }
 
     /// Cleanly clear all the rooms' event caches.

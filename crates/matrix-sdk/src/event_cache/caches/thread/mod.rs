@@ -54,7 +54,7 @@ pub struct ThreadEventCache {
     inner: Arc<ThreadEventCacheInner>,
 }
 
-/// The (non-cloneable) details of the `RoomEventCache`.
+/// The (non-cloneable) details of the `ThreadEventCache`.
 struct ThreadEventCacheInner {
     /// The room ID.
     room_id: OwnedRoomId,
@@ -71,7 +71,7 @@ struct ThreadEventCacheInner {
     /// A notifier that we received a new pagination token.
     pagination_batch_token_notifier: Notify,
 
-    /// Update sender for this room.
+    /// Update sender for this thread.
     update_sender: ThreadEventCacheUpdateSender,
 }
 
@@ -164,7 +164,7 @@ impl ThreadEventCache {
         &self.inner.state
     }
 
-    /// Get a reference to the [`RoomEventCacheUpdateSender`].
+    /// Get a reference to the [`ThreadEventCacheUpdateSender`].
     pub(in super::super) fn update_sender(&self) -> &ThreadEventCacheUpdateSender {
         &self.inner.update_sender
     }

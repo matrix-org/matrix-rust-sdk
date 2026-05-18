@@ -15,7 +15,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        Arc, OnceLock,
+        Arc,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -47,7 +47,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
@@ -66,13 +66,12 @@ use super::{
         event_linked_chunk::EventLinkedChunk,
         lock,
         pagination::SharedPaginationStatus,
-        pinned_events::PinnedEventCache,
         read_receipts::compute_unread_counts,
     },
     EventsOrigin, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
     RoomEventCacheUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
-use crate::{Room, room::WeakRoom};
+use crate::room::WeakRoom;
 
 /// Key for the event-focused caches.
 #[derive(Hash, PartialEq, Eq)]
@@ -109,9 +108,6 @@ pub struct RoomEventCacheState {
     /// a timeline centered around a specific event (e.g. from a
     /// permalink).
     event_focused_caches: HashMap<EventFocusedCacheKey, EventFocusedCache>,
-
-    /// Cache for pinned events in this room, initialized on-demand.
-    pinned_event_cache: OnceLock<PinnedEventCache>,
 
     pagination_status: SharedObservable<SharedPaginationStatus>,
 
@@ -260,7 +256,6 @@ impl LockedRoomEventCacheState {
             room_version_rules,
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
-            pinned_event_cache: OnceLock::new(),
             automatic_pagination,
         }))
     }
@@ -280,11 +275,6 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<(), EventCacheError> {
         self.shrink_to_last_chunk().await?;
-
-        // Reload the pinned-events.
-        if let Some(pinned_event_cache) = self.pinned_event_cache.get_mut() {
-            pinned_event_cache.reload().await?;
-        }
 
         let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
@@ -360,32 +350,6 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         EventCacheStoreLockGuard::is_dirty(&self.store)
     }
 
-    /// Subscribe to the lazily initialized pinned event cache for this
-    /// room.
-    ///
-    /// This is a persisted view over the pinned events of a room. The
-    /// pinned events will be initially loaded from a network
-    /// request to fetch the latest pinned events will be performed,
-    /// to update it as needed. The list of pinned events will also
-    /// be kept up-to-date as new events are pinned, and new related
-    /// events show up from sync or backpagination.
-    ///
-    /// This requires the room's event cache to be initialized.
-    pub async fn subscribe_to_pinned_events(
-        &self,
-        room: Room,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        let pinned_event_cache = self.state.pinned_event_cache.get_or_init(|| {
-            PinnedEventCache::new(
-                room,
-                self.state.linked_chunk_update_sender.clone(),
-                self.state.store.clone(),
-            )
-        });
-
-        pinned_event_cache.subscribe().await
-    }
-
     /// Get an event-focused cache for this event and thread mode, if it
     /// exists.
     ///
@@ -403,13 +367,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// Return a mutable reference to the underlying room linked chunk.
     pub fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.room_linked_chunk
-    }
-
-    /// Get a reference to the [`pinned_event_cache`] if it has been
-    /// initialized.
-    #[cfg(any(feature = "e2e-encryption", test))]
-    pub fn pinned_event_cache(&self) -> Option<&PinnedEventCache> {
-        self.state.pinned_event_cache.get()
     }
 
     /// Get a reference to all the live [`event_focused_caches`].
@@ -736,16 +693,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     ) -> Result<(), EventCacheError> {
         // Update the store before doing the post-processing.
         self.propagate_changes().await?;
-
-        // Need an explicit re-borrow to avoid a deref vs deref-mut borrowck conflict
-        // below.
-        let state = &mut *self.state;
-
-        if let Some(pinned_event_cache) = state.pinned_event_cache.get_mut() {
-            pinned_event_cache
-                .maybe_add_live_related_events(&events, &state.room_version_rules.redaction)
-                .await?;
-        }
 
         for event in events {
             self.maybe_apply_new_redaction(&event).await?;

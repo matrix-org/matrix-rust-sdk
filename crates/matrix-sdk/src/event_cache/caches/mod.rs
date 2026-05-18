@@ -22,6 +22,7 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
+use once_cell::sync::OnceCell;
 use ruma::{OwnedEventId, OwnedRoomId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc};
 
@@ -43,6 +44,7 @@ pub mod thread;
 pub(super) struct Caches {
     pub room: room::RoomEventCache,
     pub threads: Arc<RwLock<HashMap<OwnedEventId, thread::ThreadEventCache>>>,
+    pub pinned_events: OnceCell<pinned_events::PinnedEventsCache>,
     internals: CachesInternals,
 }
 
@@ -124,6 +126,7 @@ impl Caches {
         Ok(Self {
             room: room_event_cache,
             threads: Arc::new(RwLock::new(HashMap::new())),
+            pinned_events: OnceCell::new(),
             internals: CachesInternals { store, linked_chunk_update_sender, room_version_rules },
         })
     }
@@ -183,9 +186,33 @@ impl Caches {
         )
     }
 
+    /// Get or create a [`PinnedEventsCache`].
+    ///
+    /// [`PinnedEventsCache`]: pinned_events::PinnedEventsCache
+    pub fn pinned_events(&self) -> Result<&pinned_events::PinnedEventsCache> {
+        self.pinned_events.get_or_try_init(|| {
+            pinned_events::PinnedEventsCache::new(
+                self.room.weak_room(),
+                self.room.own_user_id().clone(),
+                self.internals.room_version_rules.clone(),
+                self.internals.linked_chunk_update_sender.clone(),
+                self.internals.store.clone(),
+            )
+        })
+    }
+
+    /// Get a [`PinnedEventsCache`] if it has been initialised.
+    ///
+    /// [`PinnedEventsCache`]: pinned_events::PinnedEventsCache
+    pub(super) fn pinned_events_without_initialisation(
+        &self,
+    ) -> Option<&pinned_events::PinnedEventsCache> {
+        self.pinned_events.get()
+    }
+
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads, internals } = &self;
+        let Self { room, threads, pinned_events, internals } = &self;
 
         // Room.
         {
@@ -224,12 +251,24 @@ impl Caches {
             }
         }
 
+        // Pinned-events.
+        if let Some(pinned_events) = pinned_events.get() {
+            let mut updates = updates.clone();
+            updates.timeline = aggregator::aggregate_timeline_for_pinned_events(
+                &updates.timeline,
+                &pinned_events.state().read().await?.current_event_ids(),
+                &internals.room_version_rules.redaction,
+            );
+
+            pinned_events.handle_joined_room_update(updates).await?;
+        }
+
         Ok(())
     }
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads, internals } = &self;
+        let Self { room, threads, pinned_events, internals } = &self;
 
         // Room.
         {
@@ -266,6 +305,18 @@ impl Caches {
                 )
                 .await?;
             }
+        }
+
+        // Pinned-events.
+        if let Some(pinned_events) = pinned_events.get() {
+            let mut updates = updates.clone();
+            updates.timeline = aggregator::aggregate_timeline_for_pinned_events(
+                &updates.timeline,
+                &pinned_events.state().read().await?.current_event_ids(),
+                &internals.room_version_rules.redaction,
+            );
+
+            pinned_events.handle_left_room_update(updates).await?;
         }
 
         Ok(())
@@ -305,13 +356,19 @@ pub(super) struct ResetCaches<'c> {
         thread::OwnedThreadEventCacheStateLockWriteGuard,
         thread::ThreadEventCacheUpdateSender,
     )>,
+    pinned_events_lock: Option<(
+        pinned_events::PinnedEventsCacheStateLockWriteGuard<'c>,
+        pinned_events::PinnedEventsCacheUpdateSender,
+    )>,
 }
 
 impl<'c> ResetCaches<'c> {
     /// Create a new [`ResetCaches`].
     ///
     /// It can fail if acquiring an exclusive lock fails.
-    async fn new(Caches { room, threads, internals: _ }: &'c mut Caches) -> Result<Self> {
+    async fn new(
+        Caches { room, threads, pinned_events, internals: _ }: &'c mut Caches,
+    ) -> Result<Self> {
         // Acquire an exclusive access to the state of the room.
         let room_lock = (room.state().write().await?, room.update_sender().clone());
 
@@ -325,7 +382,14 @@ impl<'c> ResetCaches<'c> {
                 .push((thread.state().write_owned().await?, thread.update_sender().clone()));
         }
 
-        Ok(Self { room_lock, threads_lock, thread_locks })
+        // Acquire an exclusive access to the pinned-events if any.
+        let pinned_events_lock = if let Some(pinned_events) = pinned_events.get_mut() {
+            Some((pinned_events.state().write().await?, pinned_events.update_sender().clone()))
+        } else {
+            None
+        };
+
+        Ok(Self { room_lock, threads_lock, thread_locks, pinned_events_lock })
     }
 
     /// Reset all the event caches, and broadcast the [`TimelineVectorDiffs`].
@@ -335,8 +399,9 @@ impl<'c> ResetCaches<'c> {
     ///
     /// It can fail if resetting an event cache fails.
     pub async fn reset_all(self) -> Result<()> {
-        let Self { room_lock, threads_lock, thread_locks } = self;
+        let Self { room_lock, threads_lock, thread_locks, pinned_events_lock } = self;
 
+        // Room.
         {
             let (mut room_state, room_update_sender) = room_lock;
 
@@ -350,6 +415,7 @@ impl<'c> ResetCaches<'c> {
             );
         }
 
+        // Threads.
         {
             for thread_lock in thread_locks {
                 let (mut thread_state, thread_update_sender) = thread_lock;
@@ -368,6 +434,18 @@ impl<'c> ResetCaches<'c> {
 
             // Now we can release the exclusive access over the threads.
             drop(threads_lock);
+        }
+
+        // Pinned-events.
+        {
+            if let Some((mut pinned_events_state, pinned_events_update_sender)) = pinned_events_lock
+            {
+                let updates_as_vector_diffs = pinned_events_state.reset().await?;
+                pinned_events_update_sender.send(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
+            }
         }
 
         Ok(())

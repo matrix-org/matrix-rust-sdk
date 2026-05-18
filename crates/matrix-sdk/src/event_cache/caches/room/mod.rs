@@ -34,7 +34,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-use tokio::sync::{Notify, broadcast::Receiver, mpsc};
+use tokio::sync::{Notify, mpsc};
 use tracing::{instrument, trace, warn};
 
 pub(super) use self::state::{
@@ -148,24 +148,6 @@ impl RoomEventCache {
         );
 
         Ok((events, subscriber))
-    }
-
-    /// Subscribe to the pinned event cache for this room.
-    ///
-    /// This is a persisted view over the pinned events of a room.
-    ///
-    /// The pinned events will be initially reloaded from storage, and/or loaded
-    /// from a network request to fetch the latest pinned events and their
-    /// relations, to update it as needed. The list of pinned events will
-    /// also be kept up-to-date as new events are pinned, and new
-    /// related events show up from other sources.
-    pub async fn subscribe_to_pinned_events(
-        &self,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
-        let state = self.inner.state.read().await?;
-
-        state.subscribe_to_pinned_events(room).await
     }
 
     /// Create or get an event-focused timeline cache for this room.

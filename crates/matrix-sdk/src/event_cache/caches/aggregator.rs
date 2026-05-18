@@ -129,3 +129,57 @@ pub async fn aggregate_timeline_for_threads(
 
     Ok(new_events_by_thread)
 }
+
+pub fn aggregate_timeline_for_pinned_events(
+    timeline: &Timeline,
+    pinned_event_ids: &[OwnedEventId],
+    redaction_rules: &RedactionRules,
+) -> Timeline {
+    let mut new_timeline = Timeline {
+        limited: timeline.limited,
+        prev_batch: timeline.prev_batch.clone(),
+        events: Vec::new(),
+    };
+
+    // No events are pinned? The `Timeline` must be empty.
+    if pinned_event_ids.is_empty() {
+        return new_timeline;
+    }
+
+    // Look for events that relate to pinned events. We already know the
+    // pinned-events, we don't need to look for them. We are only interested by
+    // related events.
+    for event in &timeline.events {
+        match extract_relation(event.raw()) {
+            // Ohh, this event relates to another event!
+            Some((relation_type, related_event_id)) => match relation_type {
+                // `event` relates to a thread: not what we want.
+                RelationType::Thread => {}
+
+                // `event` represents an annotation (e.g. reactions), a replacement (an edit), a
+                // reference or something custom. Let's see if the `related_event_id` is a
+                // pinned-event.
+                RelationType::Annotation
+                | RelationType::Replacement
+                | RelationType::Reference
+                | _ => {
+                    if pinned_event_ids.contains(&related_event_id) {
+                        new_timeline.events.push(event.clone());
+                    }
+                }
+            },
+
+            // No explicit relation, but it can be a redaction of a pinned-event!
+            None => {
+                if let Some(redaction_target) =
+                    extract_redaction_target(event.raw(), redaction_rules)
+                    && pinned_event_ids.contains(&redaction_target)
+                {
+                    new_timeline.events.push(event.clone());
+                }
+            }
+        }
+    }
+
+    new_timeline
+}

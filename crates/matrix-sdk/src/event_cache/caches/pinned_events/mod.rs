@@ -12,44 +12,55 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+mod updates;
 
+use std::{collections::BTreeSet, fmt, sync::Arc};
+
+use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
-    event_cache::{Event, store::EventCacheStoreLock},
-    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
-    serde_helpers::extract_relation,
+    apply_redaction,
+    event_cache::{Event, Gap, store::EventCacheStoreLock},
+    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update},
+    serde_helpers::extract_redaction_target,
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
     task_monitor::BackgroundTaskHandle,
 };
+use matrix_sdk_common::executor::spawn;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType, relation::RelationType,
-    },
-    room_version_rules::RedactionRules,
-    serde::Raw,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
+    events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
+    room_version_rules::RoomVersionRules,
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
+pub(super) use self::updates::PinnedEventsCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::{
-    super::{EventCacheError, EventsOrigin, Result, persistence::send_updates_to_store},
-    TimelineVectorDiffs,
-    event_linked_chunk::EventLinkedChunk,
+    super::{
+        EventCacheError, EventsOrigin, Result,
+        deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+        persistence::{find_event, send_updates_to_store},
+    },
+    EventLocation, TimelineVectorDiffs,
+    event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
     lock,
     lock::Reload as _,
     room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
 
-pub(in super::super) struct PinnedEventCacheState {
+pub(in super::super) struct PinnedEventsCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
 
-    /// A sender for live events updates in this room's pinned events list.
-    sender: Sender<TimelineVectorDiffs>,
+    /// The user's own user id.
+    own_user_id: OwnedUserId,
+
+    /// The rules for the version of this room.
+    room_version_rules: RoomVersionRules,
 
     /// The linked chunk representing this room's pinned events.
     ///
@@ -60,8 +71,13 @@ pub(in super::super) struct PinnedEventCacheState {
     chunk: EventLinkedChunk,
 
     /// Reference to the underlying backing store.
-    // TODO: can be removed?
     store: EventCacheStoreLock,
+
+    /// A clone of [`PinnedEventsCacheInner::update_sender`].
+    ///
+    /// This is used only by the [`LockedPinnedEventsCacheState::read`] and
+    /// [`LockedPinnedEventsCacheState::write`] when the state must be reset.
+    update_sender: PinnedEventsCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
     /// during a sync or a back-pagination.
@@ -70,16 +86,16 @@ pub(in super::super) struct PinnedEventCacheState {
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
-impl lock::Store for PinnedEventCacheState {
+impl lock::Store for PinnedEventsCacheState {
     fn store(&self) -> &EventCacheStoreLock {
         &self.store
     }
 }
 
 #[cfg(not(tarpaulin_include))]
-impl std::fmt::Debug for PinnedEventCacheState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PinnedEventCacheState")
+impl fmt::Debug for PinnedEventsCacheState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PinnedEventsCacheState")
             .field("room_id", &self.room_id)
             .field("chunk", &self.chunk)
             .finish_non_exhaustive()
@@ -90,12 +106,12 @@ impl std::fmt::Debug for PinnedEventCacheState {
 ///
 /// This contains all the inner mutable states that ought to be updated at
 /// the same time.
-pub type PinnedEventCacheStateLock = lock::StateLock<PinnedEventCacheState>;
+pub type LockedPinnedEventsCacheState = lock::StateLock<PinnedEventsCacheState>;
 
-pub type PinnedEventCacheStateLockWriteGuard<'a> =
-    lock::StateLockWriteGuard<'a, PinnedEventCacheState>;
+pub type PinnedEventsCacheStateLockWriteGuard<'a> =
+    lock::StateLockWriteGuard<'a, PinnedEventsCacheState>;
 
-impl<'a> lock::Reload for PinnedEventCacheStateLockWriteGuard<'a> {
+impl<'a> lock::Reload for PinnedEventsCacheStateLockWriteGuard<'a> {
     async fn reload(&mut self) -> Result<()> {
         self.reload_from_storage().await?;
 
@@ -103,7 +119,225 @@ impl<'a> lock::Reload for PinnedEventCacheStateLockWriteGuard<'a> {
     }
 }
 
-impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
+impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
+    /// Reset this data structure as if it were brand new.
+    ///
+    /// However, pinned-events are not only stored here. They are also coming at
+    /// a state-event containing all the pinned-events ID list in the `Room`.
+    /// This is a best-effort here: we are resetting the events stored in this
+    /// cache only.
+    ///
+    /// Return a single diff update that is a clear of all events; as a
+    /// result, the caller may override any pending diff updates
+    /// with the result of this function.
+    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+        self.state.chunk.reset();
+        self.propagate_changes().await?;
+
+        let diff_updates = self.state.chunk.updates_as_vector_diffs();
+
+        // Ensure the contract defined in the doc comment is true:
+        debug_assert_eq!(diff_updates.len(), 1);
+        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
+
+        Ok(diff_updates)
+    }
+
+    async fn handle_sync(&mut self, timeline: Timeline) -> Result<()> {
+        let DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+            non_empty_all_duplicates: all_duplicates,
+        } = filter_duplicate_events(
+            &self.state.own_user_id,
+            &self.store,
+            LinkedChunkId::PinnedEvents(&self.state.room_id),
+            &self.state.chunk,
+            timeline.events,
+        )
+        .await?;
+
+        if all_duplicates {
+            // If all events are duplicates, we don't need to do anything; ignore
+            // the new events.
+            return Ok(());
+        }
+
+        // Remove the old duplicated events.
+        //
+        // We don't have to worry about the removals can change the position of the
+        // existing events, because we are pushing all _new_ `events` at the back.
+        self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
+
+        // We've found new relations; append them to the linked chunk.
+        self.state.chunk.push_live_events(None, &events);
+
+        self.propagate_changes().await?;
+        self.notify_subscribers(EventsOrigin::Sync);
+
+        // Do stuff for each event.
+        for event in &events {
+            // Handle redaction.
+            self.maybe_apply_new_redaction(&event).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Remove events by their position, in `EventLinkedChunk`.
+    ///
+    /// This method is purposely isolated because it must ensure that
+    /// positions are sorted appropriately or it can be disastrous.
+    #[instrument(skip_all)]
+    pub async fn remove_events(
+        &mut self,
+        in_memory_events: Vec<(OwnedEventId, Position)>,
+        in_store_events: Vec<(OwnedEventId, Position)>,
+    ) -> Result<()> {
+        // In-store events.
+        if !in_store_events.is_empty() {
+            let mut positions = in_store_events
+                .into_iter()
+                .map(|(_event_id, position)| position)
+                .collect::<Vec<_>>();
+
+            sort_positions_descending(&mut positions);
+
+            let updates =
+                positions.into_iter().map(|pos| Update::RemoveItem { at: pos }).collect::<Vec<_>>();
+
+            self.apply_store_only_updates(updates).await?;
+        }
+
+        // In-memory events.
+        if in_memory_events.is_empty() {
+            // Nothing else to do, return early.
+            return Ok(());
+        }
+
+        // `remove_events_by_position` is responsible of sorting positions.
+        self.state
+            .chunk
+            .remove_events_by_position(
+                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+            )
+            .expect("failed to remove an event");
+
+        self.propagate_changes().await
+    }
+
+    /// Apply some updates that are effective only on the store itself.
+    ///
+    /// This method should be used only for updates that happen *outside*
+    /// the in-memory linked chunk. Such updates must be applied
+    /// onto the ordering tracker as well as to the persistent
+    /// storage.
+    async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
+        self.state.chunk.order_tracker.map_updates(&updates);
+        self.send_updates_to_store(updates).await
+    }
+
+    /// If the given event is a redaction, try to retrieve the
+    /// to-be-redacted event in the chunk, and replace it by the
+    /// redacted form.
+    #[instrument(skip_all)]
+    async fn maybe_apply_new_redaction(&mut self, event: &Event) -> Result<()> {
+        let Some(event_id) =
+            extract_redaction_target(event.raw(), &self.room_version_rules.redaction)
+        else {
+            return Ok(());
+        };
+
+        // Replace the redacted event by a redacted form, if we knew about it.
+        let Some((location, mut target_event)) = self.find_event(&event_id).await? else {
+            trace!("redacted event is missing from the linked chunk");
+            return Ok(());
+        };
+
+        let target_event_raw = target_event.raw();
+
+        // Don't redact already redacted events.
+        if let Ok(deserialized) = target_event_raw.deserialize()
+            && deserialized.is_redacted()
+        {
+            return Ok(());
+        }
+
+        if let Some(redacted_event) = apply_redaction(
+            target_event_raw,
+            event.raw().cast_ref_unchecked::<SyncRoomRedactionEvent>(),
+            &self.room_version_rules.redaction,
+        ) {
+            // It's safe to cast `redacted_event` here:
+            // - either the event was an `AnyTimelineEvent` cast to `AnySyncTimelineEvent`
+            //   when calling .raw(), so it's still one under the hood.
+            // - or it wasn't, and it's a plain `AnySyncTimelineEvent` in this case.
+            target_event.replace_raw(redacted_event.cast_unchecked());
+
+            self.replace_event_at(location, target_event.clone()).await?;
+        }
+
+        Ok(())
+    }
+
+    /// See documentation of [`find_event`].
+    pub(super) async fn find_event(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Option<(EventLocation, Event)>> {
+        find_event(event_id, &self.room_id, &self.chunk, &self.store).await
+    }
+
+    /// Replaces a single event, be it saved in memory or in the store.
+    ///
+    /// If it was saved in memory, this will emit a notification to
+    /// observers that a single item has been replaced. Otherwise,
+    /// such a notification is not emitted, because observers are
+    /// unlikely to observe the store updates directly.
+    pub async fn replace_event_at(
+        &mut self,
+        location: EventLocation,
+        new_event: Event,
+    ) -> Result<()> {
+        match location {
+            EventLocation::Memory(position) => {
+                self.state
+                    .chunk
+                    .replace_event_at(position, new_event)
+                    .expect("should have been a valid position of an item");
+                // We just changed the in-memory representation; synchronize this with
+                // the store.
+                self.propagate_changes().await?;
+            }
+            EventLocation::Store => {
+                self.save_events([new_event]).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Save events into the database, without notifying observers.
+    pub async fn save_events(&mut self, events: impl IntoIterator<Item = Event>) -> Result<()> {
+        let store = self.store.clone();
+        let room_id = self.state.room_id.clone();
+        let events = events.into_iter().collect::<Vec<_>>();
+
+        // Spawn a task so the save is uninterrupted by task cancellation.
+        spawn(async move {
+            for event in events {
+                store.save_event(&room_id, event).await?;
+            }
+
+            Result::Ok(())
+        })
+        .await
+        .expect("joining failed")?;
+
+        Ok(())
+    }
+
     /// Reload all the pinned events from storage, replacing the current linked
     /// chunk.
     async fn reload_from_storage(&mut self) -> Result<()> {
@@ -170,9 +404,15 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
 
     /// Propagate the changes in this linked chunk to observers, and save the
     /// changes on disk.
-    async fn propagate_changes(&mut self) -> Result<()> {
+    pub async fn propagate_changes(&mut self) -> Result<()> {
         let updates = self.state.chunk.store_updates().take();
-        let linked_chunk_id = OwnedLinkedChunkId::PinnedEvents(self.state.room_id.clone());
+
+        self.send_updates_to_store(updates).await
+    }
+
+    async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
+        let linked_chunk_id = OwnedLinkedChunkId::PinnedEvents(self.room_id.clone());
+
         send_updates_to_store(
             &self.store,
             linked_chunk_id,
@@ -185,67 +425,103 @@ impl<'a> PinnedEventCacheStateLockWriteGuard<'a> {
     /// Notify subscribers of timeline updates.
     fn notify_subscribers(&mut self, origin: EventsOrigin) {
         let diffs = self.state.chunk.updates_as_vector_diffs();
+
         if !diffs.is_empty() {
-            let _ = self.state.sender.send(TimelineVectorDiffs { diffs, origin });
+            let _ = self.update_sender.send(TimelineVectorDiffs { diffs, origin });
         }
     }
 }
 
-impl PinnedEventCacheState {
+impl PinnedEventsCacheState {
     /// Return a list of the current event IDs in this linked chunk.
-    fn current_event_ids(&self) -> Vec<OwnedEventId> {
+    pub(super) fn current_event_ids(&self) -> Vec<OwnedEventId> {
         self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
     }
 }
 
-/// All the information related to a room's pinned events cache.
+/// All the information related to room's pinned events..
 ///
-/// This is cheap to clone, because it's a shallow data type.
+/// Cloning is shallow, and thus is cheap to do.
 #[derive(Clone)]
-pub struct PinnedEventCache {
-    state: Arc<PinnedEventCacheStateLock>,
+pub struct PinnedEventsCache {
+    inner: Arc<PinnedEventsCacheInner>,
+}
+
+/// The (non-cloneable) details of the `PinnedEventsCache`.
+struct PinnedEventsCacheInner {
+    /// The ID of the room owning this list of pinned events.
+    room_id: OwnedRoomId,
+
+    /// State of this `PinnedEventsCache`.
+    ///
+    /// It is behind an `Arc` because it is shared with the task.
+    state: Arc<LockedPinnedEventsCacheState>,
+
+    /// Update sender for this pinned events cache.
+    update_sender: PinnedEventsCacheUpdateSender,
 
     /// The task handling the refreshing of pinned events for this specific
     /// room.
-    _task: Arc<BackgroundTaskHandle>,
+    _task: BackgroundTaskHandle,
 }
 
-impl PinnedEventCache {
-    /// Creates a new [`PinnedEventCache`] for the given room.
+impl PinnedEventsCache {
+    /// Creates a new [`PinnedEventsCache`] for the given room.
     pub(in super::super) fn new(
-        room: Room,
+        weak_room: &WeakRoom,
+        own_user_id: OwnedUserId,
+        room_version_rules: RoomVersionRules,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
-    ) -> Self {
-        let sender = Sender::new(32);
-
+    ) -> Result<Self> {
+        let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let room_id = room.room_id().to_owned();
+
+        let update_sender = PinnedEventsCacheUpdateSender::new();
 
         let chunk = EventLinkedChunk::new();
 
-        let state =
-            PinnedEventCacheState { room_id, chunk, sender, linked_chunk_update_sender, store };
-        let state = Arc::new(PinnedEventCacheStateLock::new_inner(state));
+        let state = PinnedEventsCacheState {
+            room_id: room_id.clone(),
+            own_user_id,
+            room_version_rules,
+            chunk,
+            update_sender: update_sender.clone(),
+            linked_chunk_update_sender,
+            store,
+        };
+        let state = Arc::new(LockedPinnedEventsCacheState::new_inner(state));
 
-        let task = Arc::new(
-            room.client()
-                .task_monitor()
-                .spawn_infinite_task(
-                    "pinned_event_listener_task",
-                    Self::pinned_event_listener_task(room, state.clone()),
-                )
-                .abort_on_drop(),
-        );
+        let task = room
+            .client()
+            .task_monitor()
+            .spawn_infinite_task(
+                "pinned_event_listener_task",
+                Self::pinned_event_listener_task(room, state.clone()),
+            )
+            .abort_on_drop();
 
-        Self { state, _task: task }
+        Ok(Self {
+            inner: Arc::new(PinnedEventsCacheInner { room_id, state, update_sender, _task: task }),
+        })
+    }
+
+    /// Return a reference to the state.
+    pub(super) fn state(&self) -> &LockedPinnedEventsCacheState {
+        &self.inner.state
+    }
+
+    /// Get a reference to the [`RoomEventCacheUpdateSender`].
+    pub(in super::super) fn update_sender(&self) -> &PinnedEventsCacheUpdateSender {
+        &self.inner.update_sender
     }
 
     /// Subscribe to live events from this room's pinned events cache.
     pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let guard = self.state.read().await?;
+        let guard = self.inner.state.read().await?;
         let events = guard.state.chunk.events().map(|(_position, item)| item.clone()).collect();
 
-        let recv = guard.state.sender.subscribe();
+        let recv = guard.state.update_sender.new_pinned_events_receiver();
 
         Ok((events, recv))
     }
@@ -254,8 +530,8 @@ impl PinnedEventCache {
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
-    pub(in crate::event_cache) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
-        let mut guard = self.state.write().await?;
+    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+        let mut guard = self.inner.state.write().await?;
 
         if guard.state.chunk.replace_utds(events) {
             guard.propagate_changes().await?;
@@ -265,99 +541,38 @@ impl PinnedEventCache {
         Ok(())
     }
 
-    /// Given a raw event, try to extract the target event ID of a relation as
-    /// defined with `m.relates_to`.
-    fn extract_relation_target(raw: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
-        let (rel_type, event_id) = extract_relation(raw)?;
+    /// Handle a [`JoinedRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.inner.room_id))]
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline).await?;
 
-        // Don't include thread responses in the pinned event chunk.
-        match rel_type {
-            RelationType::Thread => None,
-            _ => Some(event_id),
-        }
+        Ok(())
     }
 
-    /// Given a raw event, try to extract the target event ID of a live
-    /// redaction.
-    fn extract_redaction_target(
-        raw: &Raw<AnySyncTimelineEvent>,
-        room_redaction_rules: &RedactionRules,
-    ) -> Option<OwnedEventId> {
-        // Try to find a redaction, but do not deserialize the entire event if we aren't
-        // certain it's a `m.room.redaction`.
-        if raw.get_field::<MessageLikeEventType>("type").ok()??
-            != MessageLikeEventType::RoomRedaction
-        {
-            return None;
-        }
+    /// Handle a [`LeftRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.inner.room_id))]
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline).await?;
 
-        let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(redaction)) =
-            raw.deserialize().ok()?
-        else {
-            return None;
-        };
-
-        redaction.redacts(room_redaction_rules).map(ToOwned::to_owned).or_else(|| {
-            warn!("missing target event id from the redaction event");
-            None
-        })
+        Ok(())
     }
 
-    /// Check if any of the given events relate to an event in the pinned events
-    /// linked chunk, and append it, in this case.
-    pub(in super::super) async fn maybe_add_live_related_events(
-        &mut self,
-        events: &[Event],
-        room_redaction_rules: &RedactionRules,
-    ) -> Result<()> {
-        trace!("checking live events for relations to pinned events");
-        let mut guard = self.state.write().await?;
-
-        let pinned_event_ids: BTreeSet<OwnedEventId> =
-            guard.state.current_event_ids().into_iter().collect();
-
-        if pinned_event_ids.is_empty() {
+    /// Handle a [`Timeline`], i.e. new events received by a sync for this
+    /// thread.
+    async fn handle_timeline(&self, timeline: Timeline) -> Result<()> {
+        if timeline.events.is_empty() {
             return Ok(());
         }
 
-        let mut new_relations = Vec::new();
+        trace!("adding new {} events", timeline.events.len());
 
-        // For all events that relate to an event in the pinned events chunk, push this
-        // event to the linked chunk, and propagate changes to observers.
-        for ev in events {
-            // Try to find a regular relation in ev.
-            if let Some(relation_target) = Self::extract_relation_target(ev.raw())
-                && pinned_event_ids.contains(&relation_target)
-            {
-                new_relations.push(ev.clone());
-                continue;
-            }
-
-            // Try to find a redaction in ev.
-            if let Some(redaction_target) =
-                Self::extract_redaction_target(ev.raw(), room_redaction_rules)
-                && pinned_event_ids.contains(&redaction_target)
-            {
-                new_relations.push(ev.clone());
-                continue;
-            }
-        }
-
-        if !new_relations.is_empty() {
-            trace!("found {} new related events to pinned events", new_relations.len());
-
-            // We've found new relations; append them to the linked chunk.
-            guard.state.chunk.push_live_events(None, &new_relations);
-
-            guard.propagate_changes().await?;
-            guard.notify_subscribers(EventsOrigin::Sync);
-        }
+        self.inner.state.write().await?.handle_sync(timeline).await?;
 
         Ok(())
     }
 
     #[instrument(fields(%room_id = room.room_id()), skip(room, state))]
-    async fn pinned_event_listener_task(room: Room, state: Arc<PinnedEventCacheStateLock>) {
+    async fn pinned_event_listener_task(room: Room, state: Arc<LockedPinnedEventsCacheState>) {
         debug!("pinned events listener task started");
 
         let reload_from_network = async |room: Room| {
@@ -551,6 +766,12 @@ impl PinnedEventCache {
     // TODO(@hywan): Temporary fix. All the states must be in a single struct behind
     // the cross-process lock instead of being dispatched in each cache.
     pub(super) async fn reload(&self) -> Result<()> {
-        self.state.write().await?.reload().await
+        self.inner.state.write().await?.reload().await
+    }
+}
+
+impl fmt::Debug for PinnedEventsCache {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PinnedEventsCache").finish_non_exhaustive()
     }
 }
