@@ -8,34 +8,39 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- [**breaking**] `Room::is_dm` was renamed to `Room::compute_is_dm` to match its behavior, since it'll now compute 
-  and cache the result. A new *synchronous* `Room::is_dm` function was added which centralizes the logic of 
-  checking if something is a DM based on that cached value and the provided `DmRoomDefinition`. `Room::sync_members` 
-  will also now compute active service members. ([#6537](https://github.com/matrix-org/matrix-rust-sdk/pull/6537))
-- [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires 
-  `StateStore::save_changes` to acquire state store lock and replaces `Room::set_room_info` 
-  with an atomic version, `Room::update_room_info`, which is also synchronized by
-  the state store lock.
+- [**breaking**] `Room::is_dm` was renamed to `Room::compute_is_dm` to match its
+  behavior, since it'll now compute and cache the result. A new _synchronous_
+  `Room::is_dm` function was added which centralizes the logic of checking if
+  something is a DM based on that cached value and the provided
+  `DmRoomDefinition`. `Room::sync_members` will also now compute active service
+  members. ([#6537](https://github.com/matrix-org/matrix-rust-sdk/pull/6537))
+- [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires
+  `StateStore::save_changes` to acquire state store lock and replaces
+  `Room::set_room_info` with an atomic version, `Room::update_room_info`, which
+  is also synchronized by the state store lock.
   ([#6478](https://github.com/matrix-org/matrix-rust-sdk/pull/6478))
-- Added `beacon` and `beacon_info` fields to `RoomPowerLevelChanges`, allowing callers to read
-  and update the power levels required to send beacon (live location) message events and beacon
-  info state events respectively.
+- Added `beacon` and `beacon_info` fields to `RoomPowerLevelChanges`, allowing
+  callers to read and update the power levels required to send beacon (live
+  location) message events and beacon info state events respectively.
   ([#6540](https://github.com/matrix-org/matrix-rust-sdk/pull/6540))
-- Added `DmRoomDefinition` as a parameter of `ClientBuilder` so we can specify it when creating a Client. 
-  Also added a `Room::is_dm` method and added some logic to use the new DM definitions in `Client::get_dm_rooms` 
-  and when using message search. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
+- Added `DmRoomDefinition` as a parameter of `ClientBuilder` so we can specify
+  it when creating a Client. Also added a `Room::is_dm` method and added some
+  logic to use the new DM definitions in `Client::get_dm_rooms` and when using
+  message search.
+  ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
 - Sharing encrypted history on room invite, per
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) is
   now enabled by default (though can still be disabled via
   `ClientBuilder::with_enable_share_history_on_invite`).
   ([#6497](https://github.com/matrix-org/matrix-rust-sdk/pull/6497))
-- Add `Client::get_dm_rooms` function to get an iterator with the DMs for the provided user id.
+- Add `Client::get_dm_rooms` function to get an iterator with the DMs for the
+  provided user id.
   ([#6487](https://github.com/matrix-org/matrix-rust-sdk/pull/6487))
 - Support the stable `m.key_backup` prefix for MSC4287: Sharing key backup
   preference between clients.
   ([#6410](https://github.com/matrix-org/matrix-rust-sdk/pull/6410))
-- Add new high-level search helpers in `matrix_sdk_ui::search` to perform searches for messages in
-  a room or across all rooms.
+- Add new high-level search helpers in `matrix_sdk_ui::search` to perform
+  searches for messages in a room or across all rooms.
   ([#6394](https://github.com/matrix-org/matrix-rust-sdk/pull/6394))
 - Latest Event does not emit an update when it computes the same value as the
   previous Latest Event.
@@ -47,38 +52,43 @@ All notable changes to this project will be documented in this file.
   ([#6432](https://github.com/matrix-org/matrix-rust-sdk/pull/6432))
 - Add `room_versions()` & `account_moderation()` to `HomeserverCapabilities`.
   ([#6413](https://github.com/matrix-org/matrix-rust-sdk/pull/6413))
-- Enable sending redaction events through the send queue via `RoomSendQueue::redact`.
-  This includes local echoes for redaction events through the new `LocalEchoContent::Redaction`
-  variant.
+- Enable sending redaction events through the send queue via
+  `RoomSendQueue::redact`. This includes local echoes for redaction events
+  through the new `LocalEchoContent::Redaction` variant.
   ([#6250](https://github.com/matrix-org/matrix-rust-sdk/pull/6250))
 - [**breaking**] Remove support for `native-tls` and remove all feature
   flags for selecting TLS backend, as `rustls` is the now the only supported
   TLS backend.
   ([#6409](https://github.com/matrix-org/matrix-rust-sdk/pull/6409))
-- [**breaking**] Added `HomeserverCapabilities` and `Client::homeserver_capabilities()` to get the capabilities
-  of the homeserver. This replaces `Client::get_capabilities()`.
+- [**breaking**] Added `HomeserverCapabilities` and
+  `Client::homeserver_capabilities()` to get the capabilities of the homeserver.
+  This replaces `Client::get_capabilities()`.
   ([#6371](https://github.com/matrix-org/matrix-rust-sdk/pull/6371))
-- [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which occurs when
-  a cross-signing reset does not succeed after some period of time.
+- [**breaking**] `matrix_sdk::error::Error` has a new variant `Timeout` which
+  occurs when a cross-signing reset does not succeed after some period of time.
   ([#6325](https://github.com/matrix-org/matrix-rust-sdk/pull/6325))
-- The `beacon_info` start event ([MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
-  is now included when computing the latest event for a room, so live location sharing
-  sessions can be surfaced as a room's most recent activity.
+- The `beacon_info` start event
+  ([MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672)) is
+  now included when computing the latest event for a room, so live location
+  sharing sessions can be surfaced as a room's most recent activity.
   ([#6295](https://github.com/matrix-org/matrix-rust-sdk/pull/6295))
-- [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking a few other error
-  types as `Clone`able, and wrapping a few other error variants with `Arc`.
+- [**breaking**] The `EventCacheError` is now `Clone`able, which implied marking
+  a few other error types as `Clone`able, and wrapping a few other error
+  variants with `Arc`.
   ([#6305](https://github.com/matrix-org/matrix-rust-sdk/pull/6305))
-- [**breaking**]: The unread count computation has now moved from the sliding sync processing, to
-  the event cache. As a result, it is necessary to enable the event cache if you want to keep a
-  precise unread counts, using `Client::event_cache().subscribe()`. The unread counts will now also
-  be available even if you used a previous version of sync (v2), as long as you've enabled the
-  event cache beforehand.
+- [**breaking**]: The unread count computation has now moved from the sliding
+  sync processing, to the event cache. As a result, it is necessary to enable
+  the event cache if you want to keep a precise unread counts, using
+  `Client::event_cache().subscribe()`. The unread counts will now also be
+  available even if you used a previous version of sync (v2), as long as you've
+  enabled the event cache beforehand.
   ([#6253](https://github.com/matrix-org/matrix-rust-sdk/pull/6253))
-- [**breaking**] `room::reply::Event` has a new field `add_mentions` which is passed forward in
-  `room::reply::make_reply_event`.
+- [**breaking**] `room::reply::Event` has a new field `add_mentions` which is
+  passed forward in `room::reply::make_reply_event`.
   ([#6270](https://github.com/matrix-org/matrix-rust-sdk/pull/6270))
-- Add `Recovery::recover_and_fix_backup` to automatically fix key storage backup if the
-  private backup decryption key is missing, invalid or inconsistent with the public key.
+- Add `Recovery::recover_and_fix_backup` to automatically fix key storage backup
+  if the private backup decryption key is missing, invalid or inconsistent with
+  the public key.
   ([#6252](https://github.com/matrix-org/matrix-rust-sdk/pull/6252))
 - Attempt to import stored room key bundles for rooms awaiting bundles at
   client startup.
@@ -90,18 +100,21 @@ All notable changes to this project will be documented in this file.
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
 - Add `QRCodeGrantLoginError::UnexpectedMessage` for protocol message errors
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
-- Add `QRCodeGrantLoginError::LoginFailure` for login failure errors received from the other device
+- Add `QRCodeGrantLoginError::LoginFailure` for login failure errors received
+  from the other device
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
-- Add `QRCodeGrantLoginError::DeviceNotFound` for when the requested device was not returned by the homeserver
+- Add `QRCodeGrantLoginError::DeviceNotFound` for when the requested device was
+  not returned by the homeserver
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
-- Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to duplicate key
-  upload errors from `/keys/upload`.
+- Add `Client::subscribe_to_duplicate_key_upload_errors` for listening to
+  duplicate key upload errors from `/keys/upload`.
   ([#6135](https://github.com/matrix-org/matrix-rust-sdk/pull/6135/))
-- Add `Room::pin_event` and `Room::unpin_event`, which allow pinning and unpinning events from a
-  room. These were extracted from the `matrix_sdk_ui` crate, with no changes in functionality.
+- Add `Room::pin_event` and `Room::unpin_event`, which allow pinning and
+  unpinning events from a room. These were extracted from the `matrix_sdk_ui`
+  crate, with no changes in functionality.
   ([#6106](https://github.com/matrix-org/matrix-rust-sdk/pull/6106))
-- `LatestEventValue::RemoteInvite` is added to handle a Latest Event for invite room.
-  ([#6056](https://github.com/matrix-org/matrix-rust-sdk/pull/6056))
+- `LatestEventValue::RemoteInvite` is added to handle a Latest Event for invite
+  room. ([#6056](https://github.com/matrix-org/matrix-rust-sdk/pull/6056))
 - Add `Room::set_own_member_display_name` to set the current user's display name
   within only the one single room (can be used for /myroomnick functionality).
   [#5981](https://github.com/matrix-org/matrix-rust-sdk/pull/5981)
@@ -123,8 +136,8 @@ All notable changes to this project will be documented in this file.
 - Replace in-memory stores with IndexedDB implementations when initializing
   `Client` with `BuilderStoreConfig::IndexedDb`.
   ([#5946](https://github.com/matrix-org/matrix-rust-sdk/pull/5946))
-- Call: Add support for the new Intents for voice only calls `Intent.StartCallDmVoice`
-  and `Intent.JoinExistingDmVoice`.
+- Call: Add support for the new Intents for voice only calls
+  `Intent.StartCallDmVoice` and `Intent.JoinExistingDmVoice`.
   ([#6003](https://github.com/matrix-org/matrix-rust-sdk/pull/6003))
 - Add `SlidingSync::unsubscribe_to_rooms` and
   `SlidingSync::clear_and_subscribe_to_rooms`.
@@ -136,110 +149,135 @@ All notable changes to this project will be documented in this file.
   to true will now trigger a download of all historical keys for the room in
   question from the client's key backup.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
-- Add widget partial support for MSC4039. Allows widgets to download non-encrypted files from the
-  content repository (like avatars).
+- Add widget partial support for MSC4039. Allows widgets to download
+  non-encrypted files from the content repository (like avatars).
   ([#6354](https://github.com/matrix-org/matrix-rust-sdk/pull/6354))
 
-### Breaking Changes
+### Breaking changes
 
-- [**breaking**] `LiveLocationShares` has been renamed to `LiveLocationsObserver` and
-  `Room::live_location_shares` to `Room::live_locations_observer`.
+- [**breaking**] `LiveLocationShares` has been renamed to
+  `LiveLocationsObserver` and `Room::live_location_shares` to
+  `Room::live_locations_observer`.
   ([#6446](https://github.com/matrix-org/matrix-rust-sdk/pull/6446))
 
-- `Room::observe_live_location_shares` has been replaced by `Room::live_locations_observer`.
-  The new API returns a `LiveLocationsObserver` struct with a `subscribe()` method that provides an initial
-  snapshot (`Vector<LiveLocationShare>`) and a batched stream of `VectorDiff` updates, instead of
-  emitting individual `LiveLocationShare` items as beacon events arrive. The initial snapshot is loaded
-  from the event cache on creation, includes the own user's shares (previously excluded), and properly
-  handles share start/stop by listening to beacon_info state events.
+- `Room::observe_live_location_shares` has been replaced by
+  `Room::live_locations_observer`. The new API returns a `LiveLocationsObserver`
+  struct with a `subscribe()` method that provides an initial snapshot
+  (`Vector<LiveLocationShare>`) and a batched stream of `VectorDiff` updates,
+  instead of emitting individual `LiveLocationShare` items as beacon events
+  arrive. The initial snapshot is loaded from the event cache on creation,
+  includes the own user's shares (previously excluded), and properly handles
+  share start/stop by listening to beacon_info state events.
   ([#6385](https://github.com/matrix-org/matrix-rust-sdk/pull/6385))
 
 ### Bugfix
 
-- Add the `session` key in `OAuthCrossSigningResetInfo`, allowing to provide `AuthData::OAuth` in
-  `CrossSigningResetHandle::auth()`, to match the behavior described in the Matrix spec.
+- Add the `session` key in `OAuthCrossSigningResetInfo`, allowing to provide
+  `AuthData::OAuth` in `CrossSigningResetHandle::auth()`, to match the behavior
+  described in the Matrix spec.
   ([#6525](https://github.com/matrix-org/matrix-rust-sdk/pull/6525))
-- When threads are enabled, a focused event timeline is used and the focused event is not part of a thread, 
-  hide other threaded events by default like it happens on the live focus timeline. 
+- When threads are enabled, a focused event timeline is used and the focused
+  event is not part of a thread, hide other threaded events by default like it
+  happens on the live focus timeline.
   ([#6519](https://github.com/matrix-org/matrix-rust-sdk/pull/6519))
-- Add a recursion limit attribute that raises it from the default value of 128 to 256.
-  ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
+- Add a recursion limit attribute that raises it from the default value of 128
+  to 256. ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
 - Reject invalid edits as candidates for the latest event.
   ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 - Fix an infinite loop when loading pinned events from the storage.
   ([#6453](https://github.com/matrix-org/matrix-rust-sdk/pull/6453))
-- `beacon_info` stop events (`live: false`, [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672))
-  are now also eligible as the latest event for a room, preventing the live location sharing item
-  from disappearing from the room list summary once the session ends.
-  ([#6373](https://github.com/matrix-org/matrix-rust-sdk/pull/6373))
-- Android: add back custom certificates and disabling SSL verification options in `ClientBuilder` using
-  the previous `webkpi` verifier instead of platform verifier, otherwise these features will fail.
+- `beacon_info` stop events (`live: false`,
+  [MSC3672](https://github.com/matrix-org/matrix-spec-proposals/pull/3672)) are
+  now also eligible as the latest event for a room, preventing the live location
+  sharing item from disappearing from the room list summary once the session
+  ends. ([#6373](https://github.com/matrix-org/matrix-rust-sdk/pull/6373))
+- Android: add back custom certificates and disabling SSL verification options
+  in `ClientBuilder` using the previous `webkpi` verifier instead of platform
+  verifier, otherwise these features will fail.
   ([#6328](https://github.com/matrix-org/matrix-rust-sdk/pull/6328))
-- Room keys are now rotated whenever the client receives an `m.room.member` event not belonging
-  to the current user with non-`join` membership in order to prevent
-  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) from leaking room keys
-  in an unintuitive manner.
+- Room keys are now rotated whenever the client receives an `m.room.member`
+  event not belonging to the current user with non-`join` membership in order to
+  prevent
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) from
+  leaking room keys in an unintuitive manner.
   ([#6292](https://github.com/matrix-org/matrix-rust-sdk/pull/6292))
   ([#6457](https://github.com/matrix-org/matrix-rust-sdk/pull/6457))
 - Only share historic room keys on invite if the current room history is shared.
   ([#6275](https://github.com/matrix-org/matrix-rust-sdk/pull/6275))
-- The event cache's thread subscriptions background task won't enable if the server doesn't
-  advertise support for the experimental thread subscription feature. In the past, this would result
-  in sending spurious requests that aren't supported by the user's homeserver.
+- The event cache's thread subscriptions background task won't enable if the
+  server doesn't advertise support for the experimental thread subscription
+  feature. In the past, this would result in sending spurious requests that
+  aren't supported by the user's homeserver.
   ([#6245](https://github.com/matrix-org/matrix-rust-sdk/pull/6245))
-- Handle race between send queue update and remote echo in latest event computation.
+- Handle race between send queue update and remote echo in latest event
+  computation.
   ([#6220](https://github.com/matrix-org/matrix-rust-sdk/pull/6220))
-- Return `QRCodeGrantLoginError::DeviceNotFound` instead of `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when
-  the new device is not returned by the homeserver.
+- Return `QRCodeGrantLoginError::DeviceNotFound` instead of
+  `QRCodeGrantLoginError::DeviceIDAlreadyInUse` for when the new device is not
+  returned by the homeserver.
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
-- Latest Event is correctly computed when multiple edits exist for the same event candidate.
+- Latest Event is correctly computed when multiple edits exist for the same
+  event candidate.
   ([#6096](https://github.com/matrix-org/matrix-rust-sdk/pull/6096))
-- Restrict which `m.room.member` can be a `LatestEventValue` candidate by relying on `MembershipChange` for more control.
+- Restrict which `m.room.member` can be a `LatestEventValue` candidate by
+  relying on `MembershipChange` for more control.
   ([#6143](https://github.com/matrix-org/matrix-rust-sdk/pull/6143))
-- Add manual WAL checkpoints when opening Sqlite DBs and when vacuuming them, since the WAL files aren't automatically shrinking. ([#6004](https://github.com/matrix-org/matrix-rust-sdk/pull/6004))
-- Use the server name extracted from the user id in `Client::fetch_client_well_known` as a fallback value. Otherwise, sometimes the server name is not available and we can't reload the well-known contents. ([#5996](https://github.com/matrix-org/matrix-rust-sdk/pull/5996))
+- Add manual WAL checkpoints when opening Sqlite DBs and when vacuuming them,
+  since the WAL files aren't automatically shrinking.
+  ([#6004](https://github.com/matrix-org/matrix-rust-sdk/pull/6004))
+- Use the server name extracted from the user id in
+  `Client::fetch_client_well_known` as a fallback value. Otherwise, sometimes
+  the server name is not available and we can't reload the well-known contents.
+  ([#5996](https://github.com/matrix-org/matrix-rust-sdk/pull/5996))
 - Latest Event is lazier: a `RoomLatestEvents` can be registered even if its
   associated `RoomEventCache` isn't created yet.
   ([#5947](https://github.com/matrix-org/matrix-rust-sdk/pull/5947))
 - Allow granting of QR login to a new client whose device ID is not a base64
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
-- Remove an unwrap in `SlidingSync::send_sync_request` when an asynchronous task panics or is cancelled.
+- Remove an unwrap in `SlidingSync::send_sync_request` when an asynchronous task
+  panics or is cancelled.
   ([#6316](https://github.com/matrix-org/matrix-rust-sdk/pull/6316))
 
 ### Refactor
 
 - [**breaking**] Upgrade Ruma to 0.15.1.
   ([#6503](https://github.com/matrix-org/matrix-rust-sdk/pull/6503))
-- Revert back to to determining lock dirtiness in `Encryption::{spin_lock_store, try_lock_once_store}`
-  through logic defined in `OlmMachine`, rather than `CrossProcessLock`.
+- Revert back to to determining lock dirtiness in
+  `Encryption::{spin_lock_store, try_lock_once_store}` through logic defined in
+  `OlmMachine`, rather than `CrossProcessLock`.
   ([#6496](https://github.com/matrix-org/matrix-rust-sdk/pull/6496))
-- [**breaking**] Update `Encryption::{spin_lock_store, try_lock_once_store}` so that lock dirtiness
-  is determined entirely by `CrossProcessLock`, rather than logic defined by `OlmMachine`. Also enforce
-  that lock generation is opaque by removing `CrossProcessLockStoreGuardWithGeneration`.
+- [**breaking**] Update `Encryption::{spin_lock_store, try_lock_once_store}` so
+  that lock dirtiness is determined entirely by `CrossProcessLock`, rather than
+  logic defined by `OlmMachine`. Also enforce that lock generation is opaque by
+  removing `CrossProcessLockStoreGuardWithGeneration`.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
-- [**breaking**] The `EventCache` now owns pagination tasks, and will run them to completion, even
-  if a manual caller stopped polling the called future.
+- [**breaking**] The `EventCache` now owns pagination tasks, and will run them
+  to completion, even if a manual caller stopped polling the called future.
   ([#6304](https://github.com/matrix-org/matrix-rust-sdk/pull/6304))
 - [**breaking**] `RoomEventCache::thread_pagination` is now async and fallible.
   ([#6280](https://github.com/matrix-org/matrix-rust-sdk/pull/6280))
-- [**breaking**] The `UrlOrQuery` enum was moved from the `authentication::oauth`
-  module to the `utils` module. It can also be converted from a `QueryString`.
+- [**breaking**] The `UrlOrQuery` enum was moved from the
+  `authentication::oauth` module to the `utils` module. It can also be converted
+  from a `QueryString`.
   ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))
 - [**breaking**] `MatrixAuth::login_with_sso_callback()` takes a `UrlOrQuery`
   instead of a `Url`, to make it more convenient to use with
   `LocalServerBuilder` / `LocalServerRedirectHandle`.
   ([#6224](https://github.com/matrix-org/matrix-rust-sdk/pull/6224))
-- [**breaking**] `Room::report_content()` no longer takes a `score` argument, because it was
-  removed from the Matrix specification. The `ReportedContentScore` type was removed too.
+- [**breaking**] `Room::report_content()` no longer takes a `score` argument,
+  because it was removed from the Matrix specification. The
+  `ReportedContentScore` type was removed too.
   ([#6256](https://github.com/matrix-org/matrix-rust-sdk/pull/6256))
-- [**breaking**] `Client::enabled_thread_subscriptions()` is now async and fallible, as it will
-  check for both static enablement of the thread subscription feature as well as dynamically
-  checking that the user's homeserver supports it.
+- [**breaking**] `Client::enabled_thread_subscriptions()` is now async and
+  fallible, as it will check for both static enablement of the thread
+  subscription feature as well as dynamically checking that the user's
+  homeserver supports it.
 - [**breaking**] `SessionChange::UnknownToken` is now a tuple variant containing
   an `UnknownTokenErrorData`.
   ([#6241](https://github.com/matrix-org/matrix-rust-sdk/pull/6241))
-- [**breaking**] `EventCacheError::BackPaginationError` has been renamed `PaginationError`.
+- [**breaking**] `EventCacheError::BackPaginationError` has been renamed
+  `PaginationError`.
   ([#6239](https://github.com/matrix-org/matrix-rust-sdk/pull/6239))
 - [**breaking**] The functions on the `OAuth` API to access the account
   management URL and its actions were removed. The methods available on the
@@ -247,7 +285,9 @@ All notable changes to this project will be documented in this file.
   ([#6217](https://github.com/matrix-org/matrix-rust-sdk/pull/6217))
 - [**breaking**] `QRCodeGrantLoginError::UnableToCreateDevice` has been removed
   ([#6141](https://github.com/matrix-org/matrix-rust-sdk/pull/6141)
-- The `RoomEventCache::paginate_thread_backwards` method is replaced by `RoomEventCache::thread_pagination` which returns a new `ThreadPagination` type, similar to `RoomPagination`.
+- The `RoomEventCache::paginate_thread_backwards` method is replaced by
+  `RoomEventCache::thread_pagination` which returns a new `ThreadPagination`
+  type, similar to `RoomPagination`.
   ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174))
 
   Before:
@@ -261,17 +301,20 @@ All notable changes to this project will be documented in this file.
   ```rust
   room_event_cache.thread_pagination(thread_id).run_backwards_once(42).await
   ```
+
 - `RoomPaginationStatus` is renamed to `PaginationStatus`.
   ([#6174](https://github.com/matrix-org/matrix-rust-sdk/pull/6174/))
-- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name` with
-  `ClientBuilder::cross_process_store_config` to allow specifying the configuration for the cross-process lock and
-  whether it should act as a no-op (client used in a single process) or we should keep the previous behavior (client
-  used in multiple processes). ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
+- [**breaking**] Replaced `ClientBuilder::cross_process_store_locks_holder_name`
+  with `ClientBuilder::cross_process_store_config` to allow specifying the
+  configuration for the cross-process lock and whether it should act as a no-op
+  (client used in a single process) or we should keep the previous behavior
+  (client used in multiple processes).
+  ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 
 ## [0.16.1] - 2026-05-08
 
-- Add a recursion limit attribute that raises it from the default value of 128 to 256.
-  ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
+- Add a recursion limit attribute that raises it from the default value of 128
+  to 256. ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
 - Reject invalid edits as candidates for the latest event.
   ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 
@@ -279,11 +322,13 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- Add `Client::get_store_sizes()` so to query the size of the existing stores, if available. ([#5911](https://github.com/matrix-org/matrix-rust-sdk/pull/5911))
-- Add `QRCodeLoginError::NotFound` for non-existing / expired rendezvous sessions
-  ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
-- Add `QRCodeGrantLoginError::NotFound` for non-existing / expired rendezvous sessions
-  ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
+- Add `Client::get_store_sizes()` so to query the size of the existing stores,
+  if available.
+  ([#5911](https://github.com/matrix-org/matrix-rust-sdk/pull/5911))
+- Add `QRCodeLoginError::NotFound` for non-existing / expired rendezvous
+  sessions ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
+- Add `QRCodeGrantLoginError::NotFound` for non-existing / expired rendezvous
+  sessions ([#5898](https://github.com/matrix-org/matrix-rust-sdk/pull/5898))
 - Improve logging around key history bundles when joining a room.
   ([#5866](https://github.com/matrix-org/matrix-rust-sdk/pull/5866))
 - Expose the power level required to modify `m.space.child` on
@@ -291,41 +336,50 @@ All notable changes to this project will be documented in this file.
   ([#5857](https://github.com/matrix-org/matrix-rust-sdk/pull/5857))
 - Add the `Client::server_versions_cached()` method.
   ([#5853](https://github.com/matrix-org/matrix-rust-sdk/pull/5853))
-- Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support granting
-  login by scanning a QR code on the existing device.
+- Extend `authentication::oauth::OAuth::grant_login_with_qr_code` to support
+  granting login by scanning a QR code on the existing device.
   ([#5818](https://github.com/matrix-org/matrix-rust-sdk/pull/5818))
 - Add a new `RequestConfig::skip_auth()` option. This is useful to ensure that
   certain request won't ever include an authorization header.
   ([#5822](https://github.com/matrix-org/matrix-rust-sdk/pull/5822))
-- Add support for extended profile fields with `Account::fetch_profile_field_of()`,
+- Add support for extended profile fields with
+  `Account::fetch_profile_field_of()`,
   `Account::fetch_profile_field_of_static()`, `Account::set_profile_field()` and
   `Account::delete_profile_field()`.
   ([#5771](https://github.com/matrix-org/matrix-rust-sdk/pull/5771))
 - [**breaking**] Remove the `matrix-sdk-crypto` re-export.
   ([#5769](https://github.com/matrix-org/matrix-rust-sdk/pull/5769))
-- Allow `Client::get_dm_room()` to be called without the `e2e-encryption` crate feature.
-  ([#5787](https://github.com/matrix-org/matrix-rust-sdk/pull/5787))
-- [**breaking**] Add `encryption::secret_storage::SecretStorageError::ImportError` to indicate
-  an error that occurred when importing a secret from secret storage.
+- Allow `Client::get_dm_room()` to be called without the `e2e-encryption` crate
+  feature. ([#5787](https://github.com/matrix-org/matrix-rust-sdk/pull/5787))
+- [**breaking**] Add
+  `encryption::secret_storage::SecretStorageError::ImportError` to indicate an
+  error that occurred when importing a secret from secret storage.
   ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))
-- [**breaking**] Add `authentication::oauth::qrcode::login::LoginProgress::SyncingSecrets` to
+- [**breaking**] Add
+  `authentication::oauth::qrcode::login::LoginProgress::SyncingSecrets` to
   indicate that secrets are being synced between the two devices.
   ([#5760](https://github.com/matrix-org/matrix-rust-sdk/pull/5760))
-- Add `authentication::oauth::OAuth::grant_login_with_qr_code` to reciprocate a login by
-  generating a QR code on the existing device.
+- Add `authentication::oauth::OAuth::grant_login_with_qr_code` to reciprocate a
+  login by generating a QR code on the existing device.
   ([#5801](https://github.com/matrix-org/matrix-rust-sdk/pull/5801))
-- [**breaking**] `OAuth::login_with_qr_code` now returns a builder that allows performing the flow with either the
-  current device scanning or generating the QR code. Additionally, new errors `SecureChannelError::CannotReceiveCheckCode`
+- [**breaking**] `OAuth::login_with_qr_code` now returns a builder that allows
+  performing the flow with either the current device scanning or generating the
+  QR code. Additionally, new errors `SecureChannelError::CannotReceiveCheckCode`
   and `QRCodeLoginError::ServerReset` were added.
   ([#5711](https://github.com/matrix-org/matrix-rust-sdk/pull/5711))
-- [**breaking**] `ThreadedEventsLoader::new` now takes optional `tokens` parameter to customise where the pagination
-  begins ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
-- Make `PaginationTokens` `pub`, as well as its `previous` and `next` tokens so they can be assigned from other files
+- [**breaking**] `ThreadedEventsLoader::new` now takes optional `tokens`
+  parameter to customise where the pagination begins
   ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
-- Add new API to decline calls ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)): `Room::make_decline_call_event` and `Room::subscribe_to_call_decline_events`
+- Make `PaginationTokens` `pub`, as well as its `previous` and `next` tokens so
+  they can be assigned from other files
+  ([#5678](https://github.com/matrix-org/matrix-rust-sdk/pull/5678).
+- Add new API to decline calls
+  ([MSC4310](https://github.com/matrix-org/matrix-spec-proposals/pull/4310)):
+  `Room::make_decline_call_event` and `Room::subscribe_to_call_decline_events`
   ([#5614](https://github.com/matrix-org/matrix-rust-sdk/pull/5614))
-- Use `StateStore::upsert_thread_subscriptions()` to bulk process thread subscription updates received
-  via the sync response or from the MSC4308 companion endpoint.
+- Use `StateStore::upsert_thread_subscriptions()` to bulk process thread
+  subscription updates received via the sync response or from the MSC4308
+  companion endpoint.
   ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 
 ### Refactor
@@ -338,30 +392,32 @@ All notable changes to this project will be documented in this file.
   ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
 - [**breaking**]: `Client::send()` has extra bounds where
   `Request::Authentication: AuthScheme<Input<'a> = SendAccessToken<'a>>` and
-  `Request::PathBuilder: SupportedPathBuilder`. This method should still work for any request to the
-  Client-Server API. This allows to drop the `HttpError::NotClientRequest` error in favor of a
-  compile-time error.
+  `Request::PathBuilder: SupportedPathBuilder`. This method should still work
+  for any request to the Client-Server API. This allows to drop the
+  `HttpError::NotClientRequest` error in favor of a compile-time error.
   ([#5781](https://github.com/matrix-org/matrix-rust-sdk/pull/5781),
-   [#5789](https://github.com/matrix-org/matrix-rust-sdk/pull/5789),
-   [#5815](https://github.com/matrix-org/matrix-rust-sdk/pull/5815))
-- [**breaking**]: The `waveform` field was moved from `AttachmentInfo::Voice` to `BaseAudioInfo`,
-  allowing to set it for any audio message. Its format also changed, and it is now a list of `f32`
-  between 0 and 1.
+  [#5789](https://github.com/matrix-org/matrix-rust-sdk/pull/5789),
+  [#5815](https://github.com/matrix-org/matrix-rust-sdk/pull/5815))
+- [**breaking**]: The `waveform` field was moved from `AttachmentInfo::Voice` to
+  `BaseAudioInfo`, allowing to set it for any audio message. Its format also
+  changed, and it is now a list of `f32` between 0 and 1.
   ([#5732](https://github.com/matrix-org/matrix-rust-sdk/pull/5732))
-- [**breaking**] The `caption` and `formatted_caption` fields and methods of `AttachmentConfig`,
-  `GalleryConfig` and `GalleryItemInfo` have been merged into a single field that uses
-  `TextMessageEventContent`.
+- [**breaking**] The `caption` and `formatted_caption` fields and methods of
+  `AttachmentConfig`, `GalleryConfig` and `GalleryItemInfo` have been merged
+  into a single field that uses `TextMessageEventContent`.
   ([#5733](https://github.com/matrix-org/matrix-rust-sdk/pull/5733))
 - The Matrix SDK crate now uses the 2024 edition of Rust.
   ([#5677](https://github.com/matrix-org/matrix-rust-sdk/pull/5677))
-- [**breaking**] Make `LoginProgress::EstablishingSecureChannel` generic in order to reuse it
-  for the currently missing QR login flow.
+- [**breaking**] Make `LoginProgress::EstablishingSecureChannel` generic in
+  order to reuse it for the currently missing QR login flow.
   ([#5750](https://github.com/matrix-org/matrix-rust-sdk/pull/5750))
-- [**breaking**] The `new_virtual_element_call_widget` now uses a `props` and a `config` parameter instead of only `props`.
-  This splits the configuration of the widget into required properties ("widget_id", "parent_url"...) so the widget can work
-  and optional config parameters ("skip_lobby", "header", "...").
-  The config option should in most cases only provide the `"intent"` property.
-  All other config options will then be chosen by EC based on platform + `intent`.
+- [**breaking**] The `new_virtual_element_call_widget` now uses a `props` and a
+  `config` parameter instead of only `props`. This splits the configuration of
+  the widget into required properties ("widget_id", "parent_url"...) so the
+  widget can work and optional config parameters ("skip_lobby", "header",
+  "..."). The config option should in most cases only provide the `"intent"`
+  property. All other config options will then be chosen by EC based on platform
+  - `intent`.
 
   Before:
 
@@ -391,6 +447,7 @@ All notable changes to this project will be documented in this file.
     }
   )
   ```
+
   ([#5560](https://github.com/matrix-org/matrix-rust-sdk/pull/5560))
 
 ### Bugfix
@@ -399,39 +456,42 @@ All notable changes to this project will be documented in this file.
   must be created as `LocalCannotBeSent` if a previous local `LatestEventValue`
   exists and is `LocalCannotBeSent`.
   ([#5908](https://github.com/matrix-org/matrix-rust-sdk/pull/5908))
-- Switch QR login implementation from `std::time::Instant` to `ruma::time::Instant` which
-  is compatible with Wasm.
+- Switch QR login implementation from `std::time::Instant` to
+  `ruma::time::Instant` which is compatible with Wasm.
   ([#5889](https://github.com/matrix-org/matrix-rust-sdk/pull/5889))
 
 ## [0.14.0] - 2025-09-04
 
 ### Features
 
-- `Client::fetch_thread_subscriptions` implements support for the companion endpoint of the
-  experimental MSC4308, allowing to fetch thread subscriptions for a given range, as specified by
-  the MSC.
+- `Client::fetch_thread_subscriptions` implements support for the companion
+  endpoint of the experimental MSC4308, allowing to fetch thread subscriptions
+  for a given range, as specified by the MSC.
   ([#5590](https://github.com/matrix-org/matrix-rust-sdk/pull/5590))
-- Add a `Client::joined_space_rooms` method that allows retrieving the list of joined spaces.
+- Add a `Client::joined_space_rooms` method that allows retrieving the list of
+  joined spaces.
   ([#5592](https://github.com/matrix-org/matrix-rust-sdk/pull/5592))
-- `Room::enable_encryption` and `Room::enable_encryption_with_state_event_encryption` will poll
-  the encryption state for up to 3 seconds, rather than checking once after a single sync has
-  completed.
-  ([#5559](https://github.com/matrix-org/matrix-rust-sdk/pull/5559))
-- Add `Room::enable_encryption_with_state` to enable E2E encryption with encrypted state event
-  support, gated behind the `experimental-encrypted-state-events` feature.
+- `Room::enable_encryption` and
+  `Room::enable_encryption_with_state_event_encryption` will poll the encryption
+  state for up to 3 seconds, rather than checking once after a single sync has
+  completed. ([#5559](https://github.com/matrix-org/matrix-rust-sdk/pull/5559))
+- Add `Room::enable_encryption_with_state` to enable E2E encryption with
+  encrypted state event support, gated behind the
+  `experimental-encrypted-state-events` feature.
   ([#5557](https://github.com/matrix-org/matrix-rust-sdk/pull/5557))
-- Add `ignore_timeout_on_first_sync` to the `SyncSettings`, which should allow to have a quicker
-  first response when using one of the `sync`, `sync_with_callback`, `sync_with_result_callback`
-  or `sync_stream` methods on `Client`, if the response is empty.
+- Add `ignore_timeout_on_first_sync` to the `SyncSettings`, which should allow
+  to have a quicker first response when using one of the `sync`,
+  `sync_with_callback`, `sync_with_result_callback` or `sync_stream` methods on
+  `Client`, if the response is empty.
   ([#5481](https://github.com/matrix-org/matrix-rust-sdk/pull/5481))
 - The methods to use the `/v3/sync` endpoint set the `use_state_after` field,
   which means that, if the server supports it, the response will contain the
   state changes between the last sync and the end of the timeline.
   ([#5488](https://github.com/matrix-org/matrix-rust-sdk/pull/5488))
 - Add experimental support for
-  [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with the
-  `Room::fetch_thread_subscription()`, `Room::subscribe_thread()` and `Room::unsubscribe_thread()`
-  methods.
+  [MSC4306](https://github.com/matrix-org/matrix-spec-proposals/pull/4306), with
+  the `Room::fetch_thread_subscription()`, `Room::subscribe_thread()` and
+  `Room::unsubscribe_thread()` methods.
   ([#5439](https://github.com/matrix-org/matrix-rust-sdk/pull/5439))
 - [**breaking**] `RoomMemberRole` has a new `Creator` variant, that
   differentiates room creators with infinite power levels, as introduced in room
@@ -444,17 +504,23 @@ All notable changes to this project will be documented in this file.
 - Add support to accept historic room key bundles that arrive out of order, i.e.
   the bundle arrives after the invite has already been accepted.
   ([#5322](https://github.com/matrix-org/matrix-rust-sdk/pull/5322))
-- [**breaking**] `OAuth::login` now allows requesting additional scopes for the authorization code grant.
+- [**breaking**] `OAuth::login` now allows requesting additional scopes for the
+  authorization code grant.
   ([#5395](https://github.com/matrix-org/matrix-rust-sdk/pull/5395))
 
 ### Refactor
 
 - [**breaking**] Upgrade ruma to 0.13.0
   ([#5623](https://github.com/matrix-org/matrix-rust-sdk/pull/5623))
-- [**breaking**] `SyncSettings` token is now `SyncToken` enum type which has default behaviour of `SyncToken::ReusePrevious` token. This breaks `Client::sync_once`.
-  For old behaviour, set the token to `SyncToken::NoToken` with the usual `SyncSettings::token` setter.
+- [**breaking**] `SyncSettings` token is now `SyncToken` enum type which has
+  default behaviour of `SyncToken::ReusePrevious` token. This breaks
+  `Client::sync_once`. For old behaviour, set the token to `SyncToken::NoToken`
+  with the usual `SyncSettings::token` setter.
   ([#5522](https://github.com/matrix-org/matrix-rust-sdk/pull/5522))
-- [**breaking**] Change the upload_encrypted_file and make it clone the client instead of owning it. The lifetime of the `UploadEncryptedFile` request returned by `Client::upload_encrypted_file()` only depends on the request lifetime now.
+- [**breaking**] Change the upload_encrypted_file and make it clone the client
+  instead of owning it. The lifetime of the `UploadEncryptedFile` request
+  returned by `Client::upload_encrypted_file()` only depends on the request
+  lifetime now.
   ([#5470](https://github.com/matrix-org/matrix-rust-sdk/pull/5470))
 - [**breaking**] Add an `IsPrefix = False` bound to the `account_data()` and
   `fetch_account_data_static()` methods of `Account`. These methods only worked
@@ -463,9 +529,9 @@ All notable changes to this project will be documented in this file.
   respectively can be used instead for event types with a variable suffix.
   ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
 - [**breaking**] `RoomMemberRole::suggested_role_for_power_level()` and
-  `RoomMemberRole::suggested_power_level()` now use `UserPowerLevel` to represent
-  power levels instead of `i64` to differentiate the infinite power level of
-  creators, as introduced in room version 12.
+  `RoomMemberRole::suggested_power_level()` now use `UserPowerLevel` to
+  represent power levels instead of `i64` to differentiate the infinite power
+  level of creators, as introduced in room version 12.
   ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
 - [**breaking**] The `reason` argument of `Room::report_room()` is now required,
   due to a clarification in the spec.
@@ -476,7 +542,12 @@ All notable changes to this project will be documented in this file.
   ([#5337](https://github.com/matrix-org/matrix-rust-sdk/pull/5337))
 - [**breaking**] The MSRV has been bumped to Rust 1.88.
   ([#5431](https://github.com/matrix-org/matrix-rust-sdk/pull/5431))
-- [**breaking**] `Room::send_call_notification` and `Room::send_call_notification_if_needed` have been removed, since the event type they send is outdated, and `Client` is not actually supposed to be able to join MatrixRTC sessions (yet). In practice, users of these methods probably already rely on another MatrixRTC implementation to participate in sessions, and such an implementation should be capable of sending notifications itself.
+- [**breaking**] `Room::send_call_notification` and
+  `Room::send_call_notification_if_needed` have been removed, since the event
+  type they send is outdated, and `Client` is not actually supposed to be able
+  to join MatrixRTC sessions (yet). In practice, users of these methods probably
+  already rely on another MatrixRTC implementation to participate in sessions,
+  and such an implementation should be capable of sending notifications itself.
   ([#5452](https://github.com/matrix-org/matrix-rust-sdk/pull/5452))
 
 ### Bugfix
@@ -484,47 +555,55 @@ All notable changes to this project will be documented in this file.
 - The event handlers APIs now properly support events whose type is not fully
   statically-known. Before, those events would never trigger an event handler.
   ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
-- All HTTP requests now have a default `read_timeout` of 60s, which means they'll disconnect if the connection stalls.
- `RequestConfig::timeout` is now optional and can be disabled on a per-request basis. This will be done for
- the requests used to download media, so they don't get cancelled after the default 30s timeout for no good reason.
- ([#5437](https://github.com/matrix-org/matrix-rust-sdk/pull/5437))
+- All HTTP requests now have a default `read_timeout` of 60s, which means
+  they'll disconnect if the connection stalls.
+`RequestConfig::timeout` is now optional and can be disabled on a per-request
+basis. This will be done for the requests used to download media, so they don't
+get cancelled after the default 30s timeout for no good reason.
+([#5437](https://github.com/matrix-org/matrix-rust-sdk/pull/5437))
 
 ## [0.13.0] - 2025-07-10
 
-### Security Fixes
+### Security fixes
 
 - Fix SQL injection vulnerability in `EventCache`
-  ([d0c0100](https://github.com/matrix-org/matrix-rust-sdk/commit/d0c01006e4808db5eb96ad5c496416f284d8bd3c), Moderate, [CVE-2025-53549](https://www.cve.org/CVERecord?id=CVE-2025-53549), [GHSA-275g-g844-73jh](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-275g-g844-73jh))
+  ([d0c0100](https://github.com/matrix-org/matrix-rust-sdk/commit/d0c01006e4808db5eb96ad5c496416f284d8bd3c),
+  Moderate, [CVE-2025-53549](https://www.cve.org/CVERecord?id=CVE-2025-53549),
+  [GHSA-275g-g844-73jh](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-275g-g844-73jh))
 
 ### Bug fixes
 
 - `Room.leave()` will now attempt to leave all reachable predecessors too.
   ([#5381](https://github.com/matrix-org/matrix-rust-sdk/pull/5381))
-- When joining a room via `Client::join_room_by_id()`, if the client has `enable_share_history_on_invite` enabled,
-  we will correctly check for received room key bundles. Previously this was only done when calling `Room::join`.
+- When joining a room via `Client::join_room_by_id()`, if the client has
+  `enable_share_history_on_invite` enabled, we will correctly check for received
+  room key bundles. Previously this was only done when calling `Room::join`.
   ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
 
 ### Features
 
-- Add `Client::supported_versions()`, which returns the results of both `Client::server_versions()` and
-  `Client::unstable_features()` with a single call.
-  ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
-- `WidgetDriver::send_to_device` Now supports sending encrypted to-device messages.
-  ([#5252](https://github.com/matrix-org/matrix-rust-sdk/pull/5252))
-- `Client::add_event_handler`: Set `Option<EncryptionInfo>` in `EventHandlerData` for to-device messages.
-  If the to-device message was encrypted, the `EncryptionInfo` will be set. If it is `None` the message was sent in clear.
+- Add `Client::supported_versions()`, which returns the results of both
+  `Client::server_versions()` and `Client::unstable_features()` with a single
+  call. ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
+- `WidgetDriver::send_to_device` Now supports sending encrypted to-device
+  messages. ([#5252](https://github.com/matrix-org/matrix-rust-sdk/pull/5252))
+- `Client::add_event_handler`: Set `Option<EncryptionInfo>` in
+  `EventHandlerData` for to-device messages. If the to-device message was
+  encrypted, the `EncryptionInfo` will be set. If it is `None` the message was
+  sent in clear.
   ([#5099](https://github.com/matrix-org/matrix-rust-sdk/pull/5099))
 - `EventCache::subscribe_to_room_generic_updates` is added to subscribe to _all_
   room updates without having to subscribe to all rooms individually
   ([#5247](https://github.com/matrix-org/matrix-rust-sdk/pull/5247))
-- [**breaking**] The element call widget URL configuration struct uses the new `header` url parameter
-  instead of the now deprecated `hideHeader` parameter. This is only compatible with EC v0.13.0 or newer.
-- [**breaking**] `RoomEventCacheGenericUpdate` gains a new `Clear` variant, and sees
-  its `TimelineUpdated` variant being renamed to `UpdateTimeline`.
+- [**breaking**] The element call widget URL configuration struct uses the new
+  `header` url parameter instead of the now deprecated `hideHeader` parameter.
+  This is only compatible with EC v0.13.0 or newer.
+- [**breaking**] `RoomEventCacheGenericUpdate` gains a new `Clear` variant, and
+  sees its `TimelineUpdated` variant being renamed to `UpdateTimeline`.
   ([#5363](https://github.com/matrix-org/matrix-rust-sdk/pull/5363/))
-- [**breaking**]: The element call widget URL configuration struct uses the new `header` url parameter
-  instead of the now deprecated `hideHeader` parameter. This is only compatible
-  with EC v0.13.0 or newer.
+- [**breaking**]: The element call widget URL configuration struct uses the new
+  `header` url parameter instead of the now deprecated `hideHeader` parameter.
+  This is only compatible with EC v0.13.0 or newer.
 - [**breaking**]: The experimental `Encryption::encrypt_and_send_raw_to_device`
   function now takes a `share_strategy` parameter, and will not send to devices
   that do not satisfy the given share strategy.
@@ -532,113 +611,130 @@ All notable changes to this project will be documented in this file.
 
 ### Refactor
 
-- [**breaking**]: `Client::unstable_features()` returns a `BTreeSet<FeatureFlag>`, containing only
-  the features whose value was set to true in the response to the `/versions` endpoint.
+- [**breaking**]: `Client::unstable_features()` returns a
+  `BTreeSet<FeatureFlag>`, containing only the features whose value was set to
+  true in the response to the `/versions` endpoint.
   ([#5357](https://github.com/matrix-org/matrix-rust-sdk/pull/5357))
 - [**breaking**]: The family of `Room::can_user_*` methods has been removed. The
   same functionality can be accessed using the `RoomPowerLevels::user_can_*`
   family of methods. The `RoomPowerLevels` object can be accessed using the
   `Room::power_levels()` method.
   ([#5250](https://github.com/matrix-org/matrix-rust-sdk/pull/5250/))
-- `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside this,
-  `Client::reset_server_info` is now `Client::reset_server_info` and `Client::fetch_server_capabilities`
-  is now `Client::fetch_server_versions`, returning the server versions response directly.
+- `ClientServerCapabilities` has been renamed to `ClientServerInfo`. Alongside
+  this, `Client::reset_server_info` is now `Client::reset_server_info` and
+  `Client::fetch_server_capabilities` is now `Client::fetch_server_versions`,
+  returning the server versions response directly.
   ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
 - `RoomEventCacheListener` is renamed `RoomEventCacheSubscriber`
   ([#5269](https://github.com/matrix-org/matrix-rust-sdk/pull/5269))
-- `RoomPreview::join_rule` is now optional, and will be set to `None` if the join rule state event
-  is missing for a given room.
+- `RoomPreview::join_rule` is now optional, and will be set to `None` if the
+  join rule state event is missing for a given room.
   ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
 
 ### Bug fixes
 
-- `m.room.avatar` has been added as required state for sliding sync until [the existing backend issue](https://github.com/element-hq/synapse/issues/18598)
-causing deleted room avatars to not be flagged is fixed. ([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
+- `m.room.avatar` has been added as required state for sliding sync until
+  [the existing backend issue](https://github.com/element-hq/synapse/issues/18598)
+causing deleted room avatars to not be flagged is fixed.
+([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
 
 ## [0.12.0] - 2025-06-10
 
 ### Features
 
-- `Client::send_call_notification_if_needed` now returns `Result<bool>` instead of `Result<()>` so we can check if
-  the event was sent.
+- `Client::send_call_notification_if_needed` now returns `Result<bool>` instead
+  of `Result<()>` so we can check if the event was sent.
   ([#5171](https://github.com/matrix-org/matrix-rust-sdk/pull/5171))
-- Added `SendMediaUploadRequest` wrapper for `SendRequest`, which checks the size of the request to
-  upload making sure it doesn't exceed the `m.upload.size` value that can be fetched through
+- Added `SendMediaUploadRequest` wrapper for `SendRequest`, which checks the
+  size of the request to upload making sure it doesn't exceed the
+  `m.upload.size` value that can be fetched through
   `Client::load_or_fetch_max_upload_size`.
   ([#5119](https://github.com/matrix-org/matrix-rust-sdk/pull/5119))
-- Add `ClientBuilder::with_enable_share_history_on_invite` to enable experimental support for sharing encrypted room history on invite, per [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+- Add `ClientBuilder::with_enable_share_history_on_invite` to enable
+  experimental support for sharing encrypted room history on invite, per
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
   ([#5141](https://github.com/matrix-org/matrix-rust-sdk/pull/5141))
 - `Room::list_threads()` is a new method to list all the threads in a room.
   ([#4973](https://github.com/matrix-org/matrix-rust-sdk/pull/4973))
-- `Room::relations()` is a new method to list all the events related to another event
-  ("relations"), with additional filters for relation type or relation type + event type.
+- `Room::relations()` is a new method to list all the events related to another
+  event ("relations"), with additional filters for relation type or relation
+  type + event type.
   ([#4973](https://github.com/matrix-org/matrix-rust-sdk/pull/4973))
-- The `EventCache`'s persistent storage has been enabled by default. This means that all the events
-  received by sync or back-paginations will be stored, in memory or on disk, by default, as soon as
-  `EventCache::subscribe()` has been called (which happens automatically if you're using the
-  `matrix_sdk_ui::Timeline`). This offers offline access and super quick back-paginations (when the
-  cache has been filled) whenever the event cache is enabled. It's also not possible to disable the
-  persistent storage anymore. Note that by default, the event cache store uses an in-memory store,
-  so the events will be lost when the process exits. To store the events on disk, you need to use
-  the sqlite event cache store.
+- The `EventCache`'s persistent storage has been enabled by default. This means
+  that all the events received by sync or back-paginations will be stored, in
+  memory or on disk, by default, as soon as `EventCache::subscribe()` has been
+  called (which happens automatically if you're using the
+  `matrix_sdk_ui::Timeline`). This offers offline access and super quick
+  back-paginations (when the cache has been filled) whenever the event cache is
+  enabled. It's also not possible to disable the persistent storage anymore.
+  Note that by default, the event cache store uses an in-memory store, so the
+  events will be lost when the process exits. To store the events on disk, you
+  need to use the sqlite event cache store.
   ([#4308](https://github.com/matrix-org/matrix-rust-sdk/pull/4308))
-- `Room::set_unread_flag()` now sets the stable `m.marked_unread` room account data, which was
-  stabilized in Matrix 1.12. `Room::is_marked_unread()` also ignores the unstable
-  `com.famedly.marked_unread` room account data if the stable variant is present.
+- `Room::set_unread_flag()` now sets the stable `m.marked_unread` room account
+  data, which was stabilized in Matrix 1.12. `Room::is_marked_unread()` also
+  ignores the unstable `com.famedly.marked_unread` room account data if the
+  stable variant is present.
   ([#5034](https://github.com/matrix-org/matrix-rust-sdk/pull/5034))
-- `Encryption::encrypt_and_send_raw_to_device`: Introduced as an experimental method for
-  sending custom encrypted to-device events. This feature is gated behind the
-  `experimental-send-custom-to-device` flag, as it remains under active development and may undergo changes.
+- `Encryption::encrypt_and_send_raw_to_device`: Introduced as an experimental
+  method for sending custom encrypted to-device events. This feature is gated
+  behind the `experimental-send-custom-to-device` flag, as it remains under
+  active development and may undergo changes.
   ([4998](https://github.com/matrix-org/matrix-rust-sdk/pull/4998))
-- `Room::send_single_receipt()` and `Room::send_multiple_receipts()` now also unset the unread
-  flag of the room if an unthreaded read receipt is sent.
+- `Room::send_single_receipt()` and `Room::send_multiple_receipts()` now also
+  unset the unread flag of the room if an unthreaded read receipt is sent.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
-- `Client::is_user_ignored(&UserId)` can be used to check if a user is currently ignored.
-  ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
-- `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style media galleries
-  via the send queue under the `unstable-msc4274` feature.
+- `Client::is_user_ignored(&UserId)` can be used to check if a user is currently
+  ignored. ([#5081](https://github.com/matrix-org/matrix-rust-sdk/pull/5081))
+- `RoomSendQueue::send_gallery` has been added to allow sending MSC4274-style
+  media galleries via the send queue under the `unstable-msc4274` feature.
   ([#4977](https://github.com/matrix-org/matrix-rust-sdk/pull/4977))
 
 ### Bug fixes
 
-- A invited DM room joined with `Client::join_room_by_id()` or `Client::join_room_by_id_or_alias()`
-  will now be correctly marked as a DM.
+- A invited DM room joined with `Client::join_room_by_id()` or
+  `Client::join_room_by_id_or_alias()` will now be correctly marked as a DM.
   ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
-- API responses with an HTTP status code `520` won't be retried anymore, as this is used by some proxies
-  (including Cloudflare) to warn that an unknown error has happened in the actual server.
+- API responses with an HTTP status code `520` won't be retried anymore, as this
+  is used by some proxies (including Cloudflare) to warn that an unknown error
+  has happened in the actual server.
   ([#5105](https://github.com/matrix-org/matrix-rust-sdk/pull/5105))
 
 ### Refactor
 
-- Support for the deprecated `GET /auth_issuer` endpoint was removed in the `OAuth` API. Only the
-  `GET /auth_metadata` endpoint is used now.
+- Support for the deprecated `GET /auth_issuer` endpoint was removed in the
+  `OAuth` API. Only the `GET /auth_metadata` endpoint is used now.
   ([#5302](https://github.com/matrix-org/matrix-rust-sdk/pull/5302))
-- `Room::push_context()` has been renamed into `Room::push_condition_room_ctx()`. The newer
-  `Room::push_context` now returns a `matrix_sdk::Room::PushContext`, which can be used to compute
-  the push actions for any event.
+- `Room::push_context()` has been renamed into
+  `Room::push_condition_room_ctx()`. The newer `Room::push_context` now returns
+  a `matrix_sdk::Room::PushContext`, which can be used to compute the push
+  actions for any event.
   ([#4962](https://github.com/matrix-org/matrix-rust-sdk/pull/4962))
-- `Room::decrypt_event()` now requires an extra `matrix_sdk::Room::PushContext` parameter to
-  compute the push notifications for the decrypted event.
+- `Room::decrypt_event()` now requires an extra `matrix_sdk::Room::PushContext`
+  parameter to compute the push notifications for the decrypted event.
   ([#4962](https://github.com/matrix-org/matrix-rust-sdk/pull/4962))
 - `SlidingSyncRoom` has been removed. With it, the `SlidingSync::get_room`,
   `get_all_rooms`, `get_rooms`, `get_number_of_rooms`, and
   `FrozenSlidingSync` methods and type have been removed.
   ([#5047](https://github.com/matrix-org/matrix-rust-sdk/pull/5047))
-- `Room::set_unread_flag()` is now a no-op if the unread flag already has the wanted value.
+- `Room::set_unread_flag()` is now a no-op if the unread flag already has the
+  wanted value.
   ([#5055](https://github.com/matrix-org/matrix-rust-sdk/pull/5055))
 
 ## [0.11.0] - 2025-04-11
 
 ### Features
 
-- `Room::load_or_fetch_event()` is a new method that will find an event in the event cache (if
-  enabled), or using network like `Room::event()` does.
+- `Room::load_or_fetch_event()` is a new method that will find an event in the
+  event cache (if enabled), or using network like `Room::event()` does.
   ([#4837](https://github.com/matrix-org/matrix-rust-sdk/pull/4837))
 - [**breaking**]: The element call widget URL configuration struct
   (`VirtualElementCallWidgetOptions`) and URL generation have changed.
-  - It supports the new fields: `hide_screensharing`, `posthog_api_host`, `posthog_api_key`,
+  - It supports the new fields: `hide_screensharing`, `posthog_api_host`,
+    `posthog_api_key`,
   `rageshake_submit_url`, `sentry_dsn`, `sentry_environment`.
-  - The widget URL will no longer automatically add `/room` to the base domain. For backward compatibility
+  - The widget URL will no longer automatically add `/room` to the base domain.
+    For backward compatibility
   the app itself would need to add `/room` to the `element_call_url`.
   - And replaced:
     - `analytics_id` -> `posthog_user_id` (The widget URL query parameters will
@@ -648,28 +744,33 @@ causing deleted room avatars to not be flagged is fixed. ([#5293](https://github
       `Intent.StartCall` for backward compatibility)
   - `VirtualElementCallWidgetOptions` now implements `Default`.
   ([#4822](https://github.com/matrix-org/matrix-rust-sdk/pull/4822))
-- [**breaking**]: The `RoomPagination::run_backwards` method has been removed and replaced by two
+- [**breaking**]: The `RoomPagination::run_backwards` method has been removed
+  and replaced by two
 simpler methods:
-  - `RoomPagination::run_backwards_until()`, which will retrigger back-paginations until a certain
-  number of events have been received (and retry if the timeline has been reset in the background).
-  - `RoomPagination::run_backwards_once()`, which will run a single back-pagination (and retry if
+  - `RoomPagination::run_backwards_until()`, which will retrigger
+    back-paginations until a certain
+  number of events have been received (and retry if the timeline has been reset in
+  the background).
+  - `RoomPagination::run_backwards_once()`, which will run a single
+    back-pagination (and retry if
   the timeline has been reset in the background).
   ([#4689](https://github.com/matrix-org/matrix-rust-sdk/pull/4689))
 - [**breaking**]: The `OAuth::account_management_url` method now caches the
   result of a call, subsequent calls to the method will not contact the server
   for a while, instead the cached URI will be returned. If caching of this URI
-  is not desirable, the `OAuth::fetch_account_management_url` method can be used.
-  ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
+  is not desirable, the `OAuth::fetch_account_management_url` method can be
+  used. ([#4663](https://github.com/matrix-org/matrix-rust-sdk/pull/4663))
 - The `MediaRetentionPolicy` can now trigger regular cleanups with its new
   `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 - [**breaking**] The HTTP client only allows TLS 1.2 or newer, as recommended by
   [BCP 195](https://datatracker.ietf.org/doc/bcp195/).
   ([#4647](https://github.com/matrix-org/matrix-rust-sdk/pull/4647))
-- Add `Room::report_room` api. ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
+- Add `Room::report_room` api.
+  ([#4713](https://github.com/matrix-org/matrix-rust-sdk/pull/4713))
 - `Client::notification_client` will create a copy of the existing `Client`,
-  but now it'll make sure  it doesn't handle any verification events to
-  avoid an issue with these events being received and  processed twice if
+  but now it'll make sure it doesn't handle any verification events to
+  avoid an issue with these events being received and processed twice if
   `NotificationProcessSetup` was `SingleSetup`.
 - [**breaking**] `Room::is_encrypted` is replaced by
   `Room::latest_encryption_state` which returns a value of the new
@@ -688,6 +789,7 @@ simpler methods:
   ```rust
   room.latest_encryption_state().await?.is_encrypted()
   ```
+
 - `LocalServerBuilder`, behind the `local-server` feature, can be used to spawn
   a server when the end-user needs to be redirected to an address on localhost.
   It was used for `SsoLoginBuilder` and can now be used in other cases, like for
@@ -704,7 +806,7 @@ simpler methods:
   is used for the session.
   ([#4886](https://github.com/matrix-org/matrix-rust-sdk/pull/4886))
 
-### Bug Fixes
+### Bug fixes
 
 - Ensure all known secrets are removed from secret storage when invoking the
   `Recovery::disable()` method. While the server is not guaranteed to delete
@@ -716,14 +818,14 @@ simpler methods:
 
 ### Refactor
 
-
-- [**breaking**] Switched from the unmaintained backoff crate to the [backon](https://docs.rs/backon/1.5.0/backon/)
-  crate. As part of this change, the `RequestConfig::retry_limit` method was
-  renamed to `RequestConfig::max_retry_time` and the parameter for the method was
-  updated from a `u64` to a `usize`.
+- [**breaking**] Switched from the unmaintained backoff crate to the
+  [backon](https://docs.rs/backon/1.5.0/backon/) crate. As part of this change,
+  the `RequestConfig::retry_limit` method was renamed to
+  `RequestConfig::max_retry_time` and the parameter for the method was updated
+  from a `u64` to a `usize`.
   ([#4916](https://github.com/matrix-org/matrix-rust-sdk/pull/4916))
-- [**breaking**] We now require Rust 1.85 as the minimum supported Rust version to compile.
-  Yay for async closures!
+- [**breaking**] We now require Rust 1.85 as the minimum supported Rust version
+  to compile. Yay for async closures!
   ([#4745](https://github.com/matrix-org/matrix-rust-sdk/pull/4745))
 - [**breaking**] The `server_url` and `server_response` methods of
   `SsoLoginBuilder` are replaced by `server_builder()`, which allows more
@@ -736,10 +838,10 @@ simpler methods:
   `Client::subscribe_to_session_changes()` and then calling
   `Client::session_tokens()` on a `SessionChange::TokenRefreshed`.
   ([#4772](https://github.com/matrix-org/matrix-rust-sdk/pull/4772))
-- [**breaking**] `Oidc::url_for_oidc()` doesn't take the `VerifiedClientMetadata`
-  to register as an argument, the one in `OidcRegistrations` is used instead.
-  However it now takes the redirect URI to use, instead of always using the
-  first one in the client metadata.
+- [**breaking**] `Oidc::url_for_oidc()` doesn't take the
+  `VerifiedClientMetadata` to register as an argument, the one in
+  `OidcRegistrations` is used instead. However it now takes the redirect URI to
+  use, instead of always using the first one in the client metadata.
   ([#4771](https://github.com/matrix-org/matrix-rust-sdk/pull/4771))
 - [**breaking**] The `server_url` and `server_response` methods of
   `SsoLoginBuilder` are replaced by `server_builder()`, which allows more
@@ -757,7 +859,8 @@ simpler methods:
   - `OidcError` was renamed to `OAuthError` and the `RefreshTokenError::Oidc`
     variant was renamed to `RefreshTokenError::OAuth`.
   - `Oidc::provider_metadata()` was renamed to `OAuth::server_metadata()`.
-- [**breaking**]: `OAuth::finish_login()` must always be called, instead of `OAuth::finish_authorization()`
+- [**breaking**]: `OAuth::finish_login()` must always be called, instead of
+  `OAuth::finish_authorization()`
   ([#4817](https://github.com/matrix-org/matrix-rust-sdk/pull/4817))
   - `OAuth::abort_authorization()` was renamed to `OAuth::abort_login()`.
   - `OAuth::finish_login()` can be called several times for the same session,
@@ -799,8 +902,8 @@ simpler methods:
   ([#4831](https://github.com/matrix-org/matrix-rust-sdk/pull/4831))
 - [**breaking**] `Client::store` is renamed `state_store`
   ([#4851](https://github.com/matrix-org/matrix-rust-sdk/pull/4851))
-- [**breaking**] The parameters `event_id` and `enforce_thread` on [`Room::make_reply_event()`]
-  have been wrapped in a `reply` struct parameter.
+- [**breaking**] The parameters `event_id` and `enforce_thread` on
+  [`Room::make_reply_event()`] have been wrapped in a `reply` struct parameter.
   ([#4880](https://github.com/matrix-org/matrix-rust-sdk/pull/4880/))
 - [**breaking**]: The `Oidc` API was updated to match the latest version of the
   next-gen auth MSCs. The most notable change is that these MSCs are now based
@@ -821,9 +924,9 @@ simpler methods:
     - `OidcError` was renamed to `OAuthError` and the `RefreshTokenError::Oidc`
       variant was renamed to `RefreshTokenError::OAuth`.
     - `Oidc::provider_metadata()` was renamed to `OAuth::server_metadata()`.
-  - The `authentication::qrcode` module was moved inside `authentication::oauth`,
-    because it is only available through the `OAuth` API.
-    ([#4687](https://github.com/matrix-org/matrix-rust-sdk/pull/4687/))
+  - The `authentication::qrcode` module was moved inside
+    `authentication::oauth`, because it is only available through the `OAuth`
+    API. ([#4687](https://github.com/matrix-org/matrix-rust-sdk/pull/4687/))
   - The `OAuth` API only supports public clients, i.e. clients
     without a secret.
     ([#4634](https://github.com/matrix-org/matrix-rust-sdk/pull/4634))
@@ -835,9 +938,10 @@ simpler methods:
     case anymore, according to the latest version of
     [MSC2967](https://github.com/matrix-org/matrix-spec-proposals/pull/2967).
     ([#4664](https://github.com/matrix-org/matrix-rust-sdk/pull/4664))
-  - The `OAuth` API uses the `GET /auth_metadata` endpoint from the
-    latest version of [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965)
-    by default. The previous `GET /auth_issuer` endpoint is still supported as a
+  - The `OAuth` API uses the `GET /auth_metadata` endpoint from the latest
+    version of
+    [MSC2965](https://github.com/matrix-org/matrix-spec-proposals/pull/2965) by
+    default. The previous `GET /auth_issuer` endpoint is still supported as a
     fallback for now.
     ([#4673](https://github.com/matrix-org/matrix-rust-sdk/pull/4673))
     - It is not possible to provide a custom issuer anymore:
@@ -852,7 +956,8 @@ simpler methods:
   - The behavior of `OAuth::logout()` is now aligned with
     [MSC4254](https://github.com/matrix-org/matrix-spec-proposals/pull/4254)
     ([#4674](https://github.com/matrix-org/matrix-rust-sdk/pull/4674))
-    - Support for [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
+    - Support for
+      [RP-Initiated Logout](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
       was removed, so it doesn't return an `OidcEndSessionUrlBuilder` anymore.
     - Only one request is made to revoke the access token, since the server is
       supposed to revoke both the access token and the associated refresh token
@@ -881,7 +986,8 @@ simpler methods:
       exported from the `oauth` module or available from `ruma`.
     - `AccountManagementUrlFull` now takes an `OwnedDeviceId` when a device ID
       is required.
-    - `(Verified)ProviderMetadata` was replaced by `AuthorizationServerMetadata`.
+    - `(Verified)ProviderMetadata` was replaced by
+      `AuthorizationServerMetadata`.
     - `OAuth::register_client()` doesn't accept a software statement anymore.
     - `(Verified)ClientMetadata` was replaced by `Raw<ClientMetadata>`.
       `ClientMetadata` is an opinionated type that only supports the fields
@@ -947,7 +1053,8 @@ simpler methods:
 - Enable HTTP/2 support in the HTTP client.
   ([#4566](https://github.com/matrix-org/matrix-rust-sdk/pull/4566))
 
-- Add support for creating custom conditional push rules in `NotificationSettings::create_custom_conditional_push_rule`.
+- Add support for creating custom conditional push rules in
+  `NotificationSettings::create_custom_conditional_push_rule`.
   ([#4587](https://github.com/matrix-org/matrix-rust-sdk/pull/4587))
 
 - The media contents stored in the media cache can now be controlled with a
@@ -955,7 +1062,8 @@ simpler methods:
   `set_media_retention_policy()`, `clean_up_media_cache()`.
   ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
 
-- Add support for creating custom conditional push rules in `NotificationSettings::create_custom_conditional_push_rule`.
+- Add support for creating custom conditional push rules in
+  `NotificationSettings::create_custom_conditional_push_rule`.
   ([#4587](https://github.com/matrix-org/matrix-rust-sdk/pull/4587))
 
 ### Refactor
@@ -968,9 +1076,10 @@ simpler methods:
 - Improve the performance of `EventCache` (approximately 4.5 times faster).
   ([#4616](https://github.com/matrix-org/matrix-rust-sdk/pull/4616))
 
-- [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent` have been fused into a single type
-  `TimelineEvent`, and its field `push_actions` has been made `Option`al (it is set to `None` when
-  we couldn't compute the push actions, because we lacked some information).
+- [**breaking**]: The reexported types `SyncTimelineEvent` and `TimelineEvent`
+  have been fused into a single type `TimelineEvent`, and its field
+  `push_actions` has been made `Option`al (it is set to `None` when we couldn't
+  compute the push actions, because we lacked some information).
   ([#4568](https://github.com/matrix-org/matrix-rust-sdk/pull/4568))
 
 - [**breaking**] Move the optional `RequestConfig` argument of the
@@ -984,11 +1093,13 @@ simpler methods:
   call `AttachmentConfig::new().thumbnail(thumbnail)` now instead.
   ([#4452](https://github.com/matrix-org/matrix-rust-sdk/pull/4452))
 
-- [**breaking**] `Room::send_attachment()` and `RoomSendQueue::send_attachment()`
-  now take any type that implements `Into<String>` for the filename.
+- [**breaking**] `Room::send_attachment()` and
+  `RoomSendQueue::send_attachment()` now take any type that implements
+  `Into<String>` for the filename.
   ([#4451](https://github.com/matrix-org/matrix-rust-sdk/pull/4451))
 
-- [**breaking**] `Recovery::are_we_the_last_man_standing()` has been renamed to `is_last_device()`.
+- [**breaking**] `Recovery::are_we_the_last_man_standing()` has been renamed to
+  `is_last_device()`.
   ([#4522](https://github.com/matrix-org/matrix-rust-sdk/pull/4522))
 
 - [**breaking**] The `matrix_auth` module is now at `authentication::matrix`.
@@ -999,7 +1110,7 @@ simpler methods:
 
 ## [0.9.0] - 2024-12-18
 
-### Bug Fixes
+### Bug fixes
 
 - Use the inviter's server name and the server name from the room alias as
   fallback values for the via parameter when requesting the room summary from
@@ -1022,19 +1133,17 @@ simpler methods:
 - [**breaking**] Make all fields of Thumbnail required
   ([#4324](https://github.com/matrix-org/matrix-rust-sdk/pull/4324))
 
-- `Backups::exists_on_server`, which always fetches up-to-date information from the
-  server about whether a key storage backup exists, was renamed to
+- `Backups::exists_on_server`, which always fetches up-to-date information from
+  the server about whether a key storage backup exists, was renamed to
   `fetch_exists_on_the_server`, and a new implementation of `exists_on_server`
   which caches the most recent answer is now provided.
 
 ## [0.8.0] - 2024-11-19
 
-### Bug Fixes
+### Bug fixes
 
 - Add more invalid characters for room aliases.
-
 - Match the right status code in `Client::is_room_alias_available`.
-
 - Fix a bug where room keys were considered to be downloaded before backups were
   enabled. This bug only affects the
   `BackupDownloadStrategy::AfterDecryptionFailure`, where no attempt would be
@@ -1045,78 +1154,66 @@ simpler methods:
 
 - Improve documentation of `Client::observe_events`.
 
-
 ### Features
 
-
 - Add `create_room_alias` function.
-
 - `Client::cross_process_store_locks_holder_name` is used everywhere:
- - `StoreConfig::new()` now takes a
-   `cross_process_store_locks_holder_name` argument.
- - `StoreConfig` no longer implements `Default`.
- - `BaseClient::new()` has been removed.
- - `BaseClient::clone_with_in_memory_state_store()` now takes a
-   `cross_process_store_locks_holder_name` argument.
- - `BaseClient` no longer implements `Default`.
- - `EventCacheStoreLock::new()` no longer takes a `key` argument.
- - `BuilderStoreConfig` no longer has
-   `cross_process_store_locks_holder_name` field for `Sqlite` and
-   `IndexedDb`.
+- `StoreConfig::new()` now takes a
+  `cross_process_store_locks_holder_name` argument.
+- `StoreConfig` no longer implements `Default`.
+- `BaseClient::new()` has been removed.
+- `BaseClient::clone_with_in_memory_state_store()` now takes a
+  `cross_process_store_locks_holder_name` argument.
+- `BaseClient` no longer implements `Default`.
+- `EventCacheStoreLock::new()` no longer takes a `key` argument.
+- `BuilderStoreConfig` no longer has
+  `cross_process_store_locks_holder_name` field for `Sqlite` and
+  `IndexedDb`.
 
-- `EncryptionSyncService` and `Notification` are using `Client::cross_process_store_locks_holder_name`.
+- `EncryptionSyncService` and `Notification` are using
+  `Client::cross_process_store_locks_holder_name`.
 
 - Allow passing a custom `RequestConfig` to an upload request.
-
 - Retry uploads if they've failed with transient errors.
-
 - Implement `EventHandlerContext` for tuples.
-
 - Introduce a mechanism similar to `Client::add_event_handler` and
   `Client::add_room_event_handler` but with a reactive programming pattern. Add
   `Client::observe_events` and `Client::observe_room_events`.
 
- ```rust
- // Get an observer.
- let observer =
+  ```rust
+  // Get an observer.
+  let observer =
      client.observe_events::<SyncRoomMessageEvent, (Room, Vec<Action>)>();
 
- // Subscribe to the observer.
- let mut subscriber = observer.subscribe();
+  // Subscribe to the observer.
+  let mut subscriber = observer.subscribe();
 
- // Use the subscriber as a `Stream`.
- let (message_event, (room, push_actions)) = subscriber.next().await.unwrap();
- ```
+  // Use the subscriber as a `Stream`.
+  let (message_event, (room, push_actions)) = subscriber.next().await.unwrap();
+  ```
 
- When calling `observe_events`, one has to specify the type of event (in the
- example, `SyncRoomMessageEvent`) and a context (in the example, `(Room,
- Vec<Action>)`, respectively for the room and the push actions).
+  When calling `observe_events`, one has to specify the type of event (in the
+  example, `SyncRoomMessageEvent`) and a context (in the example, `(Room,
+  Vec<Action>)`, respectively for the room and the push actions).
 
 - Implement unwedging for media uploads.
-
-- Send state from state sync and not from timeline to widget ([#4254](https://github.com/matrix-org/matrix-rust-sdk/pull/4254))
+- Send state from state sync and not from timeline to widget
+  ([#4254](https://github.com/matrix-org/matrix-rust-sdk/pull/4254))
 
 - Allow aborting media uploads.
-
 - Add `RoomPreviewInfo::num_active_members`.
-
 - Use room directory search as another data source.
-
 - Check if the user is allowed to do a room mention before trying to send a call
   notify event.
   ([#4271](https://github.com/matrix-org/matrix-rust-sdk/pull/4271))
 
 - Add `Client::cross_process_store_locks_holder_name()`.
-
 - Add a `PreviouslyVerified` variant to `VerificationLevel` indicating that the
   identity is unverified and previously it was verified.
 
 - New `UserIdentity::pin` method.
-
 - New `ClientBuilder::with_decryption_trust_requirement` method.
-
 - New `ClientBuilder::with_room_key_recipient_strategy` method
-
 - New `Room.set_account_data` and `Room.set_account_data_raw` RoomAccountData
   setters, analogous to the GlobalAccountData
 
@@ -1127,30 +1224,19 @@ simpler methods:
 - Implement proper redact handling in the widget driver. This allows the Rust
   SDK widget driver to support widgets that rely on redacting.
 
-
 ### Refactor
+
 - [**breaking**] Rename `DisplayName` to `RoomDisplayName`.
-
 - Improve `is_room_alias_format_valid` so it's more strict.
-
 - Remove duplicated fields in media event contents.
-
 - Use `SendHandle` for media uploads too.
-
 - Move `event_cache_store/` to `event_cache/store/` in `matrix-sdk-base`.
-
 - Move `linked_chunk` from `matrix-sdk` to `matrix-sdk-common`.
-
 - Move `Event` and `Gap` into `matrix_sdk_base::event_cache`.
-
 - Move `formatted_caption_from` to the SDK, rename it.
-
 - Tidy up and start commenting the widget code.
-
 - Get rid of `ProcessingContext` and inline it in its callers.
-
 - Get rid of unused `limits` parameter when constructing a `WidgetMachine`.
-
 - Use a specialized mutex for locking access to the state store and
   `being_sent`.
 
@@ -1167,8 +1253,8 @@ simpler methods:
   between `*_redact_own` and `*_redact_other`.
 
 - [**breaking**] `AmbiguityCache` contains the room member's user ID.
-
-- [**breaking**] Replace `impl MediaEventContent` with `&impl MediaEventContent` in
+- [**breaking**] Replace `impl MediaEventContent` with `&impl MediaEventContent`
+  in
   `Media::get_file`/`Media::remove_file`/`Media::get_thumbnail`/`Media::remove_thumbnail`
 
 - [**breaking**] A custom sliding sync proxy set with
@@ -1200,45 +1286,58 @@ simpler methods:
 - [**breaking**] The `body` parameter in `get_media_file` has been replaced with
   a `filename` parameter now that Ruma has a `filename()` method.
 
-# 0.7.0
+## 0.7.0
 
 Breaking changes:
 
 - The `Client::sync_token` accessor function is no longer public. If you were
   using this for `Client::sync_once()`, you can get the token from the result of
-  the `Client::sync_once()` method instead ([#1216](https://github.com/matrix-org/matrix-rust-sdk/pull/1216)).
-- `Common::members` and `Common::members_no_sync` take a `RoomMemberships` to be able to filter the
-  results by any membership state.
-  - `Common::active_members(_no_sync)` and `Common::joined_members(_no_sync)` are deprecated.
-- `matrix-sdk-sqlite` is the new default store implementation outside of WASM, behind the `sqlite` feature.
-  - The `sled` feature was removed. The `matrix-sdk-sled` crate is deprecated and no longer maintained.
-- Replace `Client::authentication_issuer` with `Client::authentication_server_info` that contains
-  all the fields discovered from the homeserver for authenticating with OIDC
-- Remove `HttpSend` trait in favor of allowing a custom `reqwest::Client` instance to be supplied
-- Move all the types and methods using the native Matrix login and registration APIs from `Client`
-  to the new `matrix_auth::MatrixAuth` API that is accessible via `Client::matrix_auth()`.
+  the `Client::sync_once()` method instead
+  ([#1216](https://github.com/matrix-org/matrix-rust-sdk/pull/1216)).
+- `Common::members` and `Common::members_no_sync` take a `RoomMemberships` to be
+  able to filter the results by any membership state.
+  - `Common::active_members(_no_sync)` and `Common::joined_members(_no_sync)`
+    are deprecated.
+- `matrix-sdk-sqlite` is the new default store implementation outside of WASM,
+  behind the `sqlite` feature.
+  - The `sled` feature was removed. The `matrix-sdk-sled` crate is deprecated
+    and no longer maintained.
+- Replace `Client::authentication_issuer` with
+  `Client::authentication_server_info` that contains all the fields discovered
+  from the homeserver for authenticating with OIDC
+- Remove `HttpSend` trait in favor of allowing a custom `reqwest::Client`
+  instance to be supplied
+- Move all the types and methods using the native Matrix login and registration
+  APIs from `Client` to the new `matrix_auth::MatrixAuth` API that is accessible
+  via `Client::matrix_auth()`.
 - Move `Session` and `SessionTokens` to the `matrix_auth` module.
   - Move the session methods on `Client` to the `MatrixAuth` API.
-  - Split `Session`'s content into several types. Its (de)serialization is still backwards
-    compatible.
+  - Split `Session`'s content into several types. Its (de)serialization is still
+    backwards compatible.
 - The room API has been simplified
   - Removed the previous `Room`, `Joined`, `Invited` and `Left` types
-  - Merged all of the functionality from `Joined`, `Invited` and `Left` into `room::Common`
-  - Renamed `room::Common` to just `Room` and made it accessible as `matrix_sdk::Room`
-- Event handler closures now need to implement `FnOnce` + `Clone` instead of `Fn`
-  - As a consequence, you no longer need to explicitly need to `clone` variables they capture
-    before constructing an `async move {}` block inside
-- `Room::sync_members` doesn't return the underlying Ruma response anymore. If you need to get the
-  room members, you can use `Room::members` or `Room::get_member` which will make sure that the
-  members are up to date.
+  - Merged all of the functionality from `Joined`, `Invited` and `Left` into
+    `room::Common`
+  - Renamed `room::Common` to just `Room` and made it accessible as
+    `matrix_sdk::Room`
+- Event handler closures now need to implement `FnOnce` + `Clone` instead of
+  `Fn`
+  - As a consequence, you no longer need to explicitly need to `clone` variables
+    they capture before constructing an `async move {}` block inside
+- `Room::sync_members` doesn't return the underlying Ruma response anymore. If
+  you need to get the room members, you can use `Room::members` or
+  `Room::get_member` which will make sure that the members are up to date.
 - The `transaction_id` parameter of `Room::{send, send_raw}` was removed
-  - Instead, both methods now return types that implement `IntoFuture` (so can be awaited like
-    before) and have a `with_transaction_id` builder-style method
-- The parameter order of `Room::{send_raw, send_state_event_raw}` has changed, `content` is now last
-  - The parameter type of `content` has also changed to a generic; `serde_json::Value` arguments
-    are still allowed, but so are other types like `Box<serde_json::value::RawValue>`
-- All "named futures" (structs implementing `IntoFuture`) are now exported from modules named
-  `futures` instead of directly in the respective parent module
+  - Instead, both methods now return types that implement `IntoFuture` (so can
+    be awaited like before) and have a `with_transaction_id` builder-style
+    method
+- The parameter order of `Room::{send_raw, send_state_event_raw}` has changed,
+  `content` is now last
+  - The parameter type of `content` has also changed to a generic;
+    `serde_json::Value` arguments are still allowed, but so are other types like
+    `Box<serde_json::value::RawValue>`
+- All "named futures" (structs implementing `IntoFuture`) are now exported from
+  modules named `futures` instead of directly in the respective parent module
 - `Verification` is non-exhaustive, to make the `qrcode` cargo feature additive
 
 Bug fixes:
@@ -1255,18 +1354,21 @@ Additions:
   and listen to changes in the state of the `VerificationRequest`. This removes
   the need to listen to individual matrix events once the `VerificationRequest`
   object has been acquired.
-- The `Room` methods to retrieve state events can now return a sync or stripped event,
-  so they can be used for invited rooms too.
-- Add `Client::subscribe_to_room_updates` and `room::Common::subscribe_to_updates`
+- The `Room` methods to retrieve state events can now return a sync or stripped
+  event, so they can be used for invited rooms too.
+- Add `Client::subscribe_to_room_updates` and
+  `room::Common::subscribe_to_updates`
 - Add `Client::rooms_filtered`
 - Add methods on `Client` that can handle several authentication APIs.
-- Add new method `force_discard_session` on `Room` that allows to discard the current
-  outbound session (room key) for that room. Can be used by clients for the `/discardsession` command.
+- Add new method `force_discard_session` on `Room` that allows to discard the
+  current outbound session (room key) for that room. Can be used by clients for
+  the `/discardsession` command.
 
-# 0.6.2
+## 0.6.2
 
 - Fix the access token being printed in tracing span fields.
 
-# 0.6.1
+## 0.6.1
 
-- Fixes a bug where the access token used for Matrix requests was added as a field to a tracing span.
+- Fixes a bug where the access token used for Matrix requests was added as a
+  field to a tracing span.

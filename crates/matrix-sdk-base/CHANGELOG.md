@@ -6,21 +6,22 @@ All notable changes to this project will be documented in this file.
 
 ## [0.17.0] - 2026-05-08
 
-### Bug Fixes
+### Bug fixes
 
-- Filter out service members from `Room::heroes`. This *should* be done by the homeservers, but some don't. 
+- Filter out service members from `Room::heroes`. This _should_ be done by the
+  homeservers, but some don't.
   ([#6535](https://github.com/matrix-org/matrix-rust-sdk/pull/6535))
-- Room keys are now rotated whenever the client fully reloads the member list by making a
-  request to `/members`, which prevents clients using keys that may have been shared under
-  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) even if a gappy
-  sync occurs.
+- Room keys are now rotated whenever the client fully reloads the member list by
+  making a request to `/members`, which prevents clients using keys that may
+  have been shared under
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) even
+  if a gappy sync occurs.
   ([#6339](https://github.com/matrix-org/matrix-rust-sdk/pull/6339))
 
 - Fix invited/knocked rooms disappearing from the room list after
   join → leave/kick → re-invite when using Sliding Sync. The SDK now always
   emits a room update so the room is surfaced correctly again.
   ([#6126](https://github.com/matrix-org/matrix-rust-sdk/pull/6126))
-
 
 - [**breaking**] `BaseClient::room_info_notable_update_sender` has
   moved into `BaseStateStore`. `BaseStateStore::derive_from_other`
@@ -33,28 +34,31 @@ All notable changes to this project will be documented in this file.
 
 ### Features
 
-- [**breaking**] Add `RoomSummary::active_service_members` field to act as a cached value that will be computed 
-  when we sync members. Rename `Room::is_dm` to `Room::compute_is_dm` since it will now also store the computed 
-  active service members count in the new cached field. `Room::active_service_members` is now 
-  `Room::update_active_service_members` for the same reason.
+- [**breaking**] Add `RoomSummary::active_service_members` field to act as a
+  cached value that will be computed when we sync members. Rename `Room::is_dm`
+  to `Room::compute_is_dm` since it will now also store the computed active
+  service members count in the new cached field. `Room::active_service_members`
+  is now `Room::update_active_service_members` for the same reason.
   ([#6537](https://github.com/matrix-org/matrix-rust-sdk/pull/6537))
-- [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires 
-  `StateStore::save_changes` to acquire state store lock and replaces `Room::set_room_info` 
-  with an atomic version, `Room::update_room_info`, which is also synchronized by
-  the state store lock.
+- [**breaking**] Enforce atomic and synchronized updates to `RoomInfo`. Requires
+  `StateStore::save_changes` to acquire state store lock and replaces
+  `Room::set_room_info` with an atomic version, `Room::update_room_info`, which
+  is also synchronized by the state store lock.
   ([#6478](https://github.com/matrix-org/matrix-rust-sdk/pull/6478))
-- Add `RoomMember::is_service_member` that automatically checks the room info and retrieves this info. 
+- Add `RoomMember::is_service_member` that automatically checks the room info
+  and retrieves this info.
   ([#6536](https://github.com/matrix-org/matrix-rust-sdk/pull/6536))
-- [**breaking**] Add `DmRoomDefinition` enum, allowing clients to specify what a DM 
-  room should look like. A `Room::is_dm` method was added to check if a room is a DM room too, 
-  using this definition. ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
-- Add `Room::active_room_members`, returning a list of all the service room members 
-  that are active in the room. 
+- [**breaking**] Add `DmRoomDefinition` enum, allowing clients to specify what a
+  DM room should look like. A `Room::is_dm` method was added to check if a room
+  is a DM room too, using this definition.
+  ([#6490](https://github.com/matrix-org/matrix-rust-sdk/pull/6490))
+- Add `Room::active_room_members`, returning a list of all the service room
+  members that are active in the room.
   ([#6843](https://github.com/matrix-org/matrix-rust-sdk/pull/6483))
-- Add support in the `MemoryStore`'s implementation of `EventCacheStore` for 
-  having duplicate events in a room, where each duplicate is in a different 
-  `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
-  thread in that room. 
+- Add support in the `MemoryStore`'s implementation of `EventCacheStore` for
+  having duplicate events in a room, where each duplicate is in a different
+  `LinkedChunk`. This is useful, e.g., when an event is in a room and a
+  thread in that room.
   (#[6200](https://github.com/matrix-org/matrix-rust-sdk/pull/6200))
 - Add `StateStore::upsert_thread_subscriptions()` method for bulk upserts.
   ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
@@ -62,21 +66,22 @@ All notable changes to this project will be documented in this file.
   OwnedEventId` field.
   ([#5977](https://github.com/matrix-org/matrix-rust-sdk/pull/5977))
 - [**breaking**] `RelationalLinkedChunk::apply_updates` returns an error rather
-  than panicking. This is necessary in order to ensure certain behaviors are disallowed.
-  ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
-- Add `RoomInfo::active_room_call_consensus_intent()` method to get the call intent for the current call,
-  based on what members are advertising.
+  than panicking. This is necessary in order to ensure certain behaviors are
+  disallowed. ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
+- Add `RoomInfo::active_room_call_consensus_intent()` method to get the call
+  intent for the current call, based on what members are advertising.
   ([#6274](https://github.com/matrix-org/matrix-rust-sdk/pull/6274))
 - Add `Room::is_call` to check for Call rooms (MSC3417)
   ([#6315](https://github.com/matrix-org/matrix-rust-sdk/pull/6315))
 
 ### Refactor
 
-- [**breaking**] `TtlStoreValue` was moved and renamed to `matrix_sdk_common::ttl::TtlValue`.
+- [**breaking**] `TtlStoreValue` was moved and renamed to
+  `matrix_sdk_common::ttl::TtlValue`.
   ([#6463](https://github.com/matrix-org/matrix-rust-sdk/pull/6463),
   [#6484](https://github.com/matrix-org/matrix-rust-sdk/pull/6484))
-- [**breaking**] `Gap::prev_token` has been renamed to `Gap::token` since it's now used for both
-  the previous batch token and the next batch token.
+- [**breaking**] `Gap::prev_token` has been renamed to `Gap::token` since it's
+  now used for both the previous batch token and the next batch token.
   ([#6236](https://github.com/matrix-org/matrix-rust-sdk/pull/6236))
 - [**breaking**] Invite acceptance details are no longer stored in `RoomInfo`,
   and the accessors `RoomInfo.invite_acceptance_details()` and
@@ -85,18 +90,18 @@ All notable changes to this project will be documented in this file.
   feature is enabled, are accessible via
   `BaseClient::get_pending_key_bundle_details_for_room`.
   ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199))
-- [**breaking**] `once_cell` is no longer reexported from this crate. The types that were stabilized
-  in the Rust standard library can be used instead in most cases.
-  ([#6194](https://github.com/matrix-org/matrix-rust-sdk/pull/6194))
-- [**breaking**] All the `*StoreLock` structs use a `CrossProcessLockConfig` now instead of the previous `holder` value
-  and so does `StoreConfig` and `BaseClient::clone_with_in_memory_state_store. Passing a 
-  `CrossProcessLockConfig::MultiProcess` will keep the same behaviour we had where the client uses the cross process 
-  lock and using `CrossProcessLockConfig::SingleProcess` will disable the cross process lock.
+- [**breaking**] `once_cell` is no longer reexported from this crate. The types
+  that were stabilized in the Rust standard library can be used instead in most
+  cases. ([#6194](https://github.com/matrix-org/matrix-rust-sdk/pull/6194))
+- [**breaking**] All the `*StoreLock` structs use a `CrossProcessLockConfig` now
+  instead of the previous `holder` value and so does `StoreConfig` and
+  `BaseClient::clone_with_in_memory_state_store. Passing a `CrossProcessLockConfig::MultiProcess` will keep the same behaviour we had where the client uses the cross process lock and using `CrossProcessLockConfig::SingleProcess`
+  will disable the cross process lock.
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
-- [**breaking**] The `StateStore::upsert_thread_subscription` method has been removed in favor of a
-  bulk method `StateStore::upsert_thread_subscriptions`.
-- [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
-  been eliminated entirely.
+- [**breaking**] The `StateStore::upsert_thread_subscription` method has been
+  removed in favor of a bulk method `StateStore::upsert_thread_subscriptions`.
+- [**breaking**] The `message-ids` feature has been removed. It was already a
+  no-op and has now been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
 
 ## [0.16.1] - 2026-05-08
@@ -105,11 +110,13 @@ No notable changes in this release.
 
 ## [0.16.0] - 2025-12-04
 
-### Security Fixes
+### Security fixes
 
 - Skip the serialization of custom join rules in the `RoomInfo` which prevented
   the processing of sync responses containing events with custom join rules.
-  ([#5924](https://github.com/matrix-org/matrix-rust-sdk/pull/5924), Low, [CVE-2025-66622](https://www.cve.org/CVERecord?id=CVE-2025-66622), [GHSA-jj6p-3m75-g2p3](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-jj6p-3m75-g2p3)).
+  ([#5924](https://github.com/matrix-org/matrix-rust-sdk/pull/5924), Low,
+  [CVE-2025-66622](https://www.cve.org/CVERecord?id=CVE-2025-66622),
+  [GHSA-jj6p-3m75-g2p3](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-jj6p-3m75-g2p3)).
 
 ### Refactor
 
@@ -119,8 +126,8 @@ No notable changes in this release.
   `maybe_decode()`. Its constructor has been removed since all its fields are
   now public.
   ([#5910](https://github.com/matrix-org/matrix-rust-sdk/pull/5910))
-    - `StateStoreData(Key/Value)::ServerInfo` has been split into the
-      `SupportedVersions` and `WellKnown` variants.
+  - `StateStoreData(Key/Value)::ServerInfo` has been split into the
+    `SupportedVersions` and `WellKnown` variants.
 - [**breaking**] Upgrade Ruma to version 0.14.0.
   ([#5882](https://github.com/matrix-org/matrix-rust-sdk/pull/5882))
 - `Client::sync_lock` has been renamed `Client::state_store_lock`.
@@ -138,18 +145,19 @@ No notable changes in this release.
 
 ## [0.14.1] - 2025-09-10
 
-### Security Fixes
+### Security fixes
 
 - Fix a panic in the `RoomMember::normalized_power_level` method.
-  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635)) (
-  Low, [CVE-2025-59047](https://www.cve.org/CVERecord?id=CVE-2025-59047), [GHSA-qhj8-q5r6-8q6j](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-qhj8-q5r6-8q6j)).
+  ([#5635](https://github.com/matrix-org/matrix-rust-sdk/pull/5635)) ( Low,
+  [CVE-2025-59047](https://www.cve.org/CVERecord?id=CVE-2025-59047),
+  [GHSA-qhj8-q5r6-8q6j](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-qhj8-q5r6-8q6j)).
 
 ## [0.14.0] - 2025-09-04
 
 ### Features
 
-- Add `SyncResponse::RoomUpdates::is_empty` to check if there were any room updates.
-  ([#5593](https://github.com/matrix-org/matrix-rust-sdk/pull/5593))
+- Add `SyncResponse::RoomUpdates::is_empty` to check if there were any room
+  updates. ([#5593](https://github.com/matrix-org/matrix-rust-sdk/pull/5593))
 - Add `EncryptionState::StateEncrypted` to represent rooms supporting encrypted
   state events. Feature-gated behind `experimental-encrypted-state-events`.
   ([#5523](https://github.com/matrix-org/matrix-rust-sdk/pull/5523))
@@ -164,7 +172,7 @@ No notable changes in this release.
 - [**breaking**] The `RoomInfo` method now remembers the inviter at the time
   when the `BaseClient::room_joined()` method was called. The caller is
   responsible to remember the inviter before a server request to join the room
-  is made. The  `RoomInfo::invite_accepted_at` method was removed, the
+  is made. The `RoomInfo::invite_accepted_at` method was removed, the
   `RoomInfo::invite_details` method returns both the timestamp and the
   inviter.
   ([#5390](https://github.com/matrix-org/matrix-rust-sdk/pull/5390))
@@ -178,8 +186,8 @@ No notable changes in this release.
 - [**breaking**] The `stripped_state` field of `StateChanges` uses
   `StrippedState` instead of `AnyStrippedStateEvent`.
   ([#5473](https://github.com/matrix-org/matrix-rust-sdk/pull/5473))
-- [**breaking**] `RelationalLinkedChunk::items` now takes a `RoomId` instead of an
-  `&OwnedLinkedChunkId` parameter.
+- [**breaking**] `RelationalLinkedChunk::items` now takes a `RoomId` instead of
+  an `&OwnedLinkedChunkId` parameter.
   ([#5445](https://github.com/matrix-org/matrix-rust-sdk/pull/5445))
 - [**breaking**] Add an `IsPrefix = False` bound to the
   `get_state_event_static()`, `get_state_event_static_for_key()` and
@@ -189,8 +197,9 @@ No notable changes in this release.
   is now enforced at compile-time. The matching non-`static` methods of
   `StateStore` can be used instead for event types with a variable suffix.
   ([#5444](https://github.com/matrix-org/matrix-rust-sdk/pull/5444))
-- [**breaking**] `SyncOrStrippedState<RoomPowerLevelsEventContent>::power_levels()`
-  takes `AuthorizationRules` and a list of creators, because creators can have
+- [**breaking**]
+  `SyncOrStrippedState<RoomPowerLevelsEventContent>::power_levels()` takes
+  `AuthorizationRules` and a list of creators, because creators can have
   infinite power levels, as introduced in room version 12.
   ([#5436](https://github.com/matrix-org/matrix-rust-sdk/pull/5436))
 - [**breaking**] `RoomMember::power_level()` and
@@ -223,21 +232,22 @@ No notable changes in this release.
   timestamp exists, the `RoomInfo::invite_accepted_at()` method returns this
   timestamp.
   ([#5333](https://github.com/matrix-org/matrix-rust-sdk/pull/5333))
-- [**breaking**] The `BaseClient::new()` method now takes an additional `ThreadingSupport`
-  parameter controlling whether the client is supposed to do extra processing for threads. Right
-  now, it controls whether to exclude in-thread events from the room unread counts, but it may be
-  expanded in the future to support more threading-related features.
+- [**breaking**] The `BaseClient::new()` method now takes an additional
+  `ThreadingSupport` parameter controlling whether the client is supposed to do
+  extra processing for threads. Right now, it controls whether to exclude
+  in-thread events from the room unread counts, but it may be expanded in the
+  future to support more threading-related features.
   ([#5325](https://github.com/matrix-org/matrix-rust-sdk/pull/5325))
 
 ### Refactor
 
 - The cached `ServerCapabilities` has been renamed to `ServerInfo` and
-  additionally contains the well-known response alongside the existing server versions.
-  Despite the old name, it does not contain the server capabilities.
+  additionally contains the well-known response alongside the existing server
+  versions. Despite the old name, it does not contain the server capabilities.
   ([#5167](https://github.com/matrix-org/matrix-rust-sdk/pull/5167))
-- `Room::join_rule` and `Room::is_public` now return an `Option` to reflect that the join rule
-  state event might be missing, in which case they will return `None`.
-  ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
+- `Room::join_rule` and `Room::is_public` now return an `Option` to reflect that
+  the join rule state event might be missing, in which case they will return
+  `None`. ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
 
 ## [0.12.0] - 2025-06-10
 
@@ -255,9 +265,9 @@ No notable changes in this release.
 - [**breaking**] The `MediaRetentionPolicy` can now trigger regular cleanups
   with its new `cleanup_frequency` setting.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
-    - `Clone` is a supertrait of `EventCacheStoreMedia`.
-    - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
-    - There are new `'static` bounds in `MediaService` for the media cache stores
+  - `Clone` is a supertrait of `EventCacheStoreMedia`.
+  - `EventCacheStoreMedia` has a new method `last_media_cleanup_time_inner`
+  - There are new `'static` bounds in `MediaService` for the media cache stores
 - `event_cache::store::MemoryStore` implements `Clone`.
 - `BaseClient` now has a `handle_verification_events` field which is `true` by
   default and can be negated so the `NotificationClient` won't handle received
@@ -277,11 +287,11 @@ No notable changes in this release.
 - [**breaking**] `BaseClient::set_session_metadata` is renamed
   `activate`, and `BaseClient::logged_in` is renamed `is_activated`
   ([#4850](https://github.com/matrix-org/matrix-rust-sdk/pull/4850))
-- [**breaking] `DependentQueuedRequestKind::UploadFileWithThumbnail`
-  was renamed to `DependentQueuedRequestKind::UploadFileOrThumbnail`.
-  Under the `unstable-msc4274` feature, `DependentQueuedRequestKind::UploadFileOrThumbnail`
-  and `SentMediaInfo` were generalized to allow chaining multiple dependent
-  file / thumbnail uploads.
+- [**breaking] `DependentQueuedRequestKind::UploadFileWithThumbnail` was renamed
+  to `DependentQueuedRequestKind::UploadFileOrThumbnail`. Under the
+  `unstable-msc4274` feature,
+  `DependentQueuedRequestKind::UploadFileOrThumbnail` and `SentMediaInfo` were
+  generalized to allow chaining multiple dependent file / thumbnail uploads.
   ([#4897](https://github.com/matrix-org/matrix-rust-sdk/pull/4897))
 - [**breaking**] `RoomInfo::prev_state` has been removed due to being useless.
   ([#5054](https://github.com/matrix-org/matrix-rust-sdk/pull/5054))
@@ -293,17 +303,18 @@ No notable changes in this release.
 - [**breaking**] `EventCacheStore` allows to control which media content is
   allowed in the media cache, and how long it should be kept, with a
   `MediaRetentionPolicy`:
-    - `EventCacheStore::add_media_content()` has an extra argument,
-      `ignore_policy`, which decides whether a media content should ignore the
-      `MediaRetentionPolicy`. It should be stored alongside the media content.
-    - `EventCacheStore` has four new methods: `media_retention_policy()`,
-      `set_media_retention_policy()`, `set_ignore_media_retention_policy()` and
-      `clean_up_media_cache()`.
-    - `EventCacheStore` implementations should delegate media cache methods to the
-      methods of the same name of `MediaService` to use the `MediaRetentionPolicy`.
-      They need to implement the `EventCacheStoreMedia` trait that can be tested
-      with the `event_cache_store_media_integration_tests!` macro.
-      ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
+  - `EventCacheStore::add_media_content()` has an extra argument,
+    `ignore_policy`, which decides whether a media content should ignore the
+    `MediaRetentionPolicy`. It should be stored alongside the media content.
+  - `EventCacheStore` has four new methods: `media_retention_policy()`,
+    `set_media_retention_policy()`, `set_ignore_media_retention_policy()` and
+    `clean_up_media_cache()`.
+  - `EventCacheStore` implementations should delegate media cache methods to the
+    methods of the same name of `MediaService` to use the
+    `MediaRetentionPolicy`. They need to implement the `EventCacheStoreMedia`
+    trait that can be tested with the
+    `event_cache_store_media_integration_tests!` macro.
+    ([#4571](https://github.com/matrix-org/matrix-rust-sdk/pull/4571))
 
 ### Refactor
 
@@ -328,7 +339,7 @@ No notable changes in this release.
   excluded from the room display name calculation.
   ([#4335](https://github.com/matrix-org/matrix-rust-sdk/pull/4335))
 
-### Bug Fixes
+### Bug fixes
 
 - Fix an off-by-one error in the `ObservableMap` when the `remove()` method is
   called. Previously, items following the removed item were not shifted left by
@@ -337,18 +348,15 @@ No notable changes in this release.
 
 ## [0.8.0] - 2024-11-19
 
-### Bug Fixes
+### Bug fixes
 
 - Add more invalid characters for room aliases.
-
 - Use the `DisplayName` struct to protect against homoglyph attacks.
 
 ### Features
 
 - Add `BaseClient::room_key_recipient_strategy` field
-
 - `AmbiguityCache` contains the room member's user ID.
-
 - [**breaking**] `Media::get_thumbnail` and `MediaFormat::Thumbnail` allow to
   request an animated thumbnail They both take a `MediaThumbnailSettings`
   instead of `MediaThumbnailSize`.
@@ -370,9 +378,7 @@ No notable changes in this release.
   `IndexedDb`.
 
 - Make `ObservableMap::stream` works on `wasm32-unknown-unknown`.
-
 - Allow aborting media uploads.
-
 - Replace the `Notification` type from Ruma in `SyncResponse` and `StateChanges`
   by a custom one.
 
@@ -382,70 +388,67 @@ No notable changes in this release.
 ### Refactor
 
 - [**breaking**] Rename `DisplayName` to `RoomDisplayName`.
-
 - Rename `AmbiguityMap` to `DisplayNameUsers`.
-
 - Move `event_cache_store/` to `event_cache/store/` in `matrix-sdk-base`.
-
 - Move `linked_chunk` from `matrix-sdk` to `matrix-sdk-common`.
-
 - Move `Event` and `Gap` into `matrix_sdk_base::event_cache`.
-
 - The ambiguity maps in `SyncResponse` are moved to `JoinedRoom` and `LeftRoom`.
-
 - `Store::get_rooms` and `Store::get_rooms_filtered` are way faster because they
   don't acquire the lock for every room they read.
 
 - `Store::get_rooms`, `Store::get_rooms_filtered` and `Store::get_room` are
   renamed `Store::rooms`, `Store::rooms_filtered` and `Store::room`.
 
-- [**breaking**] `Client::get_rooms` and `Client::get_rooms_filtered` are renamed
-  `Client::rooms` and `Client::rooms_filtered`.
+- [**breaking**] `Client::get_rooms` and `Client::get_rooms_filtered` are
+  renamed `Client::rooms` and `Client::rooms_filtered`.
 
 - [**breaking**] `Client::get_stripped_rooms` has finally been removed.
-
 - [**breaking**] The `StateStore` methods to access data in the media cache
   where moved to a separate `EventCacheStore` trait.
 
-- [**breaking**] The `instant` module was removed, use the `ruma::time` module instead.
+- [**breaking**] The `instant` module was removed, use the `ruma::time` module
+  instead.
 
-# 0.7.0
+## 0.7.0
 
 - Rename `RoomType` to `RoomState`
 - Add `RoomInfo::state` accessor
-- Remove `members` and `stripped_members` fields in `StateChanges`. Room member events are now with
-  other state events in `state` and `stripped_state`.
-- `StateStore::get_user_ids` takes a `RoomMemberships` to be able to filter the results by any
-  membership state.
-    - `StateStore::get_joined_user_ids` and `StateStore::get_invited_user_ids` are deprecated.
-- `Room::members` takes a `RoomMemberships` to be able to filter the results by any membership
-  state.
-    - `Room::active_members` and `Room::joined_members` are deprecated.
+- Remove `members` and `stripped_members` fields in `StateChanges`. Room member
+  events are now with other state events in `state` and `stripped_state`.
+- `StateStore::get_user_ids` takes a `RoomMemberships` to be able to filter the
+  results by any membership state.
+  - `StateStore::get_joined_user_ids` and `StateStore::get_invited_user_ids` are
+    deprecated.
+- `Room::members` takes a `RoomMemberships` to be able to filter the results by
+  any membership state.
+  - `Room::active_members` and `Room::joined_members` are deprecated.
 - `RoomMember` has new methods:
-    - `can_ban`
-    - `can_invite`
-    - `can_kick`
-    - `can_redact`
-    - `can_send_message`
-    - `can_send_state`
-    - `can_trigger_room_notification`
+  - `can_ban`
+  - `can_invite`
+  - `can_kick`
+  - `can_redact`
+  - `can_send_message`
+  - `can_send_state`
+  - `can_trigger_room_notification`
 - Move `StateStore::get_member_event` to `StateStoreExt`
-- `StateStore::get_stripped_room_infos` is deprecated. All room infos should now be returned by
-  `get_room_infos`.
+- `StateStore::get_stripped_room_infos` is deprecated. All room infos should now
+  be returned by `get_room_infos`.
 - `BaseClient::get_stripped_rooms` is deprecated. Use `get_rooms_filtered` with
   `RoomStateFilter::INVITED` instead.
 - Add methods to `StateStore` to be able to retrieve data in batch
-    - `get_state_events_for_keys`
-    - `get_profiles`
-    - `get_presence_events`
-    - `get_users_with_display_names`
-- Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk` crate.
+  - `get_state_events_for_keys`
+  - `get_profiles`
+  - `get_presence_events`
+  - `get_users_with_display_names`
+- Move `Session`, `SessionTokens` and associated methods to the `matrix-sdk`
+  crate.
 - Add `Room::subscribe_info`
 
-# 0.5.1
+## 0.5.1
 
-## Bug Fixes
+### Bug fixes
 
-- #664: Fix regression with push rules being applied to the own user_id only instead of all but the own user_id
+- #664: Fix regression with push rules being applied to the own user_id only
+  instead of all but the own user_id
 
-# 0.5.0
+## 0.5.0

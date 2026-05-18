@@ -29,7 +29,7 @@ integration tests that need a running synapse instance. These tests reside in
 [README](./testing/matrix-sdk-integration-testing/README.md) to easily set up a
 synapse for testing purposes.
 
-### Snapshot Testing
+### Snapshot testing
 
 You can add/review snapshot tests using [insta.rs](https://insta.rs)
 
@@ -97,20 +97,20 @@ that is, just the branch name.)
 We use towncrier to generate changelogs from individual fragment files. Each
 change must be documented as a changelog fragment in the appropriate crate:
 
-```
+```text
 /crates/<crate-name>/changelog.d/
 ```
 
 Each changelog fragment must include **both the pull request number and the
 fragment type** in its filename:
 
-```
+```text
 <PR number>.<fragment type>.md
 ```
 
 For example:
 
-```
+```text
 4357.added.md
 4357.fixed.md
 4357.changed.md
@@ -119,14 +119,15 @@ For example:
 The pull request link is automatically added during changelog generation, so it
 must not be included manually.
 
-We use standard towncrier fragment types to categorize changes. Common types include:
+We use standard towncrier fragment types to categorize changes. Common types
+include:
 
-* `added` – new features or functionality
-* `changed` – changes in existing behavior
-* `fixed` – bug fixes
-* `removed` – removed features or APIs
-* `security` – security-related fixes
-* `internal` – changes that do not affect users (refactoring, CI, tooling)
+- `added` – new features or functionality
+- `changed` – changes in existing behavior
+- `fixed` – bug fixes
+- `removed` – removed features or APIs
+- `security` – security-related fixes
+- `internal` – changes that do not affect users (refactoring, CI, tooling)
 
 Choose the type that best matches the nature of the change.
 

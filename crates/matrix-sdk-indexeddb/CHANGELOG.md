@@ -18,7 +18,8 @@ All notable changes to this project will be documented in this file.
 - Implement `CryptoStore::get_pending_key_bundle_details_for_room` and
   `CryptoStore::get_all_rooms_pending_key_bundle`, and process
   `rooms_pending_key_bundle` field in `Changes`.
-  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)), ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233))
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)),
+  ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233))
 - Expose implementations of `EventCacheStore` and `MediaStore` and add a
   composite type for initializing all stores with a single function - i.e.,
   `IndexeddbStores::open`. Additionally, allow feature flags for each of the
@@ -28,20 +29,23 @@ All notable changes to this project will be documented in this file.
   `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
   ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
-- [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks may no longer
-  reference chunk identifiers which do not yet exist in the store
+- [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks
+  may no longer reference chunk identifiers which do not yet exist in the store
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 
-### Bug Fixes
+### Bug fixes
 
-- Ensure that encrypted tests are run with a `StoreCipher`. This happened to reveal tests which fail in an
-  encrypted `EventCacheStore`, which required fixing queries for all events in a room. ([#5933](https://github.com/matrix-org/matrix-rust-sdk/pull/5933))
+- Ensure that encrypted tests are run with a `StoreCipher`. This happened to
+  reveal tests which fail in an encrypted `EventCacheStore`, which required
+  fixing queries for all events in a room.
+  ([#5933](https://github.com/matrix-org/matrix-rust-sdk/pull/5933))
 
 ### Refactor
 
-- Add migration to `IndexeddbCryptoStore` that removes cross-process lock generation key from 
-  `CORE` object store, as this is tracked in `LEASE_LOCKS` object store.
-  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326)) 
+- Add migration to `IndexeddbCryptoStore` that removes cross-process lock
+  generation key from `CORE` object store, as this is tracked in `LEASE_LOCKS`
+  object store.
+  ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 
 ## [0.16.1] - 2026-05-08
 
@@ -53,15 +57,18 @@ No notable changes in this release.
 
 - Implement new method `CryptoStore::get_withheld_sessions_by_room_id`.
   ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
-- [**breaking**] `IndexeddbCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>, ...>`.
+- [**breaking**] `IndexeddbCryptoStore::get_withheld_info` now returns
+  `Result<Option<RoomKeyWithheldEntry>, ...>`.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
 - Implement `StateStore::upsert_thread_subscriptions()` method for bulk upserts.
   ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 
 ### Performance
 
-- Improve performance of certain media queries in `MediaStore` implementation by storing media content and media metadata
-  in separate object stores in IndexedDB (see [#5795](https://github.com/matrix-org/matrix-rust-sdk/pull/5795)).
+- Improve performance of certain media queries in `MediaStore` implementation by
+  storing media content and media metadata in separate object stores in
+  IndexedDB (see
+  [#5795](https://github.com/matrix-org/matrix-rust-sdk/pull/5795)).
 
 ## [0.14.0] - 2025-09-04
 
@@ -71,7 +78,10 @@ No notable changes in this release.
 
 ### Features
 
-- Add support for received room key bundle data, as required by encrypted history sharing ((MSC4268)[https://github.com/matrix-org/matrix-spec-proposals/pull/4268)). ([#5276](https://github.com/matrix-org/matrix-rust-sdk/pull/5276))
+- Add support for received room key bundle data, as required by encrypted
+  history sharing
+  ((MSC4268)[[https://github.com/matrix-org/matrix-spec-proposals/pull/4268][https-github-com-matrix-org-matrix-spec-proposals-pull-4268])).
+  ([#5276](https://github.com/matrix-org/matrix-rust-sdk/pull/5276))
 
 ## [0.12.0] - 2025-06-10
 
@@ -94,13 +104,17 @@ No notable changes in this release.
 ### Features
 
 - Improve the efficiency of objects stored in the crypto store.
-  ([#3645](https://github.com/matrix-org/matrix-rust-sdk/pull/3645), [#3651](https://github.com/matrix-org/matrix-rust-sdk/pull/3651))
+  ([#3645](https://github.com/matrix-org/matrix-rust-sdk/pull/3645),
+  [#3651](https://github.com/matrix-org/matrix-rust-sdk/pull/3651))
 
-- Add new method `IndexeddbCryptoStore::open_with_key`. ([#3423](https://github.com/matrix-org/matrix-rust-sdk/pull/3423))
+- Add new method `IndexeddbCryptoStore::open_with_key`.
+  ([#3423](https://github.com/matrix-org/matrix-rust-sdk/pull/3423))
 
 - `save_change` performance improvement, all encryption and serialization
   is done now outside of the db transaction.
 
-### Bug Fixes
+### Bug fixes
 
 - Use the `DisplayName` struct to protect against homoglyph attacks.
+
+[https-github-com-matrix-org-matrix-spec-proposals-pull-4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
