@@ -370,14 +370,14 @@ impl EventCache {
 
         // Phase 1: under the room state write lock, collect cache handles and
         // perform all room-linked-chunk mutations. We deliberately do NOT call
-        // replace_utds() on event-focused/pinned caches here to avoid an ABBA deadlock:
-        // pagination holds an event-focused cache lock and then tries to acquire the
-        // room state lock (via `save_events`), while this method would hold the
-        // room state lock and try to acquire event-focused cache locks.
-        let (pinned_cache, ef_caches) = {
+        // replace_utds() on event-focused/pinned-evenst caches here to avoid an ABBA
+        // deadlock: pagination holds an event-focused cache lock and then tries
+        // to acquire the room state lock (via `save_events`), while this method
+        // would hold the room state lock and try to acquire event-focused cache
+        // locks.
+        let ef_caches = {
             let mut state = room_cache.state().write().await?;
 
-            let pinned_cache = state.pinned_events_cache().cloned();
             let ef_caches: Vec<_> = state.event_focused_caches().cloned().collect();
 
             // Consider the room linked chunk.
@@ -416,15 +416,17 @@ impl EventCache {
                 Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
             );
 
-            (pinned_cache, ef_caches)
+            ef_caches
         };
         // Room state write lock is dropped here.
 
-        // Phase 2: replace UTDs in pinned and event-focused caches WITHOUT
-        // holding the room state lock. These caches have their own internal
-        // locks and don't need the room state lock.
-        if let Some(pinned_cache) = pinned_cache {
-            pinned_cache.replace_utds(&events).await?;
+        // Phase 2: replace UTDs in pinned-events and event-focused caches
+        // WITHOUT holding the room state lock. These caches have their own
+        // internal locks and don't need the room state lock.
+        if let Ok(Some(pinned_events_cache)) =
+            self.pinned_events_without_initialisation(room_id).await
+        {
+            pinned_events_cache.replace_utds(&events).await?;
         }
 
         // TODO: This ain't great for performance; there shouldn't be that many
