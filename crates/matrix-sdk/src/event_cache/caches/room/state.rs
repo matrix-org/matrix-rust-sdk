@@ -48,7 +48,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
@@ -359,34 +359,6 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
     #[cfg(test)]
     pub fn is_dirty(&self) -> bool {
         EventCacheStoreLockGuard::is_dirty(&self.store)
-    }
-
-    /// Subscribe to the lazily initialized pinned event cache for this
-    /// room.
-    ///
-    /// This is a persisted view over the pinned events of a room. The
-    /// pinned events will be initially loaded from a network
-    /// request to fetch the latest pinned events will be performed,
-    /// to update it as needed. The list of pinned events will also
-    /// be kept up-to-date as new events are pinned, and new related
-    /// events show up from sync or backpagination.
-    ///
-    /// This requires the room's event cache to be initialized.
-    pub async fn subscribe_to_pinned_events(
-        &self,
-        weak_room: &WeakRoom,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>), EventCacheError> {
-        let pinned_events_cache = self.state.pinned_events_cache.get_or_try_init(|| {
-            PinnedEventsCache::new(
-                weak_room,
-                self.own_user_id.clone(),
-                self.room_version_rules.clone(),
-                self.state.linked_chunk_update_sender.clone(),
-                self.state.store.clone(),
-            )
-        })?;
-
-        pinned_events_cache.subscribe().await
     }
 
     /// Get an event-focused cache for this event and thread mode, if it
