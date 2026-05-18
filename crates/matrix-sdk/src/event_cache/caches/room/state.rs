@@ -738,16 +738,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         // Update the store before doing the post-processing.
         self.propagate_changes().await?;
 
-        // Need an explicit re-borrow to avoid a deref vs deref-mut borrowck conflict
-        // below.
-        let state = &mut *self.state;
-
-        if let Some(pinned_events_cache) = state.pinned_events_cache.get_mut() {
-            pinned_events_cache
-                .maybe_add_live_related_events(&events, &state.room_version_rules.redaction)
-                .await?;
-        }
-
         for event in events {
             self.maybe_apply_new_redaction(&event).await?;
 
