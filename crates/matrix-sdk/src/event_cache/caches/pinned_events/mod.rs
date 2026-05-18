@@ -39,24 +39,18 @@ pub(super) use self::updates::PinnedEventsCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::{
-    super::{EventCacheError, EventsOrigin, Result, persistence::send_updates_to_store},
-    TimelineVectorDiffs,
-    event_linked_chunk::EventLinkedChunk,
+    super::{
+        EventCacheError, EventsOrigin, Result,
+        deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+        persistence::{find_event, send_updates_to_store},
+    },
+    EventLocation, TimelineVectorDiffs,
+    event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
     lock,
     lock::Reload as _,
     room::RoomEventCacheLinkedChunkUpdate,
 };
-use crate::{
-    Room,
-    client::WeakClient,
-    config::RequestConfig,
-    event_cache::{
-        caches::{EventLocation, event_linked_chunk::sort_positions_descending},
-        deduplicator::{DeduplicationOutcome, filter_duplicate_events},
-        persistence::find_event,
-    },
-    room::WeakRoom,
-};
+use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
 
 pub(in super::super) struct PinnedEventsCacheState {
     /// The ID of the room owning this list of pinned events.
