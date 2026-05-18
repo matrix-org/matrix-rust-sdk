@@ -27,8 +27,8 @@ use imbl::Vector;
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
-        DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, RoomEventCache,
-        ThreadEventCache, TimelineVectorDiffs,
+        DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
+        RoomEventCache, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -148,7 +148,7 @@ pub(in crate::timeline) enum TimelineFocusKind {
 
     PinnedEvents {
         /// The cache holding all the events for this focus.
-        event_cache: RoomEventCache,
+        event_cache: PinnedEventsCache,
     },
 }
 
@@ -395,9 +395,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 root_event_id: root_event_id.clone(),
             },
 
-            TimelineFocus::PinnedEvents => {
-                TimelineFocusKind::PinnedEvents { event_cache: event_cache.room(room_id).await?.0 }
-            }
+            TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents {
+                event_cache: event_cache.pinned_events(room_id).await?.0,
+            },
         };
 
         let focus = Arc::new(focus);
@@ -1447,8 +1447,7 @@ impl TimelineController {
             }
 
             TimelineFocusKind::PinnedEvents { event_cache } => {
-                let (initial_events, pinned_events_recv) =
-                    event_cache.subscribe_to_pinned_events().await?;
+                let (initial_events, pinned_events_recv) = event_cache.subscribe().await?;
 
                 let has_events = !initial_events.is_empty();
 

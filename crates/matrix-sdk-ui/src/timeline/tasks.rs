@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 
 use matrix_sdk::{
     event_cache::{
-        EventFocusThreadMode, EventFocusedCache, EventsOrigin, RoomEventCache,
+        EventFocusThreadMode, EventFocusedCache, EventsOrigin, PinnedEventsCache, RoomEventCache,
         RoomEventCacheSubscriber, RoomEventCacheUpdate, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
@@ -38,7 +38,7 @@ use crate::timeline::{TimelineController, TimelineFocus, event_item::RemoteEvent
     )
 )]
 pub(in crate::timeline) async fn pinned_events_task(
-    room_event_cache: RoomEventCache,
+    pinned_events_cache: PinnedEventsCache,
     timeline_controller: TimelineController,
     mut pinned_events_recv: Receiver<TimelineVectorDiffs>,
 ) {
@@ -54,8 +54,7 @@ pub(in crate::timeline) async fn pinned_events_task(
                 // The updates might have lagged, but the room event cache might have
                 // events, so retrieve them and add them back again to the timeline,
                 // after clearing it.
-                let (initial_events, _) = match room_event_cache.subscribe_to_pinned_events().await
-                {
+                let (initial_events, _) = match pinned_events_cache.subscribe().await {
                     Ok(initial_events) => initial_events,
                     Err(err) => {
                         error!(
