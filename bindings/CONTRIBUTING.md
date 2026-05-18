@@ -10,8 +10,7 @@ folder.
 Developers can expose Rust code to UniFFI using two different approaches:
 
 - Using an `.udl` file. When a crate has one, you find it under the `src` folder
-  (an example is
-  [here](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl)).
+  ([an example is here](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl)).
 - Add UniFFI directivies as Rust attributes. In this case Rust source files
   (`.rs`) contain attributes related to UniFFI (e.g. `#[uniffi::export]`).
   Attributes are preferred, where applicable.
@@ -61,9 +60,8 @@ It’s best to do it using UniFFI Rust attributes (e.g. `#[uniffi::export]`).
 Otherwise add the new definition in the crate’s `.udl` file. For the
 **matrix-sdk-ffi** crate the definition file is
 [api.udl](https://github.com/matrix-org/matrix-rust-sdk/blob/main/bindings/matrix-sdk-ffi/src/api.udl).
-**Remember**: the language inside a `.udl` file isn’t Rust. To learn more about
-how map Rust into UDL read
-[here](https://mozilla.github.io/uniffi-rs/udl_file_spec.html)
+**Remember**: the language inside a `.udl` file isn’t Rust. To
+[learn more about how map Rust into UDL read here](https://mozilla.github.io/uniffi-rs/udl_file_spec.html)
 
 ## FAQ
 

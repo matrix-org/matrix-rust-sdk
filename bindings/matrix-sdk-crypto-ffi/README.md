@@ -97,4 +97,3 @@ $ cp ../../target/aarch64-linux-android/debug/libmatrix_sdk_crypto_ffi.so \
 [installer]: https://rustup.rs/
 [targets]: https://doc.rust-lang.org/nightly/rustc/platform-support.html
 [Cargo]: https://doc.rust-lang.org/cargo/
-[uniffi]: https://github.com/mozilla/uniffi-rs/

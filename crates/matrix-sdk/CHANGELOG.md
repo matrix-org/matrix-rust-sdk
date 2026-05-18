@@ -579,6 +579,10 @@ get cancelled after the default 30s timeout for no good reason.
   `enable_share_history_on_invite` enabled, we will correctly check for received
   room key bundles. Previously this was only done when calling `Room::join`.
   ([#5043](https://github.com/matrix-org/matrix-rust-sdk/pull/5043))
+- `m.room.avatar` has been added as required state for sliding sync until
+  [the existing backend issue](https://github.com/element-hq/synapse/issues/18598)
+causing deleted room avatars to not be flagged is fixed.
+([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
 
 ### Features
 
@@ -630,13 +634,6 @@ get cancelled after the default 30s timeout for no good reason.
 - `RoomPreview::join_rule` is now optional, and will be set to `None` if the
   join rule state event is missing for a given room.
   ([#5278](https://github.com/matrix-org/matrix-rust-sdk/pull/5278))
-
-### Bug fixes
-
-- `m.room.avatar` has been added as required state for sliding sync until
-  [the existing backend issue](https://github.com/element-hq/synapse/issues/18598)
-causing deleted room avatars to not be flagged is fixed.
-([#5293](https://github.com/matrix-org/matrix-rust-sdk/pull/5293))
 
 ## [0.12.0] - 2025-06-10
 
@@ -748,9 +745,8 @@ causing deleted room avatars to not be flagged is fixed.
   and replaced by two
 simpler methods:
   - `RoomPagination::run_backwards_until()`, which will retrigger
-    back-paginations until a certain
-  number of events have been received (and retry if the timeline has been reset in
-  the background).
+    back-paginations until a certain number of events have been received (and
+    retry if the timeline has been reset in the background).
   - `RoomPagination::run_backwards_once()`, which will run a single
     back-pagination (and retry if
   the timeline has been reset in the background).

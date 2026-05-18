@@ -13,7 +13,7 @@ encryption for clients that already depend on an SDK (e.g.
 
 - the Rust toolchain
 - Apple targets (e.g.
-  `rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin`)
+  `rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios aarch64-apple-darwin x86_64-apple-darwin`) <!-- rumdl-disable-line MD013 -->
 - `xcodebuild` command line tool from
   [Apple](https://developer.apple.com/library/archive/technotes/tn2339/_index.html)
 - `lipo` for creating the fat static libs
@@ -85,7 +85,7 @@ directly but in order to make things simpler we bundle them together as a
 [Swift package](https://github.com/matrix-org/matrix-rust-components-swift/) in
 the case of SDK, and as a CocoaPods podspec in the case of Crypto SDK.
 
-### Publishing MatrixSDKCrypto
+### Publishing `MatrixSDKCrypto`
 
 1. Navigate into `bindings/apple` and run
    [`build_crypto_xcframework.sh`](#building-only-the-crypto-sdk) script which

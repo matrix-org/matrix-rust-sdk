@@ -3,9 +3,8 @@
 This directory contains various benchmarks that test critical functionality in
 the crypto layer in the rust-sdk.
 
-We're using [Criterion] for the benchmarks, the full documentation for Criterion
-can be found
-[here](https://bheisler.github.io/criterion.rs/book/criterion_rs.html).
+We're using [Criterion] for the benchmarks,
+[the full documentation for Criterion can be found here](https://bheisler.github.io/criterion.rs/book/criterion_rs.html).
 
 ## Running the benchmarks
 

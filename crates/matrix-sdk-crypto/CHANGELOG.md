@@ -163,7 +163,7 @@ to-device events to prevent sender spoofing by homeserver owners.
   the sender's device is not verified. Also, several methods now take a
   `DecryptionSettings` argument to allow controlling the processing of to-device
   events based on those settings. To recreate the previous behaviour pass in:
-  `DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted }`.
+  `DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted }`. <!-- rumdl-disable-line MD013 -->
   Affected methods are `OlmMachine::receive_sync_changes`,
   `RehydratedDevice::receive_events`, and several internal methods.
   ([#5319](https://github.com/matrix-org/matrix-rust-sdk/pull/5319))
