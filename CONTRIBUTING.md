@@ -141,16 +141,16 @@ A couple of examples of bad changelog entry would look like:
 ```
 
 ```markdown
-- Added the Bar function to Foo.
+Added the Bar function to Foo.
 ```
 
 A good example of a changelog entry could look like the following:
 
 ```markdown
-- Use the inviter's server name and the server name from the room alias as
-  fallback values for the via parameter when requesting the room summary from
-  the homeserver. This ensures requests succeed even when the room being
-  previewed is hosted on a federated server.
+Use the inviter's server name and the server name from the room alias as
+fallback values for the via parameter when requesting the room summary from the
+homeserver. This ensures requests succeed even when the room being previewed is
+hosted on a federated server.
 ```
 
 For security-related changelog entries, please include the following additional
@@ -163,10 +163,10 @@ details alongside the pull request number:
   advisory for further context.
 
 ```markdown
-- Use a constant-time Base64 encoder for secret key material to mitigate
-  side-channel attacks leaking secret key material
-  [CVE-2024-40640](https://www.cve.org/CVERecord?id=CVE-2024-40640),
-  [GHSA-j8cm-g7r6-hfpq](https://github.com/matrix-org/vodozemac/security/advisories/GHSA-j8cm-g7r6-hfpq)).
+Use a constant-time Base64 encoder for secret key material to mitigate
+side-channel attacks leaking secret key material
+[CVE-2024-40640](https://www.cve.org/CVERecord?id=CVE-2024-40640),
+[GHSA-j8cm-g7r6-hfpq](https://github.com/matrix-org/vodozemac/security/advisories/GHSA-j8cm-g7r6-hfpq)).
 ```
 
 ## Commit message format
