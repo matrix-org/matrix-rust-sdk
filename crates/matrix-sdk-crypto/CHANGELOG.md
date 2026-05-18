@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ## [0.17.0] - 2026-05-08
 
-### Bug Fixes
+### Bug fixes
 
 - Check the user ID in the `sender_device_keys` property of Olm-encrypted
 to-device events to prevent sender spoofing by homeserver owners.
@@ -28,23 +28,26 @@ to-device events to prevent sender spoofing by homeserver owners.
   `CryptoStore::get_all_rooms_pending_key_bundle`, which can be used by
   applications to track whether they are expecting an
   [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) key
-  bundle.
-  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)), ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233)),
+  bundle. ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)),
+  ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233)),
 - Add MSC4388 support to the QrcodeData struct.
   ([#6089](https://github.com/matrix-org/matrix-rust-sdk/pull/6089))
 - Improved logging when we are sending secrets in `GossipMachine`.
   ([#6074](https://github.com/matrix-org/matrix-rust-sdk/pull/6074))
   ([#6083](https://github.com/matrix-org/matrix-rust-sdk/pull/6083))
-- Added a new field `forwarder` to `InboundGroupSession` of type `ForwarderData`, which stores information about the forwarder of a session shared in a room key bundle under [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
-  ([#5980])(https://github.com/matrix-org/matrix-rust-sdk/pull/5980)
+- Added a new field `forwarder` to `InboundGroupSession` of type
+  `ForwarderData`, which stores information about the forwarder of a session
+  shared in a room key bundle under
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268).
+  ([#5980])([https://github.com/matrix-org/matrix-rust-sdk/pull/5980][https-github-com-matrix-org-matrix-rust-sdk-pull-5980])
 - The `OutboundGroupSession` and `OlmMachine` now return the `EncryptionInfo`
   used when encrypting raw events.
   ([#5936](https://github.com/matrix-org/matrix-rust-sdk/pull/5936))
-- Expose a new method `CryptoStore::has_downloaded_all_room_keys`, used to track whether the
-  client has previously downloaded historical room keys for a given room from key backup prior
-  to building an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) room
-  key bundle.
-  ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
+- Expose a new method `CryptoStore::has_downloaded_all_room_keys`, used to track
+  whether the client has previously downloaded historical room keys for a given
+  room from key backup prior to building an
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) room
+  key bundle. ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
   ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
 
 ### Refactor
@@ -62,16 +65,19 @@ to-device events to prevent sender spoofing by homeserver owners.
 - **breaking** The `BackupDecryptionKey::new` and `DehydratedDeviceKey::new`
   methods became infallible, they don't return a `Result` anymore.
   ([#5502](https://github.com/matrix-org/matrix-rust-sdk/pull/5502))
-- [**breaking**] Remove cross-process lock generation logic from `OlmMachine`, which is now
-  implemented more generally in `matrix_sdk_common::cross_process_lock::CrossProcessLock`.
+- [**breaking**] Remove cross-process lock generation logic from `OlmMachine`,
+  which is now implemented more generally in
+  `matrix_sdk_common::cross_process_lock::CrossProcessLock`.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
-- [**breaking**] The `MediaEncryptionInfo` fields changed to match the new fields of `EncryptedFile`
-  from Ruma. The serialized JSON format did not change and still matches the format of
-  `EncryptedFile` defined in the spec, without the `url` field. The `DecryptorError::KeyNonceLength`
-  variant was removed because the length of the key and nonce are now enforced in
+- [**breaking**] The `MediaEncryptionInfo` fields changed to match the new
+  fields of `EncryptedFile` from Ruma. The serialized JSON format did not change
+  and still matches the format of `EncryptedFile` defined in the spec, without
+  the `url` field. The `DecryptorError::KeyNonceLength` variant was removed
+  because the length of the key and nonce are now enforced in
   `MediaEncryptionInfo`.
   ([#6346](https://github.com/matrix-org/matrix-rust-sdk/pull/6346))
-- [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced it with `CrossProcessLockConfig`.
+- [**breaking**] Removed `WithLocking` from `EncryptionSyncService` and replaced
+  it with `CrossProcessLockConfig`.
   ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] The QrcodeData struct has been reworked in preparation to
   support MSC4388. The fields of the QrcodeData struct are not anymore publicly
@@ -79,13 +85,13 @@ to-device events to prevent sender spoofing by homeserver owners.
   returns an MSC-specific struct now. The `rendezvous_url()` method has been
   removed.
   ([#6081](https://github.com/matrix-org/matrix-rust-sdk/pull/6081))
-- [**breaking**] The `message-ids` feature has been removed. It was already a no-op and has now
-  been eliminated entirely.
+- [**breaking**] The `message-ids` feature has been removed. It was already a
+  no-op and has now been eliminated entirely.
   ([#5963](https://github.com/matrix-org/matrix-rust-sdk/pull/5963))
 
 ## [0.16.1] - 2026-05-08
 
-### Bug Fixes
+### Bug fixes
 
 - Check the user ID in the `sender_device_keys` property of Olm-encrypted
 to-device events to prevent sender spoofing by homeserver owners.
@@ -95,43 +101,57 @@ to-device events to prevent sender spoofing by homeserver owners.
 
 ### Features
 
-- When we receive an inbound Megolm session from two different sources, merge the two copies together to get the best of both.
+- When we receive an inbound Megolm session from two different sources, merge
+  the two copies together to get the best of both.
   ([#5865](https://github.com/matrix-org/matrix-rust-sdk/pull/5865)
-- When constructing a key bundle for history sharing, if we had received a key bundle ourselves, in which one or more sessions was marked as "history not shared", pass that on to the new user.
+- When constructing a key bundle for history sharing, if we had received a key
+  bundle ourselves, in which one or more sessions was marked as "history not
+  shared", pass that on to the new user.
   ([#5820](https://github.com/matrix-org/matrix-rust-sdk/pull/5820)
 - Expose new method `CryptoStore::get_withheld_sessions_by_room_id`.
   ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
 - Use new withheld code in key bundles for sessions not marked as
   `shared_history`.
-  ([#5807](https://github.com/matrix-org/matrix-rust-sdk/pull/5807), ([#5834](https://github.com/matrix-org/matrix-rust-sdk/pull/5834))
+  ([#5807](https://github.com/matrix-org/matrix-rust-sdk/pull/5807),
+  ([#5834](https://github.com/matrix-org/matrix-rust-sdk/pull/5834))
 - Improve feedback support for shared history when downloading room key
   bundles.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
-  - Add `RoomKeyWithheldEntry` enum, wrapping either a received to-device `m.room_key.withheld` event or
-    its content, if derived from a downloaded room key bundle.
-  - `OlmMachine::receive_room_key_bundle` now appends withheld key information to the store.
-  - [**breaking**] `Changes::withheld_session_info` now stores a `RoomKeyWithheldEntry` in each `room-id`-`session-id` entry.
-  - [**breaking**] `CryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>>`. This change also affects `MemoryStore`.
+  - Add `RoomKeyWithheldEntry` enum, wrapping either a received to-device
+    `m.room_key.withheld` event or its content, if derived from a downloaded
+    room key bundle.
+  - `OlmMachine::receive_room_key_bundle` now appends withheld key information
+    to the store.
+  - [**breaking**] `Changes::withheld_session_info` now stores a
+    `RoomKeyWithheldEntry` in each `room-id`-`session-id` entry.
+  - [**breaking**] `CryptoStore::get_withheld_info` now returns
+    `Result<Option<RoomKeyWithheldEntry>>`. This change also affects
+    `MemoryStore`.
 - [**breaking**] Add `name` fields to some of the variants of
   `store::SecretImportError` to indicate what secret was being imported when the
   error occurred.
   ([#5647](https://github.com/matrix-org/matrix-rust-sdk/pull/5647))
 
-### Bug Fixes
+### Bug fixes
 
-- Fix a bug which caused encrypted to-device messages from unknown devices to be ignored.
+- Fix a bug which caused encrypted to-device messages from unknown devices to be
+  ignored. ([#5763](https://github.com/matrix-org/matrix-rust-sdk/pull/5763))
+- Fix a bug which caused history shared on invite to be ignored when "exclude
+  insecure devices" was enabled.
   ([#5763](https://github.com/matrix-org/matrix-rust-sdk/pull/5763))
-- Fix a bug which caused history shared on invite to be ignored when "exclude insecure devices" was enabled.
-  ([#5763](https://github.com/matrix-org/matrix-rust-sdk/pull/5763))
-- Fix a bug introduced in 0.14.0 which meant that the serialization of the value returned by `OtherUserIdentity::verification_request_content` did not include a `msgtype` field.
+- Fix a bug introduced in 0.14.0 which meant that the serialization of the value
+  returned by `OtherUserIdentity::verification_request_content` did not include
+  a `msgtype` field.
   ([#5642](https://github.com/matrix-org/matrix-rust-sdk/pull/5642))
 
 ## [0.14.0] - 2025-09-04
 
 ### Features
 
-- Log message index for Megolm sessions received over encrypted to-device messages. ([#5599](https://github.com/matrix-org/matrix-rust-sdk/pull/5599))
-- Add `RoomSettings::encrypt_state_events` flag. ([#5511](https://github.com/matrix-org/matrix-rust-sdk/pull/5511))
+- Log message index for Megolm sessions received over encrypted to-device
+  messages. ([#5599](https://github.com/matrix-org/matrix-rust-sdk/pull/5599))
+- Add `RoomSettings::encrypt_state_events` flag.
+  ([#5511](https://github.com/matrix-org/matrix-rust-sdk/pull/5511))
 - Make sure to accept historic room key bundles only if the sender is trusted
   enough.
   ([#5510](https://github.com/matrix-org/matrix-rust-sdk/pull/5510))
@@ -164,7 +184,8 @@ to-device events to prevent sender spoofing by homeserver owners.
 
 ### Features
 
-- [**breaking**] Add a new `VerificationLevel::MismatchedSender` to indicate that the sender of an event appears to have been tampered with.
+- [**breaking**] Add a new `VerificationLevel::MismatchedSender` to indicate
+  that the sender of an event appears to have been tampered with.
   ([#5219](https://github.com/matrix-org/matrix-rust-sdk/pull/5219))
 
 ### Refactor
@@ -181,52 +202,65 @@ to-device events to prevent sender spoofing by homeserver owners.
 
 ### Features
 
-- [**breaking**] The `ProcessedToDeviceEvent::Decrypted` variant now also have an `EncryptionInfo` field.
-  Format changed from `Decrypted(Raw<AnyToDeviceEvent>)` to `Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info: EncryptionInfo) }`
+- [**breaking**] The `ProcessedToDeviceEvent::Decrypted` variant now also have
+  an `EncryptionInfo` field. Format changed from
+  `Decrypted(Raw<AnyToDeviceEvent>)` to
+  `Decrypted { raw: Raw<AnyToDeviceEvent>, encryption_info: EncryptionInfo) }`
   ([#5074](https://github.com/matrix-org/matrix-rust-sdk/pull/5074))
 
-- [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as it is megolm specific.
-  Use `EncryptionInfo::session_id()` helper for quick access.
-  ([#4981](https://github.com/matrix-org/matrix-rust-sdk/pull/4981))
+- [**breaking**] Move `session_id` from `EncryptionInfo` to `AlgorithmInfo` as
+  it is megolm specific. Use `EncryptionInfo::session_id()` helper for quick
+  access. ([#4981](https://github.com/matrix-org/matrix-rust-sdk/pull/4981))
 
 - Send stable identifier `sender_device_keys` for MSC4147 (Including device
   keys with Olm-encrypted events).
   ([#4964](https://github.com/matrix-org/matrix-rust-sdk/pull/4964))
 
-- Add experimental APIs for sharing encrypted room key history with new members, `Store::build_room_key_bundle` and `OlmMachine::share_room_key_bundle_data`.
-  ([#4775](https://github.com/matrix-org/matrix-rust-sdk/pull/4775), [#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
+- Add experimental APIs for sharing encrypted room key history with new members,
+  `Store::build_room_key_bundle` and `OlmMachine::share_room_key_bundle_data`.
+  ([#4775](https://github.com/matrix-org/matrix-rust-sdk/pull/4775),
+  [#4864](https://github.com/matrix-org/matrix-rust-sdk/pull/4864))
 
-- Check the `sender_device_keys` field on *all* incoming Olm-encrypted to-device messages
-  and ignore any to-device messages which include the field but whose data is invalid
-  (as per [MSC4147](https://github.com/matrix-org/matrix-spec-proposals/pull/4147)).
+- Check the `sender_device_keys` field on _all_ incoming Olm-encrypted to-device
+  messages and ignore any to-device messages which include the field but whose
+  data is invalid (as per
+  [MSC4147](https://github.com/matrix-org/matrix-spec-proposals/pull/4147)).
   ([#4922](https://github.com/matrix-org/matrix-rust-sdk/pull/4922))
 
-- Fix bug which caused room keys to be unnecessarily rotated on every send in the
-  presence of blacklisted/withheld devices in the room.
+- Fix bug which caused room keys to be unnecessarily rotated on every send in
+  the presence of blacklisted/withheld devices in the room.
   ([#4954](https://github.com/matrix-org/matrix-rust-sdk/pull/4954))
 
-- Fix [#2729](https://github.com/matrix-org/matrix-rust-sdk/issues/2729) which in rare
-  cases can cause room key oversharing.
+- Fix [#2729](https://github.com/matrix-org/matrix-rust-sdk/issues/2729) which
+  in rare cases can cause room key oversharing.
   ([#4975](https://github.com/matrix-org/matrix-rust-sdk/pull/4975))
 
-- [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of `ProcessedToDeviceEvent`
-  instead of a list of `Raw<AnyToDeviceEvent>`. With variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`.
-  This allows for example to make the difference between an event sent in clear and an event successfully decrypted.
-  For quick compatibility a helper `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
+- [**breaking**] `OlmMachine.receive_sync_changes` returns now a list of
+  `ProcessedToDeviceEvent` instead of a list of `Raw<AnyToDeviceEvent>`. With
+  variants like `Decrypted`|`UnableToDecrypt`|`PlainText`|`NotProcessed`. This
+  allows for example to make the difference between an event sent in clear and
+  an event successfully decrypted. For quick compatibility a helper
+  `ProcessedToDeviceEvent::to_raw` allows to map back to the previous behaviour.
   ([#4935](https://github.com/matrix-org/matrix-rust-sdk/pull/4935))
 
 ## [0.11.1] - 2025-06-10
 
-### Security Fixes
+### Security fixes
+
 - Check the sender of an event matches owner of session, preventing sender
   spoofing by homeserver owners.
-  [13c1d20](https://github.com/matrix-org/matrix-rust-sdk/commit/13c1d2048286bbabf5e7bc6b015aafee98f04d55) (High, [CVE-2025-48937](https://www.cve.org/CVERecord?id=CVE-2025-48937), [GHSA-x958-rvg6-956w](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-x958-rvg6-956w)).
+  [13c1d20](https://github.com/matrix-org/matrix-rust-sdk/commit/13c1d2048286bbabf5e7bc6b015aafee98f04d55)
+  (High, [CVE-2025-48937](https://www.cve.org/CVERecord?id=CVE-2025-48937),
+  [GHSA-x958-rvg6-956w](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-x958-rvg6-956w)).
 
-### Bug Fixes
+### Bug fixes
+
 - Remove a wildcard enum variant import which breaks compilation if used with
   `tracing-attributes` version `0.1.29`. This is a workaround for a bug in
   `tracing-attributes`.
-  ([#5190](https://github.com/matrix-org/matrix-rust-sdk/issues/5190)) ([#5191](https://github.com/matrix-org/matrix-rust-sdk/issues/5191)) ([#5193](https://github.com/matrix-org/matrix-rust-sdk/issues/5193))
+  ([#5190](https://github.com/matrix-org/matrix-rust-sdk/issues/5190))
+  ([#5191](https://github.com/matrix-org/matrix-rust-sdk/issues/5191))
+  ([#5193](https://github.com/matrix-org/matrix-rust-sdk/issues/5193))
 
 ## [0.11.0] - 2025-04-11
 
@@ -242,8 +276,8 @@ to-device events to prevent sender spoofing by homeserver owners.
   `shared_history` field that defaults to `false.`
   ([#4700](https://github.com/matrix-org/matrix-rust-sdk/pull/4700))
 
-- Have the `RoomIdentityProvider` return processing changes when identities transition
-  to `IdentityState::Verified` too.
+- Have the `RoomIdentityProvider` return processing changes when identities
+  transition to `IdentityState::Verified` too.
   ([#4670](https://github.com/matrix-org/matrix-rust-sdk/pull/4670))
 
 ## [0.10.0] - 2025-02-04
@@ -282,16 +316,17 @@ to-device events to prevent sender spoofing by homeserver owners.
   `OtherUserIdentity::withdraw_verification`.
   ([#4415](https://github.com/matrix-org/matrix-rust-sdk/pull/4415))
 
-- Added new `UtdCause` variants `WithheldForUnverifiedOrInsecureDevice` and `WithheldBySender`.
-  These variants provide clearer categorization for expected Unable-To-Decrypt (UTD) errors
-  when the sender either did not wish to share or was unable to share the room_key.
+- Added new `UtdCause` variants `WithheldForUnverifiedOrInsecureDevice` and
+  `WithheldBySender`. These variants provide clearer categorization for expected
+  Unable-To-Decrypt (UTD) errors when the sender either did not wish to share or
+  was unable to share the room_key.
   ([#4305](https://github.com/matrix-org/matrix-rust-sdk/pull/4305))
 
 - `UtdCause` has two new variants that replace the existing `HistoricalMessage`:
-  `HistoricalMessageAndBackupIsDisabled` and `HistoricalMessageAndDeviceIsUnverified`.
-  These give more detail about what went wrong and allow us to suggest to users
-  what actions they can take to fix the problem. See the doc comments on these
-  variants for suggested wording.
+  `HistoricalMessageAndBackupIsDisabled` and
+  `HistoricalMessageAndDeviceIsUnverified`. These give more detail about what
+  went wrong and allow us to suggest to users what actions they can take to fix
+  the problem. See the doc comments on these variants for suggested wording.
   ([#4384](https://github.com/matrix-org/matrix-rust-sdk/pull/4384))
 
 ## [0.8.0] - 2024-11-19
@@ -299,7 +334,6 @@ to-device events to prevent sender spoofing by homeserver owners.
 ### Features
 
 - Pin identity when we withdraw verification.
-
 - Expose new method `OlmMachine::room_keys_withheld_received_stream`, to allow
   applications to receive notifications about received `m.room_key.withheld`
   events.
@@ -355,7 +389,6 @@ to-device events to prevent sender spoofing by homeserver owners.
 - Include event timestamps on logs from event decryption.
   ([#3194](https://github.com/matrix-org/matrix-rust-sdk/pull/3194))
 
-
 ### Refactor
 
 - Fix [#4424](https://github.com/matrix-org/matrix-rust-sdk/issues/4424) Failed
@@ -367,10 +400,12 @@ to-device events to prevent sender spoofing by homeserver owners.
 - Add new method `OlmMachine::try_decrypt_room_event`.
   ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
 
-- Add reason code to `matrix_sdk_common::deserialized_responses::UnableToDecryptInfo`.
+- Add reason code to
+  `matrix_sdk_common::deserialized_responses::UnableToDecryptInfo`.
   ([#4116](https://github.com/matrix-org/matrix-rust-sdk/pull/4116))
 
-- [**breaking**] The `UserIdentity` struct has been renamed to `OtherUserIdentity`.
+- [**breaking**] The `UserIdentity` struct has been renamed to
+  `OtherUserIdentity`.
   ([#4036](https://github.com/matrix-org/matrix-rust-sdk/pull/4036]))
 
 - [**breaking**] The `UserIdentities` enum has been renamed to `UserIdentity`.
@@ -421,23 +456,24 @@ to-device events to prevent sender spoofing by homeserver owners.
 
 Breaking changes:
 
-- [**breaking**] `VerificationRequestState::Transitioned` now includes a new field
-  `other_device_data` of type `DeviceData`.
+- [**breaking**] `VerificationRequestState::Transitioned` now includes a new
+  field `other_device_data` of type `DeviceData`.
   ([#4153](https://github.com/matrix-org/matrix-rust-sdk/pull/4153))
 
-- [**breaking**] `OlmMachine::decrypt_room_event` now returns a `DecryptedRoomEvent` type,
-  instead of the more generic `TimelineEvent` type.
+- [**breaking**] `OlmMachine::decrypt_room_event` now returns a
+  `DecryptedRoomEvent` type, instead of the more generic `TimelineEvent` type.
 
-- [**breaking**] **NOTE**: this version causes changes to the format of the serialised data in
-  the CryptoStore, meaning that, once upgraded, it will not be possible to roll
-  back applications to earlier versions without breaking user sessions.
+- [**breaking**] **NOTE**: this version causes changes to the format of the
+  serialised data in the CryptoStore, meaning that, once upgraded, it will not
+  be possible to roll back applications to earlier versions without breaking
+  user sessions.
 
 - [**breaking**] Renamed `VerificationLevel::PreviouslyVerified` to
   `VerificationLevel::VerificationViolation`.
 
 - [**breaking**] `OlmMachine::decrypt_room_event` now takes a
   `DecryptionSettings` argument, which includes a `TrustRequirement` indicating
-  the required trust level for the sending device.  When it is called with
+  the required trust level for the sending device. When it is called with
   `TrustRequirement` other than `TrustRequirement::Unverified`, it may return
   the new `MegolmError::SenderIdentityNotTrusted` variant if the sending device
   does not satisfy the required trust level.
@@ -493,45 +529,51 @@ Breaking changes:
 - [**breaking**] Rename the `OlmMachine::invalidate_group_session` method to
   `OlmMachine::discard_room_key`.
 
-- [**breaking**] Move `OlmMachine::export_room_keys` to `matrix_sdk_crypto::store::Store`.
-  (Call it with `olm_machine.store().export_room_keys(...)`.)
+- [**breaking**] Move `OlmMachine::export_room_keys` to
+  `matrix_sdk_crypto::store::Store`. (Call it with
+  `olm_machine.store().export_room_keys(...)`.)
 
-- [**breaking**] Add new `dehydrated` property to `olm::account::PickledAccount`.
+- [**breaking**] Add new `dehydrated` property to
+  `olm::account::PickledAccount`.
   ([#3164](https://github.com/matrix-org/matrix-rust-sdk/pull/3164))
 
 - [**breaking**] Remove deprecated `OlmMachine::import_room_keys`.
   ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 
-- [**breaking**] Add the `SasState::Created` variant to differentiate the state between the
-  party that sent the verification start and the party that received it.
+- [**breaking**] Add the `SasState::Created` variant to differentiate the state
+  between the party that sent the verification start and the party that received
+  it.
 
 - [**breaking**] Deprecate `BackupMachine::import_backed_up_room_keys`.
   ([#3448](https://github.com/matrix-org/matrix-rust-sdk/pull/3448))
 
+## 0.7.2
 
-# 0.7.2
-
-### Security Fixes
+### Security fixes
 
 - Fix `UserIdentity::is_verified` to take into account our own identity
-  [#d8d9dae](https://github.com/matrix-org/matrix-rust-sdk/commit/d8d9dae9d77bee48a2591b9aad9bd2fa466354cc) (Moderate, [GHSA-4qg4-cvh2-crgg](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-4qg4-cvh2-crgg)).
+  [#d8d9dae](https://github.com/matrix-org/matrix-rust-sdk/commit/d8d9dae9d77bee48a2591b9aad9bd2fa466354cc)
+  (Moderate,
+  [GHSA-4qg4-cvh2-crgg](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-4qg4-cvh2-crgg)).
 
-# 0.7.1
-### Security Fixes
+## 0.7.1
 
-- Don't log the private part of the backup key, introduced in [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
+### Security fixes
 
-# 0.7.0
+- Don't log the private part of the backup key, introduced in
+  [#71136e4](https://github.com/matrix-org/matrix-rust-sdk/commit/71136e44c03c79f80d6d1a2446673bc4d53a2067).
+
+## 0.7.0
 
 - Add method to mark a list of inbound group sessions as backed up:
   `CryptoStore::mark_inbound_group_sessions_as_backed_up`
 
 - `OlmMachine::toggle_room_key_forwarding` is replaced by two separate methods:
 
-  * `OlmMachine::set_room_key_requests_enabled`, which controls whether
+  - `OlmMachine::set_room_key_requests_enabled`, which controls whether
     outgoing room key requests are enabled, and:
 
-  * `OlmMachine::set_room_key_forwarding_enabled`, which controls whether we
+  - `OlmMachine::set_room_key_forwarding_enabled`, which controls whether we
     automatically reply to incoming room key requests.
 
   `OlmMachine::is_room_key_forwarding_enabled` is updated to return the setting
@@ -569,7 +611,6 @@ Breaking changes:
   signatures to a `RoomKeyBackupInfo`.
 
 - Remove the `backups_v1` feature, backups support is now enabled by default.
-
 - Use the `Signatures` type as the return value for the
   `MegolmV1BackupKey::signatures()` method.
 
@@ -584,7 +625,7 @@ Breaking changes:
     to `&Raw<AnyMessageLikeEventContent>`
 
 - Change the return value of `bootstrap_cross_signing` so it returns an extra
-  keys upload request.  The three requests must be sent in the order they
+  keys upload request. The three requests must be sent in the order they
   appear in the return tuple.
 
 - Stop logging large quantities of data about the `Store` during olm
@@ -594,13 +635,9 @@ Breaking changes:
   for every outgoing secret request.
 
 - Clean up the logging of to-device messages in `share_room_key`.
-
 - Expose new `OlmMachine::get_room_event_encryption_info` method.
-
 - Add support for secret storage.
-
 - Add initial support for MSC3814 - dehydrated devices.
-
 - Mark our `OwnUserIdentity` as verified if we successfully import the matching
   private keys.
 
@@ -608,7 +645,6 @@ Breaking changes:
   This removes an `unwrap()` from the codebase.
 
 - Add support for the `hkdf-hmac-sha256.v2` SAS message authentication code.
-
 - Ensure that the correct short authentication strings are used when accepting a
   SAS verification with the `Sas::accept()` method.
 
@@ -616,7 +652,6 @@ Breaking changes:
   of `m.room.encrypted` event contents which get sent out.
 
 - Disable the automatic-key-forwarding feature by default.
-
 - Add a new variant to the `VerificationRequestState` enum called
   `Transitioned`. This enum variant is used when a `VerificationRequest`
   transitions into a concrete `Verification` object. The concrete `Verification`
@@ -637,14 +672,11 @@ Breaking changes:
   broadcasting to all devices.
 
 - Expose `VerificationRequest::time_remaining`.
-
 - For verification-via-emojis, return the word "Aeroplane" rather than
   "Airplane", for consistency with the Matrix spec.
 
 - Fix handling of SAS verification start events once we have shown a QR code.
-
 - Fix a bug which could cause generated one-time-keys not to be persisted.
-
 - Fix parsing error for `POST /_matrix/client/v3/keys/signatures/upload`
   responses generated by Synapse.
 
@@ -660,3 +692,5 @@ Breaking changes:
 
 - Change the returned success value type of `BackupMachine::backup` from
   `OutgoingRequest` to `(OwnedTransactionId, KeysBackupRequest)`.
+
+[https-github-com-matrix-org-matrix-rust-sdk-pull-5980]: https://github.com/matrix-org/matrix-rust-sdk/pull/5980

@@ -78,11 +78,12 @@ let list_builder = SlidingSyncList::builder("main_list")
 ```
 
 Please refer to the [specification][MSC], the [Ruma types][ruma-types],
-specifically [`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html) and the
-[`SlidingSyncListBuilder`] for details on the filters, and
-range-options and data one requests to be sent. Once the list is fully
-configured, `build()` it and add the list to the sliding sync session
-by supplying it to [`add_list`][`SlidingSyncBuilder::add_list`].
+specifically
+[`SyncRequestListFilter`](https://docs.rs/ruma/latest/ruma/api/client/sync/sync_events/v4/struct.SyncRequestListFilters.html)
+and the [`SlidingSyncListBuilder`] for details on the filters, and range-options
+and data one requests to be sent. Once the list is fully configured, `build()`
+it and add the list to the sliding sync session by supplying it to
+[`add_list`][`SlidingSyncBuilder::add_list`].
 
 Lists are inherently stateful and all updates are applied on the shared
 list-object. Once a list has been added to [`SlidingSync`], a cloned shared
@@ -92,12 +93,12 @@ of the list. Next to the configuration settings (like name and
 [`maximum_number_of_rooms`](SlidingSyncList::maximum_number_of_rooms) and
 [`state`](SlidingSyncList::state):
 
- - `maximum_number_of_rooms` is the number of rooms _total_ there were found
-   matching the filters given.
- - `state` is a [`SlidingSyncMode`] signalling meta information about the
-   list and its stateful data — whether this is the state loaded from local
-   cache, whether the [full sync](#helper-lists) is in progress or whether
-   this is the current live information
+- `maximum_number_of_rooms` is the number of rooms _total_ there were found
+  matching the filters given.
+- `state` is a [`SlidingSyncMode`] signalling meta information about the
+  list and its stateful data — whether this is the state loaded from local
+  cache, whether the [full sync](#helper-lists) is in progress or whether
+  this is the current live information
 
 These are updated upon every update received from the server. One can query
 these for their current value at any time, or use the [Reactive API
@@ -149,14 +150,14 @@ account-data-extensions.
 
 ## Timeline events
 
-Both the list configuration as well as the [room subscription
-settings](`http::request::RoomSubscription`) allow to specify a `timeline_limit` to
-receive timeline events. If that is unset or set to 0, no events are sent by
-the server (which is the default), if multiple limits are found, the highest
-takes precedence. Any positive number indicates that on the first request a
-room should come into list, up to that count of messages are sent
-(depending how many the server has in cache). Following, whenever new events
-are found for the matching rooms, the server relays them to the client.
+Both the list configuration as well as the
+[room subscription settings](`http::request::RoomSubscription`) allow to specify
+a `timeline_limit` to receive timeline events. If that is unset or set to 0, no
+events are sent by the server (which is the default), if multiple limits are
+found, the highest takes precedence. Any positive number indicates that on the
+first request a room should come into list, up to that count of messages are
+sent (depending how many the server has in cache). Following, whenever new
+events are found for the matching rooms, the server relays them to the client.
 
 All timeline events coming through Sliding Sync will be processed through
 the [`BaseClient`][`matrix_sdk_base::BaseClient`] as in previous sync. This
@@ -172,7 +173,7 @@ To allow for a quick startup, client might want to request only a very low
 `timeline_limit` (maybe 1 or even 0) at first and update the count later on
 the list or room subscription (see [reactive api](#reactive-api)).
 
-## Long Polling
+## Long polling
 
 [Sliding Sync][MSC] is a long-polling API. That means that immediately after
 one has received data from the server, they re-open the network connection
