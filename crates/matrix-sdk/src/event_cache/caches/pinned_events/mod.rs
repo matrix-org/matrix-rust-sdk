@@ -19,12 +19,15 @@ use std::{collections::BTreeSet, fmt, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
-    event_cache::{Event, store::EventCacheStoreLock},
-    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
+    event_cache::{Event, Gap, store::EventCacheStoreLock},
+    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update},
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
     task_monitor::BackgroundTaskHandle,
 };
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, events::relation::RelationType};
+use ruma::{
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
+    events::relation::RelationType,
+};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
@@ -39,11 +42,23 @@ use super::{
     lock::Reload as _,
     room::RoomEventCacheLinkedChunkUpdate,
 };
-use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
+use crate::{
+    Room,
+    client::WeakClient,
+    config::RequestConfig,
+    event_cache::{
+        caches::event_linked_chunk::sort_positions_descending,
+        deduplicator::{DeduplicationOutcome, filter_duplicate_events},
+    },
+    room::WeakRoom,
+};
 
 pub(in super::super) struct PinnedEventsCacheState {
     /// The ID of the room owning this list of pinned events.
     room_id: OwnedRoomId,
+
+    /// The user's own user id.
+    own_user_id: OwnedUserId,
 
     /// The linked chunk representing this room's pinned events.
     ///
@@ -127,13 +142,92 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
     }
 
     async fn handle_sync(&mut self, timeline: Timeline) -> Result<()> {
+        let DeduplicationOutcome {
+            all_events: events,
+            in_memory_duplicated_event_ids,
+            in_store_duplicated_event_ids,
+            non_empty_all_duplicates: all_duplicates,
+        } = filter_duplicate_events(
+            &self.state.own_user_id,
+            &self.store,
+            LinkedChunkId::PinnedEvents(&self.state.room_id),
+            &self.state.chunk,
+            timeline.events,
+        )
+        .await?;
+
+        if all_duplicates {
+            // If all events are duplicates, we don't need to do anything; ignore
+            // the new events.
+            return Ok(());
+        }
+
+        // Remove the old duplicated events.
+        //
+        // We don't have to worry about the removals can change the position of the
+        // existing events, because we are pushing all _new_ `events` at the back.
+        self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
+
         // We've found new relations; append them to the linked chunk.
-        self.state.chunk.push_live_events(None, &timeline.events);
+        self.state.chunk.push_live_events(None, &events);
 
         self.propagate_changes().await?;
         self.notify_subscribers(EventsOrigin::Sync);
 
         Ok(())
+    }
+
+    /// Remove events by their position, in `EventLinkedChunk`.
+    ///
+    /// This method is purposely isolated because it must ensure that
+    /// positions are sorted appropriately or it can be disastrous.
+    #[instrument(skip_all)]
+    pub async fn remove_events(
+        &mut self,
+        in_memory_events: Vec<(OwnedEventId, Position)>,
+        in_store_events: Vec<(OwnedEventId, Position)>,
+    ) -> Result<()> {
+        // In-store events.
+        if !in_store_events.is_empty() {
+            let mut positions = in_store_events
+                .into_iter()
+                .map(|(_event_id, position)| position)
+                .collect::<Vec<_>>();
+
+            sort_positions_descending(&mut positions);
+
+            let updates =
+                positions.into_iter().map(|pos| Update::RemoveItem { at: pos }).collect::<Vec<_>>();
+
+            self.apply_store_only_updates(updates).await?;
+        }
+
+        // In-memory events.
+        if in_memory_events.is_empty() {
+            // Nothing else to do, return early.
+            return Ok(());
+        }
+
+        // `remove_events_by_position` is responsible of sorting positions.
+        self.state
+            .chunk
+            .remove_events_by_position(
+                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+            )
+            .expect("failed to remove an event");
+
+        self.propagate_changes().await
+    }
+
+    /// Apply some updates that are effective only on the store itself.
+    ///
+    /// This method should be used only for updates that happen *outside*
+    /// the in-memory linked chunk. Such updates must be applied
+    /// onto the ordering tracker as well as to the persistent
+    /// storage.
+    async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
+        self.state.chunk.order_tracker.map_updates(&updates);
+        self.send_updates_to_store(updates).await
     }
 
     /// Reload all the pinned events from storage, replacing the current linked
@@ -202,9 +296,15 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
 
     /// Propagate the changes in this linked chunk to observers, and save the
     /// changes on disk.
-    async fn propagate_changes(&mut self) -> Result<()> {
+    pub async fn propagate_changes(&mut self) -> Result<()> {
         let updates = self.state.chunk.store_updates().take();
-        let linked_chunk_id = OwnedLinkedChunkId::PinnedEvents(self.state.room_id.clone());
+
+        self.send_updates_to_store(updates).await
+    }
+
+    async fn send_updates_to_store(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
+        let linked_chunk_id = OwnedLinkedChunkId::PinnedEvents(self.room_id.clone());
+
         send_updates_to_store(
             &self.store,
             linked_chunk_id,
@@ -261,6 +361,7 @@ impl PinnedEventsCache {
     /// Creates a new [`PinnedEventsCache`] for the given room.
     pub(in super::super) fn new(
         weak_room: &WeakRoom,
+        own_user_id: OwnedUserId,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store: EventCacheStoreLock,
     ) -> Result<Self> {
@@ -273,6 +374,7 @@ impl PinnedEventsCache {
 
         let state = PinnedEventsCacheState {
             room_id: room_id.clone(),
+            own_user_id,
             chunk,
             update_sender: update_sender.clone(),
             linked_chunk_update_sender,
