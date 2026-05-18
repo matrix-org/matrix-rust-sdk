@@ -1,0 +1,91 @@
+[global]
+# Use the GitHub Markdown flavour, https://github.com/rvben/rumdl/blob/main/docs/flavors/gfm.md.
+flavor = "gfm"
+disable = [
+  # `commands-show-output`, https://github.com/rvben/rumdl/blob/main/docs/md014.md.
+  # Not necessary to show the shell commands output every time.
+  "MD014",
+
+  # `first-line-heading`, https://github.com/rvben/rumdl/blob/main/docs/md041.md.
+  # Some documents are fragments, the first heading is defined somewhere else.
+  "MD041",
+]
+
+# `heading-style`, https://github.com/rvben/rumdl/blob/main/docs/md003.md.
+[MD003]
+style = "atx"
+
+# `ul-style`, https://github.com/rvben/rumdl/blob/main/docs/md004.md.
+[MD004]
+style = "dash"
+
+# `line-length`, https://github.com/rvben/rumdl/blob/main/docs/md013.md.
+[MD013]
+line-length = 80
+code-blocks = false
+reflow = true
+
+# `no-trailing-punctuation`, https://github.com/rvben/rumdl/blob/main/docs/md026.md.
+[MD026]
+punctuation = ".,;:"
+
+# `ol-prefix`, https://github.com/rvben/rumdl/blob/main/docs/md029.md.
+[MD029]
+style = "ordered"
+
+# `no-inline-html`, https://github.com/rvben/rumdl/blob/main/docs/md033.md.
+[MD033]
+allowed-elements = [
+  "i",
+  "q",
+  "cite",
+  "a",
+  "time",
+  "sub",
+  "sup",
+  "figure", "figcaption",
+  "table",
+  "summary", "details",
+  "math", "mo", "mn", "mi", "semantics", "annotation",
+]
+disallowed-elements = ["gfm"]
+fix = true
+fix-mode = "relaxed"
+
+# `code-block-style`, https://github.com/rvben/rumdl/blob/main/docs/md046.md.
+[MD046]
+style = "fenced"
+
+# `code-fence-style`, https://github.com/rvben/rumdl/blob/main/docs/md048.md.
+[MD048]
+style = "backtick"
+
+# `emphasis-style`, https://github.com/rvben/rumdl/blob/main/docs/md049.md.
+[MD049]
+style = "underscore"
+
+# `strong-style`, https://github.com/rvben/rumdl/blob/main/docs/md050.md.
+[MD050]
+style = "asterisk"
+
+# `link-image-style`, https://github.com/rvben/rumdl/blob/main/docs/md054.md.
+[MD054]
+autolink = false
+collapsed = false
+preferred-style = "full"
+
+# `table-format`, https://github.com/rvben/rumdl/blob/main/docs/md060.md.
+[MD060]
+enabled = true
+
+# `heading-capitalization`, https://github.com/rvben/rumdl/blob/main/docs/md063.md.
+[MD063]
+enabled = true
+style = "sentence-case"
+max-level = 3
+ignore-words = ["Matrix", "Rust", "Swift", "Android", "Java"]
+
+# `list-item-spacing`, https://github.com/rvben/rumdl/blob/main/docs/md076.md.
+[MD076]
+style = "tight"
+allow-loose-continuation = true
