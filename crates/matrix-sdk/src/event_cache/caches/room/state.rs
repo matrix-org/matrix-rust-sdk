@@ -36,7 +36,6 @@ use matrix_sdk_base::{
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
-use once_cell::sync::OnceCell;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
@@ -67,7 +66,6 @@ use super::{
         event_linked_chunk::EventLinkedChunk,
         lock,
         pagination::SharedPaginationStatus,
-        pinned_events::PinnedEventsCache,
         read_receipts::compute_unread_counts,
     },
     EventsOrigin, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
@@ -110,9 +108,6 @@ pub struct RoomEventCacheState {
     /// a timeline centered around a specific event (e.g. from a
     /// permalink).
     event_focused_caches: HashMap<EventFocusedCacheKey, EventFocusedCache>,
-
-    /// Cache for pinned events in this room, initialized on-demand.
-    pinned_events_cache: OnceCell<PinnedEventsCache>,
 
     pagination_status: SharedObservable<SharedPaginationStatus>,
 
@@ -261,7 +256,6 @@ impl LockedRoomEventCacheState {
             room_version_rules,
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
-            pinned_events_cache: OnceCell::new(),
             automatic_pagination,
         }))
     }
@@ -281,11 +275,6 @@ impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
     /// Force to shrink the room, whenever there is subscribers or not.
     async fn reload(&mut self) -> Result<(), EventCacheError> {
         self.shrink_to_last_chunk().await?;
-
-        // Reload the pinned-events.
-        if let Some(pinned_events_cache) = self.pinned_events_cache.get_mut() {
-            pinned_events_cache.reload().await?;
-        }
 
         let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
 
@@ -378,13 +367,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// Return a mutable reference to the underlying room linked chunk.
     pub fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.room_linked_chunk
-    }
-
-    /// Get a reference to the [`pinned_events_cache`] if it has been
-    /// initialized.
-    #[cfg(any(feature = "e2e-encryption", test))]
-    pub fn pinned_events_cache(&self) -> Option<&PinnedEventsCache> {
-        self.state.pinned_events_cache.get()
     }
 
     /// Get a reference to all the live [`event_focused_caches`].
