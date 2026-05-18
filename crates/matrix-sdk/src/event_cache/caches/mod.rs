@@ -193,6 +193,7 @@ impl Caches {
         self.pinned_events.get_or_try_init(|| {
             pinned_events::PinnedEventsCache::new(
                 self.room.weak_room(),
+                self.room.own_user_id().clone(),
                 self.internals.linked_chunk_update_sender.clone(),
                 self.internals.store.clone(),
             )
