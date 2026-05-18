@@ -242,12 +242,14 @@ impl Caches {
 
         // Pinned-events.
         if let Some(pinned_events) = pinned_events.get() {
-            let timeline_for_pinned_events = aggregator::aggregate_timeline_for_pinned_events(
+            let mut updates = updates.clone();
+            updates.timeline = aggregator::aggregate_timeline_for_pinned_events(
                 &updates.timeline,
                 &pinned_events.state().read().await?.current_event_ids(),
                 &internals.room_version_rules.redaction,
             );
-            todo!()
+
+            pinned_events.handle_joined_room_update(updates).await?;
         }
 
         Ok(())
@@ -296,12 +298,14 @@ impl Caches {
 
         // Pinned-events.
         if let Some(pinned_events) = pinned_events.get() {
-            let timeline_for_pinned_events = aggregator::aggregate_timeline_for_pinned_events(
+            let mut updates = updates.clone();
+            updates.timeline = aggregator::aggregate_timeline_for_pinned_events(
                 &updates.timeline,
                 &pinned_events.state().read().await?.current_event_ids(),
                 &internals.room_version_rules.redaction,
             );
-            todo!()
+
+            pinned_events.handle_left_room_update(updates).await?;
         }
 
         Ok(())
