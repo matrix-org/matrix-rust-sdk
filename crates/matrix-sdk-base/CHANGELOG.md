@@ -93,10 +93,11 @@ All notable changes to this project will be documented in this file.
 - [**breaking**] `once_cell` is no longer reexported from this crate. The types
   that were stabilized in the Rust standard library can be used instead in most
   cases. ([#6194](https://github.com/matrix-org/matrix-rust-sdk/pull/6194))
-- [**breaking**] All the `*StoreLock` structs use a `CrossProcessLockConfig` now
+- [**breaking**] All the `*StoreLock` structs use a `CrossProcessLockConfig` now <!-- rumdl-disable-line MD013 -->
   instead of the previous `holder` value and so does `StoreConfig` and
-  `BaseClient::clone_with_in_memory_state_store. Passing a `CrossProcessLockConfig::MultiProcess` will keep the same behaviour we had where the client uses the cross process lock and using `CrossProcessLockConfig::SingleProcess`
-  will disable the cross process lock.
+  `BaseClient::clone_with_in_memory_state_store. Passing a `CrossProcessLockConfig::MultiProcess`
+  will keep the same behaviour we had where the client uses the cross process
+  lock and using `CrossProcessLockConfig::SingleProcess` will disable the cross process lock.
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 - [**breaking**] The `StateStore::upsert_thread_subscription` method has been
   removed in favor of a bulk method `StateStore::upsert_thread_subscriptions`.

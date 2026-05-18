@@ -1,4 +1,4 @@
-# Matrix-sdk-indexedddb
+# `matrix-sdk-indexedddb`
 
 This crate implements a storage backend on IndexedDB for web environments using
 the matrix-sdk-base primitives.

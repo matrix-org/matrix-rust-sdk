@@ -1,4 +1,4 @@
-# Matrix-sdk-search
+# `matrix-sdk-search`
 
 This crate implements a searchable index for messages in a Matrix client.
 

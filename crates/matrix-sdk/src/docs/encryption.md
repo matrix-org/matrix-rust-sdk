@@ -228,9 +228,6 @@ is **not** supported using the default store.
 [Restoring a Client]: #restoring-a-client
 [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
-[`store`]: crate::store
-[`CryptoStore`]: matrix_sdk_base::crypto::store::CryptoStore
-[`StoreConfig`]: crate::config::StoreConfig
 [`ClientBuilder`]: crate::ClientBuilder
 [`ClientBuilder::store_config`]: crate::ClientBuilder::store_config
 [`MatrixAuth::login_username()`]: crate::authentication::matrix::MatrixAuth::login_username

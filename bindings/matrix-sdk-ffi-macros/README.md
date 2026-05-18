@@ -10,6 +10,3 @@ Internal macros used for the FFI layer (bindings) of the Rust Matrix SDK.
 **NOTE:** These are just macros that help build the matrix-rust-sdk bindings,
 you're probably interested in the main
 [rust-sdk](https://github.com/matrix-org/matrix-rust-sdk/) crate.
-
-[Matrix]: https://matrix.org/
-[Rust]: https://www.rust-lang.org/

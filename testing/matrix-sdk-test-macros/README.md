@@ -3,7 +3,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-yellowgreen.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![#matrix-rust-sdk](https://img.shields.io/badge/matrix-%23matrix--rust--sdk-blue?style=flat-square)](https://matrix.to/#/#matrix-rust-sdk:matrix.org)
 
-# Matrix-sdk-test-macros
+# `matrix-sdk-test-macros`
 
 **matrix-rust-sdk** is an implementation of a [Matrix][matrix] client-server
 library in [Rust][rust].

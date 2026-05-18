@@ -36,7 +36,7 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-## ⚠️ security warning: hazmat!
+## Security warning: hazmat! ⚠️
 
 This crate only implements the low-level block cipher function, to be used
 _only_ as a building block for higher-level constructions. It is NOT intended
