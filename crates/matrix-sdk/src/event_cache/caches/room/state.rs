@@ -379,6 +379,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
         let pinned_events_cache = self.state.pinned_events_cache.get_or_try_init(|| {
             PinnedEventsCache::new(
                 weak_room,
+                self.own_user_id.clone(),
                 self.state.linked_chunk_update_sender.clone(),
                 self.state.store.clone(),
             )
