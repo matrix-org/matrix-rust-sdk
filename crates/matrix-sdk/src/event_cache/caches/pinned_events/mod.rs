@@ -21,17 +21,10 @@ use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
     event_cache::{Event, store::EventCacheStoreLock},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId},
-    serde_helpers::extract_relation,
+    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
     task_monitor::BackgroundTaskHandle,
 };
-use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
-    events::{
-        AnySyncMessageLikeEvent, AnySyncTimelineEvent, MessageLikeEventType, relation::RelationType,
-    },
-    room_version_rules::RedactionRules,
-    serde::Raw,
-};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, events::relation::RelationType};
 use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
@@ -131,6 +124,16 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
         debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
 
         Ok(diff_updates)
+    }
+
+    async fn handle_sync(&mut self, timeline: Timeline) -> Result<()> {
+        // We've found new relations; append them to the linked chunk.
+        self.state.chunk.push_live_events(None, &timeline.events);
+
+        self.propagate_changes().await?;
+        self.notify_subscribers(EventsOrigin::Sync);
+
+        Ok(())
     }
 
     /// Reload all the pinned events from storage, replacing the current linked
@@ -238,6 +241,9 @@ pub struct PinnedEventsCache {
 
 /// The (non-cloneable) details of the `PinnedEventsCache`.
 struct PinnedEventsCacheInner {
+    /// The ID of the room owning this list of pinned events.
+    room_id: OwnedRoomId,
+
     /// State of this `PinnedEventsCache`.
     ///
     /// It is behind an `Arc` because it is shared with the task.
@@ -266,7 +272,7 @@ impl PinnedEventsCache {
         let chunk = EventLinkedChunk::new();
 
         let state = PinnedEventsCacheState {
-            room_id,
+            room_id: room_id.clone(),
             chunk,
             update_sender: update_sender.clone(),
             linked_chunk_update_sender,
@@ -283,7 +289,9 @@ impl PinnedEventsCache {
             )
             .abort_on_drop();
 
-        Ok(Self { inner: Arc::new(PinnedEventsCacheInner { state, update_sender, _task: task }) })
+        Ok(Self {
+            inner: Arc::new(PinnedEventsCacheInner { room_id, state, update_sender, _task: task }),
+        })
     }
 
     /// Return a reference to the state.
@@ -321,93 +329,32 @@ impl PinnedEventsCache {
         Ok(())
     }
 
-    /// Given a raw event, try to extract the target event ID of a relation as
-    /// defined with `m.relates_to`.
-    fn extract_relation_target(raw: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
-        let (rel_type, event_id) = extract_relation(raw)?;
+    /// Handle a [`JoinedRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.inner.room_id))]
+    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline).await?;
 
-        // Don't include thread responses in the pinned event chunk.
-        match rel_type {
-            RelationType::Thread => None,
-            _ => Some(event_id),
-        }
+        Ok(())
     }
 
-    /// Given a raw event, try to extract the target event ID of a live
-    /// redaction.
-    fn extract_redaction_target(
-        raw: &Raw<AnySyncTimelineEvent>,
-        room_redaction_rules: &RedactionRules,
-    ) -> Option<OwnedEventId> {
-        // Try to find a redaction, but do not deserialize the entire event if we aren't
-        // certain it's a `m.room.redaction`.
-        if raw.get_field::<MessageLikeEventType>("type").ok()??
-            != MessageLikeEventType::RoomRedaction
-        {
-            return None;
-        }
+    /// Handle a [`LeftRoomUpdate`].
+    #[instrument(skip_all, fields(room_id = %self.inner.room_id))]
+    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
+        self.handle_timeline(updates.timeline).await?;
 
-        let AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(redaction)) =
-            raw.deserialize().ok()?
-        else {
-            return None;
-        };
-
-        redaction.redacts(room_redaction_rules).map(ToOwned::to_owned).or_else(|| {
-            warn!("missing target event id from the redaction event");
-            None
-        })
+        Ok(())
     }
 
-    /// Check if any of the given events relate to an event in the pinned events
-    /// linked chunk, and append it, in this case.
-    pub(in super::super) async fn maybe_add_live_related_events(
-        &mut self,
-        events: &[Event],
-        room_redaction_rules: &RedactionRules,
-    ) -> Result<()> {
-        trace!("checking live events for relations to pinned events");
-        let mut guard = self.inner.state.write().await?;
-
-        let pinned_event_ids: BTreeSet<OwnedEventId> =
-            guard.state.current_event_ids().into_iter().collect();
-
-        if pinned_event_ids.is_empty() {
+    /// Handle a [`Timeline`], i.e. new events received by a sync for this
+    /// thread.
+    async fn handle_timeline(&self, timeline: Timeline) -> Result<()> {
+        if timeline.events.is_empty() {
             return Ok(());
         }
 
-        let mut new_relations = Vec::new();
+        trace!("adding new {} events", timeline.events.len());
 
-        // For all events that relate to an event in the pinned events chunk, push this
-        // event to the linked chunk, and propagate changes to observers.
-        for ev in events {
-            // Try to find a regular relation in ev.
-            if let Some(relation_target) = Self::extract_relation_target(ev.raw())
-                && pinned_event_ids.contains(&relation_target)
-            {
-                new_relations.push(ev.clone());
-                continue;
-            }
-
-            // Try to find a redaction in ev.
-            if let Some(redaction_target) =
-                Self::extract_redaction_target(ev.raw(), room_redaction_rules)
-                && pinned_event_ids.contains(&redaction_target)
-            {
-                new_relations.push(ev.clone());
-                continue;
-            }
-        }
-
-        if !new_relations.is_empty() {
-            trace!("found {} new related events to pinned events", new_relations.len());
-
-            // We've found new relations; append them to the linked chunk.
-            guard.state.chunk.push_live_events(None, &new_relations);
-
-            guard.propagate_changes().await?;
-            guard.notify_subscribers(EventsOrigin::Sync);
-        }
+        self.inner.state.write().await?.handle_sync(timeline).await?;
 
         Ok(())
     }
