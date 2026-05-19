@@ -476,10 +476,9 @@ impl ClientInner {
             EventCache::new(&client, client.base_client.event_cache_store().clone())
         });
 
-        let init_thread_subscription_catchup =
-            client.thread_subscription_catchup.get_or_init(|| async {
-                ThreadSubscriptionCatchup::new(Client { inner: client.clone() })
-            });
+        let init_thread_subscription_catchup = client
+            .thread_subscription_catchup
+            .get_or_init(|| ThreadSubscriptionCatchup::new(Client { inner: client.clone() }));
 
         let _ = join!(init_event_cache, init_thread_subscription_catchup);
 
