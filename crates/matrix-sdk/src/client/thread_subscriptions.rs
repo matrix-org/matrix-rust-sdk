@@ -452,3 +452,50 @@ mod tests {
         assert!(tsc.is_outdated().not());
     }
 }
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod timed_tests {
+    use std::time::Duration;
+
+    use matrix_sdk_base::{ThreadingSupport, sleep::sleep};
+    use matrix_sdk_test::async_test;
+    use tokio::task::yield_now;
+
+    use crate::{client::WeakClient, test_utils::mocks::MatrixMockServer};
+
+    #[async_test]
+    async fn test_issue_6573_client_can_drop_thread_subscriptions_task() {
+        let server = MatrixMockServer::new().await;
+        server.mock_versions().with_thread_subscriptions().ok().mount().await;
+
+        let client = server
+            .client_builder()
+            .no_server_versions()
+            .on_builder(|builder| {
+                builder
+                    .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
+            })
+            .build()
+            .await;
+
+        let tsc = client.thread_subscription_catchup();
+
+        // Wait for anything to start up.
+        yield_now().await;
+
+        // Ensure the task is running.
+        assert!(tsc._task.get().is_some());
+
+        // Get a weak reference to the client.
+        let weak_client = WeakClient::from_client(&client);
+
+        // Drop the client will drop the task.
+        drop(client);
+
+        // Wait for anything to shutdown.
+        sleep(Duration::from_secs(2)).await;
+
+        // The client has been dropped correctly.
+        assert_eq!(weak_client.strong_count(), 0);
+    }
+}
