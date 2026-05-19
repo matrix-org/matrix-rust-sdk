@@ -47,7 +47,6 @@ use super::{
     EventLocation, TimelineVectorDiffs,
     event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
     lock,
-    lock::Reload as _,
     room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
@@ -754,14 +753,6 @@ impl PinnedEventsCache {
         loaded_events.sort_by(compare_pinned_items);
 
         Ok(Some(loaded_events))
-    }
-
-    /// Force to reload the pinned events.
-    //
-    // TODO(@hywan): Temporary fix. All the states must be in a single struct behind
-    // the cross-process lock instead of being dispatched in each cache.
-    pub(super) async fn reload(&self) -> Result<()> {
-        self.inner.state.write().await?.reload().await
     }
 }
 
