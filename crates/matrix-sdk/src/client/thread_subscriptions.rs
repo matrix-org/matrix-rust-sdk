@@ -131,50 +131,44 @@ pub struct ThreadSubscriptionCatchup {
 }
 
 impl ThreadSubscriptionCatchup {
-    pub fn new(client: Client) -> Arc<Self> {
+    pub async fn new(client: Client) -> Arc<Self> {
         let is_outdated = Arc::new(AtomicBool::new(true));
-
         let weak_client = WeakClient::from_client(&client);
-
         let (ping_sender, ping_receiver) = channel(8);
-
         let uniq_mutex = Arc::new(Mutex::new(()));
 
         let this = Arc::new(Self {
             _task: OnceLock::new(),
             is_outdated,
-            client: weak_client,
+            client: weak_client.clone(),
             ping_sender,
             uniq_mutex,
         });
 
         // Create the task only if the client is configured to handle thread
         // subscriptions.
-        let _ = this._task.get_or_init(|| {
-            let that = this.clone();
-            let client_clone = client.clone();
+        match client.enabled_thread_subscriptions().await {
+            Ok(true) => {
+                let _ = this._task.get_or_init(|| {
+                    let that = this.clone();
 
-            client.task_monitor().spawn_infinite_task("client::thread_subscriptions_catchup", async move {
-                match client_clone.enabled_thread_subscriptions().await {
-                    Ok(enabled) => {
-                        if !enabled {
-                            debug!("Thread subscriptions catchup not enabled, not starting the catchup task");
-                            return;
-                        }
-                    }
+                    client
+                        .task_monitor()
+                        .spawn_infinite_task("client::thread_subscriptions_catchup", async move {
+                            Self::thread_subscriptions_catchup_task(that, ping_receiver).await;
+                        })
+                        .abort_on_drop()
+                });
+            }
 
-                    Err(err) => {
-                        warn!("Failed to check if thread subscriptions catchup is enabled: {err}");
-                        return;
-                    }
-                }
+            Ok(false) => {
+                debug!("Thread subscriptions catchup not enabled, not starting the catchup task");
+            }
 
-                Self::thread_subscriptions_catchup_task(
-                    that,
-                    ping_receiver,
-                ).await
-            }).abort_on_drop()
-        });
+            Err(err) => {
+                warn!("Failed to check if thread subscriptions catchup is enabled: {err}");
+            }
+        }
 
         this
     }
