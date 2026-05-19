@@ -612,3 +612,12 @@ impl std::fmt::Debug for EventFocusedCache {
         f.debug_struct("EventFocusedCache").finish_non_exhaustive()
     }
 }
+
+/// Key for the event-focused caches.
+#[derive(Hash, PartialEq, Eq)]
+pub(super) struct EventFocusedCacheKey {
+    /// The event ID that the cache is focused on.
+    focused: OwnedEventId,
+    /// The thread mode for this cache.
+    thread_mode: EventFocusThreadMode,
+}
