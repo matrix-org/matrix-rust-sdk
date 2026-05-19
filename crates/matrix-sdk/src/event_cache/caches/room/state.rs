@@ -62,7 +62,7 @@ use super::{
             },
         },
         EventLocation, TimelineVectorDiffs,
-        event_focused::{EventFocusThreadMode, EventFocusedCache},
+        event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
         event_linked_chunk::EventLinkedChunk,
         lock,
         pagination::SharedPaginationStatus,
@@ -72,15 +72,6 @@ use super::{
     RoomEventCacheUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
 use crate::room::WeakRoom;
-
-/// Key for the event-focused caches.
-#[derive(Hash, PartialEq, Eq)]
-struct EventFocusedCacheKey {
-    /// The event ID that the cache is focused on.
-    focused: OwnedEventId,
-    /// The thread mode for this cache.
-    thread_mode: EventFocusThreadMode,
-}
 
 pub struct RoomEventCacheState {
     /// Whether thread support has been enabled for the event cache.
