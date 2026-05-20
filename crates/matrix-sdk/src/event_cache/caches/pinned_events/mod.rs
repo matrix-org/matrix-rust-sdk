@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeSet, sync::Arc};
+use std::{cmp::Ordering, collections::BTreeSet, sync::Arc};
 
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
@@ -537,13 +537,92 @@ impl PinnedEventCache {
         // them, since we've lost all ordering information from using /event or
         // /relations. Resort to sorting using chronological ordering (oldest ->
         // newest).
-        loaded_events.sort_by_key(|item| {
-            item.raw()
-                .deserialize()
-                .map(|e| e.origin_server_ts())
-                .unwrap_or_else(|_| MilliSecondsSinceUnixEpoch::now())
-        });
+        loaded_events.sort_by(compare_pinned_items);
 
         Ok(Some(loaded_events))
+    }
+}
+
+fn compare_pinned_items(a: &Event, b: &Event) -> Ordering {
+    let a_time: Option<MilliSecondsSinceUnixEpoch> = a.timestamp_raw();
+    let b_time: Option<MilliSecondsSinceUnixEpoch> = b.timestamp_raw();
+
+    compare_by_optional_timestamp(a_time, b_time)
+}
+
+fn compare_by_optional_timestamp(
+    a: Option<MilliSecondsSinceUnixEpoch>,
+    b: Option<MilliSecondsSinceUnixEpoch>,
+) -> Ordering {
+    match (a, b) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(a), Some(b)) => a.cmp(&b),
+    }
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+    use ruma::UInt;
+
+    use super::*;
+
+    fn any_timestamp() -> impl Strategy<Value = Option<MilliSecondsSinceUnixEpoch>> {
+        prop::option::of(
+            any::<u32>().prop_map(|value| MilliSecondsSinceUnixEpoch(UInt::from(value))),
+        )
+    }
+
+    #[test]
+    fn sort_pinned_events_never_panics_only_nones() {
+        let mut vec = vec![None; 100_000];
+        vec.sort_by(|a, b| compare_by_optional_timestamp(*a, *b))
+    }
+
+    proptest! {
+        #[test]
+        fn sort_pinned_events_never_panics(mut v in prop::collection::vec(any_timestamp(), 0..1000)) {
+            v.sort_by(
+                |a, b| compare_by_optional_timestamp(*a, *b))
+        }
+
+        #[test]
+        fn compare_pinned_events_reflexive(a in any_timestamp()) {
+            prop_assert_eq!(compare_by_optional_timestamp(a, a), Ordering::Equal);
+        }
+
+        #[test]
+        fn compare_pinned_events_antisymmetric(a in any_timestamp(), b in any_timestamp()) {
+            let ab = compare_by_optional_timestamp(a, b);
+            let ba = compare_by_optional_timestamp(b, a);
+
+            prop_assert_eq!(ab, ba.reverse());
+        }
+
+        #[test]
+        fn compare_pinned_events_transitive(
+            a in any_timestamp(),
+            b in any_timestamp(),
+            c in any_timestamp()
+        ) {
+            let ab = compare_by_optional_timestamp(a, b);
+            let bc = compare_by_optional_timestamp(b, c);
+            let ac = compare_by_optional_timestamp(a, c);
+
+            if ab == Ordering::Less && bc == Ordering::Less {
+                prop_assert_eq!(ac, Ordering::Less);
+            }
+
+            if ab == Ordering::Equal && bc == Ordering::Equal {
+                prop_assert_eq!(ac, Ordering::Equal);
+            }
+
+            if ab == Ordering::Greater && bc == Ordering::Greater {
+                prop_assert_eq!(ac, Ordering::Greater);
+            }
+        }
     }
 }
