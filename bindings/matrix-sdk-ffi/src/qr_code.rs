@@ -17,8 +17,9 @@ use std::sync::Arc;
 use matrix_sdk::authentication::oauth::{
     OAuth,
     qrcode::{
-        self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
-        DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
+        self, CheckCodeSender as SdkCheckCodeSender,
+        ContinuationMessageSender as SdkContinuationMessageSender, DeviceCodeErrorResponseType,
+        GeneratedQrProgress, LoginFailureReason, QrProgress, SenderError,
     },
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
@@ -120,7 +121,8 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let mut login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        login.with_msc4388_support();
 
         let mut progress = login.subscribe_to_progress();
 
@@ -214,7 +216,8 @@ impl GrantLoginWithQrCodeHandler {
         self: Arc<Self>,
         progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
     ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().generate();
+        let mut grant = self.oauth.grant_login_with_qr_code().generate();
+        grant.with_msc4388_support();
 
         let mut progress = grant.subscribe_to_progress();
 
@@ -361,15 +364,14 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             }
 
             QRCodeLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => HumanQrLoginError::Unknown,
+                SecureChannelError::MessageDecode(_)
+                | SecureChannelError::RendezvousChannel(_)
+                | SecureChannelError::QrCodeCreationError(_) => HumanQrLoginError::Unknown,
                 SecureChannelError::UnsupportedQrCodeType => {
                     HumanQrLoginError::UnsupportedQrCodeType
                 }
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => {
                     HumanQrLoginError::ConnectionInsecure
@@ -390,11 +392,11 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
     }
 }
 
-impl From<CheckCodeSenderError> for HumanQrLoginError {
-    fn from(value: CheckCodeSenderError) -> Self {
+impl From<SenderError> for HumanQrLoginError {
+    fn from(value: SenderError) -> Self {
         match value {
-            CheckCodeSenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
-            CheckCodeSenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
+            SenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
+            SenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
         }
     }
 }
@@ -468,13 +470,12 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
             }
             QRCodeGrantLoginError::NotFound => Self::NotFound,
             QRCodeGrantLoginError::SecureChannel(e) => match e {
-                SecureChannelError::Utf8(_)
-                | SecureChannelError::MessageDecode(_)
-                | SecureChannelError::Json(_)
-                | SecureChannelError::RendezvousChannel(_) => Self::Unknown(e.to_string()),
+                SecureChannelError::MessageDecode(_)
+                | SecureChannelError::RendezvousChannel(_)
+                | SecureChannelError::QrCodeCreationError(_) => Self::Unknown(e.to_string()),
                 SecureChannelError::UnsupportedQrCodeType => Self::UnsupportedQrCodeType,
                 SecureChannelError::SecureChannelMessage { .. }
-                | SecureChannelError::Ecies(_)
+                | SecureChannelError::Decryption(_)
                 | SecureChannelError::InvalidCheckCode
                 | SecureChannelError::CannotReceiveCheckCode => Self::ConnectionInsecure,
                 SecureChannelError::InvalidIntent => Self::OtherDeviceAlreadySignedIn,
@@ -531,8 +532,6 @@ impl From<qrcode::LoginProgress<QrProgress>> for QrLoginProgress {
         match value {
             LoginProgress::Starting => Self::Starting,
             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
-
                 Self::EstablishingSecureChannel {
                     check_code,
                     check_code_string: format!("{check_code:02}"),
@@ -611,9 +610,13 @@ pub enum GrantQrLoginProgress {
     },
     /// The secure channel has been confirmed using the [`CheckCode`] and this
     /// device is waiting for the authorization to complete.
-    WaitingForAuth {
+    OpeningVerificationUri {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
+        continuation_sender: Arc<ContinuationMessageSender>,
+    },
+    WaitingForAuth {
+        continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
     SyncingSecrets,
@@ -633,15 +636,20 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
         match value {
             GrantLoginProgress::Starting => Self::Starting,
             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-                let check_code = check_code.to_digit();
-
                 Self::EstablishingSecureChannel {
                     check_code,
                     check_code_string: format!("{check_code:02}"),
                 }
             }
-            GrantLoginProgress::WaitingForAuth { verification_uri } => {
-                Self::WaitingForAuth { verification_uri: verification_uri.into() }
+            GrantLoginProgress::OpeningVerificationUri {
+                verification_uri,
+                continuation_sender,
+            } => Self::OpeningVerificationUri {
+                verification_uri: verification_uri.into(),
+                continuation_sender: Arc::new(continuation_sender.into()),
+            },
+            GrantLoginProgress::WaitingForAuth { continuation_sender } => {
+                Self::WaitingForAuth { continuation_sender: Arc::new(continuation_sender.into()) }
             }
             GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
             GrantLoginProgress::Done => Self::Done,
@@ -658,16 +666,24 @@ pub enum GrantGeneratedQrLoginProgress {
     Starting,
     /// We have established the secure channel and now need to display the
     /// QR code so that the existing device can scan it.
-    QrReady { qr_code: Arc<QrCodeData> },
+    QrReady {
+        qr_code: Arc<QrCodeData>,
+    },
     /// The existing device has scanned the QR code and is displaying the
     /// checkcode. We now need to ask the user to enter the checkcode so that
     /// we can verify that the channel is indeed secure.
-    QrScanned { check_code_sender: Arc<CheckCodeSender> },
+    QrScanned {
+        check_code_sender: Arc<CheckCodeSender>,
+    },
     /// The secure channel has been confirmed using the [`CheckCode`] and this
     /// device is waiting for the authorization to complete.
-    WaitingForAuth {
+    OpeningVerificationUri {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
+        continuation_sender: Arc<ContinuationMessageSender>,
+    },
+    WaitingForAuth {
+        continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
     SyncingSecrets,
@@ -692,8 +708,15 @@ impl From<qrcode::GrantLoginProgress<GeneratedQrProgress>> for GrantGeneratedQrL
             GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
                 inner,
             )) => Self::QrScanned { check_code_sender: Arc::new(CheckCodeSender { inner }) },
-            GrantLoginProgress::WaitingForAuth { verification_uri } => {
-                Self::WaitingForAuth { verification_uri: verification_uri.into() }
+            GrantLoginProgress::OpeningVerificationUri {
+                verification_uri,
+                continuation_sender,
+            } => Self::OpeningVerificationUri {
+                verification_uri: verification_uri.into(),
+                continuation_sender: Arc::new(continuation_sender.into()),
+            },
+            GrantLoginProgress::WaitingForAuth { continuation_sender } => {
+                Self::WaitingForAuth { continuation_sender: Arc::new(continuation_sender.into()) }
             }
             GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
             GrantLoginProgress::Done => Self::Done,
@@ -701,9 +724,9 @@ impl From<qrcode::GrantLoginProgress<GeneratedQrProgress>> for GrantGeneratedQrL
     }
 }
 
-#[derive(Debug, uniffi::Object)]
 /// Used to pass back the [`CheckCode`] entered by the user to verify that the
 /// secure channel is indeed secure.
+#[derive(Debug, uniffi::Object)]
 pub struct CheckCodeSender {
     inner: SdkCheckCodeSender,
 }
@@ -719,5 +742,32 @@ impl CheckCodeSender {
     /// * `check_code` - The check code in digits representation.
     pub async fn send(&self, code: u8) -> Result<(), HumanQrLoginError> {
         self.inner.send(code).await.map_err(HumanQrLoginError::from)
+    }
+}
+
+/// Struct used to let the QR code granting logic know that it can continue with
+/// the process since applications might suspend things while the verification
+/// URI is open.
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct ContinuationMessageSender {
+    inner: SdkContinuationMessageSender,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl ContinuationMessageSender {
+    /// Confirm the continuation of the login granting process.
+    pub async fn confirm(&self) -> Result<(), HumanQrLoginError> {
+        self.inner.confirm().await.map_err(HumanQrLoginError::from)
+    }
+
+    /// Cancel the the login granting process.
+    pub async fn cancel(&self) -> Result<(), HumanQrLoginError> {
+        self.inner.cancel().await.map_err(HumanQrLoginError::from)
+    }
+}
+
+impl From<SdkContinuationMessageSender> for ContinuationMessageSender {
+    fn from(value: SdkContinuationMessageSender) -> Self {
+        Self { inner: value }
     }
 }

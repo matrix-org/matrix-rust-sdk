@@ -370,6 +370,33 @@ impl OAuth {
         as_variant!(data, AuthData::OAuth)
     }
 
+    /// Check if the homeserver supports the [MSC4388] variant of the rendezvous
+    /// server.
+    ///
+    /// Returns `Ok(true)` if the rendezvous discovery endpoint returns a 200 OK
+    /// HTTP response, `Ok(false)` if the endpoint returns a 404 NOT_FOUND or
+    /// 403 FORBIDDEN HTTP response, otherwise an error is returned.
+    ///
+    /// [MSC4388]: https://github.com/matrix-org/matrix-spec-proposals/pull/4388
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn msc_4388_rendezvous_server_supported(&self) -> Result<bool, HttpError> {
+        use http::StatusCode;
+        use ruma::api::client::rendezvous::discover_rendezvous;
+
+        match self.client.send(discover_rendezvous::unstable::Request::new()).await {
+            Ok(response) => Ok(response.create_available),
+            Err(e) => {
+                if e.as_client_api_error().is_some_and(|err| {
+                    matches!(err.status_code, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN)
+                }) {
+                    Ok(false)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
     /// Log in this device using a QR code.
     ///
     /// # Arguments
@@ -1426,8 +1453,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///         match state {
     ///             LoginProgress::Starting | LoginProgress::SyncingSecrets => (),
     ///             LoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
-    ///                 let code = check_code.to_digit();
-    ///                 println!("Please enter the following code into the other device {code:02}");
+    ///                 println!("Please enter the following code into the other device {check_code:02}");
     ///             },
     ///             LoginProgress::WaitingForToken { user_code } => {
     ///                 println!("Please use your other device to confirm the log in {user_code}")
@@ -1619,8 +1645,17 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     ///             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
     ///                 println!("Please enter the checkcode on your other device: {:?}", check_code);
     ///             }
-    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
-    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             GrantLoginProgress::OpeningVerificationUri { verification_uri, continuation_sender } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login");
+    ///
+    ///                 // Once the client was able to open the verification URI we can let the
+    ///                 // process continue
+    ///                 continuation_sender.confirm().await?;
+    ///             },
+    ///             GrantLoginProgress::WaitingForAuth { continuation_sender } => {
+    ///                 // Once the new login has been confirmed in the browser, we can let the
+    ///                 // client continue with the process.
+    ///                 continuation_sender.confirm().await?;
     ///             },
     ///             GrantLoginProgress::Done => break,
     ///         }
@@ -1696,9 +1731,18 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     ///                 let check_code = s.trim().parse::<u8>()?;
     ///                 checkcode_sender.send(check_code).await?;
     ///             }
-    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
-    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             GrantLoginProgress::OpeningVerificationUri { verification_uri, continuation_sender } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login");
+    ///
+    ///                 // Once the client was able to open the verification URI we can let the
+    ///                 // process continue
+    ///                 continuation_sender.confirm().await?;
     ///             },
+    ///             GrantLoginProgress::WaitingForAuth { continuation_sender } => {
+    ///                 // Once the new login has been confirmed in the browser, we can let the
+    ///                 // client continue with the process.
+    ///                 continuation_sender.confirm().await?;
+    ///             }
     ///             GrantLoginProgress::Done => break,
     ///         }
     ///     }

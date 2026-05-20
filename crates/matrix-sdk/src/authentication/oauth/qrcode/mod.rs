@@ -27,7 +27,9 @@ use as_variant::as_variant;
 pub use matrix_sdk_base::crypto::types::qr_login::{
     LoginQrCodeDecodeError, Msc4108IntentData, QrCodeData, QrCodeIntent, QrCodeIntentData,
 };
-use matrix_sdk_base::crypto::{SecretImportError, store::SecretsBundleExportError};
+use matrix_sdk_base::crypto::{
+    SecretImportError, store::SecretsBundleExportError, types::qr_login::QrCodeCreationError,
+};
 pub use oauth2::{
     ConfigurationError, DeviceCodeErrorResponse, DeviceCodeErrorResponseType, HttpClientError,
     RequestTokenError, StandardErrorResponse,
@@ -37,8 +39,10 @@ use ruma::api::error::ErrorKind;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
-use vodozemac::ecies::CheckCode;
-pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
+pub use vodozemac::{
+    ecies::{Error as EciesError, MessageDecodeError as EciesMessageDecodeError},
+    hpke::{Error as HpkeError, MessageDecodeError as HpkeMessageDecodeError},
+};
 
 mod grant;
 mod login;
@@ -247,26 +251,66 @@ impl DeviceAuthorizationOAuthError {
     }
 }
 
-/// Error type for failures in when receiving or sending messages over the
-/// secure channel.
+/// Error type which describes failures when messages which are received over
+/// the secure channel fail to be decoded.
 #[derive(Debug, Error)]
-pub enum SecureChannelError {
+pub enum MessageDecodeError {
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Ecies(#[from] EciesMessageDecodeError),
+
+    /// A received message has failed to be decoded.
+    #[error(transparent)]
+    Hpke(#[from] HpkeMessageDecodeError),
+
     /// A message we received over the secure channel was not a valid UTF-8
     /// encoded string.
     #[error(transparent)]
     Utf8(#[from] std::str::Utf8Error),
 
-    /// A message has failed to be decrypted.
+    /// A message couldn't be deserialized from JSON.
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+
+    /// The sequence token of the rendezvous channel needs to be at most
+    /// [`u16::MAX`] bytes long, otherwise it can't be encoded as additional
+    /// authenticated data.
+    #[error("The base URL of the homeserver is too long")]
+    TooLongSequenceToken,
+
+    /// The base URL of the homeserver needs to be at most [`u16::MAX`] bytes
+    /// long, otherwise it can't be encoded as additional authenticated data.
+    #[error("The base URL of the homeserver is too long")]
+    TooLongBaseUrl,
+
+    /// The rendezvous ID of the channel needs to be at most [`u16::MAX`] bytes
+    /// long, otherwise it can't be encoded as additional authenticated data.
+    #[error("The rendezvous ID is too long")]
+    TooLongRendezvousId,
+}
+
+/// Error type for decryption failures of the secure channel.
+#[derive(Debug, Error)]
+pub enum DecryptionError {
+    /// A ECIES message failed to be decrypted.
     #[error(transparent)]
     Ecies(#[from] EciesError),
+    /// A HPKE message failed to be decrypted.
+    #[error(transparent)]
+    Hpke(#[from] HpkeError),
+}
+
+/// Error type for failures in when receiving or sending messages over the
+/// secure channel.
+#[derive(Debug, Error)]
+pub enum SecureChannelError {
+    /// A message has failed to be decrypted.
+    #[error(transparent)]
+    Decryption(#[from] DecryptionError),
 
     /// A received message has failed to be decoded.
     #[error(transparent)]
     MessageDecode(#[from] MessageDecodeError),
-
-    /// A message couldn't be deserialized from JSON.
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
 
     /// The secure channel failed to be established because it received an
     /// unexpected message.
@@ -305,9 +349,13 @@ pub enum SecureChannelError {
     )]
     CannotReceiveCheckCode,
 
-    #[error("The QR code specifies an unsupported protocol version")]
     /// The QR code specifies an unsupported protocol version.
+    #[error("The QR code specifies an unsupported protocol version")]
     UnsupportedQrCodeType,
+
+    /// The QR code couldn't have been created.
+    #[error(transparent)]
+    QrCodeCreationError(#[from] QrCodeCreationError),
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`]
@@ -315,12 +363,12 @@ pub enum SecureChannelError {
 /// this device is the one scanning the QR code.
 ///
 /// We have established the secure channel, but we need to let the other
-/// side know about the [`CheckCode`] so they can verify that the secure
+/// side know about the check code so they can verify that the secure
 /// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub struct QrProgress {
     /// The check code we need to, out of band, send to the other device.
-    pub check_code: CheckCode,
+    pub check_code: u8,
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] and
@@ -329,7 +377,7 @@ pub struct QrProgress {
 ///
 /// We have established the secure channel, but we need to let the
 /// other device know about the [`QrCodeData`] so they can connect to the
-/// channel and let us know about the checkcode so we can verify that the
+/// channel and let us know about the check code so we can verify that the
 /// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub enum GeneratedQrProgress {
@@ -337,45 +385,212 @@ pub enum GeneratedQrProgress {
     /// device to scan it.
     QrReady(QrCodeData),
     /// The QR code has been scanned by the other device and this device is
-    /// waiting for the user to put in the checkcode displayed on the
+    /// waiting for the user to put in the check code displayed on the
     /// other device.
     QrScanned(CheckCodeSender),
 }
 
 /// Used to pass back the checkcode entered by the user to verify that the
 /// secure channel is indeed secure.
-#[derive(Clone, Debug)]
-pub struct CheckCodeSender {
-    inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<u8>>>>,
-}
+pub type CheckCodeSender = CloneableSender<u8>;
 
 impl CheckCodeSender {
-    pub(crate) fn new(tx: tokio::sync::oneshot::Sender<u8>) -> Self {
-        Self { inner: Arc::new(Mutex::new(Some(tx))) }
-    }
-
-    /// Send the checkcode.
+    /// Send the check code.
     ///
     /// Calling this method more than once will result in an error.
     ///
     /// # Arguments
     ///
     /// * `check_code` - The check code in digits representation.
-    pub async fn send(&self, check_code: u8) -> Result<(), CheckCodeSenderError> {
+    pub async fn send(&self, check_code: u8) -> Result<(), SenderError> {
+        self.send_impl(check_code).await
+    }
+}
+
+/// The internal message of the [`ContinuationMessageSender`] to either continue
+/// the login granting process or to cancel it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ContinuationMessage {
+    Confirm,
+    Cancel,
+}
+
+/// Struct used to let the QR code granting logic know that it can continue with
+/// the process since applications might suspend things while the verification
+/// URI is open.
+#[derive(Clone, Debug)]
+pub struct ContinuationMessageSender(CloneableSender<ContinuationMessage>);
+
+impl ContinuationMessageSender {
+    /// Confirm the continuation of the login granting process.
+    pub async fn confirm(&self) -> Result<(), SenderError> {
+        self.0.send_impl(ContinuationMessage::Confirm).await
+    }
+
+    /// Cancel the the login granting process.
+    pub async fn cancel(&self) -> Result<(), SenderError> {
+        self.0.send_impl(ContinuationMessage::Cancel).await
+    }
+}
+
+/// A oneshot sender we are able to clone so we can put it into a
+/// observable.
+#[derive(Clone, Debug)]
+pub struct CloneableSender<T> {
+    inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<T>>>>,
+}
+
+impl<T> CloneableSender<T> {
+    pub(crate) fn new(tx: tokio::sync::oneshot::Sender<T>) -> Self {
+        Self { inner: Arc::new(Mutex::new(Some(tx))) }
+    }
+
+    async fn send_impl(&self, message: T) -> Result<(), SenderError> {
         match self.inner.lock().await.take() {
-            Some(tx) => tx.send(check_code).map_err(|_| CheckCodeSenderError::CannotSend),
-            None => Err(CheckCodeSenderError::AlreadySent),
+            Some(tx) => tx.send(message).map_err(|_| SenderError::CannotSend),
+            None => Err(SenderError::AlreadySent),
         }
     }
 }
 
 /// Possible errors when calling [`CheckCodeSender::send`].
 #[derive(Debug, thiserror::Error)]
-pub enum CheckCodeSenderError {
+pub enum SenderError {
     /// The check code has already been sent.
     #[error("check code already sent.")]
     AlreadySent,
     /// The check code cannot be sent.
     #[error("check code cannot be sent.")]
     CannotSend,
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::async_test;
+    use serde_json::json;
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{method, path},
+    };
+
+    use crate::test_utils::mocks::MatrixMockServer;
+
+    #[async_test]
+    async fn test_msc_4388_rendezvous_server_supported() {
+        const URL: &str = "/_matrix/client/unstable/io.element.msc4388/rendezvous";
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().logged_in_with_oauth().build().await;
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                            "create_available": true,
+                        })))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(supported, "The rendezvous server should be supported");
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                            "create_available": false,
+                        })))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported, because create_available is false"
+            );
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(404))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported if we receive a 404 response"
+            );
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(403))
+                        .expect(1),
+                )
+                .await;
+
+            let supported = client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect("We should be able to check if the rendezvous server is supported");
+
+            assert!(
+                !supported,
+                "The rendezvous server should not be supported if we receive a 403 response"
+            );
+        }
+
+        {
+            let _discover_guard = server
+                .server()
+                .register_as_scoped(
+                    Mock::given(method("GET"))
+                        .and(path(URL))
+                        .respond_with(ResponseTemplate::new(500))
+                        .expect(1),
+                )
+                .await;
+
+            client
+                .oauth()
+                .msc_4388_rendezvous_server_supported()
+                .await
+                .expect_err("We should return an error if the homeserver can't tell us if the endpoint is supported or not");
+        }
+    }
 }
