@@ -374,15 +374,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
             TimelineFocus::Event { target, thread_mode, num_context_events, .. } => {
                 TimelineFocusKind::Event {
                     event_cache: event_cache
-                        .room(room_id)
+                        .event_focused(room_id, target, (*thread_mode).into(), *num_context_events)
                         .await?
-                        .0
-                        .get_or_create_event_focused_cache(
-                            target.clone(),
-                            *num_context_events,
-                            (*thread_mode).into(),
-                        )
-                        .await?,
+                        .0,
                     focused_event_id: target.clone(),
                     // This will be initialized in `Self::init_focus`.
                     thread_root: OnceLock::new(),
