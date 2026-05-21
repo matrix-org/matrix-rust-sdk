@@ -90,7 +90,7 @@ pub(crate) enum EventFocusedPaginationMode {
     },
 }
 
-struct EventFocusedCacheInner {
+struct EventFocusedCacheState {
     /// The room owning this event-focused cache.
     room: WeakRoom,
 
@@ -104,13 +104,13 @@ struct EventFocusedCacheInner {
     chunk: EventLinkedChunk,
 
     /// A sender of timeline updates.
-    sender: Sender<TimelineVectorDiffs>,
+    sender: EventFocusedCacheUpdateSender,
 
     /// A sender for globally observable linked chunk updates.
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
-impl EventFocusedCacheInner {
+impl EventFocusedCacheState {
     /// Initialize the cache from a focused event.
     ///
     /// This uses `/context` to fetch the event with surrounding context.
@@ -521,7 +521,7 @@ impl EventFocusedCacheInner {
 /// This is a shallow data structure, and can be cloned cheaply.
 #[derive(Clone)]
 pub struct EventFocusedCache {
-    inner: Arc<RwLock<EventFocusedCacheInner>>,
+    inner: Arc<RwLock<EventFocusedCacheState>>,
 }
 
 impl EventFocusedCache {
@@ -532,7 +532,7 @@ impl EventFocusedCache {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(EventFocusedCacheInner {
+            inner: Arc::new(RwLock::new(EventFocusedCacheState {
                 room,
                 focused_event_id,
                 pagination_mode: EventFocusedPaginationMode::Room { hide_thread_events: false },
@@ -621,3 +621,6 @@ pub(in super::super) struct EventFocusedCacheKey {
     /// The thread mode for this cache.
     pub thread_mode: EventFocusThreadMode,
 }
+
+/// A small type to send updates in all channels.
+pub type EventFocusedCacheUpdateSender = Sender<TimelineVectorDiffs>;
