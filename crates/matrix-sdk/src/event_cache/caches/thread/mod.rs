@@ -39,6 +39,8 @@ pub(super) use self::{
     state::{LockedThreadEventCacheState, OwnedThreadEventCacheStateLockWriteGuard},
     updates::ThreadEventCacheUpdateSender,
 };
+#[cfg(feature = "e2e-encryption")]
+use super::super::redecryptor::ResolvedUtd;
 use super::{
     super::Result,
     EventsOrigin, TimelineVectorDiffs,
@@ -253,6 +255,25 @@ impl ThreadEventCache {
             .await
             .ok()
             .flatten())
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of decrypted events, and replace them, while alerting observers
+    /// about the update.
+    #[cfg(feature = "e2e-encryption")]
+    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+        let timeline_event_diffs = self.inner.state.write().await?.replace_utds(events).await?;
+
+        if let Some(timeline_event_diffs) = timeline_event_diffs
+            && !timeline_event_diffs.is_empty()
+        {
+            self.inner.update_sender.send(
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
+                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+            );
+        }
+
+        Ok(())
     }
 }
 

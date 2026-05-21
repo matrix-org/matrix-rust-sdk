@@ -409,6 +409,24 @@ impl EventCache {
             );
         }
 
+        // Resolve on the thread caches.
+        {
+            // TODO: This ain't great for performance; there shouldn't be
+            // that many thread caches alive at the same time, but they could
+            // accumulate over time. Consider keeping track of which linked
+            // chunk contain which event id, to avoid doing the linear searches
+            // here.
+            join_all(
+                all_caches
+                    .threads
+                    .read()
+                    .await
+                    .values()
+                    .map(|thread_cache| thread_cache.replace_utds(&events)),
+            )
+            .await;
+        }
+
         // Resolve on the pinned-events cache.
         if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
             pinned_events_cache.replace_utds(&events).await?;
