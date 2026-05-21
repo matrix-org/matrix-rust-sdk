@@ -362,26 +362,18 @@ impl EventCache {
 
         timer!("Resolving UTDs");
 
-        // Get the cache for this particular room.
-        let (room_cache, _drop_handles) = self.room(room_id).await?;
-
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
 
-        // Phase 1: under the room state write lock, collect cache handles and
-        // perform all room-linked-chunk mutations. We deliberately do NOT call
-        // replace_utds() on event-focused/pinned-evenst caches here to avoid an ABBA
-        // deadlock: pagination holds an event-focused cache lock and then tries
-        // to acquire the room state lock (via `save_events`), while this method
-        // would hold the room state lock and try to acquire event-focused cache
-        // locks.
-        let ef_caches = {
+        let all_caches = self.inner.all_caches_for_room(room_id).await?;
+
+        // Resolve on the room cache.
+        {
+            let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
 
-            let ef_caches: Vec<_> = state.event_focused_caches().cloned().collect();
-
-            // Consider the room linked chunk.
             let mut new_events = Vec::with_capacity(events.len());
+
             for (event_id, decrypted, actions) in &events {
                 if let Some((location, mut target_event)) = state.find_event(event_id).await? {
                     target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
@@ -415,25 +407,29 @@ impl EventCache {
                 }),
                 Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
             );
+        }
 
-            ef_caches
-        };
-        // Room state write lock is dropped here.
-
-        // Phase 2: replace UTDs in pinned-events and event-focused caches
-        // WITHOUT holding the room state lock. These caches have their own
-        // internal locks and don't need the room state lock.
-        if let Ok(Some(pinned_events_cache)) =
-            self.pinned_events_without_initialisation(room_id).await
-        {
+        // Resolve on the pinned-events cache.
+        if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
             pinned_events_cache.replace_utds(&events).await?;
         }
 
-        // TODO: This ain't great for performance; there shouldn't be that many
-        // event-focused caches alive at the same time, but they could
-        // accumulate over time. Consider keeping track of which linked chunk
-        // contain which event id, to avoid doing the linear searches here.
-        join_all(ef_caches.iter().map(|cache| cache.replace_utds(&events))).await;
+        // Resolve on the event-focused caches.
+        {
+            // TODO: This ain't great for performance; there shouldn't be that many
+            // event-focused caches alive at the same time, but they could
+            // accumulate over time. Consider keeping track of which linked chunk
+            // contain which event id, to avoid doing the linear searches here.
+            join_all(
+                all_caches
+                    .event_focused
+                    .read()
+                    .await
+                    .values()
+                    .map(|event_focused_cache| event_focused_cache.replace_utds(&events)),
+            )
+            .await;
+        }
 
         let report =
             RedecryptorReport::ResolvedUtds { room_id: room_id.to_owned(), events: event_ids };
