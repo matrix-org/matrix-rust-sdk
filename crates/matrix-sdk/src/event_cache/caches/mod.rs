@@ -42,9 +42,30 @@ pub mod thread;
 /// A type to hold all the caches for a given room.
 #[derive(Debug)]
 pub(super) struct Caches {
+    /// The one and only [`RoomEventCache`].
+    ///
+    /// [`RoomEventCache`]: room::RoomEventCache
     pub room: room::RoomEventCache,
+
+    /// All the lazily-loaded [`ThreadEventCache`].
+    ///
+    /// [`ThreadEventCache`]: thread::ThreadEventCache
+    // An `Arc` is used to get an owned lock.
     pub threads: Arc<RwLock<HashMap<OwnedEventId, thread::ThreadEventCache>>>,
+
+    /// The one and only [`PinnedEventsCache`].
+    ///
+    /// [`PinnedEventsCache`]: pinned_events::PinnedEventsCache
     pub pinned_events: OnceCell<pinned_events::PinnedEventsCache>,
+
+    /// All the lazily-loaded [`EventFocusedCache`].
+    ///
+    /// [`EventFocusedCache`]: event_focused::EventFocusedCache
+    // An `Arc` is used to get an owned lock.
+    pub event_focused:
+        Arc<RwLock<HashMap<event_focused::EventFocusedCacheKey, event_focused::EventFocusedCache>>>,
+
+    /// Internals data, used to lazily create caches.
     internals: CachesInternals,
 }
 
@@ -127,6 +148,7 @@ impl Caches {
             room: room_event_cache,
             threads: Arc::new(RwLock::new(HashMap::new())),
             pinned_events: OnceCell::new(),
+            event_focused: Arc::new(RwLock::new(HashMap::new())),
             internals: CachesInternals { store, linked_chunk_update_sender, room_version_rules },
         })
     }
@@ -211,9 +233,52 @@ impl Caches {
         self.pinned_events.get()
     }
 
+    /// Get or create a [`EventFocusedCache`].
+    ///
+    /// [`EventFocusedCache`]: event_focused::EventFocusedCache
+    pub async fn event_focused(
+        &self,
+        event_id: OwnedEventId,
+        thread_mode: event_focused::EventFocusThreadMode,
+        number_of_initial_events: u16,
+    ) -> Result<
+        OwnedRwLockReadGuard<
+            HashMap<event_focused::EventFocusedCacheKey, event_focused::EventFocusedCache>,
+            event_focused::EventFocusedCache,
+        >,
+    > {
+        let key = event_focused::EventFocusedCacheKey { focused: event_id, thread_mode };
+
+        Ok(
+            match OwnedRwLockWriteGuard::try_downgrade_map(
+                self.event_focused.clone().write_owned().await,
+                |event_focused_caches| event_focused_caches.get(&key),
+            ) {
+                // Event-focused cache exists.
+                Ok(locked_cache) => locked_cache,
+                // Event-focused cache does not exist, let's create it.
+                Err(mut event_focused_caches) => {
+                    let cache = event_focused::EventFocusedCache::new(
+                        self.room.weak_room().clone(),
+                        key.focused.clone(),
+                        self.internals.linked_chunk_update_sender.clone(),
+                    );
+                    cache.start_from(number_of_initial_events, thread_mode).await?;
+
+                    event_focused_caches.insert(key.clone(), cache);
+
+                    OwnedRwLockWriteGuard::downgrade_map(
+                        event_focused_caches,
+                        |event_focused_caches| event_focused_caches.get(&key).unwrap(),
+                    )
+                }
+            },
+        )
+    }
+
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads, pinned_events, internals } = &self;
+        let Self { room, threads, pinned_events, event_focused, internals } = &self;
 
         // Room.
         {
@@ -264,12 +329,19 @@ impl Caches {
             pinned_events.handle_joined_room_update(updates).await?;
         }
 
+        // Event-focused.
+        {
+            // An event-focused cache isn't listening to live update. Consequently, it is
+            // not interested by this kind of update.
+            let _ = event_focused;
+        }
+
         Ok(())
     }
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads, pinned_events, internals } = &self;
+        let Self { room, threads, pinned_events, event_focused, internals } = &self;
 
         // Room.
         {
@@ -320,6 +392,13 @@ impl Caches {
             pinned_events.handle_left_room_update(updates).await?;
         }
 
+        // Event-focused.
+        {
+            // An event-focused cache isn't listening to live update. Consequently, it is
+            // not interested by this kind of update.
+            let _ = event_focused;
+        }
+
         Ok(())
     }
 
@@ -368,7 +447,7 @@ impl<'c> ResetCaches<'c> {
     ///
     /// It can fail if acquiring an exclusive lock fails.
     async fn new(
-        Caches { room, threads, pinned_events, internals: _ }: &'c mut Caches,
+        Caches { room, threads, pinned_events, event_focused, internals: _ }: &'c mut Caches,
     ) -> Result<Self> {
         // Acquire an exclusive access to the state of the room.
         let room_lock = (room.state().write().await?, room.update_sender().clone());
@@ -389,6 +468,10 @@ impl<'c> ResetCaches<'c> {
         } else {
             None
         };
+
+        // TODO (in next commits).
+        let _ = event_focused;
+        todo!();
 
         Ok(Self { room_lock, threads_lock, thread_locks, pinned_events_lock })
     }
