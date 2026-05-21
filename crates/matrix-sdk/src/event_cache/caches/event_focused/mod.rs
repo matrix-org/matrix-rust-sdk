@@ -614,10 +614,10 @@ impl std::fmt::Debug for EventFocusedCache {
 }
 
 /// Key for the event-focused caches.
-#[derive(Debug, Hash, PartialEq, Eq)]
-pub(super) struct EventFocusedCacheKey {
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub(in super::super) struct EventFocusedCacheKey {
     /// The event ID that the cache is focused on.
-    focused: OwnedEventId,
+    pub focused: OwnedEventId,
     /// The thread mode for this cache.
-    thread_mode: EventFocusThreadMode,
+    pub thread_mode: EventFocusThreadMode,
 }

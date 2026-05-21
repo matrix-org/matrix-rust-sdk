@@ -415,6 +415,30 @@ impl EventCache {
         Ok(caches_for_room.pinned_events_without_initialisation().cloned())
     }
 
+    /// Return an event-focused view over the [`EventCache`].
+    pub async fn event_focused(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        thread_mode: EventFocusThreadMode,
+        number_of_initial_events: u16,
+    ) -> Result<(EventFocusedCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((
+            caches_for_room
+                .event_focused(event_id.to_owned(), thread_mode, number_of_initial_events)
+                .await?
+                .deref()
+                .clone(),
+            drop_handles,
+        ))
+    }
+
     /// Cleanly clear all the rooms' event caches.
     ///
     /// This will notify any live observers that the room has been cleared.
