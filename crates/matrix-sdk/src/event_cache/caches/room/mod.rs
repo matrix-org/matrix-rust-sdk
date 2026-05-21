@@ -37,6 +37,7 @@ use ruma::{
 use tokio::sync::{Notify, mpsc};
 use tracing::{instrument, trace, warn};
 
+use self::pagination::RoomPagination;
 pub(super) use self::state::{
     LockedRoomEventCacheState, RoomEventCacheStateLockReadGuard, RoomEventCacheStateLockWriteGuard,
 };
@@ -48,16 +49,12 @@ pub use self::{
     },
 };
 use super::{
-    super::{AutoShrinkChannelPayload, EventsOrigin, Result, RoomPagination},
+    super::{AutoShrinkChannelPayload, EventsOrigin, Result},
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
+    pagination::SharedPaginationStatus,
 };
-use crate::{
-    event_cache::{
-        caches::{pagination::SharedPaginationStatus},
-    },
-    room::WeakRoom,
-};
+use crate::room::WeakRoom;
 
 /// A subset of an event cache, for a room.
 ///
