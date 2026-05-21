@@ -430,6 +430,13 @@ pub(super) struct ResetCaches<'c> {
         pinned_events::PinnedEventsCacheStateLockWriteGuard<'c>,
         pinned_events::PinnedEventsCacheUpdateSender,
     )>,
+    event_focused_lock: OwnedRwLockWriteGuard<
+        HashMap<event_focused::EventFocusedCacheKey, event_focused::EventFocusedCache>,
+    >,
+    event_focused_locks: Vec<(
+        OwnedRwLockWriteGuard<event_focused::EventFocusedCacheState>,
+        event_focused::EventFocusedCacheUpdateSender,
+    )>,
 }
 
 impl<'c> ResetCaches<'c> {
@@ -459,11 +466,26 @@ impl<'c> ResetCaches<'c> {
             None
         };
 
-        // TODO (in next commits).
-        let _ = event_focused;
-        todo!();
+        // Acquire an exclusive access to the event-focused caches.
+        // Then, for each event-focused, acquire an exclusive access to its state.
+        let event_focused_lock = event_focused.clone().write_owned().await;
+        let mut event_focused_locks = Vec::new();
 
-        Ok(Self { room_lock, threads_lock, thread_locks, pinned_events_lock })
+        for event_focused in event_focused_lock.values() {
+            event_focused_locks.push((
+                event_focused.state().clone().write_owned().await,
+                event_focused.update_sender().await,
+            ));
+        }
+
+        Ok(Self {
+            room_lock,
+            threads_lock,
+            thread_locks,
+            pinned_events_lock,
+            event_focused_lock,
+            event_focused_locks,
+        })
     }
 
     /// Reset all the event caches, and broadcast the [`TimelineVectorDiffs`].
@@ -473,7 +495,14 @@ impl<'c> ResetCaches<'c> {
     ///
     /// It can fail if resetting an event cache fails.
     pub async fn reset_all(self) -> Result<()> {
-        let Self { room_lock, threads_lock, thread_locks, pinned_events_lock } = self;
+        let Self {
+            room_lock,
+            threads_lock,
+            thread_locks,
+            pinned_events_lock,
+            event_focused_lock,
+            event_focused_locks,
+        } = self;
 
         // Room.
         {
@@ -491,9 +520,7 @@ impl<'c> ResetCaches<'c> {
 
         // Threads.
         {
-            for thread_lock in thread_locks {
-                let (mut thread_state, thread_update_sender) = thread_lock;
-
+            for (mut thread_state, thread_update_sender) in thread_locks {
                 let updates_as_vector_diffs = thread_state.reset().await?;
                 thread_update_sender.send(
                     TimelineVectorDiffs {
@@ -520,6 +547,20 @@ impl<'c> ResetCaches<'c> {
                     origin: EventsOrigin::Cache,
                 });
             }
+        }
+
+        // Event-focused.
+        {
+            for (mut event_focused_state, event_focused_update_sender) in event_focused_locks {
+                let updates_as_vector_diffs = event_focused_state.reset()?;
+                let _ = event_focused_update_sender.send(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
+            }
+
+            // Now we can release the exclusive access over the event-focused caches.
+            drop(event_focused_lock);
         }
 
         Ok(())
