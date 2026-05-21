@@ -17,7 +17,10 @@ use std::collections::HashMap;
 use anyhow::Result;
 use ruma::{
     OwnedUserId, UserId,
-    events::{TimelineEventType, room::power_levels::RoomPowerLevels as RumaPowerLevels},
+    events::{
+        MessageLikeEventType as RumaMessageLikeEventType, StateEventType as RumaStateEventType,
+        TimelineEventType, room::power_levels::RoomPowerLevels as RumaPowerLevels,
+    },
 };
 
 use crate::{
@@ -226,6 +229,10 @@ pub struct RoomPowerLevelsValues {
     pub room_topic: i64,
     /// The level required to change the space's children.
     pub space_child: i64,
+    /// The level required to send a beacon (live location) message event.
+    pub beacon: i64,
+    /// The level required to send a beacon info state event.
+    pub beacon_info: i64,
 }
 
 impl From<RumaPowerLevels> for RoomPowerLevelsValues {
@@ -236,6 +243,13 @@ impl From<RumaPowerLevels> for RoomPowerLevelsValues {
         ) -> i64 {
             let default_state: i64 = power_levels.state_default.into();
             power_levels.events.get(event_type).map_or(default_state, |&level| level.into())
+        }
+        fn message_event_level_for(
+            power_levels: &RumaPowerLevels,
+            event_type: &TimelineEventType,
+        ) -> i64 {
+            let default_events: i64 = power_levels.events_default.into();
+            power_levels.events.get(event_type).map_or(default_events, |&level| level.into())
         }
         Self {
             ban: value.ban.into(),
@@ -249,6 +263,8 @@ impl From<RumaPowerLevels> for RoomPowerLevelsValues {
             room_avatar: state_event_level_for(&value, &TimelineEventType::RoomAvatar),
             room_topic: state_event_level_for(&value, &TimelineEventType::RoomTopic),
             space_child: state_event_level_for(&value, &TimelineEventType::SpaceChild),
+            beacon: message_event_level_for(&value, &RumaMessageLikeEventType::Beacon.into()),
+            beacon_info: state_event_level_for(&value, &RumaStateEventType::BeaconInfo.into()),
         }
     }
 }

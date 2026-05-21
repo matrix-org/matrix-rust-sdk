@@ -55,7 +55,7 @@ impl WidgetDriver {
         };
 
         let capabilities_provider = CapabilitiesProviderWrap(capabilities_provider.into());
-        if let Err(()) = driver.run(room.inner.clone(), capabilities_provider).await {
+        if let Err(()) = driver.run((*room.inner).clone(), capabilities_provider).await {
             // TODO
         }
     }

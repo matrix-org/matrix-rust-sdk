@@ -166,6 +166,17 @@ pub trait MediaStore: AsyncTraitDeps {
     /// If there is already an ongoing cleanup, this is a noop.
     async fn clean(&self) -> Result<(), Self::Error>;
 
+    /// Close the store, releasing all held resources (database connections,
+    /// file descriptors, file locks).
+    ///
+    /// In-flight operations complete before this method returns. After it
+    /// returns, operations will fail until [`Self::reopen()`] is called.
+    async fn close(&self) -> Result<(), Self::Error>;
+
+    /// Reopen the store after a [`Self::close()`], re-acquiring database
+    /// connections.
+    async fn reopen(&self) -> Result<(), Self::Error>;
+
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
     ///
@@ -391,6 +402,14 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
 
     async fn clean(&self) -> Result<(), Self::Error> {
         self.0.clean().await.map_err(Into::into)
+    }
+
+    async fn close(&self) -> Result<(), Self::Error> {
+        self.0.close().await.map_err(Into::into)
+    }
+
+    async fn reopen(&self) -> Result<(), Self::Error> {
+        self.0.reopen().await.map_err(Into::into)
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

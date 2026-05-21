@@ -24,15 +24,14 @@ The procedure is as follows:
    cargo xtask release prepare --execute minor|patch|rc
    ```
 
-3. Double-check and edit the `CHANGELOG.md` and `README.md` if necessary. Once you are
-   satisfied, push the branch and open a PR.
+3. Double-check and edit the `CHANGELOG.md` and `README.md` if necessary. Once
+   you are satisfied, push the branch and open a PR.
 
    ```bash
    git push --set-upstream origin/release-x.y.z
    ```
 
 4. Pass the review and merge the branch as you would with any other branch.
-
 5. Create tags for your new release, publish the release on crates.io and push
    the tags:
 
@@ -45,4 +44,7 @@ The procedure is as follows:
    cargo xtask release publish --execute
    ```
 
-   For more information on cargo-release: https://github.com/crate-ci/cargo-release
+   For more information on cargo-release:
+   [https://github.com/crate-ci/cargo-release][https-github-com-crate-ci-cargo-release]
+
+[https-github-com-crate-ci-cargo-release]: https://github.com/crate-ci/cargo-release

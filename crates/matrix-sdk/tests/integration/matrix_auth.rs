@@ -2,7 +2,7 @@ use std::{collections::BTreeMap, sync::Mutex};
 
 use assert_matches::assert_matches;
 use matrix_sdk::{
-    AuthApi, AuthSession, Client, RumaApiError, SessionTokens,
+    AuthApi, AuthSession, Client, SessionTokens,
     authentication::matrix::MatrixSession,
     config::RequestConfig,
     test_utils::{logged_in_client_with_server, no_retry_test_client_with_server},
@@ -233,7 +233,7 @@ async fn test_login_error() {
         .await;
 
     if let Err(err) = client.matrix_auth().login_username("example", "wordpass").send().await {
-        if let Some(RumaApiError::ClientApi(api_err)) = err.as_ruma_api_error() {
+        if let Some(api_err) = err.as_client_api_error() {
             assert_eq!(api_err.status_code, http::StatusCode::from_u16(403).unwrap());
 
             if let api::error::ErrorBody::Standard(StandardErrorBody { kind, message, .. }) =

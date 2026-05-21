@@ -54,6 +54,7 @@ pub struct NotificationRoomInfo {
     pub is_encrypted: Option<bool>,
     pub is_direct: bool,
     pub is_space: bool,
+    pub is_dm: bool,
 }
 
 #[derive(uniffi::Record)]
@@ -113,6 +114,7 @@ impl NotificationItem {
                 is_encrypted: item.is_room_encrypted,
                 is_direct: item.is_direct_message_room,
                 is_space: item.is_space,
+                is_dm: item.room_is_dm,
             },
             is_noisy: item.is_noisy,
             has_mention: item.has_mention,

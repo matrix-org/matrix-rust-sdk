@@ -59,30 +59,7 @@ pub type HttpResult<T> = std::result::Result<T, HttpError>;
 
 /// An error response from a Matrix API call, using a client API specific
 /// representation if the endpoint is from that.
-#[derive(Error, Debug)]
-pub enum RumaApiError {
-    /// A client API response error.
-    #[error(transparent)]
-    ClientApi(ruma::api::error::Error),
-
-    /// A user-interactive authentication API error.
-    ///
-    /// When registering or authenticating, the Matrix server can send a
-    /// `UiaaInfo` as the error type, this is a User-Interactive Authentication
-    /// API response. This represents an error with information about how to
-    /// authenticate the user.
-    #[error("User-Interactive Authentication required.")]
-    Uiaa(UiaaInfo),
-}
-
-impl RumaApiError {
-    /// If `self` is `ClientApi(e)`, returns `Some(e)`.
-    ///
-    /// Otherwise, returns `None`.
-    pub fn as_client_api_error(&self) -> Option<&ruma::api::error::Error> {
-        as_variant!(self, Self::ClientApi)
-    }
-}
+pub type RumaApiError = UiaaResponse;
 
 /// An HTTP error, representing either a connection error or an error while
 /// converting the raw HTTP response into a Matrix response.
@@ -134,35 +111,35 @@ impl HttpError {
             _ => None
         }
     }
-
-    /// Shorthand for
-    /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
-    pub fn as_client_api_error(&self) -> Option<&ruma::api::error::Error> {
-        self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
-    }
 }
 
 // Another impl block that's formatted with rustfmt.
 impl HttpError {
     /// If `self` is a server error in the `errcode` + `error` format expected
-    /// for client-API endpoints, returns the error kind (`errcode`).
+    /// for client API endpoints, returns it.
+    pub fn as_client_api_error(&self) -> Option<&ruma::api::error::Error> {
+        self.as_ruma_api_error().and_then(as_variant!(UiaaResponse::MatrixError))
+    }
+
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client API endpoints, returns the error kind (`errcode`).
     pub fn client_api_error_kind(&self) -> Option<&ErrorKind> {
         self.as_client_api_error().and_then(ruma::api::error::Error::error_kind)
     }
 
-    /// Try to destructure the error into an universal interactive auth info.
+    /// Try to destructure the error into a user-interactive auth info.
     ///
-    /// Some requests require universal interactive auth, doing such a request
+    /// Some requests require user-interactive auth, doing such a request
     /// will always fail the first time with a 401 status code, the response
-    /// body will contain info how the client can authenticate.
+    /// body will contain info on how the client can authenticate.
     ///
     /// The request will need to be retried, this time containing additional
     /// authentication data.
     ///
-    /// This method is an convenience method to get to the info the server
+    /// This method is a convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
-        self.as_ruma_api_error().and_then(as_variant!(RumaApiError::Uiaa))
+        self.as_ruma_api_error().and_then(as_variant!(UiaaResponse::AuthResponse))
     }
 
     /// Returns whether an HTTP error response should be qualified as transient
@@ -179,6 +156,12 @@ impl HttpError {
             },
             _ => RetryKind::Permanent,
         }
+    }
+
+    /// If this is a server error, returns whether it matches the expected
+    /// format for an endpoint that is not implemented.
+    pub fn is_endpoint_not_implemented(&self) -> bool {
+        self.as_client_api_error().is_some_and(|error| error.is_endpoint_not_implemented())
     }
 }
 
@@ -215,16 +198,16 @@ impl RetryKind {
     /// format defined in the [spec].
     ///
     /// [spec]: https://spec.matrix.org/v1.11/client-server-api/#standard-error-response
-    fn from_api_error(api_error: &RumaApiError) -> Self {
+    fn from_api_error(api_error: &UiaaResponse) -> Self {
         match api_error {
-            RumaApiError::ClientApi(client_error) => match client_error.error_kind() {
+            UiaaResponse::MatrixError(client_error) => match client_error.error_kind() {
                 Some(ErrorKind::LimitExceeded(limit_exceeded)) => {
                     RetryKind::from_retry_after(limit_exceeded.retry_after.as_ref())
                 }
                 Some(ErrorKind::Unrecognized) => RetryKind::Permanent,
                 _ => RetryKind::from_status_code(client_error.status_code),
             },
-            RumaApiError::Uiaa(_) => RetryKind::Permanent,
+            UiaaResponse::AuthResponse(_) => RetryKind::Permanent,
         }
     }
 
@@ -434,14 +417,14 @@ impl Error {
         as_variant!(self, Self::Http).and_then(|e| e.as_ruma_api_error())
     }
 
-    /// Shorthand for
-    /// <code>.[as_ruma_api_error](Self::as_ruma_api_error)().[and_then](Option::and_then)([RumaApiError::as_client_api_error])</code>.
+    /// If `self` is a server error in the `errcode` + `error` format expected
+    /// for client API endpoints, returns it.
     pub fn as_client_api_error(&self) -> Option<&ruma::api::error::Error> {
-        self.as_ruma_api_error().and_then(RumaApiError::as_client_api_error)
+        self.as_ruma_api_error().and_then(as_variant!(UiaaResponse::MatrixError))
     }
 
     /// If `self` is a server error in the `errcode` + `error` format expected
-    /// for client-API endpoints, returns the error kind (`errcode`).
+    /// for client API endpoints, returns the error kind (`errcode`).
     pub fn client_api_error_kind(&self) -> Option<&ErrorKind> {
         self.as_client_api_error().and_then(ruma::api::error::Error::error_kind)
     }
@@ -458,7 +441,7 @@ impl Error {
     /// This method is an convenience method to get to the info the server
     /// returned on the first, failed request.
     pub fn as_uiaa_response(&self) -> Option<&UiaaInfo> {
-        self.as_ruma_api_error().and_then(as_variant!(RumaApiError::Uiaa))
+        self.as_ruma_api_error().and_then(as_variant!(UiaaResponse::AuthResponse))
     }
 }
 
@@ -580,16 +563,7 @@ pub enum RoomKeyImportError {
 
 impl From<FromHttpResponseError<ruma::api::error::Error>> for HttpError {
     fn from(err: FromHttpResponseError<ruma::api::error::Error>) -> Self {
-        Self::Api(Box::new(err.map(RumaApiError::ClientApi)))
-    }
-}
-
-impl From<FromHttpResponseError<UiaaResponse>> for HttpError {
-    fn from(err: FromHttpResponseError<UiaaResponse>) -> Self {
-        Self::Api(Box::new(err.map(|e| match e {
-            UiaaResponse::AuthResponse(i) => RumaApiError::Uiaa(i),
-            UiaaResponse::MatrixError(e) => RumaApiError::ClientApi(e),
-        })))
+        Self::Api(Box::new(err.map(Into::into)))
     }
 }
 

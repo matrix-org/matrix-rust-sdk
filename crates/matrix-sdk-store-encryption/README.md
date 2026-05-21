@@ -36,15 +36,15 @@ fn main() -> anyhow::Result<()> {
 }
 ```
 
-# ⚠️ Security Warning: Hazmat!
+## Security warning: hazmat! ⚠️
 
 This crate only implements the low-level block cipher function, to be used
-*only* as a building block for higher-level constructions. It is NOT intended
+_only_ as a building block for higher-level constructions. It is NOT intended
 for direct use in applications.
 
 USE AT YOUR OWN RISK!
 
-# Encryption scheme
+## Encryption scheme
 
 The central component of the encryption scheme is the `StoreCipher` type, used
 for both obfuscating keys and encrypting values of the key/value store.
@@ -65,19 +65,19 @@ we use blake3 as the keyed hash construction.
                 └───────────────────────────────────────┘
 ```
 
-The `StoreCipher` has some Matrix-specific assumptions built in, which ensure that
-the limits of the cryptographic primitives are not exceeded. If this crate is
-used for non-Matrix data, users need to ensure:
+The `StoreCipher` has some Matrix-specific assumptions built in, which ensure
+that the limits of the cryptographic primitives are not exceeded. If this crate
+is used for non-Matrix data, users need to ensure:
 
 1. That individual values are chunked, otherwise decryption might be susceptible
    to a DOS attack.
 2. The `StoreCipher` is periodically rotated/rekeyed.
 
-# WASM support
+## WASM support
 
 This crate relies on the `random` and `getrandom` crates which don't support
 WASM automatically.
 
 Either turn the `js` feature on directly on this crate or depend on `getrandom`
-with the `js` feature turned on. More info can be found in the [`getrandom`
-docs](https://docs.rs/getrandom/latest/getrandom/index.html#webassembly-support).
+with the `js` feature turned on. More info can be found in the
+[`getrandom` docs](https://docs.rs/getrandom/latest/getrandom/index.html#webassembly-support).

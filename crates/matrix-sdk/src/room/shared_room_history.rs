@@ -263,11 +263,7 @@ pub(crate) async fn maybe_accept_key_bundle(room: &Room, inviter: &UserId) -> Re
         Err(err) => {
             // If we encountered an HTTP client error, we should check the status code to
             // see if we have been sent a bogus link.
-            let Some(err) = err
-                .as_ruma_api_error()
-                .and_then(|e| e.as_client_api_error())
-                .and_then(|e| e.error_kind())
-            else {
+            let Some(err) = err.client_api_error_kind() else {
                 // Some other error occurred, which we may be able to recover from at the next
                 // client startup.
                 return Ok(());

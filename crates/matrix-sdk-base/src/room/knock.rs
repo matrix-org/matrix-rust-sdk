@@ -26,7 +26,7 @@ use tracing::warn;
 
 use super::Room;
 use crate::{
-    StateStoreDataKey, StateStoreDataValue, StoreError,
+    StateStore, StateStoreDataKey, StateStoreDataValue, StoreError,
     deserialized_responses::{MemberEvent, RawMemberEvent, SyncOrStrippedState},
     store::{Result as StoreResult, StateStoreExt},
 };

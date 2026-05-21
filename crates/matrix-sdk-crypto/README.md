@@ -57,6 +57,7 @@ async fn main() -> Result<(), OlmError> {
     Ok(())
 }
 ```
+
 It is recommended to use the [tutorial] to understand how end-to-end encryption
 works in Matrix and how to add end-to-end encryption support in your Matrix
 client library.
@@ -64,20 +65,27 @@ client library.
 [Matrix]: https://matrix.org/
 [matrix-sdk]: https://github.com/matrix-org/matrix-rust-sdk/
 
-# Crate Feature Flags
+# Crate feature flags
 
 The following crate feature flags are available:
 
-| Feature             | Default | Description                                                                                                                |
-| ------------------- | :-----: | -------------------------------------------------------------------------------------------------------------------------- |
-| `qrcode`            |   No    | Enables QR code based interactive verification                                                                             |
-| `js`                |   No    | Enables JavaScript API usage for things like the current system time on WASM (does nothing on other targets)               |
-| `testing`           |   No    | Provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider. |
+| Feature   | Default | Description                                                                                                                                                                                                                                                                                                                                                                               |
+| --------- | :-----: | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `qrcode`  |   No    | Enables QR code based interactive verification                                                                                                                                                                                                                                                                                                                                            |
+| `js`      |   No    | Enables JavaScript API usage for things like the current system time on WASM (does nothing on other targets)                                                                                                                                                                                                                                                                              |
+| `testing` |   No    | Provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider. |
 
-* `testing`: Provides facilities and functions for tests, in particular for integration testing store implementations. ATTENTION: do not ever use outside of tests, we do not provide any stability warantees on these, these are merely helpers. If you find you _need_ any function provided here outside of tests, please open a Github Issue and inform us about your use case for us to consider.
+- `testing`: Provides facilities and functions for tests, in particular for
+  integration testing store implementations. ATTENTION: do not ever use outside
+  of tests, we do not provide any stability warantees on these, these are merely
+  helpers. If you find you _need_ any function provided here outside of tests,
+  please open a Github Issue and inform us about your use case for us to
+  consider.
 
-* `_disable-minimum-rotation-period-ms`: Do not use except for testing. Disables the floor on the rotation period of room keys.
-# Enabling logging
+- `_disable-minimum-rotation-period-ms`: Do not use except for testing. Disables
+  the floor on the rotation period of room keys.
+
+## Enabling logging
 
 Users of the `matrix-sdk-crypto` crate can enable log output by depending on the
 `tracing-subscriber` crate and including the following line in their
