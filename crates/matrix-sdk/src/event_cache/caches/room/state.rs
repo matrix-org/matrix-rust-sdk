@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 use eyeball::SharedObservable;
@@ -62,7 +59,6 @@ use super::{
             },
         },
         EventLocation, TimelineVectorDiffs,
-        event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
         event_linked_chunk::EventLinkedChunk,
         lock,
         pagination::SharedPaginationStatus,
@@ -92,13 +88,6 @@ pub struct RoomEventCacheState {
     /// The loaded events for the current room, that is, the in-memory
     /// linked chunk for this room.
     room_linked_chunk: EventLinkedChunk,
-
-    /// Event-focused caches for this room.
-    ///
-    /// Keyed by the focused event ID and thread mode. Each entry represents
-    /// a timeline centered around a specific event (e.g. from a
-    /// permalink).
-    event_focused_caches: HashMap<EventFocusedCacheKey, EventFocusedCache>,
 
     pagination_status: SharedObservable<SharedPaginationStatus>,
 
@@ -238,9 +227,6 @@ impl LockedRoomEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
-            // Event-focused caches are created on-demand when the user navigates to a
-            // permalink.
-            event_focused_caches: HashMap::new(),
             pagination_status,
             update_sender,
             linked_chunk_update_sender,
@@ -340,30 +326,12 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
     pub fn is_dirty(&self) -> bool {
         EventCacheStoreLockGuard::is_dirty(&self.store)
     }
-
-    /// Get an event-focused cache for this event and thread mode, if it
-    /// exists.
-    ///
-    /// Otherwise, returns `None`.
-    pub fn get_event_focused_cache(
-        &self,
-        event_id: OwnedEventId,
-        thread_mode: EventFocusThreadMode,
-    ) -> Option<EventFocusedCache> {
-        get_event_focused_cache(&self.state, event_id, thread_mode)
-    }
 }
 
 impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// Return a mutable reference to the underlying room linked chunk.
     pub fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.room_linked_chunk
-    }
-
-    /// Get a reference to all the live [`event_focused_caches`].
-    #[cfg(feature = "e2e-encryption")]
-    pub fn event_focused_caches(&self) -> impl Iterator<Item = &EventFocusedCache> {
-        self.state.event_focused_caches.values()
     }
 
     /// Get the `waited_for_initial_prev_token` value.
@@ -865,29 +833,6 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     pub fn is_dirty(&self) -> bool {
         EventCacheStoreLockGuard::is_dirty(&self.store)
     }
-
-    /// Insert an initialized event-focused cache for the given event id.
-    pub fn insert_event_focused_cache(
-        &mut self,
-        event_id: OwnedEventId,
-        thread_mode: EventFocusThreadMode,
-        cache: EventFocusedCache,
-    ) {
-        let key = EventFocusedCacheKey { focused_event_id: event_id, thread_mode };
-        self.state.event_focused_caches.insert(key, cache);
-    }
-
-    /// Get an event-focused cache for this event and thread mode, if it
-    /// exists.
-    ///
-    /// Otherwise, returns `None`.
-    pub fn get_event_focused_cache(
-        &self,
-        event_id: OwnedEventId,
-        thread_mode: EventFocusThreadMode,
-    ) -> Option<EventFocusedCache> {
-        get_event_focused_cache(&self.state, event_id, thread_mode)
-    }
 }
 
 /// Extract a valid read receipt event from the ephemeral events, if
@@ -913,19 +858,4 @@ fn extract_read_receipt(
     }
 
     receipt_event
-}
-
-/// Get an event-focused cache for this event and thread mode, if it exists.
-///
-/// Otherwise, returns `None`.
-///
-/// Extracted as a separate function to avoid duplicating the implementation for
-/// both the read and write guards.
-fn get_event_focused_cache(
-    state: &RoomEventCacheState,
-    event_id: OwnedEventId,
-    thread_mode: EventFocusThreadMode,
-) -> Option<EventFocusedCache> {
-    let key = EventFocusedCacheKey { focused_event_id: event_id, thread_mode };
-    state.event_focused_caches.get(&key).cloned()
 }
