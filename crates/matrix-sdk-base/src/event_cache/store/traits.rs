@@ -176,6 +176,17 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
+    /// Close the store, releasing all held resources (database connections,
+    /// file descriptors, file locks).
+    ///
+    /// In-flight operations complete before this method returns. After it
+    /// returns, operations will fail until [`Self::reopen()`] is called.
+    async fn close(&self) -> Result<(), Self::Error>;
+
+    /// Reopen the store after a [`Self::close()`], re-acquiring database
+    /// connections.
+    async fn reopen(&self) -> Result<(), Self::Error>;
+
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
     ///
@@ -292,6 +303,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
+    }
+
+    async fn close(&self) -> Result<(), Self::Error> {
+        self.0.close().await.map_err(Into::into)
+    }
+
+    async fn reopen(&self) -> Result<(), Self::Error> {
+        self.0.reopen().await.map_err(Into::into)
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

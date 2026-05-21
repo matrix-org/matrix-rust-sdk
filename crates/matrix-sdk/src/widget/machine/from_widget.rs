@@ -71,7 +71,7 @@ impl FromWidgetErrorResponse {
         let message = error.to_string();
         let matrix_api_error = match error {
             HttpError::Api(error) => {
-                as_variant!(*error, ruma::api::error::FromHttpResponseError::Server(RumaApiError::ClientApi(err)) => err)
+                as_variant!(*error, ruma::api::error::FromHttpResponseError::Server(RumaApiError::MatrixError(err)) => err)
             }
             _ => None,
         };

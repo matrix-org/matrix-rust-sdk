@@ -273,15 +273,28 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 timeline_controller.handle_ephemeral_events(events).await;
             }
 
-            RoomEventCacheUpdate::UpdateMembers { ambiguity_changes } => {
-                if !ambiguity_changes.is_empty() {
+            RoomEventCacheUpdate::UpdateMembers { ambiguity_changes, avatar_changes } => {
+                if !ambiguity_changes.is_empty()
+                    || !avatar_changes.as_ref().is_none_or(|avatars| avatars.is_empty())
+                {
                     let member_ambiguity_changes = ambiguity_changes
                         .values()
                         .flat_map(|change| change.user_ids())
                         .collect::<BTreeSet<_>>();
-                    timeline_controller
-                        .force_update_sender_profiles(&member_ambiguity_changes)
-                        .await;
+
+                    let mut user_ids_to_update = member_ambiguity_changes;
+
+                    if let Some(avatar_changes) = &avatar_changes {
+                        let mut user_ids =
+                            avatar_changes.keys().map(|u| u.as_ref()).collect::<BTreeSet<_>>();
+                        user_ids_to_update.append(&mut user_ids)
+                    } else {
+                        warn!(
+                            "No avatar changes to update for {}, ignoring",
+                            room_event_cache.room_id()
+                        );
+                    }
+                    timeline_controller.force_update_sender_profiles(&user_ids_to_update).await;
                 }
             }
         }

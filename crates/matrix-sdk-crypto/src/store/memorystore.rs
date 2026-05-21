@@ -197,6 +197,14 @@ type Result<T> = std::result::Result<T, Infallible>;
 impl CryptoStore for MemoryStore {
     type Error = Infallible;
 
+    async fn close(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn reopen(&self) -> Result<()> {
+        Ok(())
+    }
+
     async fn load_account(&self) -> Result<Option<Account>> {
         let pickled_account: Option<PickledAccount> = self.account.read().as_ref().map(|acc| {
             serde_json::from_str(acc)
@@ -1391,6 +1399,14 @@ mod integration_tests {
     #[cfg_attr(not(target_family = "wasm"), async_trait)]
     impl CryptoStore for PersistentMemoryStore {
         type Error = <MemoryStore as CryptoStore>::Error;
+
+        async fn close(&self) -> Result<(), Self::Error> {
+            self.0.close().await
+        }
+
+        async fn reopen(&self) -> Result<(), Self::Error> {
+            self.0.reopen().await
+        }
 
         async fn load_account(&self) -> Result<Option<Account>, Self::Error> {
             self.0.load_account().await

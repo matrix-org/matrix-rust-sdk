@@ -20,7 +20,8 @@
 
 <div align="center">
 
-The Matrix Rust SDK is a collection of libraries that make it easier to build [Matrix] clients in [Rust].
+The Matrix Rust SDK is a collection of libraries that make it easier to build
+[Matrix] clients in [Rust].
 <br />
 <br />
 
@@ -33,9 +34,14 @@ The Matrix Rust SDK is a collection of libraries that make it easier to build [M
 <br />
 <br />
 
-Development of the SDK is proudly sponsored and maintained by [Element](https://element.io). Element uses the SDK in their next-generation mobile apps Element X on [iOS](https://github.com/element-hq/element-x-ios) and [Android](https://github.com/element-hq/element-x-android) and has plans to introduce it to the web and desktop clients as well.
+Development of the SDK is proudly sponsored and maintained by
+[Element](https://element.io). Element uses the SDK in their next-generation
+mobile apps Element X on [iOS](https://github.com/element-hq/element-x-ios) and
+[Android](https://github.com/element-hq/element-x-android) and has plans to
+introduce it to the web and desktop clients as well.
 
-The SDK is also the basis for multiple Matrix projects and we welcome contributions from all.
+The SDK is also the basis for multiple Matrix projects and we welcome
+contributions from all.
 
 </div>
 
@@ -51,19 +57,24 @@ is designed to be flexible, async-friendly, and ready to use out of the box.
 The Matrix Rust SDK is made up of several crates that build on top of each
 other. The following crates are expected to be usable as direct dependencies:
 
-- [matrix-sdk-ui](https://docs.rs/matrix-sdk-ui/latest/matrix_sdk_ui/) – A high-level client library that makes it easy to build
-  full-featured UI clients with minimal setup. Check out our reference client,
-  [multiverse](https://github.com/matrix-org/matrix-rust-sdk/tree/main/labs/multiverse), for an example.
-- [matrix-sdk](https://docs.rs/matrix-sdk/latest/matrix_sdk/) – A mid-level client library, ideal for building bots, custom
-  clients, or higher-level abstractions. You can find example usage in the
+- [matrix-sdk-ui](https://docs.rs/matrix-sdk-ui/latest/matrix_sdk_ui/) – A
+  high-level client library that makes it easy to build full-featured UI clients
+  with minimal setup. Check out our reference client,
+  [multiverse](https://github.com/matrix-org/matrix-rust-sdk/tree/main/labs/multiverse),
+  for an example.
+- [matrix-sdk](https://docs.rs/matrix-sdk/latest/matrix_sdk/) – A mid-level
+  client library, ideal for building bots, custom clients, or higher-level
+  abstractions. You can find example usage in the
   [examples directory](https://github.com/matrix-org/matrix-rust-sdk/tree/main/examples).
-- [matrix-sdk-crypto](https://docs.rs/matrix-sdk-crypto/latest/matrix_sdk_crypto/) – A standalone encryption state machine with no network I/O,
-  providing end-to-end encryption support for Matrix clients and libraries.
-  See the [crypto tutorial](https://docs.rs/matrix-sdk-crypto/latest/matrix_sdk_crypto/tutorial/index.html)
+- [matrix-sdk-crypto](https://docs.rs/matrix-sdk-crypto/latest/matrix_sdk_crypto/)
+  – A standalone encryption state machine with no network I/O, providing
+  end-to-end encryption support for Matrix clients and libraries. See the
+  [crypto tutorial](https://docs.rs/matrix-sdk-crypto/latest/matrix_sdk_crypto/tutorial/index.html)
   for a step-by-step introduction.
 
-All other crates are effectively internal-only and only structured as crates
-for organizational purposes and to improve compilation times. Direct usage of them is discouraged.
+All other crates are effectively internal-only and only structured as crates for
+organizational purposes and to improve compilation times. Direct usage of them
+is discouraged.
 
 ## Status
 
@@ -71,8 +82,9 @@ The library is considered production ready and backs multiple client
 implementations such as Element X
 [[1]](https://github.com/element-hq/element-x-ios)
 [[2]](https://github.com/element-hq/element-x-android),
-[Fractal](https://gitlab.gnome.org/World/fractal) and [iamb](https://github.com/ulyssa/iamb). Client developers should feel
-confident to build upon it.
+[Fractal](https://gitlab.gnome.org/World/fractal) and
+[iamb](https://github.com/ulyssa/iamb). Client developers should feel confident
+to build upon it.
 
 ## Bindings
 
@@ -84,7 +96,6 @@ into your language of choice.
 ## License
 
 [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
-
 
 [Matrix]: https://matrix.org/
 [Rust]: https://www.rust-lang.org/

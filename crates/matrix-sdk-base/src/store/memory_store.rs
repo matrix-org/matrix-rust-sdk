@@ -154,6 +154,14 @@ impl MemoryStore {
 impl StateStore for MemoryStore {
     type Error = StoreError;
 
+    async fn close(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    async fn reopen(&self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     async fn get_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<Option<StateStoreDataValue>> {
         let inner = self.inner.read().unwrap();
 

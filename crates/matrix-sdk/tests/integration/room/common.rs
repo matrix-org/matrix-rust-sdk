@@ -921,7 +921,7 @@ async fn test_is_dm_using_matrix_spec() {
     let room = server.sync_joined_room(&client, room_id).await;
     // Room has direct targets, so it's considered direct and a DM using the spec
     // definition.
-    assert!(room.is_dm().await.unwrap());
+    assert!(room.compute_is_dm().await.unwrap());
 
     // We mock the m.direct account data with no targets
     let direct_data = EventFactory::new().direct().into_raw::<AnyGlobalAccountDataEvent>();
@@ -934,7 +934,7 @@ async fn test_is_dm_using_matrix_spec() {
 
     // Room doesn't have direct targets anymore, so it's not a DM using the spec
     // definition.
-    assert!(room.is_dm().await.unwrap().not());
+    assert!(room.compute_is_dm().await.unwrap().not());
 }
 
 #[async_test]
@@ -968,7 +968,7 @@ async fn test_is_dm_using_at_most_two_members_definition() {
             AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(2)),
         )
         .await;
-    assert!(room.is_dm().await.unwrap());
+    assert!(room.compute_is_dm().await.unwrap());
 
     // The room has direct targets, and a single active user, so it's a DM.
     let room = server
@@ -977,7 +977,7 @@ async fn test_is_dm_using_at_most_two_members_definition() {
             AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(1)),
         )
         .await;
-    assert!(room.is_dm().await.unwrap());
+    assert!(room.compute_is_dm().await.unwrap());
 
     // The room has direct targets, and > 2 active users, so it's NOT a DM.
     let room = server
@@ -986,5 +986,5 @@ async fn test_is_dm_using_at_most_two_members_definition() {
             AnyRoomBuilder::Joined(JoinedRoomBuilder::new(room_id).set_joined_members_count(3)),
         )
         .await;
-    assert!(!room.is_dm().await.unwrap());
+    assert!(!room.compute_is_dm().await.unwrap());
 }

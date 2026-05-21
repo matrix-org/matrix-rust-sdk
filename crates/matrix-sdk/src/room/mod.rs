@@ -40,8 +40,8 @@ use matrix_sdk_base::crypto::{
 };
 pub use matrix_sdk_base::store::StoredThreadSubscription;
 use matrix_sdk_base::{
-    ComposerDraft, EncryptionState, RoomInfoNotableUpdateReasons, RoomMemberships, SendOutsideWasm,
-    StateChanges, StateStoreDataKey, StateStoreDataValue,
+    ComposerDraft, DmRoomDefinition, EncryptionState, RoomInfoNotableUpdateReasons,
+    RoomMemberships, SendOutsideWasm, StateStoreDataKey, StateStoreDataValue,
     deserialized_responses::{
         RawAnySyncOrStrippedState, RawSyncOrStrippedState, SyncOrStrippedState,
     },
@@ -1101,18 +1101,14 @@ impl Room {
                     Err(err) => return Err(err.into()),
                 };
 
-                let _state_store_lock = self.client.base_client().state_store_lock().lock().await;
-
                 // Persist the event and the fact that we requested it from the server in
                 // `RoomInfo`.
-                let mut room_info = self.clone_info();
-                room_info.mark_encryption_state_synced();
-                room_info.set_encryption_event(response);
-                let mut changes = StateChanges::default();
-                changes.add_room(room_info.clone());
-
-                self.client.state_store().save_changes(&changes).await?;
-                self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+                self.update_and_save_room_info(|mut room_info| {
+                    room_info.mark_encryption_state_synced();
+                    room_info.set_encryption_event(response);
+                    (room_info, RoomInfoNotableUpdateReasons::empty())
+                })
+                .await?;
 
                 Ok(())
             })
@@ -1182,7 +1178,16 @@ impl Room {
             return Ok(());
         }
 
-        if !self.are_members_synced() { self.request_members().await } else { Ok(()) }
+        if !self.are_members_synced() {
+            self.request_members().await?;
+
+            // While we're at it, calculate the active service members
+            self.update_active_service_members().await?;
+
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     /// Get a specific member of this room.
@@ -1810,7 +1815,7 @@ impl Room {
                 }
             }
         } else {
-            for (_, list) in content.iter_mut() {
+            for list in content.values_mut() {
                 list.retain(|room_id| *room_id != this_room_id);
             }
 
@@ -2266,7 +2271,7 @@ impl Room {
             )
             .await;
 
-            let _state_store_lock = self.client.base_client().state_store_lock().lock().await;
+            let store_guard = self.client.base_client().state_store_lock().lock().await;
 
             // If encryption was enabled, return.
             #[cfg(not(feature = "experimental-encrypted-state-events"))]
@@ -2294,13 +2299,11 @@ impl Room {
             // assuming it's sync'd and correct (and not encrypted).
             debug!("still not marked as encrypted, marking encryption state as missing");
 
-            let mut room_info = self.clone_info();
-            room_info.mark_encryption_state_missing();
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-
-            self.client.state_store().save_changes(&changes).await?;
-            self.set_room_info(room_info, RoomInfoNotableUpdateReasons::empty());
+            self.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_encryption_state_missing();
+                (info, RoomInfoNotableUpdateReasons::empty())
+            })
+            .await?;
         }
 
         Ok(())
@@ -4569,9 +4572,39 @@ impl Room {
         }
     }
 
-    /// Checks if the current room is a DM.
-    pub async fn is_dm(&self) -> Result<bool> {
-        Ok(self.inner.is_dm(self.client.dm_room_definition()).await?)
+    /// Computes if the current room is a DM, stores the loaded values, and then
+    /// returns the result.
+    pub async fn compute_is_dm(&self) -> Result<bool> {
+        Ok(self.inner.compute_is_dm(self.client.dm_room_definition()).await?)
+    }
+
+    /// Checks if the current room is a DM in a synchronous way, without
+    /// actually checking any local stores. Note this can be either a cached or
+    /// an approximate value, since some important data may be unavailable
+    /// and we may need to make some assumptions.
+    pub fn is_dm(&self) -> bool {
+        // Note: this value may be wrong for invited rooms.
+        let is_direct = self.direct_targets_length() == 1;
+        match self.client.dm_room_definition() {
+            DmRoomDefinition::MatrixSpec => {
+                // If there is a single target, it's a DM.
+                is_direct
+            }
+            DmRoomDefinition::TwoMembers => {
+                // If there is a single target and at most 2 active members, it's a DM.
+                // Try getting the calculated active service members count from the room info.
+                let active_service_member_count =
+                    self.active_service_members_count().unwrap_or_else(|| {
+                        // Otherwise just use an approximated value based on the service members
+                        // count.
+                        self.service_members().map(|members| members.len()).unwrap_or_default()
+                            as u64
+                    });
+                let has_at_most_two_active_members =
+                    self.active_members_count().saturating_sub(active_service_member_count) <= 2;
+                is_direct && has_at_most_two_active_members
+            }
+        }
     }
 }
 

@@ -98,13 +98,13 @@ impl From<RoomState> for Membership {
 
 #[derive(uniffi::Object)]
 pub struct Room {
-    pub(super) inner: SdkRoom,
+    pub(super) inner: AsyncRuntimeDropped<SdkRoom>,
     utd_hook_manager: Option<Arc<UtdHookManager>>,
 }
 
 impl Room {
     pub(crate) fn new(inner: SdkRoom, utd_hook_manager: Option<Arc<UtdHookManager>>) -> Self {
-        Room { inner, utd_hook_manager }
+        Room { inner: AsyncRuntimeDropped::new(inner), utd_hook_manager }
     }
 }
 
@@ -1979,5 +1979,53 @@ impl TryFrom<SdkRoomSendQueueUpdate> for RoomSendQueueUpdate {
                 Self::SentEvent { transaction_id: transaction_id.into(), event_id: event_id.into() }
             }
         })
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests {
+    use std::time::Duration;
+
+    use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    use tempfile::tempdir;
+
+    use super::*;
+
+    /// Dropping an FFI [`Room`] on a non-tokio thread must not panic.
+    ///
+    /// Regression test: when `Room.inner` was `SdkRoom` (not wrapped in
+    /// [`AsyncRuntimeDropped`]), garbage-collection of an orphaned `Room` on
+    /// the Hermes JS thread caused `SyncWrapper<rusqlite::Connection>::drop`
+    /// to call `tokio::task::spawn_blocking` from a thread with no tokio
+    /// runtime context. Rust turns a panic inside `Drop` into SIGABRT.
+    ///
+    /// The fix wraps `inner` in [`AsyncRuntimeDropped`], which enters the
+    /// global tokio runtime context before running `SdkRoom`'s destructor.
+    #[tokio::test]
+    async fn room_drop_on_non_tokio_thread_does_not_panic() {
+        let server = MatrixMockServer::new().await;
+        let dir = tempdir().unwrap();
+
+        let client =
+            server.client_builder().on_builder(|b| b.sqlite_store(dir.path(), None)).build().await;
+
+        // Allow background init tasks to complete; after this the only strong
+        // reference to `ClientInner` is the local `client` variable.
+        tokio::time::sleep(Duration::from_secs(1)).await;
+
+        let room_id = room_id!("!test:example.com");
+        let sdk_room = server.sync_joined_room(&client, room_id).await;
+        let ffi_room = Room::new(sdk_room, None);
+
+        // Dropping `client` makes `ffi_room` the sole Arc holder of
+        // `ClientInner`, mirroring the situation where the FFI client has
+        // already been released and GC finalises the last room JS object.
+        drop(client);
+
+        // Simulate Hermes GC on the JS thread (a non-tokio thread).
+        // Without the `AsyncRuntimeDropped` wrapper this causes a SIGABRT.
+        std::thread::spawn(move || drop(ffi_room))
+            .join()
+            .expect("Room::drop panicked on a non-tokio thread");
     }
 }

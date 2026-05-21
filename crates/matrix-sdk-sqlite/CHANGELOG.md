@@ -2,34 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
-<!-- next-header -->
+<!-- changelog start -->
 
-## [Unreleased] - ReleaseDate
+## [0.17.0] - 2026-05-08
 
 ### Features
 
 - Implement `CryptoStore::get_pending_key_bundle_details_for_room` and
   `CryptoStore::get_all_rooms_pending_key_bundle`, and process
   `rooms_pending_key_bundle` field in `Changes`.
-  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)), ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233))
+  ([#6199](https://github.com/matrix-org/matrix-rust-sdk/pull/6199)),
+  ([#6233](https://github.com/matrix-org/matrix-rust-sdk/pull/6233))
 - Implement new method `CryptoStore::has_downloaded_all_room_keys`, and process
   `room_key_backups_fully_downloaded` field in `Changes`.
   ([#6017](https://github.com/matrix-org/matrix-rust-sdk/pull/6017))
   ([#6044](https://github.com/matrix-org/matrix-rust-sdk/pull/6044))
-- [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks may no longer
-  reference chunk identifiers which do not yet exist in the store
+- [**breaking**] In `EventCacheStore::handle_linked_chunk_updates`, new chunks
+  may no longer reference chunk identifiers which do not yet exist in the store
   ([#6061](https://github.com/matrix-org/matrix-rust-sdk/pull/6061))
 
-### Bug Fixes
+### Bug fixes
 
 - Fix a panic when the SQLite connection is aborted.
   ([#6091](https://github.com/matrix-org/matrix-rust-sdk/pull/6091))
 
 ### Refactor
 
-- Add migration to `SqliteCryptoStore` that removes cross-process lock generation key from
-  `kv` table, as this is tracked in `lease_locks` table.
+- Add migration to `SqliteCryptoStore` that removes cross-process lock
+  generation key from `kv` table, as this is tracked in `lease_locks` table.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
+
+## [0.16.1] - 2026-05-08
+
+No notable changes in this release.
 
 ## [0.16.0] - 2025-12-04
 
@@ -37,15 +42,19 @@ All notable changes to this project will be documented in this file.
 
 - Implement new method `CryptoStore::get_withheld_sessions_by_room_id`.
   ([#5819](https://github.com/matrix-org/matrix-rust-sdk/pull/5819))
-- [**breaking**] `SqliteCryptoStore::get_withheld_info` now returns `Result<Option<RoomKeyWithheldEntry>>`.
+- [**breaking**] `SqliteCryptoStore::get_withheld_info` now returns
+  `Result<Option<RoomKeyWithheldEntry>>`.
   ([#5737](https://github.com/matrix-org/matrix-rust-sdk/pull/5737))
-- Implement a new constructor that allows to open `SqliteCryptoStore` with a cryptographic key
+- Implement a new constructor that allows to open `SqliteCryptoStore` with a
+  cryptographic key
   ([#5472](https://github.com/matrix-org/matrix-rust-sdk/pull/5472))
 - Implement `StateStore::upsert_thread_subscriptions()` method for bulk upserts.
   ([#5848](https://github.com/matrix-org/matrix-rust-sdk/pull/5848))
 
 ### Refactor
-- [breaking] Change the logic for opening a store so as to use a `Secret` enum in the function `open_with_pool` instead of a `passphrase`
+
+- [breaking] Change the logic for opening a store so as to use a `Secret` enum
+  in the function `open_with_pool` instead of a `passphrase`
   ([#5472](https://github.com/matrix-org/matrix-rust-sdk/pull/5472))
 
 ## [0.14.0] - 2025-09-04
@@ -54,14 +63,16 @@ No notable changes in this release.
 
 ## [0.13.0] - 2025-07-10
 
-### Security Fixes
+### Security fixes
 
 - Fix SQL injection vulnerability in `find_event_relations()`.
-  ([d0c0100](https://github.com/matrix-org/matrix-rust-sdk/commit/d0c01006e4808db5eb96ad5c496416f284d8bd3c), Moderate, [CVE-2025-53549](https://www.cve.org/CVERecord?id=CVE-2025-53549), [GHSA-275g-g844-73jh](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-275g-g844-73jh))
+  ([d0c0100](https://github.com/matrix-org/matrix-rust-sdk/commit/d0c01006e4808db5eb96ad5c496416f284d8bd3c),
+  Moderate, [CVE-2025-53549](https://www.cve.org/CVERecord?id=CVE-2025-53549),
+  [GHSA-275g-g844-73jh](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-275g-g844-73jh))
 
 ## [0.12.0] - 2025-06-10
 
-### Bug Fixes
+### Bug fixes
 
 - Fix a `UNIQUE` constraint violation in the event cache store
   ([#5001](https://github.com/matrix-org/matrix-rust-sdk/pull/5001))
@@ -70,7 +81,8 @@ No notable changes in this release.
 
 ### Features
 
-- Implement the new method of `EventCacheStoreMedia` for `SqliteEventCacheStore`.
+- Implement the new method of `EventCacheStoreMedia` for
+  `SqliteEventCacheStore`.
   ([#4603](https://github.com/matrix-org/matrix-rust-sdk/pull/4603))
 - Defragment an sqlite state store after removing a room.
   ([#4651](https://github.com/matrix-org/matrix-rust-sdk/pull/4651))
@@ -106,15 +118,14 @@ No notable changes in this release.
 
 - Add support for persisting LinkedChunks in the SQLite store. This is a step
   towards implementing event cache support, enabling a persisted cache of
-  events.
-  ([#4340](https://github.com/matrix-org/matrix-rust-sdk/pull/4340)) ([#4362](https://github.com/matrix-org/matrix-rust-sdk/pull/4362))
+  events. ([#4340](https://github.com/matrix-org/matrix-rust-sdk/pull/4340))
+  ([#4362](https://github.com/matrix-org/matrix-rust-sdk/pull/4362))
 
 ## [0.8.0] - 2024-11-19
 
-### Bug Fixes
+### Bug fixes
 
 - Use the `DisplayName` struct to protect against homoglyph attacks.
-
 
 ### Refactor
 

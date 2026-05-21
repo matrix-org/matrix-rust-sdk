@@ -252,16 +252,16 @@ impl SpaceRoomList {
     }
 
     /// Return the current list of rooms.
-    pub fn rooms(&self) -> Vec<SpaceRoom> {
-        self.inner.rooms().into_iter().map(Into::into).collect()
+    pub async fn rooms(&self) -> Vec<SpaceRoom> {
+        self.inner.rooms().await.into_iter().map(Into::into).collect()
     }
 
     /// Subscribes to room list updates.
-    pub fn subscribe_to_room_update(
+    pub async fn subscribe_to_room_update(
         &self,
         listener: Box<dyn SpaceRoomListEntriesListener>,
     ) -> Arc<TaskHandle> {
-        let (initial_values, mut stream) = self.inner.subscribe_to_room_updates();
+        let (initial_values, mut stream) = self.inner.subscribe_to_room_updates().await;
 
         listener.on_update(vec![SpaceListUpdate::Reset {
             values: initial_values.into_iter().map(Into::into).collect(),
@@ -359,6 +359,10 @@ pub struct SpaceRoom {
     pub heroes: Option<Vec<RoomHero>>,
     /// The via parameters of the room.
     pub via: Vec<String>,
+    /// Whether this room is a DM, if known.
+    /// Note this value can be calculated following some assumptions and is not
+    /// guaranteed to be accurate.
+    pub is_dm: Option<bool>,
 }
 
 impl From<UISpaceRoom> for SpaceRoom {
@@ -380,6 +384,7 @@ impl From<UISpaceRoom> for SpaceRoom {
             state: room.state.map(Into::into),
             heroes: room.heroes.map(|heroes| heroes.into_iter().map(Into::into).collect()),
             via: room.via.into_iter().map(Into::into).collect(),
+            is_dm: room.is_dm,
         }
     }
 }

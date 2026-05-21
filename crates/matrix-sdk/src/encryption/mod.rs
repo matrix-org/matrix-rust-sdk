@@ -97,7 +97,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
@@ -373,7 +373,11 @@ impl CrossSigningResetHandle {
 
                 match e.as_uiaa_response() {
                     Some(uiaa_info) => {
-                        if uiaa_info.auth_error.is_some() {
+                        // Return the error except if we are at the `m.oauth` stage where we want to
+                        // keep polling.
+                        if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
+                            && uiaa_info.auth_error.is_some()
+                        {
                             return Err(e.into());
                         }
                     }
@@ -435,6 +439,9 @@ impl CrossSigningResetAuthType {
 pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: Url,
+
+    /// Session key to use to complete the authentication.
+    pub session: Option<String>,
 }
 
 impl OAuthCrossSigningResetInfo {
@@ -443,7 +450,10 @@ impl OAuthCrossSigningResetInfo {
             return Ok(None);
         };
 
-        Ok(Some(OAuthCrossSigningResetInfo { approval_url: parameters.url.as_str().try_into()? }))
+        Ok(Some(OAuthCrossSigningResetInfo {
+            approval_url: parameters.url.as_str().try_into()?,
+            session: auth_info.session.clone(),
+        }))
     }
 }
 
@@ -743,8 +753,8 @@ impl Client {
                 let response = self.keys_upload(r.request_id(), request).await;
 
                 if let Err(e) = &response {
-                    match e.as_ruma_api_error() {
-                        Some(RumaApiError::ClientApi(e)) if e.status_code == 400 => {
+                    match e.as_client_api_error() {
+                        Some(e) if e.status_code == 400 => {
                             if let ErrorBody::Standard(StandardErrorBody { message, .. }) = &e.body
                             {
                                 // This is one of the nastiest errors we can have. The server
@@ -1400,11 +1410,11 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use matrix_sdk::{ruma::api::client::uiaa, Client, encryption::CrossSigningResetAuthType};
-    /// # use url::Url;
+    /// use matrix_sdk::{ruma::api::client::uiaa, encryption::CrossSigningResetAuthType};
+    ///
     /// # async {
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
+    /// # let homeserver = url::Url::parse("http://example.com")?;
+    /// # let client = matrix_sdk::Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
     ///
@@ -1425,7 +1435,11 @@ impl Encryption {
     ///                 you first need to approve it at {}",
     ///                 o.approval_url
     ///             );
-    ///             handle.auth(None).await?;
+    ///
+    ///             let mut oauth = uiaa::OAuth::new();
+    ///             oauth.session = o.session;
+    ///
+    ///             handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await?;
     ///         }
     ///     }
     /// }

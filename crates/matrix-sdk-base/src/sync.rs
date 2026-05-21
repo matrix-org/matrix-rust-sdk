@@ -24,7 +24,7 @@ pub use ruma::api::client::sync::sync_events::v3::{
     InvitedRoom as InvitedRoomUpdate, KnockedRoom as KnockedRoomUpdate,
 };
 use ruma::{
-    OwnedEventId, OwnedRoomId,
+    OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId,
     api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     events::{
         AnyGlobalAccountDataEvent, AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent,
@@ -219,6 +219,8 @@ pub struct JoinedRoomUpdate {
     /// This is a map of event ID of the `m.room.member` event to the
     /// details of the ambiguity change.
     pub ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+    /// Collection of avatar changes that room member events trigger.
+    pub avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -243,8 +245,17 @@ impl JoinedRoomUpdate {
         ephemeral: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         unread_notifications: UnreadNotificationsCount,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+        avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     ) -> Self {
-        Self { unread_notifications, timeline, state, account_data, ephemeral, ambiguity_changes }
+        Self {
+            unread_notifications,
+            timeline,
+            state,
+            account_data,
+            ephemeral,
+            ambiguity_changes,
+            avatar_changes,
+        }
     }
 }
 

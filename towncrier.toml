@@ -1,0 +1,30 @@
+[tool.towncrier]
+# It's important to keep these config fields empty because we have more than one
+# package/name to manage.
+package = ""
+name = ""
+
+directory = "changelog.d"
+filename = "CHANGELOG.md"
+start_string = "<!-- changelog start -->\n"
+underlines = ["", "", ""]
+title_format = "## [{version}](https://github.com/matrix-org/matrix-rust-sdk/tree/{version}) - {project_date}"
+issue_format = "[#{issue}](https://github.com/matrix-org/matrix-rust-sdk/pulls/{issue})"
+
+[[tool.towncrier.type]]
+name = "Security"
+
+[[tool.towncrier.type]]
+name = "Removed"
+
+[[tool.towncrier.type]]
+name = "Deprecated"
+
+[[tool.towncrier.type]]
+name = "Added"
+
+[[tool.towncrier.type]]
+name = "Changed"
+
+[[tool.towncrier.type]]
+name = "Fixed"

@@ -6,14 +6,15 @@ Matrix [Client-Server API](https://spec.matrix.org/latest/client-server-api/)
 to communicate with a Matrix homeserver. If you're writing a typical Matrix
 client or bot, this is likely the crate you need.
 
-However, the crate is designed in a modular way and depends on several
-other lower-level crates. If you're attempting something more custom, you might be interested in these:
+However, the crate is designed in a modular way and depends on several other
+lower-level crates. If you're attempting something more custom, you might be
+interested in these:
 
 - [`matrix_sdk_base`]: A no-network-IO client state machine which can be used
   to embed a Matrix client into an existing network stack or to build a new
   Matrix client library on top.
-- [`matrix_sdk_crypto`]: A no-network-IO encryption state machine which can be used to add Matrix E2EE
-  support into an existing client or library.
+- [`matrix_sdk_crypto`]: A no-network-IO encryption state machine which can be
+  used to add Matrix E2EE support into an existing client or library.
 
 # Getting started
 
@@ -51,27 +52,27 @@ async fn main() -> anyhow::Result<()> {
 
 More examples can be found in the [examples] directory.
 
-# Crate Feature Flags
+## Crate feature flags
 
 The following crate feature flags are available:
 
-| Feature             | Default | Description                                                                                                                |
-| ------------------- | :-----: | -------------------------------------------------------------------------------------------------------------------------- |
-| `anyhow`            |   No    | Better logging for event handlers that return `anyhow::Result`                                                             |
-| `e2e-encryption`    |   Yes   | End-to-end encryption (E2EE) support                                                                                       |
-| `eyre`              |   No    | Better logging for event handlers that return `eyre::Result`                                                               |
-| `js`                |   No    | Enables JavaScript API usage on WASM (does nothing on other targets)                                                       |
-| `markdown`          |   No    | Support for sending Markdown-formatted messages                                                                            |
-| `qrcode`            |   Yes   | QR code verification support                                                                                               |
-| `sqlite`            |   Yes   | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite available on system  |
-| `bundled-sqlite`    |   No  | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite compiled and bundled with the binary  |
-| `indexeddb`         |   No    | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled) for browsers, via IndexedDB |
-| `socks`             |   No    | SOCKS support in the default HTTP client, [`reqwest`]                                                                      |
-| `sso-login`         |   No    | Support for SSO login with a local HTTP server                                                                             |
+| Feature          | Default | Description                                                                                                                                     |
+| ---------------- | :-----: | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `anyhow`         |   No    | Better logging for event handlers that return `anyhow::Result`                                                                                  |
+| `e2e-encryption` |   Yes   | End-to-end encryption (E2EE) support                                                                                                            |
+| `eyre`           |   No    | Better logging for event handlers that return `eyre::Result`                                                                                    |
+| `js`             |   No    | Enables JavaScript API usage on WASM (does nothing on other targets)                                                                            |
+| `markdown`       |   No    | Support for sending Markdown-formatted messages                                                                                                 |
+| `qrcode`         |   Yes   | QR code verification support                                                                                                                    |
+| `sqlite`         |   Yes   | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite available on system                  |
+| `bundled-sqlite` |   No    | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled), via SQLite compiled and bundled with the binary |
+| `indexeddb`      |   No    | Persistent storage of state and E2EE data (optionally, if feature `e2e-encryption` is enabled) for browsers, via IndexedDB                      |
+| `socks`          |   No    | SOCKS support in the default HTTP client, [`reqwest`]                                                                                           |
+| `sso-login`      |   No    | Support for SSO login with a local HTTP server                                                                                                  |
 
 [`reqwest`]: https://docs.rs/reqwest/0.11.5/reqwest/index.html
 
-# Enabling logging
+## Enabling logging
 
 Users of the matrix-sdk crate can enable log output by depending on the
 `tracing-subscriber` crate and including the following line in their

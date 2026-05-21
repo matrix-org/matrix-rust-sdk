@@ -23,8 +23,7 @@ use std::{
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    RoomInfoNotableUpdateReasons, StateChanges, apply_redaction,
-    check_validity_of_replacement_events,
+    RoomInfoNotableUpdateReasons, apply_redaction, check_validity_of_replacement_events,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
     event_cache::{
         Event, Gap,
@@ -1059,27 +1058,15 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
             // The read receipt has changed! Do a little dance to update the `RoomInfo` in
             // the state store, and then in the room itself, so that observers
             // can be notified of the change.
-            let client = room.client();
-
-            // Take the state store lock.
-            let _state_store_lock = client.base_client().state_store_lock().lock().await;
-
-            // Don't reuse the room info from above, as it might have changed in the
-            // meanwhile. This access is somewhat protected by the state store locking, even
-            // though other code may call `set_room_info` concurrently.
-            let mut room_info = room.clone_info();
-            room_info.set_read_receipts(read_receipts);
-
-            let mut state_changes = StateChanges::default();
-            state_changes.add_room(room_info.clone());
-
-            // Update the `RoomInfo` in the state store.
-            if let Err(error) = client.state_store().save_changes(&state_changes).await {
+            let result = room
+                .update_and_save_room_info(|mut room_info| {
+                    room_info.set_read_receipts(read_receipts);
+                    (room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT)
+                })
+                .await;
+            if let Err(error) = result {
                 error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
             }
-
-            // Update the `RoomInfo` of the room.
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT);
         }
 
         Ok(())
