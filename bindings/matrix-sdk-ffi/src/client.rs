@@ -1477,6 +1477,7 @@ impl Client {
         device_display_name: String,
         profile_tag: Option<String>,
         lang: String,
+        append: bool,
     ) -> Result<(), ClientError> {
         let ids = identifiers.into();
 
@@ -1488,7 +1489,7 @@ impl Client {
             profile_tag,
             lang,
         };
-        self.inner.pusher().set(pusher_init.into(), false).await?;
+        self.inner.pusher().set(pusher_init.into(), append).await?;
         Ok(())
     }
 
