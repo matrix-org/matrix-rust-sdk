@@ -247,7 +247,7 @@ impl Caches {
             event_focused::EventFocusedCache,
         >,
     > {
-        let key = event_focused::EventFocusedCacheKey { focused: event_id, thread_mode };
+        let key = event_focused::EventFocusedCacheKey { focused_event_id: event_id, thread_mode };
 
         Ok(
             match OwnedRwLockWriteGuard::try_downgrade_map(
@@ -260,7 +260,7 @@ impl Caches {
                 Err(mut event_focused_caches) => {
                     let cache = event_focused::EventFocusedCache::new(
                         self.room.weak_room().clone(),
-                        key.focused.clone(),
+                        key.focused_event_id.clone(),
                         self.internals.linked_chunk_update_sender.clone(),
                     );
                     cache.start_from(number_of_initial_events, thread_mode).await?;
