@@ -1758,6 +1758,10 @@ mod tests {
     /// Regression test: the redecryptor must NOT hold the room state write
     /// lock while calling replace_utds() on event-focused caches, otherwise
     /// an ABBA deadlock occurs with concurrent event-focused cache pagination.
+    ///
+    /// Note that this situation is no longer possible because a refactoring
+    /// happened after the fix. Anyway, we kept the test because it was nice
+    /// with us.
     #[async_test]
     async fn test_redecryptor_no_deadlock_with_event_focused_cache_pagination() {
         use crate::{
@@ -1814,12 +1818,8 @@ mod tests {
             .mount()
             .await;
 
-        let event_focused_cache = room_cache
-            .get_or_create_event_focused_cache(
-                focused_event_id.to_owned(),
-                20,
-                EventFocusThreadMode::Automatic,
-            )
+        let (event_focused_cache, _) = event_cache
+            .event_focused(room_id, focused_event_id, EventFocusThreadMode::Automatic, 20)
             .await
             .unwrap();
 
@@ -1845,10 +1845,6 @@ mod tests {
         // Send the room key to Bob.
         //
         // The redecryptor background task will pick it up and decrypt the UTD.
-        // Previously, on_resolved_utds would hold the room state write lock
-        // while calling replace_utds on event-focused caches, creating an ABBA
-        // deadlock with pagination (which holds event-focused lock and needs
-        // room state lock via save_events).
         server
             .mock_sync()
             .ok_and_run(&bob, |builder| {
@@ -1864,7 +1860,8 @@ mod tests {
         sleep(Duration::from_secs(1)).await;
 
         // Subscribing requires a room state read lock (which would be awaited forever,
-        // before the fix).
+        // before the fix; note that the fix is no longer relevant but the test has been
+        // kept in case of).
         let (_events, _subscriber) = timeout(room_cache.subscribe(), Duration::from_millis(100))
             .await
             .expect("subscribing shouldn't timeout")
