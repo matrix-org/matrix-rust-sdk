@@ -121,13 +121,14 @@ impl EventFocusedCacheInner {
     /// Pagination tokens are stored as gaps in the linked chunk:
     /// - Backward token (start): Gap at the front of the linked chunk.
     /// - Forward token (end): Gap at the back of the linked chunk.
-    #[instrument(skip(self, room), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
+    #[instrument(skip(self), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
     async fn start_from(
         &mut self,
-        room: Room,
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
+        let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
+
         trace!(num_context_events, "fetching event with context via /context");
 
         let paginator = Paginator::new(room);
@@ -566,11 +567,10 @@ impl EventFocusedCache {
     /// context events and detecting thread membership.
     pub(super) async fn start_from(
         &self,
-        room: Room,
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
-        self.inner.write().await.start_from(room, num_context_events, thread_mode).await
+        self.inner.write().await.start_from(num_context_events, thread_mode).await
     }
 
     /// Paginate backwards in this event-focused timeline, be it room or thread
