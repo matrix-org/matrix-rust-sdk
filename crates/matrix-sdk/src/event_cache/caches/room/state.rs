@@ -873,7 +873,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         thread_mode: EventFocusThreadMode,
         cache: EventFocusedCache,
     ) {
-        let key = EventFocusedCacheKey { focused: event_id, thread_mode };
+        let key = EventFocusedCacheKey { focused_event_id: event_id, thread_mode };
         self.state.event_focused_caches.insert(key, cache);
     }
 
@@ -926,6 +926,6 @@ fn get_event_focused_cache(
     event_id: OwnedEventId,
     thread_mode: EventFocusThreadMode,
 ) -> Option<EventFocusedCache> {
-    let key = EventFocusedCacheKey { focused: event_id, thread_mode };
+    let key = EventFocusedCacheKey { focused_event_id: event_id, thread_mode };
     state.event_focused_caches.get(&key).cloned()
 }
