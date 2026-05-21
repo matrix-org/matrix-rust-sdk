@@ -48,12 +48,11 @@ pub use self::{
     },
 };
 use super::{
-    super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
+    super::{AutoShrinkChannelPayload, EventsOrigin, Result, RoomPagination},
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
 };
 use crate::{
-    client::WeakClient,
     event_cache::{
         EventFocusThreadMode,
         caches::{event_focused::EventFocusedCache, pagination::SharedPaginationStatus},
@@ -170,7 +169,6 @@ impl RoomEventCache {
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<EventFocusedCache> {
-        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let guard = self.inner.state.read().await?;
 
         // Check if we already have a cache for this event.
@@ -195,7 +193,7 @@ impl RoomEventCache {
         );
 
         // Initialize the cache from the server.
-        cache.start_from(room, num_context_events, thread_mode).await?;
+        cache.start_from(num_context_events, thread_mode).await?;
 
         let mut guard = self.inner.state.write().await?;
 
