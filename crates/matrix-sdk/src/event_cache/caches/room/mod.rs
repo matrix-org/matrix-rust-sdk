@@ -187,11 +187,12 @@ impl RoomEventCache {
         // received from the network response.
         drop(guard);
 
-        let room_id = room.room_id().to_owned();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&room.client()), room_id.clone());
-
         trace!("creating a fresh event-focused cache");
-        let cache = EventFocusedCache::new(weak_room, event_id.clone(), linked_chunk_update_sender);
+        let cache = EventFocusedCache::new(
+            self.inner.weak_room.clone(),
+            event_id.clone(),
+            linked_chunk_update_sender,
+        );
 
         // Initialize the cache from the server.
         cache.start_from(room, num_context_events, thread_mode).await?;
