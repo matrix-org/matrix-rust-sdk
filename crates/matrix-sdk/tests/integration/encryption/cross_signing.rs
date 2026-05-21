@@ -15,10 +15,7 @@
 use assert_matches2::assert_let;
 use matrix_sdk::{encryption::CrossSigningResetAuthType, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
-use ruma::api::{
-    client::uiaa,
-    error::{ErrorKind, StandardErrorBody},
-};
+use ruma::api::client::uiaa;
 use similar_asserts::assert_eq;
 
 #[async_test]
@@ -175,34 +172,15 @@ async fn test_reset_stable_oauth() {
         "Initially we shouldn't have any cross-signing keys",
     );
 
-    let session = "oauth_session";
-    let mut expected_oauth = uiaa::OAuth::new();
-    expected_oauth.session = Some(session.to_owned());
-    let expected_auth_data = uiaa::AuthData::OAuth(expected_oauth);
-
     server.mock_upload_keys().ok().expect(1).named("Initial device keys upload").mount().await;
 
-    // First, return the UIAA response without expecting the UIAA auth data in the
-    // request.
+    // Return the UIAA response 5 times.
     server
         .mock_upload_cross_signing_keys()
-        .uiaa_stable_oauth(session, None)
-        .mock_once()
-        .named("Trying to upload the cross-signing keys with UIAA response without auth data")
-        .mount()
-        .await;
-
-    // Then return the UIAA response 5 times while expecting the UIAA auth data in
-    // the request.
-    let extra_error =
-        StandardErrorBody::new(ErrorKind::Forbidden, "Stage not completed".to_owned());
-    server
-        .mock_upload_cross_signing_keys()
-        .expect_uiaa_auth_data(&expected_auth_data)
-        .uiaa_stable_oauth(session, Some(&extra_error))
+        .uiaa_stable_oauth()
         .up_to_n_times(5)
         .expect(5)
-        .named("Trying to upload the cross-signing keys with UIAA response and auth data")
+        .named("Trying to upload the cross-signing keys with UIAA response")
         .mount()
         .await;
 
@@ -211,7 +189,6 @@ async fn test_reset_stable_oauth() {
     // until it is invalidated by `up_to_n_times`.
     server
         .mock_upload_cross_signing_keys()
-        .expect_uiaa_auth_data(&expected_auth_data)
         .ok()
         .expect(1)
         .named("Succeeding to upload the cross-signing keys")
@@ -241,9 +218,7 @@ async fn test_reset_stable_oauth() {
     );
 
     // Then it retries until it succeeds.
-    let mut oauth = uiaa::OAuth::new();
-    oauth.session = oauth_info.session.clone();
-    reset_handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await.expect("We should be able to reset the cross-signing keys after some attempts, waiting for the auth issue to allow us to upload");
+    reset_handle.auth(None).await.expect("We should be able to reset the cross-signing keys after some attempts, waiting for the auth issue to allow us to upload");
 
     assert!(
         client.encryption().cross_signing_status().await.unwrap().is_complete(),

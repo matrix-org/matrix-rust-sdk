@@ -69,34 +69,23 @@ pub struct SpaceRoom {
     ///
     /// Defaults to `false` if not specified in the `m.space.child` event.
     pub suggested: bool,
-    /// Whether this room is a DM, if known.
-    /// Note this value can be calculated following some assumptions and is not
-    /// guaranteed to be accurate.
-    pub is_dm: Option<bool>,
 }
 
 impl SpaceRoom {
     /// Build a `SpaceRoom` from a `RoomSummary` received from the /hierarchy
     /// endpoint.
-    pub(crate) async fn new_from_summary(
+    pub(crate) fn new_from_summary(
         summary: &RoomSummary,
         known_room: Option<Room>,
         children_count: u64,
         via: Vec<OwnedServerName>,
         suggested: bool,
     ) -> Self {
-        let num_joined_service_members = if let Some(known_room) = &known_room {
-            num_joined_service_members_or_default(known_room).await
-        } else {
-            0
-        };
-
-        let num_joined_members: u64 = summary.num_joined_members.into();
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             summary.name.clone(),
             summary.canonical_alias.as_deref(),
             known_room.as_ref().map(|r| r.heroes().to_vec()).unwrap_or_default(),
-            num_joined_members - num_joined_service_members,
+            summary.num_joined_members.into(),
         )
         .to_string();
 
@@ -115,25 +104,22 @@ impl SpaceRoom {
             is_direct: known_room.as_ref().map(|r| r.direct_targets_length() != 0),
             children_count,
             state: known_room.as_ref().map(|r| r.state()),
-            heroes: known_room.as_ref().map(|r| r.heroes()),
+            heroes: known_room.map(|r| r.heroes()),
             via,
             suggested,
-            is_dm: known_room.as_ref().map(|r| r.is_dm()),
         }
     }
 
     /// Build a `SpaceRoom` from a room already known to this client.
-    pub(crate) async fn new_from_known(known_room: &Room, children_count: u64) -> Self {
+    pub(crate) fn new_from_known(known_room: &Room, children_count: u64) -> Self {
         let room_info = known_room.clone_info();
 
         let name = room_info.name().map(ToOwned::to_owned);
-        let joined_service_members_count = num_joined_service_members_or_default(known_room).await;
-
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             name.clone(),
             room_info.canonical_alias(),
-            known_room.heroes(),
-            known_room.joined_members_count() - joined_service_members_count,
+            room_info.heroes().to_vec(),
+            known_room.joined_members_count(),
         )
         .to_string();
 
@@ -154,10 +140,9 @@ impl SpaceRoom {
             is_direct: Some(known_room.direct_targets_length() != 0),
             children_count,
             state: Some(known_room.state()),
-            heroes: Some(known_room.heroes()),
+            heroes: Some(room_info.heroes().to_vec()),
             via: vec![],
             suggested: false,
-            is_dm: known_room.compute_is_dm().await.ok(),
         }
     }
 
@@ -202,15 +187,6 @@ impl From<&HierarchySpaceChildEvent> for SpaceRoomChildState {
             order: event.content.order.clone(),
             origin_server_ts: event.origin_server_ts,
         }
-    }
-}
-
-async fn num_joined_service_members_or_default(room: &Room) -> u64 {
-    match room.compute_joined_service_members().await {
-        Ok(Some(service_members)) => service_members.len() as u64,
-        // If we can't compute the joined service members count, assume all of them joined
-        // the room
-        _ => room.service_members().map(|members| members.len() as u64).unwrap_or_default(),
     }
 }
 

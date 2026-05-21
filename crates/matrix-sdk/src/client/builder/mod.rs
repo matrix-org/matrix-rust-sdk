@@ -23,8 +23,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
-#[cfg(feature = "sqlite")]
-use futures_util::try_join;
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
@@ -691,32 +689,33 @@ async fn build_store_config(
     let store_config = match builder_config {
         #[cfg(feature = "sqlite")]
         BuilderStoreConfig::Sqlite { config, cache_path } => {
-            let config_with_cache_path = if let Some(ref cache_path) = cache_path {
-                config.clone().path(cache_path)
-            } else {
-                config.clone()
-            };
-
-            #[cfg(feature = "e2e-encryption")]
-            let (state_store, event_cache_store, media_store, crypto_store) = try_join!(
-                matrix_sdk_sqlite::SqliteStateStore::open_with_config(&config),
-                matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(&config_with_cache_path),
-                matrix_sdk_sqlite::SqliteMediaStore::open_with_config(&config_with_cache_path),
-                matrix_sdk_sqlite::SqliteCryptoStore::open_with_config(&config),
-            )?;
-            #[cfg(not(feature = "e2e-encryption"))]
-            let (state_store, event_cache_store, media_store) = try_join!(
-                matrix_sdk_sqlite::SqliteStateStore::open_with_config(&config),
-                matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(&config_with_cache_path),
-                matrix_sdk_sqlite::SqliteMediaStore::open_with_config(&config),
-            )?;
             let store_config = StoreConfig::new(cross_process_store_config.clone())
-                .state_store(state_store)
-                .event_cache_store(event_cache_store)
-                .media_store(media_store);
+                .state_store(
+                    matrix_sdk_sqlite::SqliteStateStore::open_with_config(config.clone()).await?,
+                )
+                .event_cache_store({
+                    let mut config = config.clone();
+
+                    if let Some(ref cache_path) = cache_path {
+                        config = config.path(cache_path);
+                    }
+
+                    matrix_sdk_sqlite::SqliteEventCacheStore::open_with_config(config).await?
+                })
+                .media_store({
+                    let mut config = config.clone();
+
+                    if let Some(ref cache_path) = cache_path {
+                        config = config.path(cache_path);
+                    }
+
+                    matrix_sdk_sqlite::SqliteMediaStore::open_with_config(config).await?
+                });
 
             #[cfg(feature = "e2e-encryption")]
-            let store_config = store_config.crypto_store(crypto_store);
+            let store_config = store_config.crypto_store(
+                matrix_sdk_sqlite::SqliteCryptoStore::open_with_config(config).await?,
+            );
 
             store_config
         }

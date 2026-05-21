@@ -3,15 +3,9 @@ tooling to render it as a PDF or PNG.
 
 # Usage
 
-```text
-make  # Render the decision tree both as a PDF and PNG
-```
+    make  # Render the decision tree both as a PDF and PNG
 
-```text
-make pdf  # Renders the decision tree as a PDF
-make png  # Renders the decision tree as a PNG
-```
+    make pdf  # Renders the decision tree as a PDF
+    make png  # Renders the decision tree as a PNG
 
-```text
-make clean  # Remove rendered artifacts
-```
+    make clean  # Remove rendered artifacts

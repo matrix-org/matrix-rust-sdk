@@ -43,7 +43,7 @@ pub async fn update_joined_room(
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<JoinedRoomUpdate> {
-    let RoomCreationData { room_id, requested_required_states, ambiguity_cache, avatar_cache } =
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
 
     let state_store = notification.state_store;
@@ -68,7 +68,6 @@ pub async fn update_joined_room(
         raw_state_events,
         &mut room_info,
         ambiguity_cache,
-        avatar_cache,
         &mut new_user_ids,
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
@@ -138,7 +137,6 @@ pub async fn update_joined_room(
         joined_room.ephemeral.events,
         notification_count,
         ambiguity_cache.changes.remove(room_id).unwrap_or_default(),
-        avatar_cache.remove_changes(room_id),
     ))
 }
 
@@ -151,7 +149,7 @@ pub async fn update_left_room(
     notification: notification::Notification<'_>,
     #[cfg(feature = "e2e-encryption")] e2ee: &e2ee::E2EE<'_>,
 ) -> Result<LeftRoomUpdate> {
-    let RoomCreationData { room_id, requested_required_states, ambiguity_cache, avatar_cache } =
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
 
     #[cfg(feature = "e2e-encryption")]
@@ -174,7 +172,6 @@ pub async fn update_left_room(
         raw_state_events,
         &mut room_info,
         ambiguity_cache,
-        avatar_cache,
         &mut (),
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]

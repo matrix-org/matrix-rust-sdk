@@ -30,7 +30,7 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, RoomId,
+    EventId, OwnedEventId, OwnedRoomId, RoomId,
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
@@ -359,12 +359,7 @@ impl RoomEventCache {
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
         self.inner
-            .handle_timeline(
-                updates.timeline,
-                updates.ephemeral.clone(),
-                updates.ambiguity_changes,
-                updates.avatar_changes,
-            )
+            .handle_timeline(updates.timeline, updates.ephemeral.clone(), updates.ambiguity_changes)
             .await?;
         self.inner.handle_account_data(updates.account_data);
 
@@ -374,9 +369,7 @@ impl RoomEventCache {
     /// Handle a [`LeftRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.inner
-            .handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes, None)
-            .await?;
+        self.inner.handle_timeline(updates.timeline, Vec::new(), updates.ambiguity_changes).await?;
 
         Ok(())
     }
@@ -515,14 +508,12 @@ impl RoomEventCacheInner {
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
-        avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     ) -> Result<()> {
         self.handle_timeline_inner(
             self.state.write().await?,
             timeline,
             ephemeral_events,
             ambiguity_changes,
-            avatar_changes,
         )
         .await
     }
@@ -543,7 +534,6 @@ impl RoomEventCacheInner {
                     Timeline { limited: false, prev_batch: None, events: vec![event] },
                     Vec::new(),
                     BTreeMap::new(),
-                    None,
                 )
                 .await;
         }
@@ -557,13 +547,11 @@ impl RoomEventCacheInner {
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
-        avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     ) -> Result<()> {
         if timeline.events.is_empty()
             && timeline.prev_batch.is_none()
             && ephemeral_events.is_empty()
             && ambiguity_changes.is_empty()
-            && avatar_changes.as_ref().is_none_or(|avatars| avatars.is_empty())
         {
             return Ok(());
         }
@@ -599,11 +587,9 @@ impl RoomEventCacheInner {
                 .send(RoomEventCacheUpdate::AddEphemeralEvents { events: ephemeral_events }, None);
         }
 
-        if !ambiguity_changes.is_empty() || avatar_changes.as_ref().is_some_and(|c| !c.is_empty()) {
-            self.update_sender.send(
-                RoomEventCacheUpdate::UpdateMembers { ambiguity_changes, avatar_changes },
-                None,
-            );
+        if !ambiguity_changes.is_empty() {
+            self.update_sender
+                .send(RoomEventCacheUpdate::UpdateMembers { ambiguity_changes }, None);
         }
 
         Ok(())

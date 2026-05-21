@@ -55,7 +55,7 @@ fn get_header(
 fn response_to_error(status: StatusCode, body: Vec<u8>) -> HttpError {
     match http::Response::builder().status(status).body(body).map_err(IntoHttpError::from) {
         Ok(response) => {
-            let error = FromHttpResponseError::<RumaApiError>::Server(RumaApiError::MatrixError(
+            let error = FromHttpResponseError::<RumaApiError>::Server(RumaApiError::ClientApi(
                 ruma::api::error::Error::from_http_response(response),
             ));
 

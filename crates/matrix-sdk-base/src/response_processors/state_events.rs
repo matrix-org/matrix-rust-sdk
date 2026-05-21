@@ -45,9 +45,7 @@ pub mod sync {
     use crate::response_processors::e2ee;
     use crate::{
         RoomInfo, RoomInfoNotableUpdateReasons, RoomState,
-        store::{
-            AvatarCache, BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache,
-        },
+        store::{BaseStateStore, Result as StoreResult, ambiguity_map::AmbiguityCache},
         sync::State,
         utils::RawStateEventWithKeys,
     };
@@ -96,7 +94,6 @@ pub mod sync {
         raw_events: Vec<RawStateEventWithKeys<AnySyncStateEvent>>,
         room_info: &mut RoomInfo,
         ambiguity_cache: &mut AmbiguityCache,
-        avatar_cache: &mut AvatarCache,
         new_users: &mut U,
         state_store: &BaseStateStore,
         #[cfg(feature = "experimental-encrypted-state-events")] e2ee: &e2ee::E2EE<'_>,
@@ -114,7 +111,6 @@ pub mod sync {
                         &room_info.room_id,
                         &mut raw_event,
                         ambiguity_cache,
-                        avatar_cache,
                         new_users,
                     )
                     .await?;
@@ -181,7 +177,6 @@ pub mod sync {
         room_id: &RoomId,
         raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
         ambiguity_cache: &mut AmbiguityCache,
-        avatar_cache: &mut AvatarCache,
         new_users: &mut U,
     ) -> StoreResult<()>
     where
@@ -194,7 +189,6 @@ pub mod sync {
         };
 
         ambiguity_cache.handle_event(&context.state_changes, room_id, event).await?;
-        avatar_cache.handle_event(&context.state_changes, room_id, event).await?;
 
         match event.membership() {
             MembershipState::Join | MembershipState::Invite => {

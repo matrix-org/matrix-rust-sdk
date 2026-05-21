@@ -283,7 +283,7 @@ impl SlidingSync {
             let response_processor = {
                 // Take the lock to synchronise accesses to the state store, to avoid concurrent
                 // sliding syncs overwriting each other's room infos.
-                let state_store_guard = {
+                let _state_store_lock = {
                     let _timer = timer!("acquiring the `state_store_lock`");
 
                     self.inner.client.base_client().state_store_lock().lock().await
@@ -310,20 +310,14 @@ impl SlidingSync {
 
                 #[cfg(feature = "e2e-encryption")]
                 if self.is_e2ee_enabled() {
-                    response_processor
-                        .handle_encryption(&sliding_sync_response.extensions, &state_store_guard)
-                        .await?
+                    response_processor.handle_encryption(&sliding_sync_response.extensions).await?
                 }
 
                 // Only handle the room's subsection of the response, if this sliding sync was
                 // configured to do so.
                 if must_process_rooms_response {
                     response_processor
-                        .handle_room_response(
-                            &sliding_sync_response,
-                            &requested_required_states,
-                            &state_store_guard,
-                        )
+                        .handle_room_response(&sliding_sync_response, &requested_required_states)
                         .await?;
                 }
 

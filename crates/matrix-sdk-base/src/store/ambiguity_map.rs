@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashMap},
+    sync::Arc,
+};
 
 use ruma::{
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UserId,
@@ -20,11 +23,10 @@ use ruma::{
 };
 use tracing::{instrument, trace};
 
-use super::{Result, StateChanges};
+use super::{DynStateStore, Result, StateChanges};
 use crate::{
-    StateStore,
     deserialized_responses::{AmbiguityChange, DisplayName, SyncOrStrippedState},
-    store::{SaveLockedStateStore, StateStoreExt},
+    store::StateStoreExt,
 };
 
 /// A map of users that use a certain display name.
@@ -72,7 +74,7 @@ fn is_member_active(membership: &MembershipState) -> bool {
 
 #[derive(Debug)]
 pub(crate) struct AmbiguityCache {
-    pub store: SaveLockedStateStore,
+    pub store: Arc<DynStateStore>,
     pub cache: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
     pub changes: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, AmbiguityChange>>,
 }
@@ -88,7 +90,7 @@ pub(crate) fn is_display_name_ambiguous(
 
 impl AmbiguityCache {
     /// Create a new [`AmbiguityCache`] backed by the given state store.
-    pub fn new(store: SaveLockedStateStore) -> Self {
+    pub fn new(store: Arc<DynStateStore>) -> Self {
         Self { store, cache: BTreeMap::new(), changes: BTreeMap::new() }
     }
 
@@ -338,7 +340,7 @@ mod test {
             $description:literal $(,)?
         ) => {
             let store = MemoryStore::new();
-            let mut ambiguity_cache = AmbiguityCache::new(SaveLockedStateStore::new(store.into_state_store()));
+            let mut ambiguity_cache = AmbiguityCache::new(store.into_state_store());
 
             let changes = Default::default();
             let room_id = room_id!("!foo:bar");

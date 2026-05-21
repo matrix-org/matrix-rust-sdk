@@ -58,7 +58,6 @@ use ruma::{
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::MutexGuard;
 use tracing::{field::debug, info, instrument, warn};
 
 use super::{
@@ -66,13 +65,13 @@ use super::{
     RoomHero, RoomNotableTags, RoomState, RoomSummary,
 };
 use crate::{
-    MinimalStateEvent, StateChanges, StoreError,
+    MinimalStateEvent,
     deserialized_responses::RawSyncOrStrippedState,
     latest_event::LatestEventValue,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
     room::call::CallIntentConsensus,
-    store::{IncorrectMutexGuardError, SaveLockedStateStore, StateStoreExt},
+    store::{DynStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
     utils::{AnyStateEventEnum, RawStateEventWithKeys},
 };
@@ -91,80 +90,29 @@ impl Room {
         self.info.get()
     }
 
-    /// Update [`RoomInfo`] with the given function `F`. Updates are atomic as
-    /// this function acquires the lock of the underlying store before updating
-    /// the [`RoomInfo`].
-    pub async fn update_room_info<F>(&self, f: F)
-    where
-        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
-    {
-        self.update_room_info_with_store_guard(&self.store.lock().lock().await, f)
-            .expect("should have correct mutex!")
-    }
-
-    /// Same as [`Self::update_room_info`], but allows the caller to provide a
-    /// guard for the lock of the underlying store in case it has already been
-    /// acquired.
-    ///
-    /// This function returns an [`IncorrectMutexGuardError`] if the provided
-    /// guard is not associated with the lock of the underlying store.
-    pub fn update_room_info_with_store_guard<F>(
+    /// Update the summary with given RoomInfo.
+    pub fn set_room_info(
         &self,
-        guard: &MutexGuard<'_, ()>,
-        f: F,
-    ) -> Result<(), IncorrectMutexGuardError>
-    where
-        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
-    {
-        if !std::ptr::eq(MutexGuard::mutex(guard), self.store.lock()) {
-            return Err(IncorrectMutexGuardError);
-        }
+        room_info: RoomInfo,
+        room_info_notable_update_reasons: RoomInfoNotableUpdateReasons,
+    ) {
+        self.info.set(room_info);
 
-        let (info, mut reasons) = f(self.clone_info());
-        self.info.set(info);
-
-        if reasons.is_empty() {
+        if !room_info_notable_update_reasons.is_empty() {
+            // Ignore error if no receiver exists.
+            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+                room_id: self.room_id.clone(),
+                reasons: room_info_notable_update_reasons,
+            });
+        } else {
             // TODO: remove this block!
             // Read `RoomInfoNotableUpdateReasons::NONE` to understand why it must be
             // removed.
-            reasons = RoomInfoNotableUpdateReasons::NONE;
+            let _ = self.room_info_notable_update_sender.send(RoomInfoNotableUpdate {
+                room_id: self.room_id.clone(),
+                reasons: RoomInfoNotableUpdateReasons::NONE,
+            });
         }
-        let _ = self
-            .room_info_notable_update_sender
-            .send(RoomInfoNotableUpdate { room_id: self.room_id.clone(), reasons });
-
-        Ok(())
-    }
-
-    /// Same as [`Self::update_room_info`] but also saves the changes to the
-    /// underlying store.
-    pub async fn update_and_save_room_info<F>(&self, f: F) -> Result<(), StoreError>
-    where
-        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
-    {
-        self.update_and_save_room_info_with_store_guard(&self.store.lock().lock().await, f).await
-    }
-
-    /// Same as [`Self::update_and_save_room_info`], but allows the caller to
-    /// provide a guard for the lock of the underlying store in case it has
-    /// already been acquired.
-    ///
-    /// This function returns an [`IncorrectMutexGuardError`] if the provided
-    /// guard is not associated with the lock of the underlying store.
-    pub async fn update_and_save_room_info_with_store_guard<F>(
-        &self,
-        guard: &MutexGuard<'_, ()>,
-        f: F,
-    ) -> Result<(), StoreError>
-    where
-        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
-    {
-        let (info, reasons) = f(self.clone_info());
-        let mut changes = StateChanges::default();
-        changes.add_room(info.clone());
-        self.store.save_changes_with_guard(guard, &changes).await?;
-        self.update_room_info_with_store_guard(guard, |_| (info, reasons))?;
-        Ok(())
     }
 }
 
@@ -220,9 +168,6 @@ pub struct BaseRoomInfo {
     /// others, and this field collects them.
     #[serde(skip_serializing_if = "RoomNotableTags::is_empty", default)]
     pub(crate) notable_tags: RoomNotableTags,
-    /// The event ID of the user's `m.fully_read` marker for this room, if any.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub(crate) fully_read_event_id: Option<OwnedEventId>,
     /// The `m.room.pinned_events` of this room.
     pub(crate) pinned_events: Option<PossiblyRedactedRoomPinnedEventsEventContent>,
 }
@@ -560,7 +505,6 @@ impl Default for BaseRoomInfo {
             is_marked_unread: false,
             is_marked_unread_source: AccountDataSource::Unstable,
             notable_tags: RoomNotableTags::empty(),
-            fully_read_event_id: None,
             pinned_events: None,
         }
     }
@@ -827,24 +771,7 @@ impl RoomInfo {
         &mut self,
         raw_event: &mut RawStateEventWithKeys<AnySyncStateEvent>,
     ) -> bool {
-        // When we receive a `m.room.member_hints` event
-        if raw_event.event_type == StateEventType::MemberHints
-            && let Some(AnySyncStateEvent::MemberHints(new_hints)) = raw_event.deserialize()
-            // If we have both old and new member hints events
-            && let (Some(current_hints), Some(new)) =
-                (&self.base_info.member_hints, new_hints.as_original())
-            // Then we check if their contents don't match
-            && current_hints
-                .content
-                .service_members
-                .as_ref()
-                .is_some_and(|current_members| *current_members != new.content.service_members)
-        {
-            // And reset the computed value in that case
-            self.summary.active_service_members = None;
-        }
-
-        // Store the state event in the `BaseRoomInfo`.
+        // Store the state event in the `BaseRoomInfo` first.
         let base_info_has_been_modified = self.base_info.handle_state_event(raw_event);
 
         if raw_event.event_type == StateEventType::RoomEncryption && raw_event.state_key.is_empty()
@@ -943,10 +870,6 @@ impl RoomInfo {
                 self.summary.invited_member_count = invited.into();
                 changed = true;
             }
-        }
-
-        if changed {
-            self.summary.active_service_members = None;
         }
 
         changed
@@ -1229,12 +1152,6 @@ impl RoomInfo {
         self.base_info.pinned_events.clone().and_then(|c| c.pinned)
     }
 
-    /// Returns the event ID of the user's `m.fully_read` marker for this room,
-    /// if any.
-    pub fn fully_read_event_id(&self) -> Option<&EventId> {
-        self.base_info.fully_read_event_id.as_deref()
-    }
-
     /// Checks if an `EventId` is currently pinned.
     /// It avoids having to clone the whole list of event ids to check a single
     /// value.
@@ -1266,7 +1183,7 @@ impl RoomInfo {
     /// Returns `true` if migrations were applied and this `RoomInfo` needs to
     /// be persisted to the state store.
     #[instrument(skip_all, fields(room_id = ?self.room_id))]
-    pub(crate) async fn apply_migrations(&mut self, store: SaveLockedStateStore) -> bool {
+    pub(crate) async fn apply_migrations(&mut self, store: Arc<DynStateStore>) -> bool {
         let mut migrated = false;
 
         if self.data_format_version < 1 {
@@ -1315,18 +1232,6 @@ impl RoomInfo {
         }
 
         migrated
-    }
-
-    /// Returns the number of active (joined/invited) service members in the
-    /// room, if known.
-    pub fn active_service_member_count(&self) -> Option<u64> {
-        self.summary.active_service_members
-    }
-
-    /// Updates the cached value for the number of active service members in the
-    /// room.
-    pub fn update_active_service_member_count(&mut self, count: Option<u64>) {
-        self.summary.active_service_members = count;
     }
 }
 
@@ -1422,27 +1327,24 @@ pub struct RoomInfoNotableUpdate {
 bitflags! {
     /// The reason why a [`RoomInfoNotableUpdate`] is emitted.
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub struct RoomInfoNotableUpdateReasons: u16 {
+    pub struct RoomInfoNotableUpdateReasons: u8 {
         /// The recency stamp of the `Room` has changed.
-        const RECENCY_STAMP = 0b0000_0000_0000_0001;
+        const RECENCY_STAMP = 0b0000_0001;
 
         /// The latest event of the `Room` has changed.
-        const LATEST_EVENT = 0b0000_0000_0000_0010;
+        const LATEST_EVENT = 0b0000_0010;
 
         /// A read receipt has changed.
-        const READ_RECEIPT = 0b0000_0000_0000_0100;
+        const READ_RECEIPT = 0b0000_0100;
 
         /// The user-controlled unread marker value has changed.
-        const UNREAD_MARKER = 0b0000_0000_0000_1000;
+        const UNREAD_MARKER = 0b0000_1000;
 
         /// A membership change happened for the current user.
-        const MEMBERSHIP = 0b0000_0000_0001_0000;
+        const MEMBERSHIP = 0b0001_0000;
 
         /// The display name has changed.
-        const DISPLAY_NAME = 0b0000_0000_0010_0000;
-
-        /// The active service members have changed.
-        const ACTIVE_SERVICE_MEMBERS = 0b0000_0000_0100_0000;
+        const DISPLAY_NAME = 0b0010_0000;
 
         /// This is a temporary hack.
         ///
@@ -1454,10 +1356,7 @@ bitflags! {
         /// identified, we are likely to miss particular updates, and it can feel broken.
         /// Ultimately, we want to clearly identify all the notable update reasons, and
         /// remove this one.
-        const NONE = 0b0000_0000_1000_0000;
-
-        /// The user's `m.fully_read` marker has changed.
-        const FULLY_READ = 0b0000_0001_0000_0000;
+        const NONE = 0b1000_0000;
     }
 }
 
@@ -1469,13 +1368,9 @@ impl Default for RoomInfoNotableUpdateReasons {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeSet, str::FromStr, sync::Arc, time::Duration};
+    use std::{str::FromStr, sync::Arc};
 
     use assert_matches::assert_matches;
-    use futures_util::future::{self, Either};
-    #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-    use gloo_timers::future::sleep;
-    use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
     use ruma::{
         assign,
@@ -1490,17 +1385,13 @@ mod tests {
     };
     use serde_json::json;
     use similar_asserts::assert_eq;
-    use tokio::sync::Mutex;
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-    use tokio::time::sleep;
 
     use super::{BaseRoomInfo, LatestEventValue, RoomInfo, SyncInfo};
     use crate::{
-        RawStateEventWithKeys, Room, RoomDisplayName, RoomHero, RoomInfoNotableUpdateReasons,
-        RoomState, StateChanges, StateStore,
+        RoomDisplayName, RoomHero, RoomState, StateChanges,
         notification_settings::RoomNotificationMode,
         room::{RoomNotableTags, RoomSummary},
-        store::{IntoStateStore, MemoryStore, RoomLoadSettings, SaveLockedStateStore},
+        store::{IntoStateStore, MemoryStore},
         sync::UnreadNotificationsCount,
     };
 
@@ -1525,7 +1416,6 @@ mod tests {
                 }],
                 joined_member_count: 5,
                 invited_member_count: 0,
-                active_service_members: None,
             },
             members_synced: true,
             last_prev_batch: Some("pb".to_owned()),
@@ -1599,7 +1489,7 @@ mod tests {
 
     #[async_test]
     async fn test_room_info_migration_v1() {
-        let store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
+        let store = MemoryStore::new().into_state_store();
 
         let room_info_json = json!({
             "room_id": "!gda78o:server.tld",
@@ -1870,314 +1760,5 @@ mod tests {
         assert!(info.base_info.name.is_none());
         assert!(info.base_info.tombstone.is_none());
         assert!(info.base_info.topic.is_none());
-    }
-
-    #[test]
-    fn test_member_hints_with_different_contents_reset_computed_value() {
-        let expected = BTreeSet::from_iter([
-            owned_user_id!("@alice:example.org"),
-            owned_user_id!("@bob:example.org"),
-        ]);
-
-        let info_json = json!({
-            "room_id": "!gda78o:server.tld",
-            "room_state": "Invited",
-            "notification_counts": {
-                "highlight_count": 1,
-                "notification_count": 2,
-            },
-            "summary": {
-                "room_heroes": [{
-                    "user_id": "@somebody:example.org",
-                    "display_name": "Somebody",
-                    "avatar_url": "mxc://example.org/abc"
-                }],
-                "joined_member_count": 5,
-                "invited_member_count": 0,
-                "active_service_members": 2,
-            },
-            "members_synced": true,
-            "last_prev_batch": "pb",
-            "sync_info": "FullySynced",
-            "encryption_state_synced": true,
-            "base_info": {
-                "avatar": null,
-                "canonical_alias": null,
-                "create": null,
-                "dm_targets": [],
-                "encryption": null,
-                "guest_access": null,
-                "history_visibility": null,
-                "join_rules": null,
-                "max_power_level": 100,
-                "member_hints": {
-                    "Original": {
-                        "content": {
-                            "service_members": ["@alice:example.org", "@bob:example.org"]
-                        }
-                    }
-                },
-                "name": null,
-                "tombstone": null,
-                "topic": null,
-            },
-        });
-
-        let info: RoomInfo = serde_json::from_value(info_json.clone()).unwrap();
-        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
-        assert_eq!(info.summary.active_service_members, Some(2));
-
-        // We receive a new event with the same values as the stored ones
-        let mut info: RoomInfo = serde_json::from_value(info_json.clone()).unwrap();
-        let mut raw_state_event_with_keys = RawStateEventWithKeys::try_from_raw_state_event(
-            EventFactory::new()
-                .sender(user_id!("@alice:example.org"))
-                .member_hints(expected.clone())
-                .into_raw_sync_state(),
-        )
-        .expect("Expected member hints event is created");
-
-        info.handle_state_event(&mut raw_state_event_with_keys);
-
-        // Nothing changed
-        assert_eq!(info.base_info.member_hints.unwrap().content.service_members.unwrap(), expected);
-        // And the computed value is kept
-        assert_eq!(info.summary.active_service_members, Some(2));
-
-        // We receive a new event with different values from the stored ones
-        let mut info: RoomInfo = serde_json::from_value(info_json).unwrap();
-        let new_member_hints = BTreeSet::from_iter([owned_user_id!("@alice:example.org")]);
-        let mut raw_state_event_with_keys = RawStateEventWithKeys::try_from_raw_state_event(
-            EventFactory::new()
-                .sender(user_id!("@alice:example.org"))
-                .member_hints(new_member_hints.clone())
-                .into_raw_sync_state(),
-        )
-        .expect("New member hints event is created");
-
-        info.handle_state_event(&mut raw_state_event_with_keys);
-
-        // The new member hints were applied
-        assert_eq!(
-            info.base_info.member_hints.unwrap().content.service_members.unwrap(),
-            new_member_hints
-        );
-        // And the computed value is reset
-        assert!(info.summary.active_service_members.is_none());
-    }
-
-    fn make_room_and_state_store(room_state: RoomState) -> (Room, SaveLockedStateStore) {
-        let state_store = SaveLockedStateStore::new(MemoryStore::new().into_state_store());
-        let user_id = user_id!("@user:localhost");
-        let room_id = room_id!("!room:localhost");
-        let (sender, _) = tokio::sync::broadcast::channel(1);
-        let room = Room::new(user_id, state_store.clone(), room_id, room_state, sender);
-        (room, state_store)
-    }
-
-    #[async_test]
-    async fn test_update_room_info_only_updates_in_memory_room_info() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        let before = room.clone_info();
-        assert_eq!(before.state(), RoomState::Joined);
-        room.update_room_info(|mut info| {
-            info.mark_as_banned();
-            (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-        })
-        .await;
-        let after = room.clone_info();
-        assert_eq!(after.state(), RoomState::Banned);
-
-        let infos = state_store
-            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
-            .await
-            .expect("get room info");
-        assert!(infos.is_empty());
-    }
-
-    #[async_test]
-    async fn test_update_room_info_with_store_guard_only_updates_in_memory_room_info() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        let before = room.clone_info();
-        assert_eq!(before.state(), RoomState::Joined);
-        room.update_room_info_with_store_guard(&state_store.lock().lock().await, |mut info| {
-            info.mark_as_banned();
-            (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-        })
-        .expect("update room info");
-        let after = room.clone_info();
-        assert_eq!(after.state(), RoomState::Banned);
-
-        let infos = state_store
-            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
-            .await
-            .expect("get room info");
-        assert!(infos.is_empty());
-    }
-
-    #[async_test]
-    async fn test_update_room_info_only_accepts_guard_for_underlying_mutex() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        room.update_room_info_with_store_guard(&state_store.lock().lock().await, |info| {
-            (info, RoomInfoNotableUpdateReasons::NONE)
-        })
-        .expect("room accepts guard for underlying mutex");
-
-        let mutex = Mutex::new(());
-        room.update_room_info_with_store_guard(&mutex.lock().await, |info| {
-            (info, RoomInfoNotableUpdateReasons::NONE)
-        })
-        .expect_err("room does not accept guard for unknown mutex");
-    }
-
-    #[async_test]
-    async fn test_update_and_save_room_info_updates_room_info_in_memory_and_store() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        let before = room.clone_info();
-        assert_eq!(before.state(), RoomState::Joined);
-        room.update_and_save_room_info(|mut info| {
-            info.mark_as_banned();
-            (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-        })
-        .await
-        .expect("update and save room info");
-        let after = room.clone_info();
-        assert_eq!(after.state(), RoomState::Banned);
-
-        let infos = state_store
-            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
-            .await
-            .expect("get room info");
-        assert_eq!(infos.len(), 1);
-        assert_matches!(infos.first(), Some(info) => {
-            info.state() == RoomState::Banned
-        });
-    }
-
-    #[async_test]
-    async fn test_update_and_save_room_info_with_store_guard_updates_room_info_in_memory_and_store()
-    {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        let before = room.clone_info();
-        assert_eq!(before.state(), RoomState::Joined);
-        room.update_and_save_room_info_with_store_guard(
-            &state_store.lock().lock().await,
-            |mut info| {
-                info.mark_as_banned();
-                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-            },
-        )
-        .await
-        .expect("update and save room info");
-        let after = room.clone_info();
-        assert_eq!(after.state(), RoomState::Banned);
-
-        let infos = state_store
-            .get_room_infos(&RoomLoadSettings::One(room.room_id.clone()))
-            .await
-            .expect("get room info");
-        assert_eq!(infos.len(), 1);
-        assert_matches!(infos.first(), Some(info) => {
-            info.state() == RoomState::Banned
-        });
-    }
-
-    #[async_test]
-    async fn test_update_and_save_room_info_only_accepts_guard_for_underlying_mutex() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        room.update_and_save_room_info_with_store_guard(&state_store.lock().lock().await, |info| {
-            (info, RoomInfoNotableUpdateReasons::NONE)
-        })
-        .await
-        .expect("room accepts guard for underlying mutex");
-
-        let mutex = Mutex::new(());
-        room.update_and_save_room_info_with_store_guard(&mutex.lock().await, |info| {
-            (info, RoomInfoNotableUpdateReasons::NONE)
-        })
-        .await
-        .expect_err("room does not accept guard for unknown mutex");
-    }
-
-    #[derive(Debug)]
-    struct Elapsed;
-
-    async fn timeout<F: Future + Unpin>(duration: Duration, f: F) -> Result<F::Output, Elapsed> {
-        #[cfg(all(target_family = "wasm", target_os = "unknown"))]
-        {
-            match future::select(sleep(duration), f).await {
-                Either::Left(_) => return Err(Elapsed),
-                Either::Right((output, _)) => Ok(output),
-            }
-        }
-        #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-        {
-            tokio::time::timeout(duration, f).await.map_err(|_| Elapsed)
-        }
-    }
-
-    #[async_test]
-    async fn test_update_room_info_waits_to_acquire_lock_before_updating_room_info() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        // Acquire lock and hold it for 5 seconds
-        let lock_task = spawn({
-            let state_store = state_store.clone();
-            async move {
-                let lock = state_store.lock();
-                let _guard = lock.lock().await;
-                sleep(Duration::from_secs(5)).await;
-            }
-        });
-
-        // Try to update room info while the lock is held by another task
-        let save_task = spawn(async move {
-            room.update_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
-        });
-
-        // Ensure that the second task does not progress until the first task has
-        // completed and, therefore, releases the save lock
-        assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
-            timeout(Duration::from_millis(100), save_task)
-                .await
-                .expect("task completes before timeout")
-                .expect("task completes successfully")
-        });
-    }
-
-    #[async_test]
-    async fn test_update_and_save_room_info_waits_to_acquire_lock_before_updating_room_info() {
-        let (room, state_store) = make_room_and_state_store(RoomState::Joined);
-
-        // Acquire lock and hold it for 5 seconds
-        let lock_task = spawn({
-            let state_store = state_store.clone();
-            async move {
-                let lock = state_store.lock();
-                let _guard = lock.lock().await;
-                sleep(Duration::from_secs(5)).await;
-            }
-        });
-
-        // Try to update room info while the lock is held by another task
-        let save_task = spawn(async move {
-            room.update_and_save_room_info(|info| (info, RoomInfoNotableUpdateReasons::NONE)).await
-        });
-
-        // Ensure that the second task does not progress until the first task has
-        // completed and, therefore, releases the save lock
-        assert_matches!(future::select(lock_task, save_task).await, Either::Left((_, save_task)) => {
-            timeout(Duration::from_millis(100), save_task)
-                .await
-                .expect("task completes before timeout")
-                .expect("task completes successfully")
-                .expect("update and save room info");
-        });
     }
 }

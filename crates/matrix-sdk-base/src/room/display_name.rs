@@ -25,7 +25,7 @@ use tracing::{debug, trace, warn};
 
 use super::{Room, RoomMemberships};
 use crate::{
-    RoomMember, RoomState, StateStore,
+    RoomMember, RoomState,
     deserialized_responses::SyncOrStrippedState,
     store::{Result as StoreResult, StateStoreExt},
 };
@@ -378,10 +378,6 @@ pub(crate) struct RoomSummary {
     pub joined_member_count: u64,
     /// The number of members that are considered to be invited to the room.
     pub invited_member_count: u64,
-    /// The number of active (joined/invited) service members in the room, if
-    /// known.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_service_members: Option<u64>,
 }
 
 #[cfg(test)]
@@ -563,8 +559,7 @@ mod tests {
 
     use super::{Room, RoomDisplayName, compute_display_name_from_heroes};
     use crate::{
-        MinimalStateEvent, RoomHero, RoomState, StateChanges, StateStore,
-        store::{MemoryStore, SaveLockedStateStore},
+        MinimalStateEvent, RoomHero, RoomState, StateChanges, StateStore, store::MemoryStore,
     };
 
     fn make_room_test_helper(room_type: RoomState) -> (Arc<MemoryStore>, Room) {
@@ -573,10 +568,7 @@ mod tests {
         let room_id = room_id!("!test:localhost");
         let (sender, _receiver) = tokio::sync::broadcast::channel(1);
 
-        (
-            store.clone(),
-            Room::new(user_id, SaveLockedStateStore::new(store), room_id, room_type, sender),
-        )
+        (store.clone(), Room::new(user_id, store, room_id, room_type, sender))
     }
 
     fn make_stripped_member_event(user_id: &UserId, name: &str) -> Raw<StrippedRoomMemberEvent> {

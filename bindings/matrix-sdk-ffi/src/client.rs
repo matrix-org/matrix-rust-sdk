@@ -117,7 +117,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 use url::Url;
 
 use super::{
@@ -464,37 +464,6 @@ impl Client {
     /// SQLite.
     pub async fn optimize_stores(&self) -> Result<(), ClientError> {
         Ok(self.inner.optimize_stores().await?)
-    }
-
-    /// Pause the client for background suspension.
-    ///
-    /// This method:
-    /// 1. Disables all send queues (prevents new message sends).
-    /// 2. Pauses all database stores, waiting for in-flight operations and
-    ///    releasing all connections and file locks.
-    ///
-    /// Call [`Client::resume()`] when the app returns to the foreground.
-    ///
-    /// # iOS
-    ///
-    /// Call this before the app is suspended to avoid `0xdead10cc` kills.
-    /// Typically called from
-    /// [`applicationDidEnterBackground`](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidenterbackground(_:))
-    /// or an equivalent SwiftUI lifecycle event, *after* stopping the
-    /// `matrix_sdk_ui::sync_service::SyncService`.
-    pub async fn pause(&self) -> Result<(), ClientError> {
-        Ok(self.inner.pause().await?)
-    }
-
-    /// Resume the client after a [`Client::pause()`].
-    ///
-    /// Re-acquires store resources and re-enables send queues.
-    ///
-    /// If your app stopped the `matrix_sdk_ui::sync_service::SyncService`
-    /// before pausing, restart it separately as appropriate for your app
-    /// lifecycle.
-    pub async fn resume(&self) -> Result<(), ClientError> {
-        Ok(self.inner.resume().await?)
     }
 
     /// Returns the sizes of the existing stores, if known.
@@ -1525,60 +1494,6 @@ impl Client {
             .collect()
     }
 
-    /// Mark all joined rooms as read by sending public, private and fully-read
-    /// receipts on each room's latest event.
-    ///
-    /// This is a best-effort operation — per-room errors are logged and
-    /// skipped. Receipts are sent unthreaded, which per the Matrix spec
-    /// covers all events in a room including those inside threads.
-    ///
-    /// This is useful to mitigate backend led wrong iOS app badges and work
-    /// around https://github.com/element-hq/element-x-ios/issues/3151
-    pub async fn mark_all_rooms_as_read(&self) -> Result<(), ClientError> {
-        use matrix_sdk::room::Receipts;
-        use matrix_sdk_base::RoomStateFilter;
-        use matrix_sdk_ui::timeline::{TimelineBuilder, TimelineFocus};
-
-        for sdk_room in self.inner.rooms_filtered(RoomStateFilter::JOINED) {
-            let timeline = match TimelineBuilder::new(&sdk_room)
-                .with_focus(TimelineFocus::Live { hide_threaded_events: false })
-                .build()
-                .await
-            {
-                Ok(tl) => tl,
-                Err(err) => {
-                    warn!(
-                        "mark_all_rooms_as_read: failed to build timeline for {}: {err}",
-                        sdk_room.room_id()
-                    );
-                    continue;
-                }
-            };
-
-            if let Some(event_id) = timeline.latest_event_id().await {
-                let receipts = Receipts::new()
-                    .fully_read_marker(event_id.clone())
-                    .private_read_receipt(event_id);
-                if let Err(err) = sdk_room.send_multiple_receipts(receipts).await {
-                    warn!(
-                        "mark_all_rooms_as_read: failed to send receipts for {}: {err}",
-                        sdk_room.room_id()
-                    );
-                }
-            } else {
-                // Room has no events; just clear any stale explicit unread flag.
-                if let Err(err) = sdk_room.set_unread_flag(false).await {
-                    warn!(
-                        "mark_all_rooms_as_read: failed to clear unread flag for {}: {err}",
-                        sdk_room.room_id()
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Get a room by its ID.
     ///
     /// # Arguments
@@ -2308,7 +2223,7 @@ async fn notification_handler(
             .map(ToString::to_string)
             .collect(),
         active_service_members_count: room
-            .update_active_service_members()
+            .active_service_members()
             .await
             .ok()
             .flatten()
@@ -2317,7 +2232,6 @@ async fn notification_handler(
         is_encrypted: Some(room.encryption_state().is_encrypted()),
         is_direct,
         is_space: room.is_space(),
-        is_dm: room.compute_is_dm().await.ok().unwrap_or_default(),
     };
 
     listener.on_notification(
@@ -3366,52 +3280,5 @@ mod tests {
         assert_eq!(token.token_type, "Bearer");
         assert_eq!(token.matrix_server_name, "example.com");
         assert_eq!(token.expires_in_seconds, 3_600);
-    }
-
-    /// Dropping an FFI [`Client`] on a non-tokio thread must not panic.
-    ///
-    /// Regression test: `Client.inner` is wrapped in [`AsyncRuntimeDropped`]
-    /// precisely because dropping a sqlite-backed [`MatrixClient`] outside a
-    /// tokio runtime context causes `SyncWrapper<rusqlite::Connection>::drop`
-    /// to call `tokio::task::spawn_blocking`, which panics and triggers
-    /// SIGABRT. This test guards against accidentally removing that wrapper.
-    #[cfg(not(target_family = "wasm"))]
-    #[tokio::test]
-    async fn client_drop_on_non_tokio_thread_does_not_panic() {
-        use std::time::Duration;
-
-        use matrix_sdk::{Client, config::RequestConfig};
-        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-        use tempfile::tempdir;
-
-        let dir = tempdir().unwrap();
-
-        // SingleProcess lock avoids the session-delegate requirement in
-        // `Client::new`, keeping the test self-contained.
-        let sdk_client = Client::builder()
-            .homeserver_url("https://example.com")
-            .request_config(RequestConfig::new().disable_retry())
-            .sqlite_store(dir.path(), None)
-            .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
-            .build()
-            .await
-            .unwrap();
-
-        // Allow background init tasks to complete; after this the only strong
-        // reference to `ClientInner` is the local `sdk_client` variable.
-        tokio::time::sleep(Duration::from_secs(1)).await;
-
-        let ffi_client = super::Client::new(sdk_client.clone(), None, None).await.unwrap();
-
-        // Dropping `sdk_client` leaves `ffi_client` as the sole Arc holder of
-        // `ClientInner` — mirroring what happens when the last JS reference to
-        // a Client is garbage-collected on the Hermes JS thread.
-        drop(sdk_client);
-
-        // Simulate Hermes GC on the JS thread (a non-tokio thread).
-        // Without `AsyncRuntimeDropped` wrapping `Client.inner` this SIGABRT.
-        std::thread::spawn(move || drop(ffi_client))
-            .join()
-            .expect("Client::drop panicked on a non-tokio thread");
     }
 }

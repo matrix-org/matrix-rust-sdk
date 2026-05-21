@@ -762,23 +762,15 @@ async fn test_server_metadata_cache_refresh_lock() {
 #[async_test]
 async fn test_server_metadata() {
     let server = MatrixMockServer::new().await;
-    let oauth_server = server.oauth();
-
     let client = server.client_builder().unlogged().build().await;
     let oauth = client.oauth();
 
-    // The endpoint is not supported.
-    oauth_server
-        .mock_server_metadata()
-        .error_unrecognized()
-        .mock_once()
-        .named("unrecognized auth metadata")
-        .mount()
-        .await;
+    // The endpoint is not mocked so it is not supported.
     let error = oauth.server_metadata().await.unwrap_err();
     assert!(error.is_not_supported());
 
     // Mock the `GET /auth_metadata` endpoint.
+    let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1).named("auth_metadata").mount().await;
 
     oauth.server_metadata().await.unwrap();

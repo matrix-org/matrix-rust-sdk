@@ -96,7 +96,7 @@ async fn test_votes_after_end_are_discarded() {
     // Alice votes but it's too late, her vote won't count
     timeline.send_poll_response(&ALICE, vec!["id_up"], &poll_id).await;
     let results = timeline.poll_state().await.results();
-    for votes in results.votes.values() {
+    for (_, votes) in results.votes.iter() {
         assert!(votes.is_empty());
     }
 }

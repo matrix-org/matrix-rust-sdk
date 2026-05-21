@@ -55,7 +55,7 @@ use tracing::{Level, debug, enabled, info, instrument, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    RoomStateFilter, SessionMeta, StateStore,
+    RoomStateFilter, SessionMeta,
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
@@ -65,9 +65,9 @@ use crate::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
-        AvatarCache, BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult,
-        RoomLoadSettings, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
-        StoreConfig, ambiguity_map::AmbiguityCache,
+        BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult, RoomLoadSettings,
+        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, StoreConfig,
+        ambiguity_map::AmbiguityCache,
     },
     sync::{RoomUpdates, SyncResponse},
 };
@@ -405,22 +405,24 @@ impl BaseClient {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Knocked);
 
         if room.state() != RoomState::Knocked {
-            let store_guard = self.state_store.lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_knocked();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
 
             // We are no longer joined to the room, so the invite acceptance details are no
             // longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
-                olm_machine.store().clear_room_pending_key_bundle(room_id).await?
+                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
             }
 
-            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
-                info.mark_as_knocked();
-                info.mark_state_partially_synced();
-                info.mark_members_missing(); // the own member event changed
-                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-            })
-            .await?;
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.state_store.save_changes(&changes).await?; // Update the store
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
         }
 
         Ok(room)
@@ -479,7 +481,13 @@ impl BaseClient {
         // If the state isn't `RoomState::Joined` then this means that we knew about
         // this room before. Let's modify the existing state now.
         if room.state() != RoomState::Joined {
-            let store_guard = self.state_store_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
+
+            let mut room_info = room.clone_info();
+
+            room_info.mark_as_joined();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
 
             #[cfg(feature = "e2e-encryption")]
             {
@@ -507,13 +515,12 @@ impl BaseClient {
                 let _ = inviter;
             }
 
-            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
-                info.mark_as_joined();
-                info.mark_state_partially_synced();
-                info.mark_members_missing(); // the own member event changed
-                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-            })
-            .await?;
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+
+            self.state_store.save_changes(&changes).await?; // Update the store
+
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
         }
 
         Ok(room)
@@ -526,22 +533,24 @@ impl BaseClient {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Left);
 
         if room.state() != RoomState::Left {
-            let store_guard = self.state_store.lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
+
+            let mut room_info = room.clone_info();
+            room_info.mark_as_left();
+            room_info.mark_state_partially_synced();
+            room_info.mark_members_missing(); // the own member event changed
 
             // We are no longer joined to the room, so the invite acceptance details are no
             // longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
-                olm_machine.store().clear_room_pending_key_bundle(room_id).await?
+                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
             }
 
-            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
-                info.mark_as_left();
-                info.mark_state_partially_synced();
-                info.mark_members_missing(); // the own member event changed
-                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
-            })
-            .await?;
+            let mut changes = StateChanges::default();
+            changes.add_room(room_info.clone());
+            self.state_store.save_changes(&changes).await?; // Update the store
+            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
         }
 
         Ok(())
@@ -644,7 +653,6 @@ impl BaseClient {
             .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
-        let mut avatar_cache = AvatarCache::new(self.state_store.inner.clone());
 
         let global_account_data_processor =
             processors::account_data::global(&response.account_data.events);
@@ -671,7 +679,6 @@ impl BaseClient {
                     &room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
-                    &mut avatar_cache,
                 ),
                 joined_room,
                 &mut updated_members_in_room,
@@ -695,7 +702,6 @@ impl BaseClient {
                     &room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
-                    &mut avatar_cache,
                 ),
                 left_room,
                 processors::notification::Notification::new(
@@ -763,14 +769,17 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
-        processors::changes::save_and_apply(
-            context,
-            &self.state_store,
-            &self.state_store_lock().lock().await,
-            &self.ignore_user_list_changes,
-            Some(response.next_batch.clone()),
-        )
-        .await?;
+        {
+            let _state_store_lock = self.state_store_lock().lock().await;
+
+            processors::changes::save_and_apply(
+                context,
+                &self.state_store,
+                &self.ignore_user_list_changes,
+                Some(response.next_batch.clone()),
+            )
+            .await?;
+        }
 
         let mut context = Context::default();
 
@@ -784,12 +793,11 @@ impl BaseClient {
         .await;
 
         // Save the new display name updates if any.
-        processors::changes::save_only(
-            context,
-            &self.state_store,
-            &self.state_store_lock().lock().await,
-        )
-        .await?;
+        {
+            let _state_store_lock = self.state_store_lock().lock().await;
+
+            processors::changes::save_only(context, &self.state_store).await?;
+        }
 
         for (room_id, member_ids) in updated_members_in_room {
             if let Some(room) = self.get_room(&room_id) {
@@ -911,7 +919,7 @@ impl BaseClient {
         context.state_changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
         {
-            let state_store_guard = self.state_store_lock().lock().await;
+            let _state_store_lock = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
@@ -920,7 +928,6 @@ impl BaseClient {
             processors::changes::save_and_apply(
                 context,
                 &self.state_store,
-                &state_store_guard,
                 &self.ignore_user_list_changes,
                 None,
             )
@@ -1151,32 +1158,6 @@ impl BaseClient {
             None => None,
         };
         Ok(result)
-    }
-
-    /// Close all stores, releasing database connections and file locks.
-    ///
-    /// In-flight operations will complete before this returns.
-    pub async fn close_stores(&self) -> Result<()> {
-        self.state_store.close().await?;
-        self.event_cache_store.close().await.map_err(Error::EventCacheStore)?;
-        self.media_store.close().await.map_err(Error::MediaStore)?;
-
-        #[cfg(feature = "e2e-encryption")]
-        self.crypto_store.close().await.map_err(Error::CryptoStore)?;
-
-        Ok(())
-    }
-
-    /// Reopen all stores after a close, re-opening database connections.
-    pub async fn reopen_stores(&self) -> Result<()> {
-        #[cfg(feature = "e2e-encryption")]
-        self.crypto_store.reopen().await.map_err(Error::CryptoStore)?;
-
-        self.media_store.reopen().await.map_err(Error::MediaStore)?;
-        self.event_cache_store.reopen().await.map_err(Error::EventCacheStore)?;
-        self.state_store.reopen().await?;
-
-        Ok(())
     }
 }
 

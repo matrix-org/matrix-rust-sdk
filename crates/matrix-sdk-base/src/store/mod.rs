@@ -77,12 +77,9 @@ use crate::{
 };
 
 pub(crate) mod ambiguity_map;
-mod avatar_cache;
 mod memory_store;
 pub mod migration_helpers;
 mod send_queue;
-
-pub use avatar_cache::AvatarCache;
 
 #[cfg(any(test, feature = "testing"))]
 pub use self::integration_tests::StateStoreIntegrationTests;
@@ -97,9 +94,9 @@ pub use self::{
     },
     traits::{
         ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
-        DynStateStore, IncorrectMutexGuardError, IntoStateStore, SaveLockedStateStore, StateStore,
-        StateStoreDataKey, StateStoreDataValue, StateStoreExt, SupportedVersionsResponse,
-        ThreadSubscriptionCatchupToken, WellKnownResponse,
+        DynStateStore, IntoStateStore, StateStore, StateStoreDataKey, StateStoreDataValue,
+        StateStoreExt, SupportedVersionsResponse, ThreadSubscriptionCatchupToken,
+        WellKnownResponse,
     },
 };
 
@@ -179,7 +176,7 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 /// `StateStore` implementation.
 #[derive(Clone)]
 pub(crate) struct BaseStateStore {
-    pub(super) inner: SaveLockedStateStore,
+    pub(super) inner: Arc<DynStateStore>,
     session_meta: Arc<OnceLock<SessionMeta>>,
     room_load_settings: Arc<RwLock<RoomLoadSettings>>,
 
@@ -192,6 +189,10 @@ pub(crate) struct BaseStateStore {
 
     /// All rooms the store knows about.
     rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
+
+    /// A lock to synchronize access to the store, such that data by the sync is
+    /// never overwritten.
+    lock: Arc<Mutex<()>>,
 
     /// Which rooms have already logged a log line about missing room info, in
     /// the context of response processors?
@@ -214,19 +215,20 @@ impl BaseStateStore {
             broadcast::channel(500);
 
         Self {
-            inner: SaveLockedStateStore::new(inner),
+            inner,
             session_meta: Default::default(),
             room_load_settings: Default::default(),
             room_info_notable_update_sender,
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
+            lock: Default::default(),
             already_logged_missing_room: Default::default(),
         }
     }
 
     /// Get access to the syncing lock.
     pub fn lock(&self) -> &Mutex<()> {
-        self.inner.lock()
+        &self.lock
     }
 
     /// Set the [`SessionMeta`] into [`BaseStateStore::session_meta`].
@@ -410,10 +412,10 @@ impl fmt::Debug for BaseStateStore {
 }
 
 impl Deref for BaseStateStore {
-    type Target = SaveLockedStateStore;
+    type Target = DynStateStore;
 
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.deref()
     }
 }
 
@@ -872,7 +874,7 @@ mod tests {
     use ruma::{owned_device_id, owned_user_id, room_id, user_id};
 
     use super::{BaseStateStore, MemoryStore, RoomLoadSettings};
-    use crate::{RoomInfo, RoomState, SessionMeta, StateChanges, StateStore};
+    use crate::{RoomInfo, RoomState, SessionMeta, StateChanges};
 
     #[async_test]
     async fn test_set_session_meta() {

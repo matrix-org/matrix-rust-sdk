@@ -2060,16 +2060,6 @@ impl_state_store!({
     async fn get_size(&self) -> Result<Option<usize>> {
         Ok(None)
     }
-
-    #[allow(clippy::unused_async)]
-    async fn close(&self) -> Result<()> {
-        Ok(())
-    }
-
-    #[allow(clippy::unused_async)]
-    async fn reopen(&self) -> Result<()> {
-        Ok(())
-    }
 });
 
 /// A room member.

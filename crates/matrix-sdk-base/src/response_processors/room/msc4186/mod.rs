@@ -66,7 +66,7 @@ pub async fn update_any_room(
 ) -> Result<Option<(RoomInfo, RoomUpdateKind)>> {
     let _timer = timer!(tracing::Level::TRACE, "update_any_room");
 
-    let RoomCreationData { room_id, requested_required_states, ambiguity_cache, avatar_cache } =
+    let RoomCreationData { room_id, requested_required_states, ambiguity_cache } =
         room_creation_data;
 
     // Read state events from the `required_state` field.
@@ -118,7 +118,6 @@ pub async fn update_any_room(
         raw_state_events,
         &mut room_info,
         ambiguity_cache,
-        avatar_cache,
         &mut new_user_ids,
         state_store,
         #[cfg(feature = "experimental-encrypted-state-events")]
@@ -171,7 +170,6 @@ pub async fn update_any_room(
     room_info.update_notification_count(notification_count);
 
     let ambiguity_changes = ambiguity_cache.changes.remove(room_id).unwrap_or_default();
-    let avatar_changes = avatar_cache.remove_changes(room_id);
     let room_account_data = rooms_account_data.get(room_id);
 
     match (room_info.state(), maybe_room_update_kind) {
@@ -190,7 +188,6 @@ pub async fn update_any_room(
                     ephemeral,
                     notification_count,
                     ambiguity_changes,
-                    avatar_changes,
                 )),
             )))
         }

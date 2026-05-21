@@ -14,14 +14,9 @@
 
 //! An SQLite-based backend for the [`MediaStore`].
 
-use std::{
-    fmt,
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::{fmt, path::Path, sync::Arc};
 
 use async_trait::async_trait;
-use deadpool::managed::PoolConfig;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     media::{
@@ -43,8 +38,8 @@ use tokio::{
 use tracing::{debug, instrument};
 
 use crate::{
-    OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    OpenStoreError, Secret, SqliteStoreConfig,
+    connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
         EncryptableStore, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -69,17 +64,14 @@ const DATABASE_NAME: &str = "matrix-sdk-media.sqlite3";
 pub struct SqliteMediaStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
-    /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    /// The pool of connections.
+    pool: SqlitePool,
 
-    /// Retained so we can rebuild the pool on reopen.
-    db_path: PathBuf,
-
-    /// Retained so we can rebuild the pool on reopen.
-    pool_config: PoolConfig,
-
-    /// Retained so we can re-apply runtime config on reopen.
-    runtime_config: RuntimeConfig,
+    /// We make the difference between connections for read operations, and for
+    /// write operations. We keep a single connection apart from write
+    /// operations. All other connections are used for read operations. The
+    /// lock is used to ensure there is one owner at a time.
+    write_connection: Arc<Mutex<SqliteAsyncConn>>,
 
     media_service: MediaService,
 }
@@ -104,7 +96,7 @@ impl SqliteMediaStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
     /// Open the SQLite-based media store at the given path using the given
@@ -113,30 +105,22 @@ impl SqliteMediaStore {
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
+        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
     }
 
     /// Open the SQLite-based media store with the config open config.
     #[instrument(skip(config), fields(path = ?config.path))]
-    pub async fn open_with_config(config: &SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         debug!(?config);
 
         let _timer = timer!("open_with_config");
 
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
-        let db_path = config.path.join(DATABASE_NAME);
-        let pool_config = config.pool_config();
-        let runtime_config = config.runtime_config();
-
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
 
-        let this =
-            Self::open_with_pool(pool, db_path, pool_config, runtime_config, config.secret.clone())
-                .await?;
-
-        // Apply runtime config on the write connection.
-        this.write().await?.apply_runtime_config(runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret).await?;
+        this.write().await?.apply_runtime_config(config.runtime_config).await?;
 
         Ok(this)
     }
@@ -145,9 +129,6 @@ impl SqliteMediaStore {
     /// pool. The given passphrase will be used to encrypt private data.
     async fn open_with_pool(
         pool: SqlitePool,
-        db_path: PathBuf,
-        pool_config: PoolConfig,
-        runtime_config: RuntimeConfig,
         secret: Option<Secret>,
     ) -> Result<Self, OpenStoreError> {
         let conn = pool.get().await?;
@@ -157,8 +138,8 @@ impl SqliteMediaStore {
 
         conn.wal_checkpoint().await;
 
-        let store_cipher = match &secret {
-            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s.clone()).await?)),
+        let store_cipher = match secret {
+            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
             None => None,
         };
 
@@ -167,18 +148,11 @@ impl SqliteMediaStore {
         let last_media_cleanup_time = conn.get_serialized_kv(keys::LAST_MEDIA_CLEANUP_TIME).await?;
         media_service.restore(media_retention_policy, last_media_cleanup_time);
 
-        let connections = SqliteConnections {
-            pool,
-            // Use `conn` as our selected write connection.
-            write_connection: Arc::new(Mutex::new(conn)),
-        };
-
         Ok(Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(connections))),
-            db_path,
-            pool_config,
-            runtime_config,
+            pool,
+            // Use `conn` as our selected write connections.
+            write_connection: Arc::new(Mutex::new(conn)),
             media_service,
         })
     }
@@ -186,13 +160,7 @@ impl SqliteMediaStore {
     // Acquire a connection for executing read operations.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
-        let pool = {
-            let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
-            conns.pool.clone()
-        };
-
-        let connection = pool.get().await?;
+        let connection = self.pool.get().await?;
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
@@ -206,13 +174,7 @@ impl SqliteMediaStore {
     // Acquire a connection for executing write operations.
     #[instrument(skip_all)]
     async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
-        let write_connection = {
-            let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
-            conns.write_connection.clone()
-        };
-
-        let connection = write_connection.lock_owned().await;
+        let connection = self.write_connection.clone().lock_owned().await;
 
         // Per https://www.sqlite.org/foreignkeys.html#fk_enable, foreign key
         // support must be enabled on a per-connection basis. Execute it every
@@ -224,44 +186,11 @@ impl SqliteMediaStore {
     }
 
     pub async fn vacuum(&self) -> Result<()> {
-        let write_connection = {
-            let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
-            conns.write_connection.clone()
-        };
-        write_connection.lock().await.vacuum().await
+        self.write_connection.lock().await.vacuum().await
     }
 
     async fn get_db_size(&self) -> Result<Option<usize>> {
-        let pool = {
-            let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
-            conns.pool.clone()
-        };
-        Ok(Some(pool.get().await?.get_db_size().await?))
-    }
-
-    pub async fn close(&self) -> Result<()> {
-        connection::close_connections(&self.connections, "Media store").await;
-        Ok(())
-    }
-
-    pub async fn reopen(&self) -> Result<()> {
-        connection::reopen_connections(
-            &self.connections,
-            self.db_path.clone(),
-            self.pool_config,
-            self.runtime_config,
-        )
-        .await?;
-        Ok(())
-    }
-
-    /// Returns the pool size status, for testing purposes.
-    #[cfg(test)]
-    async fn pool_max_size(&self) -> Option<usize> {
-        let guard = self.connections.lock().await;
-        guard.as_ref().map(|conns| conns.pool.status().max_size)
+        Ok(Some(self.pool.get().await?.get_db_size().await?))
     }
 }
 
@@ -456,14 +385,6 @@ impl MediaStore for SqliteMediaStore {
         let _timer = timer!("method");
 
         self.media_service.clean(self).await
-    }
-
-    async fn close(&self) -> Result<(), Self::Error> {
-        SqliteMediaStore::close(self).await
-    }
-
-    async fn reopen(&self) -> Result<(), Self::Error> {
-        SqliteMediaStore::reopen(self).await
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {
@@ -801,9 +722,9 @@ mod tests {
         let tmpdir_path = new_media_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).pool_max_size(42);
 
-        let store = SqliteMediaStore::open_with_config(&store_open_config).await.unwrap();
+        let store = SqliteMediaStore::open_with_config(store_open_config).await.unwrap();
 
-        assert_eq!(store.pool_max_size().await.unwrap(), 42);
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     #[async_test]
@@ -869,243 +790,6 @@ mod tests {
         assert_eq!(contents.len(), 2, "media cache contents length is wrong");
         assert_eq!(contents[0], content, "file is not last access");
         assert_eq!(contents[1], thumbnail_content, "thumbnail is not second-to-last access");
-    }
-}
-
-#[cfg(test)]
-mod close_reopen_tests {
-    use std::sync::{
-        LazyLock,
-        atomic::{AtomicU32, Ordering::SeqCst},
-    };
-
-    use matrix_sdk_base::media::{
-        MediaFormat, MediaRequestParameters,
-        store::{IgnoreMediaRetentionPolicy, MediaStore},
-    };
-    use matrix_sdk_test::async_test;
-    use ruma::{events::room::MediaSource, mxc_uri};
-    use tempfile::{TempDir, tempdir};
-
-    use super::SqliteMediaStore;
-
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
-    static NUM: AtomicU32 = AtomicU32::new(0);
-
-    async fn new_store() -> SqliteMediaStore {
-        let name = NUM.fetch_add(1, SeqCst).to_string();
-        let tmpdir_path = TMP_DIR.path().join(name);
-        SqliteMediaStore::open(tmpdir_path, None).await.unwrap()
-    }
-
-    fn test_request() -> MediaRequestParameters {
-        MediaRequestParameters {
-            source: MediaSource::Plain(mxc_uri!("mxc://localhost/test_media").to_owned()),
-            format: MediaFormat::File,
-        }
-    }
-
-    #[async_test]
-    async fn test_close_completes_without_timeout() {
-        let store = new_store().await;
-
-        // Close should complete quickly without hitting any timeout.
-        let start = std::time::Instant::now();
-        store.close().await.unwrap();
-        let elapsed = start.elapsed();
-
-        assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "close() took {elapsed:?}, expected < 2s (no timeout)"
-        );
-
-        // Connections should be None after close.
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "connections should be None after close");
-    }
-
-    #[async_test]
-    async fn test_reopen_restores_connections() {
-        let store = new_store().await;
-
-        store.close().await.unwrap();
-
-        {
-            let guard = store.connections.lock().await;
-            assert!(guard.is_none());
-        }
-
-        store.reopen().await.unwrap();
-
-        {
-            let guard = store.connections.lock().await;
-            assert!(guard.is_some(), "connections should be Some after reopen");
-        }
-    }
-
-    #[async_test]
-    async fn test_close_is_idempotent() {
-        let store = new_store().await;
-
-        store.close().await.unwrap();
-        // Second close should be a no-op.
-        store.close().await.unwrap();
-
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none());
-    }
-
-    #[async_test]
-    async fn test_reopen_is_idempotent() {
-        let store = new_store().await;
-
-        // Reopen on an active store should be a no-op.
-        store.reopen().await.unwrap();
-
-        let guard = store.connections.lock().await;
-        assert!(guard.is_some());
-    }
-
-    #[async_test]
-    async fn test_read_fails_when_closed() {
-        let store = new_store().await;
-        store.close().await.unwrap();
-
-        let err = store.get_media_content(&test_request()).await;
-        assert!(err.is_err(), "read should fail when closed");
-
-        let err_msg = err.unwrap_err().to_string();
-        assert!(err_msg.contains("closed"), "error should mention 'closed', got: {err_msg}");
-    }
-
-    #[async_test]
-    async fn test_write_fails_when_closed() {
-        let store = new_store().await;
-        store.close().await.unwrap();
-
-        let err = store
-            .add_media_content(&test_request(), b"data".to_vec(), IgnoreMediaRetentionPolicy::No)
-            .await;
-        assert!(err.is_err(), "write should fail when closed");
-
-        let err_msg = err.unwrap_err().to_string();
-        assert!(err_msg.contains("closed"), "error should mention 'closed', got: {err_msg}");
-    }
-
-    #[async_test]
-    async fn test_data_persists_across_close_reopen() {
-        let store = new_store().await;
-
-        // Write some media content.
-        store
-            .add_media_content(
-                &test_request(),
-                b"hello world".to_vec(),
-                IgnoreMediaRetentionPolicy::Yes,
-            )
-            .await
-            .unwrap();
-
-        // Verify it's there.
-        let content = store.get_media_content(&test_request()).await.unwrap();
-        assert_eq!(content.as_deref(), Some(b"hello world".as_slice()));
-
-        // Close and reopen.
-        store.close().await.unwrap();
-        store.reopen().await.unwrap();
-
-        // Content should still be there after reopen.
-        let content = store.get_media_content(&test_request()).await.unwrap();
-        assert_eq!(
-            content.as_deref(),
-            Some(b"hello world".as_slice()),
-            "media content should persist across close/reopen"
-        );
-    }
-
-    #[async_test]
-    async fn test_multiple_close_reopen_cycles() {
-        let store = new_store().await;
-
-        for _ in 0..5 {
-            store.close().await.unwrap();
-            store.reopen().await.unwrap();
-
-            // After each cycle, the store should be fully operational.
-            let result = store.get_media_content(&test_request()).await;
-            assert!(result.is_ok(), "store should work after close/reopen cycle");
-        }
-    }
-
-    #[async_test]
-    async fn test_pool_is_fully_drained_after_close() {
-        let store = new_store().await;
-
-        // Do a few reads to exercise the pool.
-        let _ = store.get_media_content(&test_request()).await;
-        let _ = store.get_media_content(&test_request()).await;
-
-        store.close().await.unwrap();
-
-        // After close, the connections field should be None (pool and write
-        // connection have been fully torn down).
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "all connections should be released after close");
-    }
-
-    #[async_test]
-    async fn test_operations_work_immediately_after_reopen() {
-        let store = new_store().await;
-
-        store.close().await.unwrap();
-        store.reopen().await.unwrap();
-
-        // Read should work immediately after reopen.
-        let result = store.get_media_content(&test_request()).await;
-        assert!(result.is_ok(), "read should succeed immediately after reopen");
-
-        // Write should work immediately after reopen.
-        let result = store
-            .add_media_content(
-                &test_request(),
-                b"after_reopen".to_vec(),
-                IgnoreMediaRetentionPolicy::No,
-            )
-            .await;
-        assert!(result.is_ok(), "write should succeed immediately after reopen");
-    }
-
-    #[async_test]
-    async fn test_close_waits_for_held_read_connection_to_drain() {
-        let store = new_store().await;
-
-        // Acquire a read connection and hold it, simulating an in-flight read.
-        let held_conn = store.read().await.unwrap();
-
-        // Spawn close in a background task — it will close the pool and then
-        // poll-wait for pool.status().size == 0 in the drain loop.
-        let store_clone = store.clone();
-        let close_handle = tokio::spawn(async move {
-            store_clone.close().await.unwrap();
-        });
-
-        // Give close() a moment to close the pool and enter the drain loop.
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-        // The close task should still be running because we hold a connection.
-        assert!(!close_handle.is_finished(), "close should be waiting for the held connection");
-
-        // Release the held connection — this lets pool.status().size drop to 0.
-        drop(held_conn);
-
-        // Now close should complete promptly (well within the 5s timeout).
-        let timeout = tokio::time::timeout(std::time::Duration::from_secs(3), close_handle).await;
-        assert!(timeout.is_ok(), "close should complete after the held connection is released");
-        timeout.unwrap().unwrap();
-
-        // Verify the store is fully closed.
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "connections should be None after close");
     }
 }
 

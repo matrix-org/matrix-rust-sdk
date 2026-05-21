@@ -2,13 +2,12 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashMap},
     fmt, iter,
-    path::{Path, PathBuf},
+    path::Path,
     str::FromStr as _,
     sync::Arc,
 };
 
 use async_trait::async_trait;
-use deadpool::managed::PoolConfig;
 use matrix_sdk_base::{
     MinimalRoomMemberEvent, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, RoomInfo,
     RoomMemberships, RoomState, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue,
@@ -45,8 +44,8 @@ use tokio::{
 use tracing::{debug, instrument, warn};
 
 use crate::{
-    OpenStoreError, RuntimeConfig, Secret, SqliteStoreConfig,
-    connection::{self, Connection as SqliteAsyncConn, Pool as SqlitePool, SqliteConnections},
+    OpenStoreError, Secret, SqliteStoreConfig,
+    connection::{Connection as SqliteAsyncConn, Pool as SqlitePool},
     error::{Error, Result},
     utils::{
         EncryptableStore, Key, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt,
@@ -78,17 +77,14 @@ pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 pub struct SqliteStateStore {
     store_cipher: Option<Arc<StoreCipher>>,
 
-    /// `Some` when active, `None` when closed.
-    connections: Arc<Mutex<Option<SqliteConnections>>>,
+    /// The pool of connections.
+    pool: SqlitePool,
 
-    /// Retained so we can rebuild the pool on reopen.
-    db_path: PathBuf,
-
-    /// Retained so we can rebuild the pool on reopen.
-    pool_config: PoolConfig,
-
-    /// Retained so we can re-apply runtime config on reopen.
-    runtime_config: RuntimeConfig,
+    /// We make the difference between connections for read operations, and for
+    /// write operations. We keep a single connection apart from write
+    /// operations. All other connections are used for read operations. The
+    /// lock is used to ensure there is one owner at a time.
+    write_connection: Arc<Mutex<SqliteAsyncConn>>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -105,7 +101,7 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         passphrase: Option<&str>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(&SqliteStoreConfig::new(path).passphrase(passphrase)).await
+        Self::open_with_config(SqliteStoreConfig::new(path).passphrase(passphrase)).await
     }
 
     /// Open the SQLite-based state store at the given path using the given
@@ -114,33 +110,27 @@ impl SqliteStateStore {
         path: impl AsRef<Path>,
         key: Option<&[u8; 32]>,
     ) -> Result<Self, OpenStoreError> {
-        Self::open_with_config(&SqliteStoreConfig::new(path).key(key)).await
+        Self::open_with_config(SqliteStoreConfig::new(path).key(key)).await
     }
 
     /// Open the SQLite-based state store with the config open config.
-    pub async fn open_with_config(config: &SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+    pub async fn open_with_config(config: SqliteStoreConfig) -> Result<Self, OpenStoreError> {
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
-        let pool_config = config.pool_config;
-        let runtime_config = config.runtime_config;
 
-        let this =
-            Self::open_with_pool(pool, config.secret.clone(), pool_config, runtime_config).await?;
-        this.read().await?.apply_runtime_config(runtime_config).await?;
+        let this = Self::open_with_pool(pool, config.secret).await?;
+        this.pool.get().await?.apply_runtime_config(config.runtime_config).await?;
 
         Ok(this)
     }
 
     /// Create an SQLite-based state store using the given SQLite database pool.
     /// The given secret will be used to encrypt private data.
-    pub(crate) async fn open_with_pool(
+    pub async fn open_with_pool(
         pool: SqlitePool,
         secret: Option<Secret>,
-        pool_config: PoolConfig,
-        runtime_config: RuntimeConfig,
     ) -> Result<Self, OpenStoreError> {
-        let db_path = pool.manager().database_path.clone();
         let conn = pool.get().await?;
 
         let mut version = conn.db_version().await?;
@@ -156,13 +146,9 @@ impl SqliteStateStore {
         };
         let this = Self {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
-            db_path,
-            pool_config,
-            runtime_config,
+            pool,
+            // Use `conn` as our selected write connections.
+            write_connection: Arc::new(Mutex::new(conn)),
         };
         this.run_migrations(version, None).await?;
 
@@ -180,7 +166,7 @@ impl SqliteStateStore {
             return Ok(());
         }
 
-        let conn = self.write().await?;
+        let conn = self.write().await;
 
         if from < 2 {
             debug!("Upgrading database to version 2");
@@ -548,27 +534,15 @@ impl SqliteStateStore {
     }
 
     /// Acquire a connection for executing read operations.
-    /// Returns `StoreClosed` if closed.
     #[instrument(skip_all)]
     async fn read(&self) -> Result<SqliteAsyncConn> {
-        let pool = {
-            let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
-            conns.pool.clone()
-        };
-        Ok(pool.get().await?)
+        Ok(self.pool.get().await?)
     }
 
     /// Acquire a connection for executing write operations.
-    /// Returns `StoreClosed` if closed.
     #[instrument(skip_all)]
-    async fn write(&self) -> Result<OwnedMutexGuard<SqliteAsyncConn>> {
-        let write_conn = {
-            let guard = self.connections.lock().await;
-            let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
-            conns.write_connection.clone()
-        };
-        Ok(write_conn.lock_owned().await)
+    async fn write(&self) -> OwnedMutexGuard<SqliteAsyncConn> {
+        self.write_connection.clone().lock_owned().await
     }
 
     fn remove_maybe_stripped_room_data(
@@ -585,11 +559,11 @@ impl SqliteStateStore {
     }
 
     pub async fn vacuum(&self) -> Result<()> {
-        self.write().await?.vacuum().await
+        self.write_connection.lock().await.vacuum().await
     }
 
     pub async fn get_db_size(&self) -> Result<Option<usize>> {
-        let read_conn = self.read().await?;
+        let read_conn = self.pool.get().await?;
         Ok(Some(read_conn.get_db_size().await?))
     }
 }
@@ -1251,20 +1225,20 @@ impl StateStore for SqliteStateStore {
         };
 
         self.write()
-            .await?
+            .await
             .set_kv_blob(self.encode_state_store_data_key(key), serialized_value)
             .await
     }
 
     async fn remove_kv_data(&self, key: StateStoreDataKey<'_>) -> Result<()> {
-        self.write().await?.delete_kv_blob(self.encode_state_store_data_key(key)).await
+        self.write().await.delete_kv_blob(self.encode_state_store_data_key(key)).await
     }
 
     async fn save_changes(&self, changes: &StateChanges) -> Result<()> {
         let changes = changes.to_owned();
         let this = self.clone();
         self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 let StateChanges {
                     sync_token,
@@ -1899,14 +1873,14 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn set_custom_value_no_read(&self, key: &[u8], value: Vec<u8>) -> Result<()> {
-        let conn = self.write().await?;
+        let conn = self.write().await;
         let key = self.encode_custom_key(key);
         conn.set_kv_blob(key, value).await?;
         Ok(())
     }
 
     async fn set_custom_value(&self, key: &[u8], value: Vec<u8>) -> Result<Option<Vec<u8>>> {
-        let conn = self.write().await?;
+        let conn = self.write().await;
         let key = self.encode_custom_key(key);
         let previous = conn.get_kv_blob(key.clone()).await?;
         conn.set_kv_blob(key, value).await?;
@@ -1914,7 +1888,7 @@ impl StateStore for SqliteStateStore {
     }
 
     async fn remove_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        let conn = self.write().await?;
+        let conn = self.write().await;
         let key = self.encode_custom_key(key);
         let previous = conn.get_kv_blob(key.clone()).await?;
         if previous.is_some() {
@@ -1927,7 +1901,7 @@ impl StateStore for SqliteStateStore {
         let this = self.clone();
         let room_id = room_id.to_owned();
 
-        let conn = self.write().await?;
+        let conn = self.write().await;
 
         conn.with_transaction(move |txn| -> Result<()> {
             let room_info_room_id = this.encode_key(keys::ROOM_INFO, &room_id);
@@ -1991,7 +1965,7 @@ impl StateStore for SqliteStateStore {
 
         let created_at_ts: u64 = created_at.0.into();
         self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached("INSERT INTO send_queue_events (room_id, room_id_val, transaction_id, content, priority, created_at) VALUES (?, ?, ?, ?, ?, ?)")?.execute((room_id_key, room_id_value, transaction_id.to_string(), content, priority, created_at_ts))?;
                 Ok(())
@@ -2013,7 +1987,7 @@ impl StateStore for SqliteStateStore {
         let transaction_id = transaction_id.to_string();
 
         let num_updated = self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = NULL, content = ? WHERE room_id = ? AND transaction_id = ?")?.execute((content, room_id, transaction_id))
             })
@@ -2034,7 +2008,7 @@ impl StateStore for SqliteStateStore {
 
         let num_deleted = self
             .write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM send_queue_events WHERE room_id = ? AND transaction_id = ?",
@@ -2103,7 +2077,7 @@ impl StateStore for SqliteStateStore {
         let error_value = error.map(|e| self.serialize_value(&e)).transpose()?;
 
         self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached("UPDATE send_queue_events SET wedge_reason = ? WHERE room_id = ? AND transaction_id = ?")?.execute((error_value, room_id, transaction_id))?;
                 Ok(())
@@ -2151,7 +2125,7 @@ impl StateStore for SqliteStateStore {
 
         let created_at_ts: u64 = created_at.0.into();
         self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"INSERT INTO dependent_send_queue_events
@@ -2184,7 +2158,7 @@ impl StateStore for SqliteStateStore {
 
         let num_updated = self
             .write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     r#"UPDATE dependent_send_queue_events
@@ -2216,7 +2190,7 @@ impl StateStore for SqliteStateStore {
         let parent_txn_id = parent_txn_id.to_string();
 
         self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 Ok(txn.prepare_cached(
                     "UPDATE dependent_send_queue_events SET parent_key = ? WHERE parent_transaction_id = ? and room_id = ?",
@@ -2238,7 +2212,7 @@ impl StateStore for SqliteStateStore {
 
         let num_deleted = self
             .write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 txn.prepare_cached(
                     "DELETE FROM dependent_send_queue_events WHERE own_transaction_id = ? AND room_id = ?",
@@ -2307,7 +2281,7 @@ impl StateStore for SqliteStateStore {
             .collect();
 
         self.write()
-            .await?
+            .await
             .with_transaction(move |txn| {
                 let mut txn = txn.prepare_cached(
                     "INSERT INTO thread_subscriptions (room_id, event_id, status, bump_stamp)
@@ -2377,7 +2351,7 @@ impl StateStore for SqliteStateStore {
         let thread_id = self.encode_key(keys::THREAD_SUBSCRIPTIONS, thread_id);
 
         self.write()
-            .await?
+            .await
             .execute(
                 "DELETE FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
                 (room_id, thread_id),
@@ -2393,22 +2367,6 @@ impl StateStore for SqliteStateStore {
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.get_db_size().await
-    }
-
-    async fn close(&self) -> Result<(), Self::Error> {
-        connection::close_connections(&self.connections, "State store").await;
-        Ok(())
-    }
-
-    async fn reopen(&self) -> Result<(), Self::Error> {
-        connection::reopen_connections(
-            &self.connections,
-            self.db_path.clone(),
-            self.pool_config,
-            self.runtime_config,
-        )
-        .await?;
-        Ok(())
     }
 }
 
@@ -2486,10 +2444,9 @@ mod encrypted_tests {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).pool_max_size(42);
 
-        let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
 
-        let guard = store.connections.lock().await;
-        assert_eq!(guard.as_ref().unwrap().pool.status().max_size, 42);
+        assert_eq!(store.pool.status().max_size, 42);
     }
 
     #[async_test]
@@ -2497,9 +2454,9 @@ mod encrypted_tests {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).cache_size(1500);
 
-        let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
 
-        let conn = store.read().await.unwrap();
+        let conn = store.pool.get().await.unwrap();
         let cache_size =
             conn.query_row("PRAGMA cache_size", (), |row| row.get::<_, i32>(0)).await.unwrap();
 
@@ -2514,9 +2471,9 @@ mod encrypted_tests {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).journal_size_limit(1500);
 
-        let store = SqliteStateStore::open_with_config(&store_open_config).await.unwrap();
+        let store = SqliteStateStore::open_with_config(store_open_config).await.unwrap();
 
-        let conn = store.read().await.unwrap();
+        let conn = store.pool.get().await.unwrap();
         let journal_size_limit = conn
             .query_row("PRAGMA journal_size_limit", (), |row| row.get::<_, u32>(0))
             .await
@@ -2568,7 +2525,7 @@ mod migration_tests {
 
     use super::{DATABASE_NAME, SqliteStateStore, init, keys};
     use crate::{
-        OpenStoreError, Secret, SqliteStoreConfig, connection,
+        OpenStoreError, Secret, SqliteStoreConfig,
         error::{Error, Result},
         utils::{EncryptableStore as _, SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
     };
@@ -2588,7 +2545,6 @@ mod migration_tests {
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir).unwrap();
 
         let pool = config.build_pool_of_connections(DATABASE_NAME).unwrap();
-        let db_path = pool.manager().database_path.clone();
         let conn = pool.get().await?;
 
         init(&conn).await?;
@@ -2600,13 +2556,9 @@ mod migration_tests {
         ));
         let this = SqliteStateStore {
             store_cipher,
-            connections: Arc::new(Mutex::new(Some(connection::SqliteConnections {
-                pool,
-                write_connection: Arc::new(Mutex::new(conn)),
-            }))),
-            db_path,
-            pool_config: deadpool::managed::PoolConfig::default(),
-            runtime_config: crate::RuntimeConfig::default(),
+            pool,
+            // Use `conn` as our selected write connections.
+            write_connection: Arc::new(Mutex::new(conn)),
         };
         this.run_migrations(1, Some(version)).await?;
 
@@ -2663,7 +2615,7 @@ mod migration_tests {
         // Create and populate db.
         {
             let db = create_fake_db(&path, 1).await.unwrap();
-            let conn = db.read().await.unwrap();
+            let conn = db.pool.get().await.unwrap();
 
             let this = db.clone();
             conn.with_transaction(move |txn| {
@@ -2786,7 +2738,7 @@ mod migration_tests {
         // Create and populate db.
         {
             let db = create_fake_db(&path, 2).await.unwrap();
-            let conn = db.read().await.unwrap();
+            let conn = db.pool.get().await.unwrap();
 
             let this = db.clone();
             conn.with_transaction(move |txn| {
@@ -2838,7 +2790,7 @@ mod migration_tests {
         // Create and populate db.
         {
             let db = create_fake_db(&path, 7).await.unwrap();
-            let conn = db.read().await.unwrap();
+            let conn = db.pool.get().await.unwrap();
 
             let wedge_tx = wedged_event_transaction_id.clone();
             let local_tx = local_event_transaction_id.clone();
@@ -2951,232 +2903,5 @@ mod migration_tests {
         as_variant!(deserialized, DependentQueuedRequestKind::UploadFileOrThumbnail { related_to: de_related_to, .. } => {
             assert_eq!(de_related_to, related_to);
         });
-    }
-}
-
-#[cfg(test)]
-mod close_reopen_tests {
-    use std::sync::{
-        LazyLock,
-        atomic::{AtomicU32, Ordering::SeqCst},
-    };
-
-    use matrix_sdk_base::StateStore;
-    use matrix_sdk_test::async_test;
-    use tempfile::{TempDir, tempdir};
-
-    use super::SqliteStateStore;
-
-    static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
-    static NUM: AtomicU32 = AtomicU32::new(0);
-
-    async fn new_store() -> SqliteStateStore {
-        let name = NUM.fetch_add(1, SeqCst).to_string();
-        let tmpdir_path = TMP_DIR.path().join(name);
-        SqliteStateStore::open(tmpdir_path.to_str().unwrap(), None).await.unwrap()
-    }
-
-    #[async_test]
-    async fn test_close_completes_without_timeout() {
-        let store = new_store().await;
-
-        // Close should complete quickly without hitting the 5s timeout.
-        let start = std::time::Instant::now();
-        store.close().await.unwrap();
-        let elapsed = start.elapsed();
-
-        assert!(
-            elapsed < std::time::Duration::from_secs(2),
-            "close() took {elapsed:?}, expected < 2s (no timeout)"
-        );
-
-        // Connections should be None after close.
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "connections should be None after close");
-    }
-
-    #[async_test]
-    async fn test_reopen_restores_connections() {
-        let store = new_store().await;
-
-        store.close().await.unwrap();
-
-        // Connections should be None after close.
-        {
-            let guard = store.connections.lock().await;
-            assert!(guard.is_none());
-        }
-
-        store.reopen().await.unwrap();
-
-        // Connections should be Some after reopen.
-        {
-            let guard = store.connections.lock().await;
-            assert!(guard.is_some(), "connections should be Some after reopen");
-        }
-    }
-
-    #[async_test]
-    async fn test_close_is_idempotent() {
-        let store = new_store().await;
-
-        // First close.
-        store.close().await.unwrap();
-        // Second close should also succeed (no-op).
-        store.close().await.unwrap();
-
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none());
-    }
-
-    #[async_test]
-    async fn test_reopen_is_idempotent() {
-        let store = new_store().await;
-
-        // Reopen on an active store should be a no-op.
-        store.reopen().await.unwrap();
-
-        // Connections should still be Some.
-        let guard = store.connections.lock().await;
-        assert!(guard.is_some());
-    }
-
-    #[async_test]
-    async fn test_read_fails_when_closed() {
-        let store = new_store().await;
-        store.close().await.unwrap();
-
-        let err = store.get_custom_value(b"some_key").await;
-        assert!(err.is_err(), "read should fail when closed");
-
-        let err_msg = err.unwrap_err().to_string();
-        assert!(err_msg.contains("closed"), "error should mention 'closed', got: {err_msg}");
-    }
-
-    #[async_test]
-    async fn test_write_fails_when_closed() {
-        let store = new_store().await;
-        store.close().await.unwrap();
-
-        let err = store.set_custom_value(b"key", b"value".to_vec()).await;
-        assert!(err.is_err(), "write should fail when closed");
-
-        let err_msg = err.unwrap_err().to_string();
-        assert!(err_msg.contains("closed"), "error should mention 'closed', got: {err_msg}");
-    }
-
-    #[async_test]
-    async fn test_data_persists_across_close_reopen() {
-        let store = new_store().await;
-
-        // Write some data.
-        store.set_custom_value(b"test_key", b"test_value".to_vec()).await.unwrap();
-
-        // Verify it's there.
-        let value = store.get_custom_value(b"test_key").await.unwrap();
-        assert_eq!(value.as_deref(), Some(b"test_value".as_slice()));
-
-        // Close and reopen.
-        store.close().await.unwrap();
-        store.reopen().await.unwrap();
-
-        // Data should still be there after reopen.
-        let value = store.get_custom_value(b"test_key").await.unwrap();
-        assert_eq!(
-            value.as_deref(),
-            Some(b"test_value".as_slice()),
-            "data should persist across close/reopen"
-        );
-    }
-
-    #[async_test]
-    async fn test_multiple_close_reopen_cycles() {
-        let store = new_store().await;
-
-        for i in 0..3 {
-            let key = format!("key_{i}");
-            let value = format!("value_{i}");
-
-            store.set_custom_value(key.as_bytes(), value.as_bytes().to_vec()).await.unwrap();
-
-            store.close().await.unwrap();
-            store.reopen().await.unwrap();
-
-            // Verify all previously written data is still accessible.
-            for j in 0..=i {
-                let k = format!("key_{j}");
-                let v = format!("value_{j}");
-                let retrieved = store.get_custom_value(k.as_bytes()).await.unwrap();
-                assert_eq!(
-                    retrieved.as_deref(),
-                    Some(v.as_bytes()),
-                    "data for key_{j} should persist after cycle {i}"
-                );
-            }
-        }
-    }
-
-    #[async_test]
-    async fn test_pool_is_fully_drained_after_close() {
-        let store = new_store().await;
-
-        // Do a few reads to exercise the pool.
-        let _ = store.get_custom_value(b"key1").await;
-        let _ = store.get_custom_value(b"key2").await;
-
-        store.close().await.unwrap();
-
-        // After close, the connections field should be None (pool and write
-        // connection have been fully torn down).
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "all connections should be released after close");
-    }
-
-    #[async_test]
-    async fn test_operations_work_immediately_after_reopen() {
-        let store = new_store().await;
-
-        store.close().await.unwrap();
-        store.reopen().await.unwrap();
-
-        // Write should work immediately.
-        store.set_custom_value(b"after_reopen", b"works".to_vec()).await.unwrap();
-
-        // Read should work immediately.
-        let value = store.get_custom_value(b"after_reopen").await.unwrap();
-        assert_eq!(value.as_deref(), Some(b"works".as_slice()));
-    }
-
-    #[async_test]
-    async fn test_close_waits_for_held_read_connection_to_drain() {
-        let store = new_store().await;
-
-        // Acquire a read connection and hold it, simulating an in-flight read.
-        let held_conn = store.read().await.unwrap();
-
-        // Spawn close in a background task — it will close the pool and then
-        // poll-wait for pool.status().size == 0 in the drain loop.
-        let store_clone = store.clone();
-        let close_handle = tokio::spawn(async move {
-            store_clone.close().await.unwrap();
-        });
-
-        // Give close() a moment to close the pool and enter the drain loop.
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-        // The close task should still be running because we hold a connection.
-        assert!(!close_handle.is_finished(), "close should be waiting for the held connection");
-
-        // Release the held connection — this lets pool.status().size drop to 0.
-        drop(held_conn);
-
-        // Now close should complete promptly (well within the 5s timeout).
-        let timeout = tokio::time::timeout(std::time::Duration::from_secs(3), close_handle).await;
-        assert!(timeout.is_ok(), "close should complete after the held connection is released");
-        timeout.unwrap().unwrap();
-
-        // Verify the store is fully closed.
-        let guard = store.connections.lock().await;
-        assert!(guard.is_none(), "connections should be None after close");
     }
 }

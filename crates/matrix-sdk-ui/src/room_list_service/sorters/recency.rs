@@ -163,21 +163,17 @@ mod tests {
         })
     }
 
-    async fn set_latest_event_value(room: &mut RoomListItem, latest_event_value: LatestEventValue) {
-        room.update_room_info(|mut info| {
-            info.set_latest_event(latest_event_value);
-            (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
-        })
-        .await;
+    fn set_latest_event_value(room: &mut RoomListItem, latest_event_value: LatestEventValue) {
+        let mut room_info = room.clone_info();
+        room_info.set_latest_event(latest_event_value);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::LATEST_EVENT);
         room.refresh_cached_data();
     }
 
-    async fn set_recency_stamp(room: &mut RoomListItem, recency_stamp: RoomRecencyStamp) {
-        room.update_room_info(|mut info| {
-            info.update_recency_stamp(recency_stamp);
-            (info, RoomInfoNotableUpdateReasons::RECENCY_STAMP)
-        })
-        .await;
+    fn set_recency_stamp(room: &mut RoomListItem, recency_stamp: RoomRecencyStamp) {
+        let mut room_info = room.clone_info();
+        room_info.update_recency_stamp(recency_stamp);
+        room.set_room_info(room_info, RoomInfoNotableUpdateReasons::RECENCY_STAMP);
         room.refresh_cached_data();
     }
 
@@ -188,15 +184,15 @@ mod tests {
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
-        set_recency_stamp(&mut room_a, 1.into()).await;
-        set_recency_stamp(&mut room_b, 2.into()).await;
+        set_recency_stamp(&mut room_a, 1.into());
+        set_recency_stamp(&mut room_b, 2.into());
 
         // Both rooms have a `LatestEventValue::None`.
         //
         // Because there is no latest event, the recency stamp MUST BE USED.
         {
-            set_latest_event_value(&mut room_a, none()).await;
-            set_latest_event_value(&mut room_b, none()).await;
+            set_latest_event_value(&mut room_a, none());
+            set_latest_event_value(&mut room_b, none());
 
             assert_eq!(extract_scores(&room_a, &room_b), (Some(1), Some(2)));
         }
@@ -205,8 +201,8 @@ mod tests {
         //
         // One of the room has a latest event, so the recency stamp MUST BE IGNORED.
         {
-            set_latest_event_value(&mut room_a, none()).await;
-            set_latest_event_value(&mut room_b, remote(3)).await;
+            set_latest_event_value(&mut room_a, none());
+            set_latest_event_value(&mut room_b, remote(3));
 
             assert_eq!(extract_scores(&room_a, &room_b), (None, Some(3)));
         }
@@ -215,8 +211,8 @@ mod tests {
         //
         // One of the room has a latest event, so the recency stamp MUST BE IGNORED.
         {
-            set_latest_event_value(&mut room_a, remote(3)).await;
-            set_latest_event_value(&mut room_b, none()).await;
+            set_latest_event_value(&mut room_a, remote(3));
+            set_latest_event_value(&mut room_b, none());
 
             assert_eq!(extract_scores(&room_a, &room_b), (Some(3), None));
         }
@@ -229,8 +225,8 @@ mod tests {
         let [mut room_a, mut room_b] =
             new_rooms([room_id!("!a:b.c"), room_id!("!d:e.f")], &client, &server).await;
 
-        set_recency_stamp(&mut room_a, 1.into()).await;
-        set_recency_stamp(&mut room_b, 2.into()).await;
+        set_recency_stamp(&mut room_a, 1.into());
+        set_recency_stamp(&mut room_b, 2.into());
 
         // `room_a` and `room_b` has either `Remote` or `Local*`.
         //
@@ -240,8 +236,8 @@ mod tests {
                 for latest_event_value_b in
                     [remote(4), local_is_sending(4), local_cannot_be_sent(4)]
                 {
-                    set_latest_event_value(&mut room_a, latest_event_value_a.clone()).await;
-                    set_latest_event_value(&mut room_b, latest_event_value_b).await;
+                    set_latest_event_value(&mut room_a, latest_event_value_a.clone());
+                    set_latest_event_value(&mut room_b, latest_event_value_b);
 
                     assert_eq!(extract_scores(&room_a, &room_b), (Some(3), Some(4)));
                 }
