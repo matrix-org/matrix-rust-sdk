@@ -310,7 +310,9 @@ impl RoomIndex {
                     | OpenDirectoryError::NotADirectory(_) => return Err(err),
                 },
                 // Bubble
-                IndexError::QueryParserError(_) => return Err(err),
+                IndexError::QueryParserError(_) | IndexError::InvalidEncryptionConfig => {
+                    return Err(err);
+                }
                 // Ignore
                 IndexError::CannotIndexRedactedMessage
                 | IndexError::EmptyMessage
