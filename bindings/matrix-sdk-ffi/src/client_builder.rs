@@ -41,6 +41,8 @@ use matrix_sdk_base::{
 };
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
+#[cfg(feature = "experimental-search")]
+use tracing::error;
 
 use super::client::Client;
 #[cfg(any(feature = "sqlite", feature = "indexeddb"))]
@@ -412,7 +414,8 @@ impl ClientBuilder {
             // Create the search index directory.
             match search_index_store {
                 SearchIndexStoreKind::UnencryptedDirectory(ref path)
-                | SearchIndexStoreKind::EncryptedDirectory(ref path, _) => {
+                | SearchIndexStoreKind::EncryptedWithPassphraseDirectory(ref path, _)
+                | SearchIndexStoreKind::EncryptedWithKeyDirectory(ref path, _) => {
                     fs::create_dir_all(path)?;
                 }
                 _ => {}
@@ -702,19 +705,31 @@ impl ClientBuilder {
     /// be unique per session.
     ///
     /// `password` is an optional password to encrypt the search index at rest.
-    /// If `None`, the search index will be stored unencrypted.
+    /// This will be converted to a key using key derivation.
+    ///
+    /// `key` is an optional key to encrypt the search index.
+    ///
+    /// If no `password` or `key` is provided, the search index will be stored
+    /// unencrypted.
     pub fn with_search_index_store(
         self: Arc<Self>,
         path: String,
         password: Option<String>,
+        key: Option<Vec<u8>>,
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
 
         // Note: creation of the path is deferred to later.
         let path = PathBuf::from(path);
 
-        let kind = if let Some(password) = password {
-            SearchIndexStoreKind::EncryptedDirectory(path, password)
+        let kind = if let Some(key) = key {
+            let Ok(key_array) = key.try_into() else {
+                error!("Failed to convert key to array of 32 bytes, please check its format");
+                return Arc::new(builder);
+            };
+            SearchIndexStoreKind::EncryptedWithKeyDirectory(path, key_array)
+        } else if let Some(password) = password {
+            SearchIndexStoreKind::EncryptedWithPassphraseDirectory(path, password)
         } else {
             SearchIndexStoreKind::UnencryptedDirectory(path)
         };

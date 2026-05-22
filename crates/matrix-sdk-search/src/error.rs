@@ -56,6 +56,10 @@ pub enum IndexError {
     /// IO error
     #[error(transparent)]
     IO(std::io::Error),
+
+    /// Invalid encryption configuration, e.g. missing key or passphrase.
+    #[error("Invalid encryption configuration")]
+    InvalidEncryptionConfig,
 }
 
 impl From<tantivy::TantivyError> for IndexError {

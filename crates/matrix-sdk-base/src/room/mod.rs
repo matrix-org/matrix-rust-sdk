@@ -475,6 +475,8 @@ impl Room {
         let guard = self.info.read();
         let heroes = guard.heroes();
 
+        warn!("Room info {:?} heroes: {:?}", self.room_id(), heroes);
+
         if let Some(service_members) = guard.service_members() {
             heroes.iter().filter(|hero| !service_members.contains(&hero.user_id)).cloned().collect()
         } else {

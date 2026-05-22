@@ -47,8 +47,10 @@ type Password = String;
 pub enum SearchIndexStoreKind {
     /// Store unencrypted in file system folder
     UnencryptedDirectory(PathBuf),
-    /// Store encrypted in file system folder
-    EncryptedDirectory(PathBuf, Password),
+    /// Store encrypted with a passphrase in file system folder
+    EncryptedWithPassphraseDirectory(PathBuf, Password),
+    /// Store encrypted with a key in file system folder
+    EncryptedWithKeyDirectory(PathBuf, [u8; 32]),
     /// Store in memory
     InMemory,
 }
@@ -97,9 +99,14 @@ impl SearchIndexGuard<'_> {
             SearchIndexStoreKind::UnencryptedDirectory(path) => {
                 RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id).unencrypted().build()?
             }
-            SearchIndexStoreKind::EncryptedDirectory(path, password) => {
+            SearchIndexStoreKind::EncryptedWithPassphraseDirectory(path, password) => {
                 RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id)
-                    .encrypted(password)
+                    .encrypted_with_passphrase(password)
+                    .build()?
+            }
+            SearchIndexStoreKind::EncryptedWithKeyDirectory(path, key) => {
+                RoomIndexBuilder::new_on_disk(path.to_path_buf(), room_id)
+                    .encrypted_with_key(key.to_owned())
                     .build()?
             }
             SearchIndexStoreKind::InMemory => RoomIndexBuilder::new_in_memory(room_id).build(),

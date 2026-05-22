@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{fs, io, ops::Deref, path::PathBuf, sync::Arc};
 
 use ruma::OwnedRoomId;
 use tantivy::{
@@ -52,12 +52,26 @@ impl PhysicalRoomIndexBuilder {
         }
     }
 
-    /// Make an encrypted index
-    pub fn encrypted<P: Into<String>>(&self, password: P) -> EncryptedPhysicalRoomIndexBuilder {
+    /// Make an index encrypted using a passphrase.
+    pub fn encrypted_with_passphrase<P: Into<String>>(
+        &self,
+        password: P,
+    ) -> EncryptedPhysicalRoomIndexBuilder {
         EncryptedPhysicalRoomIndexBuilder {
             path: self.path.clone(),
             room_id: self.room_id.clone(),
-            password: Zeroizing::new(password.into()),
+            password: Some(Zeroizing::new(password.into())),
+            key: None,
+        }
+    }
+
+    /// Make an index encrypted using a key.
+    pub fn encrypted_with_key(&self, key: [u8; 32]) -> EncryptedPhysicalRoomIndexBuilder {
+        EncryptedPhysicalRoomIndexBuilder {
+            path: self.path.clone(),
+            room_id: self.room_id.clone(),
+            password: None,
+            key: Some(Zeroizing::new(key)),
         }
     }
 }
@@ -97,32 +111,46 @@ impl UnencryptedPhysicalRoomIndexBuilder {
 pub struct EncryptedPhysicalRoomIndexBuilder {
     path: PathBuf,
     room_id: OwnedRoomId,
-    password: Zeroizing<String>,
+    password: Option<Zeroizing<String>>,
+    key: Option<Zeroizing<[u8; 32]>>,
 }
 
 impl EncryptedPhysicalRoomIndexBuilder {
     /// Build the [`RoomIndex`]
     pub fn build(&self) -> Result<RoomIndex, IndexError> {
         let path = self.path.join(self.room_id.as_str());
-        let mmap_dir =
-            match EncryptedMmapDirectory::open_or_create(path, &self.password, PBKDF_COUNT) {
-                Ok(dir) => Ok(dir),
-                Err(err) => match err {
-                    OpenDirectoryError::DoesNotExist(path) => {
-                        fs::create_dir_all(path.clone()).map_err(|err| {
-                            OpenDirectoryError::IoError {
-                                io_error: Arc::new(err),
-                                directory_path: path.to_path_buf(),
-                            }
-                        })?;
-                        EncryptedMmapDirectory::open_or_create(path, &self.password, PBKDF_COUNT)
-                    }
-                    _ => Err(err),
-                },
-            }?;
+        let mmap_dir = match self.open_or_create(&path) {
+            Ok(dir) => Ok(dir),
+            Err(err) => match err {
+                OpenDirectoryError::DoesNotExist(path) => {
+                    fs::create_dir_all(path.clone()).map_err(|err| {
+                        OpenDirectoryError::IoError {
+                            io_error: Arc::new(err),
+                            directory_path: path.to_path_buf(),
+                        }
+                    })?;
+
+                    self.open_or_create(&path)
+                }
+                _ => Err(err),
+            },
+        }?;
         let schema = RoomMessageSchema::new();
         let index = Index::open_or_create(mmap_dir, schema.as_tantivy_schema())?;
         Ok(RoomIndex::new_with(index, schema, &self.room_id))
+    }
+
+    fn open_or_create(&self, path: &PathBuf) -> Result<EncryptedMmapDirectory, OpenDirectoryError> {
+        if let Some(key) = &self.key {
+            EncryptedMmapDirectory::open_or_create_with_key(path, key.deref())
+        } else if let Some(password) = &self.password {
+            EncryptedMmapDirectory::open_or_create_with_passphrase(path, password, PBKDF_COUNT)
+        } else {
+            Err(OpenDirectoryError::FailedToCreateTempDir(Arc::new(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                IndexError::InvalidEncryptionConfig,
+            ))))
+        }
     }
 }
 
