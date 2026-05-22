@@ -301,6 +301,20 @@ impl DehydratedDevices {
     /// fall behind the channel's buffer, it receives a
     /// [`BroadcastStreamRecvError`] reporting the number of skipped events
     /// and the stream continues from the most recent event.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use futures_util::StreamExt;
+    /// # async fn example(client: Client) -> anyhow::Result<()> {
+    /// let dehydrated = client.encryption().dehydrated_devices();
+    /// let mut events = dehydrated.events();
+    /// while let Some(Ok(event)) = events.next().await {
+    ///     println!("dehydrated devices: {event:?}");
+    /// }
+    /// # Ok(()) }
+    /// ```
     pub fn events(
         &self,
     ) -> impl Stream<Item = Result<DehydratedDeviceEvent, BroadcastStreamRecvError>> + use<> {
@@ -354,6 +368,22 @@ impl DehydratedDevices {
     ///   `"Dehydrated device"` to match the existing [matrix-js-sdk] behavior.
     /// * `pickle_key` - 32-byte key used to encrypt the dehydrated device.
     ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
+    /// # async fn example(client: Client) -> anyhow::Result<()> {
+    /// let pickle_key = DehydratedDeviceKey::new();
+    /// let device_id = client
+    ///     .encryption()
+    ///     .dehydrated_devices()
+    ///     .create(Some("Offline catcher"), &pickle_key)
+    ///     .await?;
+    /// println!("Uploaded dehydrated device {device_id}");
+    /// # Ok(()) }
+    /// ```
+    ///
     /// [vodozemac]: https://docs.rs/vodozemac/
     /// [matrix-js-sdk]: https://github.com/matrix-org/matrix-js-sdk
     #[instrument(skip_all)]
@@ -393,6 +423,21 @@ impl DehydratedDevices {
     /// (`M_NOT_FOUND`) or does not implement the endpoint
     /// (`M_UNRECOGNIZED`). Returns `Ok(true)` once the rehydration cycle
     /// has completed end to end.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
+    /// # async fn example(client: Client, pickle_key: DehydratedDeviceKey)
+    /// # -> anyhow::Result<()> {
+    /// let rehydrated =
+    ///     client.encryption().dehydrated_devices().rehydrate(&pickle_key).await?;
+    /// if rehydrated {
+    ///     println!("Caught up on offline room keys");
+    /// }
+    /// # Ok(()) }
+    /// ```
     #[instrument(skip_all)]
     pub async fn rehydrate(
         &self,
@@ -477,6 +522,17 @@ impl DehydratedDevices {
     ///
     /// The key is looked up by the account-data event type
     /// `org.matrix.msc3814` (the unstable name reserved by MSC3814).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, encryption::secret_storage::SecretStore};
+    /// # async fn example(client: Client, store: SecretStore)
+    /// # -> anyhow::Result<()> {
+    /// let stored =
+    ///     client.encryption().dehydrated_devices().is_key_stored(&store).await?;
+    /// # Ok(()) }
+    /// ```
     pub async fn is_key_stored(
         &self,
         secret_store: &SecretStore,
@@ -490,6 +546,18 @@ impl DehydratedDevices {
     /// The previous key (if any) is overwritten in both places. Any
     /// dehydrated device that was encrypted with the previous key becomes
     /// unrehydratable until rotated.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, encryption::secret_storage::SecretStore};
+    /// # async fn example(client: Client, store: SecretStore)
+    /// # -> anyhow::Result<()> {
+    /// let fresh_key =
+    ///     client.encryption().dehydrated_devices().reset_key(&store).await?;
+    /// # let _ = fresh_key;
+    /// # Ok(()) }
+    /// ```
     #[instrument(skip_all)]
     pub async fn reset_key(
         &self,
@@ -569,6 +637,21 @@ impl DehydratedDevices {
     /// Per-tick HTTP failures emit
     /// [`DehydratedDeviceEvent::RotationError`] without aborting the
     /// schedule.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::{Client, encryption::secret_storage::SecretStore};
+    /// # use matrix_sdk::encryption::dehydrated_devices::StartDehydrationOpts;
+    /// # async fn example(client: Client, store: SecretStore)
+    /// # -> anyhow::Result<()> {
+    /// client
+    ///     .encryption()
+    ///     .dehydrated_devices()
+    ///     .start(&store, StartDehydrationOpts::default())
+    ///     .await?;
+    /// # Ok(()) }
+    /// ```
     #[instrument(skip_all)]
     pub async fn start(
         &self,
@@ -687,6 +770,15 @@ impl DehydratedDevices {
     /// Returns `Ok(())` silently if no dehydrated device is on the server or
     /// the server does not implement the endpoint, matching the
     /// matrix-js-sdk's behavior.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # async fn example(client: Client) -> anyhow::Result<()> {
+    /// client.encryption().dehydrated_devices().delete().await?;
+    /// # Ok(()) }
+    /// ```
     #[instrument(skip_all)]
     pub async fn delete(&self) -> Result<(), DehydratedDeviceError> {
         self.stop();
