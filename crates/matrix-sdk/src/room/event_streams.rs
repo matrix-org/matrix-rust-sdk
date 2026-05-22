@@ -14,7 +14,8 @@ use crate::event_streams::{
 };
 
 impl Room {
-    /// Send a room message and return a publisher for sending transient updates to it.
+    /// Send a room message and return a publisher for sending transient updates
+    /// to it.
     pub async fn send_streaming_message(
         &self,
         message_content: RoomMessageEventContent,

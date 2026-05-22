@@ -34,7 +34,8 @@ pub type Result<T, E = EventStreamError> = std::result::Result<T, E>;
 /// An error returned by an event stream operation.
 #[derive(Debug, Error)]
 pub enum EventStreamError {
-    /// The operation needs the current device ID, but the client is not logged in.
+    /// The operation needs the current device ID, but the client is not logged
+    /// in.
     #[error("event streams require a logged-in client")]
     AuthenticationRequired,
 
@@ -42,7 +43,8 @@ pub enum EventStreamError {
     #[error("unknown event stream")]
     UnknownStream,
 
-    /// The descriptor event is not an unredacted room message with a stream descriptor.
+    /// The descriptor event is not an unredacted room message with a stream
+    /// descriptor.
     #[error("stream descriptor event is not an unredacted room message with a stream descriptor")]
     InvalidDescriptorEvent,
 

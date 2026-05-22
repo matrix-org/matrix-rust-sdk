@@ -60,7 +60,8 @@ struct PublisherInner {
     generation: u64,
     descriptor_expiry_ms: UInt,
     descriptor_origin_server_ts: Option<MilliSecondsSinceUnixEpoch>,
-    /// The original descriptor event body length, used as the initial delivered offset.
+    /// The original descriptor event body length, used as the initial delivered
+    /// offset.
     original_descriptor_body_len: usize,
     subscribers: BTreeMap<(OwnedUserId, OwnedDeviceId), PublisherSubscriber>,
 }
@@ -283,8 +284,8 @@ impl PublisherUpdateLoop {
                 "sent event stream updates"
             );
 
-            // Now that we've successfully sent the to-device messages, update our internal state
-            // for each subscriber
+            // Now that we've successfully sent the to-device messages, update our internal
+            // state for each subscriber
             let mut publisher = state.lock().await;
             for planned_update in planned_updates {
                 let subscriber_key = (planned_update.user_id, planned_update.device_id);
@@ -504,7 +505,8 @@ impl EventStreamPublishers {
         .await
     }
 
-    /// Validate and register a subscription, returning whether the update loop should be notified.
+    /// Validate and register a subscription, returning whether the update loop
+    /// should be notified.
     async fn validate_and_register_subscription(
         &self,
         stream_id: &StreamId,
@@ -521,7 +523,8 @@ impl EventStreamPublishers {
         Ok((publisher, should_notify))
     }
 
-    /// Check that updates would be sent to a device owned by the subscribing user.
+    /// Check that updates would be sent to a device owned by the subscribing
+    /// user.
     async fn validate_subscriber_device(
         &self,
         content: &StreamSubscribeEventContent,
@@ -551,8 +554,9 @@ impl EventStreamPublishers {
         }
     }
 
-    /// Check that the subscriber is currently joined and could view the descriptor event under
-    /// the room history rules in effect when that event was sent.
+    /// Check that the subscriber is currently joined and could view the
+    /// descriptor event under the room history rules in effect when that
+    /// event was sent.
     async fn validate_stream_visibility(
         &self,
         publisher: &PublisherHandle,
@@ -571,10 +575,11 @@ impl EventStreamPublishers {
             }
         }
 
-        // FIXME: Requiring a network request while accepting a subscription is unfortunate, but the
-        // descriptor event's context is the most robust way to determine whether this particular
-        // member was allowed to see it. Current local state does not preserve all historical
-        // membership and visibility transitions.
+        // FIXME: Requiring a network request while accepting a subscription is
+        // unfortunate, but the descriptor event's context is the most robust
+        // way to determine whether this particular member was allowed to see
+        // it. Current local state does not preserve all historical membership
+        // and visibility transitions.
         let descriptor_context = room
             .event_with_context(&stream_id.event_id, false, uint!(0), None)
             .await

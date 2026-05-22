@@ -39,7 +39,8 @@ pub enum EventStreamSubscriberUpdate {
         body: String,
     },
 
-    /// The publisher rejected the subscription or ended the stream for this subscriber.
+    /// The publisher rejected the subscription or ended the stream for this
+    /// subscriber.
     Cancelled {
         /// The stream that became terminal.
         stream_id: StreamId,
@@ -145,8 +146,9 @@ impl EventStreamSubscriptions {
 
         let stream_id = StreamId::new(room_id.clone(), event_id.clone());
 
-        // Create our local state for managing the subscription. A duplicate subscription without
-        // a resync request should not cause us to lose already-applied transient content.
+        // Create our local state for managing the subscription. A duplicate
+        // subscription without a resync request should not cause us to lose
+        // already-applied transient content.
         let state = SubscriberState {
             publisher_user_id: publisher_user_id.clone(),
             publisher_device_id: descriptor.device_id.clone(),
@@ -183,7 +185,8 @@ impl EventStreamSubscriptions {
         Ok(EventStreamSubscription { subscriptions: self.clone(), stream_id })
     }
 
-    /// Ask the publisher for a full replacement after incremental updates could not be applied.
+    /// Ask the publisher for a full replacement after incremental updates could
+    /// not be applied.
     async fn resync(&self, stream_id: &StreamId) -> Result<()> {
         let (publisher_user_id, publisher_device_id, subscriber_device_id) = {
             let subscriptions = self.inner.subscriptions.lock().await;
@@ -399,8 +402,8 @@ impl EventStreamSubscriptions {
         let stream_id = StreamId::new(room.room_id().to_owned(), replacement.event_id);
         let mut subscriptions = self.inner.subscriptions.lock().await;
         // This handler sees replacement relations directly, before timeline edit
-        // validation rejects edits sent by anyone other than the original sender. Make sure it's
-        // a valid edit before handling it
+        // validation rejects edits sent by anyone other than the original sender. Make
+        // sure it's a valid edit before handling it
         if let Some(state) = subscriptions.get(&stream_id) {
             if state.publisher_user_id != event.sender {
                 debug!(
@@ -768,7 +771,8 @@ mod tests {
             )
         };
 
-        // Missing seq 1 makes this append unusable and triggers the first resync request.
+        // Missing seq 1 makes this append unusable and triggers the first resync
+        // request.
         {
             let _resync = server.mock_send_to_device().ok().mock_once().mount_as_scoped().await;
             subscriptions
@@ -779,7 +783,8 @@ mod tests {
                 .await;
         }
 
-        // The baseline is still invalid, but the outstanding resync suppresses a second request.
+        // The baseline is still invalid, but the outstanding resync suppresses a second
+        // request.
         {
             let _no_resync = server.mock_send_to_device().ok().never().mount_as_scoped().await;
             subscriptions
