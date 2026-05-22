@@ -84,7 +84,7 @@ impl PublisherHandle {
         let state = Arc::new(Mutex::new(PublisherInner {
             room,
             original_descriptor_body_len: descriptor_body.len(),
-            current_body: descriptor_body.clone(),
+            current_body: descriptor_body,
             generation: 0,
             descriptor_expiry_ms,
             descriptor_origin_server_ts: None,
@@ -97,7 +97,7 @@ impl PublisherHandle {
             stream_id,
             update_receiver,
         };
-        let _ = spawn(async move {
+        spawn(async move {
             update_loop.run().await;
         });
 
@@ -134,10 +134,10 @@ impl PublisherHandle {
             delivered_offset: original_descriptor_body_len,
         });
 
-        if let Some(subscriber) = publisher.subscribers.get_mut(&key) {
-            if content.resync {
-                subscriber.delivered_generation = None;
-            }
+        if let Some(subscriber) = publisher.subscribers.get_mut(&key)
+            && content.resync
+        {
+            subscriber.delivered_generation = None;
         }
 
         Ok(content.resync
@@ -423,10 +423,8 @@ impl EventStreamPublishers {
             "accepted event stream subscription"
         );
 
-        if should_notify {
-            if let Err(error) = publisher.notify_update_loop() {
-                warn!("failed to schedule event stream update: {error}");
-            }
+        if should_notify && let Err(error) = publisher.notify_update_loop() {
+            warn!("failed to schedule event stream update: {error}");
         }
     }
 

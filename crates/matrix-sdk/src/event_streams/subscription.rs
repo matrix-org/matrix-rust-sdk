@@ -316,7 +316,7 @@ impl EventStreamSubscriptions {
                 StreamUpdateOperation::Append(append) => {
                     let expected_next = state
                         .latest_seq
-                        .and_then(|seq| u64::try_from(seq).ok())
+                        .map(u64::from)
                         .and_then(|seq| UInt::try_from(seq + 1).ok())
                         .unwrap_or(js_int::uint!(1));
 
@@ -384,12 +384,12 @@ impl EventStreamSubscriptions {
             let _ = self.inner.updates_sender.send(update);
         }
 
-        if update.1 {
-            if let Err(error) = self.resync(&stream_id).await {
-                warn!("failed to resync event stream: {error}");
-                if let Some(state) = self.inner.subscriptions.lock().await.get_mut(&stream_id) {
-                    state.resync_pending = false;
-                }
+        if update.1
+            && let Err(error) = self.resync(&stream_id).await
+        {
+            warn!("failed to resync event stream: {error}");
+            if let Some(state) = self.inner.subscriptions.lock().await.get_mut(&stream_id) {
+                state.resync_pending = false;
             }
         }
     }
