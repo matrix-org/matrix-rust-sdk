@@ -403,7 +403,7 @@ impl Caches {
         ResetCaches::new(self).await
     }
 
-    /// Get all events from all the event caches manged by this [`Cacches`].
+    /// Get all events from all the event caches manged by this [`Caches`].
     ///
     /// Events can be duplicated if present in different event caches.
     #[cfg(feature = "e2e-encryption")]
