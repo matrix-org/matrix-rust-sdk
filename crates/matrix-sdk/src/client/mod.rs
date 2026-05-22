@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-event-streams")]
+use std::sync::OnceLock;
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
@@ -87,6 +89,8 @@ use self::{
     caches::{Cache, CachedValue, ClientCaches},
     futures::SendRequest,
 };
+#[cfg(feature = "experimental-event-streams")]
+use crate::event_streams::EventStreams;
 use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
@@ -394,6 +398,9 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) duplicate_key_upload_error_sender:
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
+
+    #[cfg(feature = "experimental-event-streams")]
+    event_streams: OnceLock<EventStreams>,
 }
 
 impl ClientInner {
@@ -464,6 +471,8 @@ impl ClientInner {
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
+            #[cfg(feature = "experimental-event-streams")]
+            event_streams: OnceLock::new(),
         };
 
         #[allow(clippy::let_and_return)]
@@ -512,6 +521,12 @@ impl Client {
     /// Create a new [`ClientBuilder`].
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
+    }
+
+    /// Get the client-owned event stream manager.
+    #[cfg(feature = "experimental-event-streams")]
+    pub fn event_streams(&self) -> EventStreams {
+        self.inner.event_streams.get_or_init(|| EventStreams::new(self.clone())).clone()
     }
 
     pub(crate) fn base_client(&self) -> &BaseClient {

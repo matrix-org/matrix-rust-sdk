@@ -43,6 +43,8 @@ pub mod encryption;
 mod error;
 pub mod event_cache;
 pub mod event_handler;
+#[cfg(feature = "experimental-event-streams")]
+pub mod event_streams;
 mod http_client;
 pub mod latest_events;
 pub mod media;

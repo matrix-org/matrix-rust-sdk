@@ -71,7 +71,7 @@ rand = { version = "0.10.1", default-features = false, features = ["std", "std_r
 regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = { version = "1.3.0", default-features = false }
-ruma = { version = "0.15.1", features = [
+ruma = { version = "0.15.1", git = "https://github.com/bradtgmurray/ruma", branch = "msc4471-event-streams", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",

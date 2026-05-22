@@ -16,7 +16,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "experimental-event-streams"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -81,6 +81,7 @@ federation-api = ["ruma/federation-api-c"]
 uniffi = ["dep:uniffi", "matrix-sdk-base/uniffi", "dep:matrix-sdk-ffi-macros"]
 
 experimental-widgets = ["dep:uuid", "experimental-send-custom-to-device"]
+experimental-event-streams = ["e2e-encryption", "ruma/unstable-msc4471"]
 
 docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "federation-api"]
 
