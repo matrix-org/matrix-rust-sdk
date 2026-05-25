@@ -2579,8 +2579,8 @@ impl Client {
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
     }
 
-    /// Get information about the homeserver's advertised map tile server, if any,
-    /// by fetching the well-known file from the server or the cache.
+    /// Get information about the homeserver's advertised map tile server, if
+    /// any, by fetching the well-known file from the server or the cache.
     ///
     /// Returns `None` if the homeserver has not advertised a tile server in its
     /// well-known, or if the well-known is otherwise unavailable.

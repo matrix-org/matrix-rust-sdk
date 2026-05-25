@@ -2063,7 +2063,8 @@ impl Client {
             .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
     }
 
-    /// Get information about the homeserver's advertised map tile server, if any.
+    /// Get information about the homeserver's advertised map tile server, if
+    /// any.
     ///
     /// Reads the `tile_server` field of the matrix client well-known (MSC3488).
     /// Uses the cached well-known when available, otherwise fetches it from the
