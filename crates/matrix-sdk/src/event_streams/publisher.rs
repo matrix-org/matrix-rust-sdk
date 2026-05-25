@@ -750,11 +750,108 @@ fn membership_from_context(
 mod tests {
     use js_int::uint;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{MilliSecondsSinceUnixEpoch, event_id, owned_device_id, owned_user_id, room_id};
+    use ruma::{
+        MilliSecondsSinceUnixEpoch, event_id, events::room::message::RoomMessageEventContent,
+        owned_device_id, owned_user_id, room_id,
+    };
     use serde_json::json;
 
     use super::*;
-    use crate::test_utils::mocks::MatrixMockServer;
+    use crate::test_utils::mocks::{MatrixMockServer, RoomContextResponseTemplate};
+
+    struct SubscribableStreamFixture {
+        server: MatrixMockServer,
+        publisher: EventStreamPublisher,
+        stream_id: StreamId,
+        publisher_user_id: OwnedUserId,
+        subscriber_user_id: OwnedUserId,
+        subscriber_device_id: OwnedDeviceId,
+    }
+
+    impl SubscribableStreamFixture {
+        fn subscription_content(&self) -> StreamSubscribeEventContent {
+            StreamSubscribeEventContent::new(
+                self.stream_id.room_id.clone(),
+                self.stream_id.event_id.clone(),
+                self.subscriber_device_id.clone(),
+            )
+        }
+    }
+
+    async fn set_up_subscribable_stream() -> SubscribableStreamFixture {
+        set_up_subscribable_stream_with_options(EventStreamPublisherOptions::default()).await
+    }
+
+    async fn set_up_subscribable_stream_with_options(
+        options: EventStreamPublisherOptions,
+    ) -> SubscribableStreamFixture {
+        let server = MatrixMockServer::new().await;
+        server.mock_crypto_endpoints_preset().await;
+        let (client, subscriber_client) = server.set_up_alice_and_bob_for_encryption().await;
+        let room_id = room_id!("!stream:example.org");
+        let publisher_user_id = client.user_id().unwrap().to_owned();
+        let subscriber_user_id = subscriber_client.user_id().unwrap().to_owned();
+        let subscriber_device_id = subscriber_client.device_id().unwrap().to_owned();
+        let room = server.sync_joined_room(&client, room_id).await;
+        server.mock_room_state_encryption().expect_any_access_token().plain().mount().await;
+        server
+            .mock_room_send()
+            .expect_any_access_token()
+            .body_matches_partial_json(json!({ "body": "initial" }))
+            .ok(event_id!("$descriptor"))
+            .mock_once()
+            .mount()
+            .await;
+        let publisher = room
+            .send_streaming_message(RoomMessageEventContent::text_plain("initial"), options)
+            .await
+            .unwrap();
+        let stream_id = publisher.stream_id().clone();
+
+        SubscribableStreamFixture {
+            server,
+            publisher,
+            stream_id,
+            publisher_user_id,
+            subscriber_user_id,
+            subscriber_device_id,
+        }
+    }
+
+    async fn assert_subscription_rejected(
+        server: &MatrixMockServer,
+        publishers: &EventStreamPublishers,
+        subscriber_user_id: OwnedUserId,
+        content: StreamSubscribeEventContent,
+        code: StreamCancelCode,
+        reason: &str,
+    ) {
+        let mut expected = StreamCancelEventContent::new(
+            content.room_id.clone(),
+            content.event_id.clone(),
+            content.subscriber_device_id.clone(),
+            code,
+        );
+        expected.reason = Some(reason.to_owned());
+        let expected_body = json!({
+            "messages": {
+                (subscriber_user_id.as_str()): {
+                    (content.subscriber_device_id.as_str()): expected,
+                }
+            }
+        });
+
+        let _send = server
+            .mock_send_to_device()
+            .expect_any_access_token()
+            .for_type(<StreamCancelEventContent as StaticEventContent>::TYPE)
+            .body_json(expected_body)
+            .ok()
+            .mock_once()
+            .mount_as_scoped()
+            .await;
+        publishers.handle_subscribe(ToDeviceEvent::new(subscriber_user_id, content)).await;
+    }
 
     #[test]
     fn make_update_for_subscriber_uses_generation_and_offset() {
@@ -794,33 +891,34 @@ mod tests {
             panic!("expected replace");
         };
         assert_eq!(content.body, "hello world");
+
+        subscriber.delivered_generation = Some(2);
+        subscriber.delivered_offset = 1;
+
+        let Some(StreamUpdateOperation::Replace(content)) =
+            make_update_for_subscriber(&subscriber, 2, "é")
+        else {
+            panic!("expected replace for a non-character-boundary offset");
+        };
+        assert_eq!(content.body, "é");
     }
 
     #[test]
-    fn restricted_history_requires_visible_membership_at_the_descriptor() {
-        assert!(descriptor_is_visible_to_joined_member(
-            HistoryVisibility::Joined,
-            Some(MembershipState::Join),
-        ));
-        assert!(!descriptor_is_visible_to_joined_member(
-            HistoryVisibility::Joined,
-            Some(MembershipState::Invite),
-        ));
-        assert!(descriptor_is_visible_to_joined_member(
-            HistoryVisibility::Invited,
-            Some(MembershipState::Invite),
-        ));
-        assert!(descriptor_is_visible_to_joined_member(
-            HistoryVisibility::Invited,
-            Some(MembershipState::Join),
-        ));
-        assert!(!descriptor_is_visible_to_joined_member(HistoryVisibility::Invited, None,));
-    }
-
-    #[test]
-    fn unrestricted_visibility_does_not_require_historical_membership() {
-        assert!(!descriptor_is_visible_to_joined_member(HistoryVisibility::Joined, None,));
-        assert!(descriptor_is_visible_to_joined_member(HistoryVisibility::Shared, None,));
+    fn descriptor_visibility_follows_history_visibility_and_historical_membership() {
+        for (visibility, membership, expected) in [
+            (HistoryVisibility::WorldReadable, None, true),
+            (HistoryVisibility::Shared, None, true),
+            (HistoryVisibility::Invited, None, false),
+            (HistoryVisibility::Invited, Some(MembershipState::Invite), true),
+            (HistoryVisibility::Invited, Some(MembershipState::Join), true),
+            (HistoryVisibility::Invited, Some(MembershipState::Leave), false),
+            (HistoryVisibility::Joined, None, false),
+            (HistoryVisibility::Joined, Some(MembershipState::Invite), false),
+            (HistoryVisibility::Joined, Some(MembershipState::Join), true),
+            (HistoryVisibility::Joined, Some(MembershipState::Leave), false),
+        ] {
+            assert_eq!(descriptor_is_visible_to_joined_member(visibility, membership), expected);
+        }
     }
 
     #[test]
@@ -856,36 +954,278 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_finish_removes_the_publisher_after_sending_final_content() {
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-        let room_id = room_id!("!stream:localhost");
-        let room = server.sync_joined_room(&client, room_id).await;
-        let descriptor_event_id = event_id!("$descriptor");
-        let stream_id = StreamId::new(room_id.to_owned(), descriptor_event_id.to_owned());
-        let sender = client.user_id().unwrap();
-        let f = EventFactory::new().room(room_id);
+    async fn test_sends_appended_and_replaced_updates_and_advances_delivery_state() {
+        let fixture = set_up_subscribable_stream().await;
+        let handle = fixture.publisher.publishers.publisher(&fixture.stream_id).await.unwrap();
 
-        server
+        // Pretend someone just sent us (the publisher) a to-device event to subscribe
+        assert!(
+            !handle
+                .register_subscription(&fixture.subscription_content(), &fixture.subscriber_user_id)
+                .await
+                .unwrap()
+        );
+
+        // Send a small append update
+        {
+            let _send = fixture
+                .server
+                .mock_send_to_device()
+                .expect_any_access_token()
+                .ok()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+            fixture.publisher.append(" live").await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    if handle.state.lock().await.subscribers.values().next().unwrap().next_seq
+                        == uint!(2)
+                    {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+
+        {
+            let state = handle.state.lock().await;
+            let subscriber = state.subscribers.values().next().unwrap();
+            assert_eq!(subscriber.next_seq, uint!(2));
+            assert_eq!(subscriber.delivered_generation, Some(0));
+            assert_eq!(subscriber.delivered_offset, "initial live".len());
+        }
+
+        // Send a replace update
+        {
+            let _send = fixture
+                .server
+                .mock_send_to_device()
+                .expect_any_access_token()
+                .ok()
+                .mock_once()
+                .mount_as_scoped()
+                .await;
+            fixture.publisher.replace("replaced").await.unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                loop {
+                    if handle.state.lock().await.subscribers.values().next().unwrap().next_seq
+                        == uint!(3)
+                    {
+                        break;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+
+        {
+            let state = handle.state.lock().await;
+            let subscriber = state.subscribers.values().next().unwrap();
+            assert_eq!(subscriber.next_seq, uint!(3));
+            assert_eq!(subscriber.delivered_generation, Some(1));
+            assert_eq!(subscriber.delivered_offset, "replaced".len());
+        }
+
+        // Validate the to-device events were generated as expected
+        let requests = fixture.server.received_requests().await.unwrap();
+        let bodies: Vec<serde_json::Value> = requests
+            .iter()
+            .filter(|request| request.url.path().contains("/sendToDevice/"))
+            .map(|request| request.body_json().unwrap())
+            .collect();
+        assert_eq!(bodies.len(), 2);
+        assert_eq!(
+            bodies[0]["messages"][fixture.subscriber_user_id.as_str()]
+                [fixture.subscriber_device_id.as_str()],
+            serde_json::to_value(StreamUpdateEventContent::new(
+                fixture.stream_id.room_id.clone(),
+                fixture.stream_id.event_id.clone(),
+                uint!(1),
+                StreamUpdateOperation::Append(StreamUpdateContent::new(" live".to_owned())),
+            ))
+            .unwrap()
+        );
+        assert_eq!(
+            bodies[1]["messages"][fixture.subscriber_user_id.as_str()]
+                [fixture.subscriber_device_id.as_str()],
+            serde_json::to_value(StreamUpdateEventContent::new(
+                fixture.stream_id.room_id.clone(),
+                fixture.stream_id.event_id.clone(),
+                uint!(2),
+                StreamUpdateOperation::Replace(StreamUpdateContent::new("replaced".to_owned())),
+            ))
+            .unwrap()
+        );
+    }
+
+    #[async_test]
+    async fn test_accepts_valid_subscription() {
+        let fixture = set_up_subscribable_stream().await;
+        let f = EventFactory::new()
+            .room(&fixture.stream_id.room_id)
+            .sender(&fixture.publisher_user_id)
+            .server_ts(u64::from(MilliSecondsSinceUnixEpoch::now().0));
+        fixture
+            .server
+            .mock_get_members()
+            .ok(vec![f.member(&fixture.subscriber_user_id).into_raw()])
+            .mock_once()
+            .mount()
+            .await;
+        fixture
+            .server
+            .mock_room_event_context()
+            .room(fixture.stream_id.room_id.clone())
+            .match_event_id()
+            .ok(RoomContextResponseTemplate::new(
+                f.text_msg("initial").event_id(&fixture.stream_id.event_id).into_event(),
+            ))
+            .mock_once()
+            .mount()
+            .await;
+
+        fixture
+            .publisher
+            .publishers
+            .handle_subscribe(ToDeviceEvent::new(
+                fixture.subscriber_user_id.clone(),
+                fixture.subscription_content(),
+            ))
+            .await;
+
+        let handle = fixture.publisher.publishers.publisher(&fixture.stream_id).await.unwrap();
+        assert!(
+            handle
+                .state
+                .lock()
+                .await
+                .subscribers
+                .contains_key(&(fixture.subscriber_user_id, fixture.subscriber_device_id))
+        );
+    }
+
+    #[async_test]
+    async fn test_rejects_subscription_with_empty_device_id() {
+        let fixture = set_up_subscribable_stream().await;
+        let content = StreamSubscribeEventContent::new(
+            fixture.stream_id.room_id.clone(),
+            fixture.stream_id.event_id.clone(),
+            owned_device_id!(""),
+        );
+
+        assert_subscription_rejected(
+            &fixture.server,
+            &fixture.publisher.publishers,
+            fixture.subscriber_user_id,
+            content,
+            StreamCancelCode::InvalidSubscription,
+            "Empty subscriber device ID",
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_rejects_subscriber_that_is_not_joined_to_the_room() {
+        let fixture = set_up_subscribable_stream().await;
+        fixture.server.mock_get_members().ok(Vec::new()).mock_once().mount().await;
+
+        assert_subscription_rejected(
+            &fixture.server,
+            &fixture.publisher.publishers,
+            fixture.subscriber_user_id.clone(),
+            fixture.subscription_content(),
+            StreamCancelCode::Forbidden,
+            "Subscriber is not joined to the room",
+        )
+        .await;
+    }
+
+    #[async_test]
+    async fn test_cancel_removes_subscriber_and_stops_updates() {
+        let fixture = set_up_subscribable_stream().await;
+        let handle = fixture.publisher.publishers.publisher(&fixture.stream_id).await.unwrap();
+        handle
+            .register_subscription(&fixture.subscription_content(), &fixture.subscriber_user_id)
+            .await
+            .unwrap();
+
+        fixture
+            .publisher
+            .publishers
+            .handle_cancel(ToDeviceEvent::new(
+                fixture.subscriber_user_id.clone(),
+                StreamCancelEventContent::new(
+                    fixture.stream_id.room_id.clone(),
+                    fixture.stream_id.event_id.clone(),
+                    fixture.subscriber_device_id.clone(),
+                    StreamCancelCode::UserCancelled,
+                ),
+            ))
+            .await;
+        assert!(handle.state.lock().await.subscribers.is_empty());
+
+        let (_sender, update_receiver) = mpsc::unbounded_channel();
+        let _no_send = fixture
+            .server
+            .mock_send_to_device()
+            .expect_any_access_token()
+            .ok()
+            .never()
+            .mount_as_scoped()
+            .await;
+        fixture.publisher.append(" after cancellation").await.unwrap();
+        PublisherUpdateLoop {
+            client: fixture.publisher.publishers.inner.client.clone(),
+            state: Arc::downgrade(&handle.state),
+            stream_id: fixture.stream_id,
+            update_receiver,
+        }
+        .send_pending_updates()
+        .await
+        .unwrap();
+    }
+
+    #[async_test]
+    async fn test_finish_removes_the_publisher_after_sending_final_content() {
+        let fixture = set_up_subscribable_stream().await;
+        let f = EventFactory::new().room(&fixture.stream_id.room_id);
+
+        fixture
+            .server
             .mock_room_event()
-            .ok(f.text_msg("initial").sender(sender).event_id(descriptor_event_id).into_event())
+            .expect_any_access_token()
+            .ok(f
+                .text_msg("initial")
+                .sender(&fixture.publisher_user_id)
+                .event_id(&fixture.stream_id.event_id)
+                .into_event())
             .expect(1)
             .mount()
             .await;
-        server.mock_room_state_encryption().plain().mount().await;
-        server.mock_room_send().ok(event_id!("$final")).expect(1).mount().await;
-
-        let publishers = EventStreamPublishers::new(client);
-        publishers
-            .create_publisher(room, stream_id.clone(), "initial".to_owned(), uint!(300_000))
+        fixture
+            .server
+            .mock_room_send()
+            .expect_any_access_token()
+            .ok(event_id!("$final"))
+            .expect(1)
+            .mount()
             .await;
-        let publisher = EventStreamPublisher::new(publishers.clone(), stream_id.clone());
-        let finished_publisher = publisher.clone();
+        let finished_publisher = fixture.publisher.clone();
 
-        publisher.finish(RoomMessageEventContentWithoutRelation::text_plain("done")).await.unwrap();
+        fixture
+            .publisher
+            .finish(RoomMessageEventContentWithoutRelation::text_plain("done"))
+            .await
+            .unwrap();
 
         assert!(matches!(
-            publishers.publisher(&stream_id).await,
+            finished_publisher.publishers.publisher(&fixture.stream_id).await,
             Err(EventStreamError::UnknownStream)
         ));
         assert!(matches!(
@@ -896,33 +1236,22 @@ mod tests {
 
     #[async_test]
     async fn test_expired_descriptor_stops_updates_to_existing_subscribers() {
-        let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
-        let room_id = room_id!("!stream:localhost");
-        let room = server.sync_joined_room(&client, room_id).await;
-        let stream_id = StreamId::new(room_id.to_owned(), event_id!("$descriptor").to_owned());
-        let subscribers = EventStreamPublishers::new(client.clone());
-
-        subscribers.create_publisher(room, stream_id.clone(), "initial".to_owned(), uint!(0)).await;
-        let handle = subscribers.publisher(&stream_id).await.unwrap();
+        let fixture = set_up_subscribable_stream_with_options(EventStreamPublisherOptions {
+            descriptor_expiry_ms: uint!(0),
+        })
+        .await;
+        let handle = fixture.publisher.publishers.publisher(&fixture.stream_id).await.unwrap();
         handle.set_descriptor_origin_server_ts(MilliSecondsSinceUnixEpoch::now()).await;
         handle
-            .register_subscription(
-                &StreamSubscribeEventContent::new(
-                    stream_id.room_id.clone(),
-                    stream_id.event_id.clone(),
-                    owned_device_id!("SUBSCRIBER"),
-                ),
-                owned_user_id!("@subscriber:localhost").as_ref(),
-            )
+            .register_subscription(&fixture.subscription_content(), &fixture.subscriber_user_id)
             .await
             .unwrap();
 
         let (_sender, update_receiver) = mpsc::unbounded_channel();
         PublisherUpdateLoop {
-            client,
+            client: fixture.publisher.publishers.inner.client.clone(),
             state: Arc::downgrade(&handle.state),
-            stream_id,
+            stream_id: fixture.stream_id,
             update_receiver,
         }
         .send_pending_updates()
