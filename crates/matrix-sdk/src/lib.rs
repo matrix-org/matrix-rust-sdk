@@ -74,7 +74,7 @@ pub use client::homeserver_capabilities::HomeserverCapabilities;
 pub mod search_index;
 pub use client::{
     Client, ClientBuildError, ClientBuilder, LoopCtrl, ServerVendorInfo, SessionChange, StoreSizes,
-    sanitize_server_name,
+    TileServerInfo, sanitize_server_name,
 };
 pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
