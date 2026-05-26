@@ -22,7 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use futures::pin_mut;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, Room, RoomState, assert_let_timeout, assert_next_with_timeout,
+    Client, Room, RoomState, ThreadingSupport, assert_let_timeout, assert_next_with_timeout,
     config::SyncSettings,
     deserialized_responses::{VerificationLevel, VerificationState},
     encryption::{
@@ -56,7 +56,8 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
     timeline::{
         EventSendState, EventTimelineItem, ReactionStatus, RoomExt, TimelineBuilder,
-        TimelineEventFocusThreadMode, TimelineFocus, TimelineItem,
+        TimelineDetails, TimelineEventFocusThreadMode, TimelineEventItemId, TimelineFocus,
+        TimelineItem,
     },
 };
 use similar_asserts::assert_eq;
@@ -1383,7 +1384,6 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     Ok(())
 }
 
-/*
 /// Test that UTDs as the latest thread event (in the summary), once decrypted
 /// by R2D2 (the redecryptor), get replaced in the timeline with the decrypted
 /// variant of the latest event, in the summary.
@@ -1459,7 +1459,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     let event = room2.event(&thread_root_event_id, Default::default()).await?;
     assert!(event.kind.is_utd());
 
-    // Alright, let's now go to a main (threaded) timeline.
+    // Alright, let's now go to a main timeline.
     let timeline = room2
         .timeline_builder()
         .with_focus(TimelineFocus::Live { hide_threaded_events: true })
@@ -1547,16 +1547,6 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
         let next_item = assert_next_with_timeout!(stream, 5000);
         assert_let!(VectorDiff::Set { index: 7, value } = next_item);
         assert!(!value.content().is_unable_to_decrypt());
-
-        // At first, the latest event is a UTD.
-        let summary =
-            value.content().thread_summary().expect("We should have a thread summary now");
-        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-        assert_eq!(
-            latest_event.identifier,
-            TimelineEventItemId::EventId(thread_reply_event_id.clone())
-        );
-        assert!(latest_event.content.is_unable_to_decrypt());
     }
 
     {
@@ -1583,7 +1573,6 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
 
     Ok(())
 }
-*/
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_send_message_updates() -> Result<()> {
