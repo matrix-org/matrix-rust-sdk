@@ -121,7 +121,11 @@ use std::{
 
 use as_variant::as_variant;
 use futures_core::Stream;
-use futures_util::{StreamExt, future::join_all, pin_mut};
+use futures_util::{
+    StreamExt,
+    future::{join_all, try_join_all},
+    pin_mut,
+};
 #[cfg(doc)]
 use matrix_sdk_base::{BaseClient, crypto::OlmMachine};
 use matrix_sdk_base::{
@@ -416,15 +420,33 @@ impl EventCache {
             // accumulate over time. Consider keeping track of which linked
             // chunk contain which event id, to avoid doing the linear searches
             // here.
-            join_all(
-                all_caches
-                    .threads
-                    .read()
-                    .await
-                    .values()
-                    .map(|thread_cache| thread_cache.replace_utds(&events)),
+
+            // Replaces UTDs in each thread, and maybe update the thread summary.
+            for (thread_id, thread_cache) in try_join_all(
+                all_caches.threads.read().await.iter().map(|(thread_id, thread_cache)| async {
+                    Result::<_, EventCacheError>::Ok(
+                        // If at least one event has been replaced, return the `thread_id` and the
+                        // `thread_cache` to update the thread summary later.
+                        thread_cache
+                            .replace_utds(&events)
+                            .await?
+                            .then(|| (thread_id.clone(), thread_cache.clone())),
+                    )
+                }),
             )
-            .await;
+            .await?
+            .into_iter()
+            // Filter out results that are `None`, i.e. a thread where no UTD has been replaced.
+            .flatten()
+            {
+                all_caches
+                    .room
+                    .update_thread_summary(
+                        &thread_id,
+                        thread_cache.state().read().await?.compute_thread_summary().await?,
+                    )
+                    .await?;
+            }
         }
 
         // Resolve on the pinned-events cache.

@@ -261,7 +261,7 @@ impl RoomEventCache {
         Ok(())
     }
 
-    pub(super) async fn update_thread_summary(
+    pub(in super::super) async fn update_thread_summary(
         &self,
         thread_id: &EventId,
         new_thread_summary: Option<ThreadSummary>,
