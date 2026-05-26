@@ -162,7 +162,7 @@ impl ThreadEventCache {
     }
 
     /// Return a reference to the state.
-    pub(super) fn state(&self) -> &LockedThreadEventCacheState {
+    pub(in super::super) fn state(&self) -> &LockedThreadEventCacheState {
         &self.inner.state
     }
 
@@ -260,20 +260,29 @@ impl ThreadEventCache {
     /// Try to locate the events in the linked chunk corresponding to the given
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
+    ///
+    /// Return `true` if at least one event has been updated.
     #[cfg(feature = "e2e-encryption")]
-    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<bool> {
         let timeline_event_diffs = self.inner.state.write().await?.replace_utds(events).await?;
 
-        if let Some(timeline_event_diffs) = timeline_event_diffs
-            && !timeline_event_diffs.is_empty()
-        {
-            self.inner.update_sender.send(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
-                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
-            );
-        }
+        Ok(
+            if let Some(timeline_event_diffs) = timeline_event_diffs
+                && !timeline_event_diffs.is_empty()
+            {
+                self.inner.update_sender.send(
+                    TimelineVectorDiffs {
+                        diffs: timeline_event_diffs,
+                        origin: EventsOrigin::Cache,
+                    },
+                    Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+                );
 
-        Ok(())
+                true
+            } else {
+                false
+            },
+        )
     }
 }
 
