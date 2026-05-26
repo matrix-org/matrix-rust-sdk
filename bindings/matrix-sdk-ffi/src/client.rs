@@ -443,8 +443,7 @@ impl Client {
                     let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
                         tokio::task::block_in_place({
-                            let session_delegate = session_delegate.clone();
-                            move || {
+                            || {
                                 get_runtime_handle().block_on(async {
                                     let session_delegate = session_delegate.clone();
                                     let user_id =
@@ -456,11 +455,9 @@ impl Client {
                     })
                 },
                 {
-                    let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
                         tokio::task::block_in_place({
-                            let session_delegate = session_delegate.clone();
-                            move || {
+                            || {
                                 get_runtime_handle().block_on(async {
                                     let session_delegate = session_delegate.clone();
                                     Ok(Self::save_session(session_delegate, client).await?)
