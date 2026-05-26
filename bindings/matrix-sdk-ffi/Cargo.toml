@@ -118,6 +118,7 @@ futures-executor.workspace = true
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 async-compat.workspace = true
+async-trait.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 uniffi = { workspace = true, features = ["tokio"] }
 

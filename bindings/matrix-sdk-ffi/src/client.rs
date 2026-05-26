@@ -215,9 +215,10 @@ impl From<PushFormat> for RumaPushFormat {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
+#[async_trait::async_trait]
 pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
     /// A callback invoked whenever the SDK runs into an unknown token error.
-    fn did_receive_auth_error(&self, is_soft_logout: bool);
+    async fn did_receive_auth_error(&self, is_soft_logout: bool);
 
     /// A callback invoked when a background task registered with the client's
     /// task monitor encounters an error.
@@ -232,9 +233,11 @@ pub trait ClientDelegate: SyncOutsideWasm + SendOutsideWasm {
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
+#[async_trait::async_trait]
 pub trait ClientSessionDelegate: SyncOutsideWasm + SendOutsideWasm {
-    fn retrieve_session_from_keychain(&self, user_id: String) -> Result<Session, ClientError>;
-    fn save_session_in_keychain(&self, session: Session);
+    async fn retrieve_session_from_keychain(&self, user_id: String)
+    -> Result<Session, ClientError>;
+    async fn save_session_in_keychain(&self, session: Session);
 }
 
 #[matrix_sdk_ffi_macros::export(callback_interface)]
@@ -439,16 +442,31 @@ impl Client {
                 {
                     let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
-                        let session_delegate = session_delegate.clone();
-                        let user_id = client.user_id().context("user isn't logged in")?;
-                        Ok(Self::retrieve_session(session_delegate, user_id)?)
+                        tokio::task::block_in_place({
+                            let session_delegate = session_delegate.clone();
+                            move || {
+                                get_runtime_handle().block_on(async {
+                                    let session_delegate = session_delegate.clone();
+                                    let user_id =
+                                        client.user_id().context("user isn't logged in")?;
+                                    Ok(Self::retrieve_session(session_delegate, user_id).await?)
+                                })
+                            }
+                        })
                     })
                 },
                 {
                     let session_delegate = session_delegate.clone();
                     Box::new(move |client| {
-                        let session_delegate = session_delegate.clone();
-                        Ok(Self::save_session(session_delegate, client)?)
+                        tokio::task::block_in_place({
+                            let session_delegate = session_delegate.clone();
+                            move || {
+                                get_runtime_handle().block_on(async {
+                                    let session_delegate = session_delegate.clone();
+                                    Ok(Self::save_session(session_delegate, client).await?)
+                                })
+                            }
+                        })
                     })
                 },
             )?;
@@ -2479,12 +2497,16 @@ impl Client {
         if let Some(delegate_data) = self.delegate_data.get() {
             debug!("Applying session change: {session_change:?}");
             let delegate = delegate_data.delegate.clone();
-            get_runtime_handle().spawn_blocking(move || match session_change {
-                SessionChange::UnknownToken(unknown_token) => {
-                    delegate.did_receive_auth_error(unknown_token.soft_logout);
-                }
-                SessionChange::TokensRefreshed => {}
-            });
+            tokio::task::block_in_place(move || {
+                get_runtime_handle().block_on(async {
+                    match session_change {
+                        SessionChange::UnknownToken(unknown_token) => {
+                            delegate.did_receive_auth_error(unknown_token.soft_logout).await;
+                        }
+                        SessionChange::TokensRefreshed => {}
+                    }
+                });
+            })
         } else {
             debug!(
                 "No client delegate found, session change couldn't be applied: {session_change:?}"
@@ -2492,11 +2514,14 @@ impl Client {
         }
     }
 
-    fn retrieve_session(
+    async fn retrieve_session(
         session_delegate: Arc<dyn ClientSessionDelegate>,
         user_id: &UserId,
     ) -> anyhow::Result<SessionTokens> {
-        Ok(session_delegate.retrieve_session_from_keychain(user_id.to_string())?.into_tokens())
+        Ok(session_delegate
+            .retrieve_session_from_keychain(user_id.to_string())
+            .await?
+            .into_tokens())
     }
 
     fn session_inner(client: matrix_sdk::Client) -> Result<Session, ClientError> {
@@ -2508,12 +2533,12 @@ impl Client {
         Session::new(auth_api, homeserver_url, sliding_sync_version.into())
     }
 
-    fn save_session(
+    async fn save_session(
         session_delegate: Arc<dyn ClientSessionDelegate>,
         client: matrix_sdk::Client,
     ) -> anyhow::Result<()> {
         let session = Self::session_inner(client)?;
-        session_delegate.save_session_in_keychain(session);
+        session_delegate.save_session_in_keychain(session).await;
         Ok(())
     }
 }

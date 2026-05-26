@@ -3419,6 +3419,7 @@ version = "0.17.0"
 dependencies = [
  "anyhow",
  "async-compat",
+ "async-trait",
  "chrono",
  "console_error_panic_hook",
  "extension-trait",
