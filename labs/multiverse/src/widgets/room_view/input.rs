@@ -2,8 +2,8 @@ use clap::{Parser, Subcommand};
 use crossterm::event::KeyEvent;
 use matrix_sdk::Room;
 use ratatui::{prelude::*, widgets::*};
+use ratatui_textarea::TextArea;
 use style::palette::tailwind;
-use tui_textarea::TextArea;
 
 #[derive(Debug, Parser)]
 #[command(name = "multiverse", disable_help_flag = true, disable_help_subcommand = true)]

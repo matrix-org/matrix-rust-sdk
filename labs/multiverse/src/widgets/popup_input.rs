@@ -5,7 +5,7 @@ use ratatui::{
     style::{Color, Stylize, palette::tailwind},
     widgets::{Block, Borders, Clear, Widget},
 };
-use tui_textarea::TextArea;
+use ratatui_textarea::TextArea;
 
 #[derive(Default, Clone)]
 pub(crate) struct PopupInputBuilder {
@@ -22,7 +22,7 @@ pub(crate) struct PopupInputBuilder {
     height_constraint: Constraint,
 
     /// Optional border characters used for collapsed borders
-    border_set: Option<ratatui::symbols::border::Set>,
+    border_set: Option<ratatui::symbols::border::Set<'static>>,
 
     /// Borders
     borders: Option<Borders>,
@@ -59,7 +59,7 @@ impl PopupInputBuilder {
     }
 
     /// Set the custom border characters
-    pub fn border_set(&mut self, set: ratatui::symbols::border::Set) -> &mut Self {
+    pub fn border_set(&mut self, set: ratatui::symbols::border::Set<'static>) -> &mut Self {
         self.border_set = Some(set);
         self
     }
