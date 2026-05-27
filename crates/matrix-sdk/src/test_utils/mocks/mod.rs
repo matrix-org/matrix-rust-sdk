@@ -3549,6 +3549,7 @@ impl<'a> MockEndpoint<'a, BanUserEndpoint> {
 pub struct VersionsEndpoint {
     versions: Vec<&'static str>,
     features: BTreeMap<&'static str, bool>,
+    server_info: Option<serde_json::Value>,
 }
 
 impl VersionsEndpoint {
@@ -3563,7 +3564,11 @@ impl VersionsEndpoint {
 
 impl Default for VersionsEndpoint {
     fn default() -> Self {
-        Self { versions: Self::commonly_supported_versions(), features: BTreeMap::new() }
+        Self {
+            versions: Self::commonly_supported_versions(),
+            features: BTreeMap::new(),
+            server_info: None,
+        }
     }
 }
 
@@ -3574,10 +3579,17 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
     pub fn ok(mut self) -> MatrixMock<'a> {
         let features = std::mem::take(&mut self.endpoint.features);
         let versions = std::mem::take(&mut self.endpoint.versions);
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        let server_info = self.endpoint.server_info.take();
+        let mut body = json!({
             "unstable_features": features,
-            "versions": versions
-        })))
+            "versions": versions,
+        });
+        if let Some(info) = server_info
+            && let Some(obj) = body.as_object_mut()
+        {
+            obj.insert("net.zemos.msc4383.server".to_owned(), info);
+        }
+        self.respond_with(ResponseTemplate::new(200).set_body_json(body))
     }
 
     /// Set the supported flag for the given unstable feature in the response of
@@ -3605,6 +3617,35 @@ impl<'a> MockEndpoint<'a, VersionsEndpoint> {
     /// Set the supported versions in the response of this endpoint.
     pub fn with_versions(mut self, versions: Vec<&'static str>) -> Self {
         self.endpoint.versions = versions;
+        self
+    }
+
+    /// Populate the MSC4383 `server` object on the response.
+    ///
+    /// The object is serialised under the unstable wire key
+    /// `net.zemos.msc4383.server`. When MSC4383 stabilises this helper must
+    /// also emit the stable `server` key alongside (or in place of) the
+    /// unstable one; matrix-sdk reads only the unstable key today. For
+    /// partial-field shapes (only `name` or only `version` advertised), use
+    /// [`Self::with_server_info_partial`].
+    pub fn with_server_info(self, name: &str, version: &str) -> Self {
+        self.with_server_info_partial(Some(name), Some(version))
+    }
+
+    /// Populate the MSC4383 `server` object with optionally-absent fields.
+    ///
+    /// `None` for a field omits that key from the wire object. Passing
+    /// `(None, None)` still emits an empty `server` object, which exercises
+    /// the "object present but both fields missing" case.
+    pub fn with_server_info_partial(mut self, name: Option<&str>, version: Option<&str>) -> Self {
+        let mut obj = serde_json::Map::new();
+        if let Some(n) = name {
+            obj.insert("name".to_owned(), json!(n));
+        }
+        if let Some(v) = version {
+            obj.insert("version".to_owned(), json!(v));
+        }
+        self.endpoint.server_info = Some(serde_json::Value::Object(obj));
         self
     }
 }

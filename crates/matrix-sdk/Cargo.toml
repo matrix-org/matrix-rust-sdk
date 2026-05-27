@@ -87,6 +87,13 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "feder
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
+# Read server implementation identification from the client-server `/versions`
+# endpoint, per MSC4383. Decoupled from `federation-api` on purpose: a consumer
+# that only wants the C-S read path can drop `federation-api` and skip the
+# `ruma-federation-api` dependency entirely, at the cost of the legacy
+# `/_matrix/federation/v1/version` fallback.
+unstable-msc4383 = ["ruma/unstable-msc4383"]
+
 experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]

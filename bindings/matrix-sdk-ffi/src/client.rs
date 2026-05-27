@@ -2079,10 +2079,15 @@ impl Client {
             && self.inner.unstable_features().await?.contains(&ruma::api::FeatureFlag::Msc4108))
     }
 
-    /// Get server vendor information from the federation API.
+    /// Get information about the homeserver implementation.
     ///
-    /// This method retrieves information about the server's name and version
-    /// by calling the `/_matrix/federation/v1/version` endpoint.
+    /// Reads the MSC4383 `server` object on `GET /_matrix/client/versions`
+    /// when available, and falls back to the federation
+    /// `/_matrix/federation/v1/version` endpoint for homeservers that have
+    /// not yet adopted MSC4383. Missing `name` or `version` fields are
+    /// reported as the literal string `"unknown"`; callers that need to
+    /// distinguish "advertised" from "not advertised" must compare against
+    /// this sentinel.
     pub async fn server_vendor_info(&self) -> Result<matrix_sdk::ServerVendorInfo, ClientError> {
         Ok(self.inner.server_vendor_info(None).await?)
     }

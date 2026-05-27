@@ -170,7 +170,11 @@ pub enum SessionChange {
     TokensRefreshed,
 }
 
-/// Information about the server vendor obtained from the federation API.
+/// Information about the homeserver implementation.
+///
+/// Preferred source is the MSC4383 `server` object on
+/// `GET /_matrix/client/versions`. When that object is absent (older servers),
+/// the data falls back to `GET /_matrix/federation/v1/version`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct ServerVendorInfo {
@@ -178,6 +182,16 @@ pub struct ServerVendorInfo {
     pub server_name: String,
     /// The server version.
     pub version: String,
+}
+
+impl ServerVendorInfo {
+    /// A `ServerVendorInfo` whose fields read `"unknown"`. Returned when no
+    /// source advertised the homeserver identification; see
+    /// [`Client::server_vendor_info`] for the dispatch policy.
+    #[cfg(all(feature = "unstable-msc4383", not(feature = "federation-api")))]
+    pub(crate) fn unknown() -> Self {
+        Self { server_name: "unknown".to_owned(), version: "unknown".to_owned() }
+    }
 }
 
 /// Information about a map tile server advertised by the homeserver through the
@@ -588,10 +602,24 @@ impl Client {
         HomeserverCapabilities::new(self.clone())
     }
 
-    /// Get the server vendor information from the federation API.
+    /// Get information about the homeserver implementation.
     ///
-    /// This method calls the `/_matrix/federation/v1/version` endpoint to get
-    /// both the server's software name and version.
+    /// Under the `unstable-msc4383` feature this reads the `server` object on
+    /// `GET /_matrix/client/versions`
+    /// ([MSC4383](https://github.com/matrix-org/matrix-spec-proposals/pull/4383)).
+    /// When that object is absent (the homeserver has not adopted MSC4383)
+    /// and the `federation-api` feature is also enabled, the method falls
+    /// back to `GET /_matrix/federation/v1/version`. With only
+    /// `unstable-msc4383` enabled, an absent object yields a
+    /// `ServerVendorInfo` whose fields both read `"unknown"`.
+    ///
+    /// Transport-layer errors on the chosen endpoint are propagated; only an
+    /// absent `server` object triggers the fallback. A present-but-empty
+    /// `server` object is treated as a successful response from a MSC4383
+    /// homeserver that has nothing to advertise and does not fall back to
+    /// federation. Missing `name` or `version` within an otherwise successful
+    /// response are reported as `"unknown"`. The same `request_config` is
+    /// forwarded to both endpoints when the federation fallback is taken.
     ///
     /// # Examples
     ///
@@ -602,15 +630,57 @@ impl Client {
     /// # let homeserver = Url::parse("http://example.com")?;
     /// let client = Client::new(homeserver).await?;
     ///
-    /// let server_info = client.server_vendor_info(None).await?;
-    /// println!(
-    ///     "Server: {}, Version: {}",
-    ///     server_info.server_name, server_info.version
-    /// );
+    /// let info = client.server_vendor_info(None).await?;
+    /// if info.server_name == "unknown" {
+    ///     println!("homeserver did not advertise its identification");
+    /// } else {
+    ///     println!("homeserver is {} {}", info.server_name, info.version);
+    /// }
     /// # anyhow::Ok(()) };
     /// ```
-    #[cfg(feature = "federation-api")]
+    #[cfg(any(feature = "federation-api", feature = "unstable-msc4383"))]
     pub async fn server_vendor_info(
+        &self,
+        request_config: Option<RequestConfig>,
+    ) -> HttpResult<ServerVendorInfo> {
+        #[cfg(feature = "unstable-msc4383")]
+        if let Some(info) = self.read_msc4383_server_info(request_config).await? {
+            return Ok(info);
+        }
+
+        #[cfg(feature = "federation-api")]
+        {
+            return self.read_federation_server_info(request_config).await;
+        }
+
+        #[cfg(all(feature = "unstable-msc4383", not(feature = "federation-api")))]
+        Ok(ServerVendorInfo::unknown())
+    }
+
+    /// Read the MSC4383 `server` object from `GET /_matrix/client/versions`.
+    ///
+    /// Returns `Ok(Some(_))` when the homeserver advertised the object,
+    /// `Ok(None)` when the object is absent, and propagates transport-layer
+    /// errors.
+    #[cfg(feature = "unstable-msc4383")]
+    async fn read_msc4383_server_info(
+        &self,
+        request_config: Option<RequestConfig>,
+    ) -> HttpResult<Option<ServerVendorInfo>> {
+        let resp = self.fetch_server_versions_inner(false, request_config).await?;
+        Ok(resp.server.map(|server| ServerVendorInfo {
+            server_name: server.name.unwrap_or_else(|| "unknown".to_owned()),
+            version: server.version.unwrap_or_else(|| "unknown".to_owned()),
+        }))
+    }
+
+    /// Read homeserver identification from `GET
+    /// /_matrix/federation/v1/version`.
+    ///
+    /// This is the pre-MSC4383 cross-interface path; see
+    /// [`Self::server_vendor_info`] for the dispatch policy.
+    #[cfg(feature = "federation-api")]
+    async fn read_federation_server_info(
         &self,
         request_config: Option<RequestConfig>,
     ) -> HttpResult<ServerVendorInfo> {
@@ -620,12 +690,11 @@ impl Client {
             .send_inner(get_server_version::v1::Request::new(), request_config, Default::default())
             .await?;
 
-        // Extract server info, using defaults if fields are missing.
         let server = res.server.unwrap_or_default();
-        let server_name_str = server.name.unwrap_or_else(|| "unknown".to_owned());
-        let version = server.version.unwrap_or_else(|| "unknown".to_owned());
-
-        Ok(ServerVendorInfo { server_name: server_name_str, version })
+        Ok(ServerVendorInfo {
+            server_name: server.name.unwrap_or_else(|| "unknown".to_owned()),
+            version: server.version.unwrap_or_else(|| "unknown".to_owned()),
+        })
     }
 
     /// Get a copy of the default request config.
