@@ -142,8 +142,10 @@ impl RoomIndex {
 
         let offset = pagination_offset.unwrap_or(0);
 
-        let results = searcher
-            .search(&query, &TopDocs::with_limit(max_number_of_results).and_offset(offset))?;
+        let results = searcher.search(
+            &query,
+            &TopDocs::with_limit(max_number_of_results).and_offset(offset).order_by_score(),
+        )?;
         let mut ret: Vec<OwnedEventId> = Vec::new();
         let pk = self.schema.primary_key();
 
