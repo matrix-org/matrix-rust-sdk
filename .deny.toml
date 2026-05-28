@@ -9,7 +9,6 @@ exclude = [
 [advisories]
 version = 2
 ignore = [
-    { id = "RUSTSEC-2024-0436", reason = "Unmaintained paste crate, not critical." },
     { id = "RUSTSEC-2024-0388", reason = "Unmaintained derivative crate, not a direct dependency" },
 ]
 
