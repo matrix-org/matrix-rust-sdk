@@ -41,7 +41,7 @@ pub async fn aggregate_timeline_for_threads(
     };
 
     // Look for in-thread events, i.e. events that are part of threads.
-    for event in &timeline.events {
+    for (nth, event) in timeline.events.iter().enumerate() {
         match extract_relation(event.raw()) {
             // Ohh, this event relates to another event!
             Some((relation_type, related_event_id)) => match relation_type {
@@ -61,12 +61,22 @@ pub async fn aggregate_timeline_for_threads(
                 | RelationType::Replacement
                 | RelationType::Reference
                 | _ => {
-                    // TODO(@hywan): It's good to look for the related event in the memory and
-                    // store, but we MUST also look for it in `timeline`!
-                    if let Some((_location, related_event)) =
-                        room_event_cache.find_event(&related_event_id).await?
-                        && let Some(thread_root) = extract_thread_root(related_event.raw())
+                    // First, look for the related event in `timeline` backwards.
+                    if let Some(thread_root) = match timeline.events[..nth]
+                        .iter()
+                        .rev()
+                        .find(|event| event.event_id().as_ref() == Some(&related_event_id))
                     {
+                        // The related event has been found in the `timeline`! Extract its thread
+                        // root.
+                        Some(related_event) => extract_thread_root(related_event.raw()),
+
+                        // Not in `timeline`, okay, look for the related event in the `room` as it
+                        // knows about all the events, and then extract its thread root.
+                        None => room_event_cache.find_event(&related_event_id).await?.and_then(
+                            |(_location, related_event)| extract_thread_root(related_event.raw()),
+                        ),
+                    } {
                         new_events_by_thread
                             .entry(thread_root)
                             .or_insert_with(default_timeline)
@@ -92,8 +102,6 @@ pub async fn aggregate_timeline_for_threads(
                 // Otherwise, this event might be a redaction that applies to a thread.
                 else if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
-                    // TODO(@hywan): It's good to look for the redacted event in the memory and
-                    // store, but we MUST also look for it in `timeline`!
                     && room_event_cache.find_event(&redaction_target).await?.is_some()
                 {
                     // The redacted event exists (in the room, because it contains _all_ the
