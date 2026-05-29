@@ -2061,6 +2061,16 @@ impl Client {
             .any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
     }
 
+    /// Get information about the homeserver's advertised map tile server, if
+    /// any.
+    ///
+    /// Reads the `tile_server` field of the matrix client well-known (MSC3488).
+    /// Uses the cached well-known when available, otherwise fetches it from the
+    /// homeserver.
+    pub async fn tile_server(&self) -> Option<matrix_sdk::TileServerInfo> {
+        self.inner.tile_server().await
+    }
+
     /// Checks if the server supports login using a QR code.
     pub async fn is_login_with_qr_code_supported(&self) -> Result<bool, ClientError> {
         Ok(matches!(self.inner.auth_api(), Some(AuthApi::OAuth(_)))

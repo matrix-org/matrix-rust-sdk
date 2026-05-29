@@ -182,6 +182,23 @@ pub struct ServerVendorInfo {
     pub version: String,
 }
 
+/// Information about a map tile server advertised by the homeserver through the
+/// `tile_server` field of the matrix client well-known (MSC3488).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct TileServerInfo {
+    /// The URL of a map tile server's `style.json` file. See the
+    /// [Mapbox Style Specification](https://docs.mapbox.com/mapbox-gl-js/style-spec/)
+    /// for more details.
+    pub map_style_url: String,
+}
+
+impl From<discover_homeserver::TileServerInfo> for TileServerInfo {
+    fn from(value: discover_homeserver::TileServerInfo) -> Self {
+        Self { map_style_url: value.map_style_url }
+    }
+}
+
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `Client` can be cloned freely.
@@ -2573,6 +2590,15 @@ impl Client {
         let well_known = self.well_known().await;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
+    }
+
+    /// Get information about the homeserver's advertised map tile server, if
+    /// any, by fetching the well-known file from the server or the cache.
+    ///
+    /// Returns `None` if the homeserver has not advertised a tile server in its
+    /// well-known, or if the well-known is otherwise unavailable.
+    pub async fn tile_server(&self) -> Option<TileServerInfo> {
+        self.well_known().await.and_then(|well_known| well_known.tile_server).map(Into::into)
     }
 
     /// Empty the well-known cache.
