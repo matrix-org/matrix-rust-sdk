@@ -357,13 +357,13 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
                     )
                     .is_break()
                 })
-                .and_then(|(_position, event)| event.event_id());
+                .and_then(|(_position, event)| event.event_id().map(ToOwned::to_owned));
 
             // If there's an edit to the latest event in the thread, use the latest edit
             // event ID as the latest event ID for the thread summary.
             //
             // TODO(@hywan): This is one of the inefficiency I am talking about above.
-            if let Some(event_id) = latest_event_id.as_ref()
+            if let Some(event_id) = &latest_event_id
                 && let Some((original_event, edits)) = self
                     .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
                     .await?
@@ -384,7 +384,7 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
                 });
 
                 if let Some(latest_valid_edit) = latest_valid_edit {
-                    latest_event_id = latest_valid_edit.event_id();
+                    latest_event_id = latest_valid_edit.event_id().map(ToOwned::to_owned);
                 }
             }
 

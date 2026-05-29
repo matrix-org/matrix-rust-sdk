@@ -366,7 +366,7 @@ impl ThreadListService {
         room: &Room,
         timeline_event: TimelineEvent,
     ) -> Option<ThreadListItemEvent> {
-        let event_id = timeline_event.event_id()?;
+        let event_id = timeline_event.event_id()?.to_owned();
         let timestamp = timeline_event.timestamp()?;
         let sender = timeline_event.sender()?;
         let is_own = room.own_user_id() == sender;

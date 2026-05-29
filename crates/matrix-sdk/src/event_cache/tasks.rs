@@ -439,7 +439,7 @@ async fn handle_thread_subscriber_linked_chunk_update(
                 // Shouldn't happen.
                 continue;
             };
-            subscribe_up_to = Some(event_id);
+            subscribe_up_to = Some(event_id.to_owned());
             break;
         }
     }

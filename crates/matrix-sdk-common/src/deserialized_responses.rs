@@ -1523,7 +1523,7 @@ mod tests {
     use ruma::{
         DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, UInt, event_id,
         events::{AnySyncTimelineEvent, room::message::RoomMessageEventContent},
-        owned_device_id, owned_event_id, owned_user_id,
+        owned_device_id, owned_user_id,
         serde::Raw,
     };
     use serde::Deserialize;
@@ -1742,8 +1742,8 @@ mod tests {
 
         // And it can be properly deserialized from the new format.
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id, Some(owned_event_id!("$xxxxx:example.org")));
-        assert_eq!(event.event_id, event.event_id());
+        assert_eq!(event.event_id.as_deref(), Some(event_id!("$xxxxx:example.org")));
+        assert_eq!(event.event_id.as_deref(), event.event_id());
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
@@ -1774,7 +1774,7 @@ mod tests {
             },
         });
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id(), Some(owned_event_id!("$xxxxx:example.org")));
+        assert_eq!(event.event_id(), Some(event_id!("$xxxxx:example.org")));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { session_id: None, .. }
@@ -1809,8 +1809,8 @@ mod tests {
             }
         });
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id, event.event_id());
-        assert_eq!(event.event_id, Some(owned_event_id!("$xxxxx:example.org")));
+        assert_eq!(event.event_id.as_deref(), event.event_id());
+        assert_eq!(event.event_id.as_deref(), Some(event_id!("$xxxxx:example.org")));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
@@ -2229,7 +2229,7 @@ mod tests {
             .cast_unchecked(),
         );
 
-        assert_eq!(timeline_event.event_id(), Some(owned_event_id!("$ev0")));
+        assert_eq!(timeline_event.event_id(), Some(event_id!("$ev0")));
 
         timeline_event.replace_raw(
             Raw::new(&json!({
@@ -2246,6 +2246,6 @@ mod tests {
             .cast_unchecked(),
         );
 
-        assert_eq!(timeline_event.event_id(), Some(owned_event_id!("$ev1")));
+        assert_eq!(timeline_event.event_id(), Some(event_id!("$ev1")));
     }
 }

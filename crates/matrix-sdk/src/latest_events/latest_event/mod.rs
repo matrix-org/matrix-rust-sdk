@@ -689,7 +689,7 @@ mod tests_latest_event {
             assert_matches!(
                 latest_event.current_value.get().await,
                 LatestEventValue::Remote(remote) => {
-                    assert_eq!(remote.event_id().as_deref(), Some(event_id_1));
+                    assert_eq!(remote.event_id(), Some(event_id_1));
                 }
             );
         }
@@ -714,7 +714,7 @@ mod tests_latest_event {
                 latest_event.current_value.get().await,
                 LatestEventValue::Remote(remote) => {
                     // `$ev1` has been redacted, so `$ev0` is the new candidate!
-                    assert_eq!(remote.event_id().as_deref(), Some(event_id_0));
+                    assert_eq!(remote.event_id(), Some(event_id_0));
                 }
             );
         }

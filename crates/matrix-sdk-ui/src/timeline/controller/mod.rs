@@ -1485,7 +1485,7 @@ impl TimelineController {
         let mut related_events = Vector::new();
         for event_id in events.iter().filter_map(|event| event.event_id()) {
             if let Some((_original, related)) =
-                event_cache.find_event_with_relations(&event_id, None).await?
+                event_cache.find_event_with_relations(event_id, None).await?
             {
                 related_events.extend(related);
             }

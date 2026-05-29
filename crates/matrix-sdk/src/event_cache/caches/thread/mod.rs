@@ -375,7 +375,7 @@ mod timed_tests {
                 assert_matches!(&diffs[0], VectorDiff::Clear);
                 assert_matches!(&diffs[1], VectorDiff::Append { values: events } => {
                     assert_eq!(events.len(), 1);
-                    assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_0));
+                    assert_eq!(events[0].event_id(), Some(thread_event_id_0));
                 });
             }
         );
@@ -403,7 +403,7 @@ mod timed_tests {
         // Then we have the stored event.
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_0));
+            assert_eq!(events[0].event_id(), Some(thread_event_id_0));
         });
 
         // That's all, folks!
@@ -616,7 +616,7 @@ mod timed_tests {
                     assert_eq!(diffs.len(), 1);
                     assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
                         // Here you are `thread_event_0`!
-                        assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                        assert_eq!(event.event_id(), Some(thread_event_id_0));
                     });
                 }
             );
@@ -797,7 +797,7 @@ mod timed_tests {
             Ok(TimelineVectorDiffs { diffs, .. }) => {
                 assert_eq!(diffs.len(), 1);
                 assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
-                    assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                    assert_eq!(event.event_id(), Some(thread_event_id_0));
                 });
             }
         );
@@ -830,8 +830,8 @@ mod timed_tests {
         // element anymore), and it's added to the back of the list.
         let (thread_events, _) = thread_event_cache.subscribe().await.unwrap();
         assert_eq!(thread_events.len(), 2);
-        assert_eq!(thread_events[0].event_id().as_deref(), Some(thread_event_id_0));
-        assert_eq!(thread_events[1].event_id().as_deref(), Some(thread_event_id_1));
+        assert_eq!(thread_events[0].event_id(), Some(thread_event_id_0));
+        assert_eq!(thread_events[1].event_id(), Some(thread_event_id_1));
     }
 
     #[async_test]
@@ -1024,7 +1024,7 @@ mod timed_tests {
 
             // Initial updates contain `thread_event_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+            assert_eq!(initial_updates[0].event_id(), Some(thread_event_id_1));
             assert!(updates_stream.is_empty());
 
             // Load one more event with a backpagination.
@@ -1038,7 +1038,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                            assert_eq!(event.event_id(), Some(thread_event_id_0));
                         }
                     );
                 }
@@ -1055,7 +1055,7 @@ mod timed_tests {
 
             // Initial updates contain `thread_event_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+            assert_eq!(initial_updates[0].event_id(), Some(thread_event_id_1));
             assert!(updates_stream.is_empty());
 
             // Load one more event with a backpagination.
@@ -1069,7 +1069,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                            assert_eq!(event.event_id(), Some(thread_event_id_0));
                         }
                     );
                 }
@@ -1093,7 +1093,7 @@ mod timed_tests {
                 let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
                 assert_eq!(initial_updates.len(), 1);
-                assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+                assert_eq!(initial_updates[0].event_id(), Some(thread_event_id_1));
 
                 // The reload can be observed via the updates too.
                 assert_matches!(
@@ -1105,7 +1105,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_1));
+                                assert_eq!(events[0].event_id(), Some(thread_event_id_1));
                             }
                         );
                     }
@@ -1123,7 +1123,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                                assert_eq!(event.event_id(), Some(thread_event_id_0));
                             }
                         );
                     }
@@ -1143,7 +1143,7 @@ mod timed_tests {
                 let (initial_updates, _) = thread_event_cache.subscribe().await.unwrap();
 
                 assert_eq!(initial_updates.len(), 1);
-                assert_eq!(initial_updates[0].event_id().as_deref(), Some(thread_event_id_1));
+                assert_eq!(initial_updates[0].event_id(), Some(thread_event_id_1));
 
                 // The reload can be observed via the updates too.
                 assert_matches!(
@@ -1155,7 +1155,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(thread_event_id_1));
+                                assert_eq!(events[0].event_id(), Some(thread_event_id_1));
                             }
                         );
                     }
@@ -1173,7 +1173,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(thread_event_id_0));
+                                assert_eq!(event.event_id(), Some(thread_event_id_0));
                             }
                         );
                     }

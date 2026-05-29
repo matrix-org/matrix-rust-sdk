@@ -281,7 +281,7 @@ pub async fn find_event(
     // There are supposedly fewer events loaded in memory than in the store. Let's
     // start by looking up in the `EventLinkedChunk`.
     for (position, event) in event_linked_chunk.revents() {
-        if event.event_id().as_deref() == Some(event_id) {
+        if event.event_id() == Some(event_id) {
             return Ok(Some((EventLocation::Memory(position), event.clone())));
         }
     }
@@ -345,7 +345,10 @@ pub async fn find_event_relations(
     // Initialize the stack with all the related events, to find the
     // transitive closure of all the related events.
     let mut related = store.find_event_relations(room_id, event_id, filters.as_deref()).await?;
-    let mut stack = related.iter().filter_map(|(event, _pos)| event.event_id()).collect::<Vec<_>>();
+    let mut stack = related
+        .iter()
+        .filter_map(|(event, _pos)| event.event_id().map(ToOwned::to_owned))
+        .collect::<Vec<_>>();
 
     // Also keep track of already seen events, in case there's a loop in the
     // relation graph.
@@ -364,7 +367,11 @@ pub async fn find_event_relations(
         let other_related =
             store.find_event_relations(room_id, &event_id, filters.as_deref()).await?;
 
-        stack.extend(other_related.iter().filter_map(|(event, _pos)| event.event_id()));
+        stack.extend(
+            other_related
+                .iter()
+                .filter_map(|(event, _pos)| event.event_id().map(ToOwned::to_owned)),
+        );
         related.extend(other_related);
 
         num_iters += 1;

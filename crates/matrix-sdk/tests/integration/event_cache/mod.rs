@@ -2956,7 +2956,7 @@ async fn test_send_queue_does_insert_event_in_the_event_cache() {
             // The event is received via the Send Queue!
             assert_let!(VectorDiff::Append { values } = &diffs[0]);
             assert_eq!(values.len(), 1);
-            assert_eq!(values[0].event_id().as_deref(), Some(event_id_2));
+            assert_eq!(values[0].event_id(), Some(event_id_2));
         }
     );
 
