@@ -442,7 +442,7 @@ mod tests {
             let maybe_results = room_search.next_events().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
-            assert_eq!(results[0].event_id().as_deref().unwrap(), event_id,);
+            assert_eq!(results[0].event_id().unwrap(), event_id,);
 
             // And no more results after that.
             let maybe_results = room_search.next_events().await.unwrap();
@@ -531,10 +531,10 @@ mod tests {
             // Search results order is not guaranteed, so we check that both expected
             // results are present in the returned batch.
             assert!(results.iter().any(|(room_id, event)| {
-                room_id == room_id1 && event.event_id().as_deref() == Some(result_event_id1)
+                room_id == room_id1 && event.event_id() == Some(result_event_id1)
             }));
             assert!(results.iter().any(|(room_id, event)| {
-                room_id == room_id2 && event.event_id().as_deref() == Some(result_event_id2)
+                room_id == room_id2 && event.event_id() == Some(result_event_id2)
             }));
 
             // And no more results after that.
@@ -613,7 +613,7 @@ mod tests {
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].0, room_id2);
-            assert_eq!(results[0].1.event_id().as_deref().unwrap(), result_event_id2);
+            assert_eq!(results[0].1.event_id().unwrap(), result_event_id2);
 
             // And no more results after that.
             let maybe_results = search.next().await.unwrap();

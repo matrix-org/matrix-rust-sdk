@@ -383,8 +383,12 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
 
         let previous_pinned_event_ids = self.state.current_event_ids();
 
-        if new_events.iter().filter_map(|e| e.event_id()).collect::<BTreeSet<_>>()
-            == previous_pinned_event_ids.iter().cloned().collect()
+        if new_events
+            .iter()
+            .filter_map(|e| e.event_id())
+            .map(ToOwned::to_owned)
+            .collect::<BTreeSet<_>>()
+            == previous_pinned_event_ids.into_iter().collect()
         {
             // No change in the list of pinned events.
             return Ok(());
@@ -434,7 +438,10 @@ impl<'a> PinnedEventsCacheStateLockWriteGuard<'a> {
 impl PinnedEventsCacheState {
     /// Return a list of the current event IDs in this linked chunk.
     pub(super) fn current_event_ids(&self) -> Vec<OwnedEventId> {
-        self.chunk.events().filter_map(|(_position, event)| event.event_id()).collect()
+        self.chunk
+            .events()
+            .filter_map(|(_position, event)| event.event_id().map(ToOwned::to_owned))
+            .collect()
     }
 }
 

@@ -378,7 +378,7 @@ async fn test_focused_timeline_handles_threaded_event() {
     let f = EventFactory::new().room(room_id).sender(user_id);
     let threaded_event =
         f.text_msg("Hey").in_thread(root_thread_id, prev_thread_event_id).into_event();
-    let threaded_event_id = threaded_event.event_id().unwrap().clone();
+    let threaded_event_id = threaded_event.event_id().unwrap().to_owned();
 
     // Mock the initial /context request to check if the event is in a thread.
     let events_before = vec![
@@ -766,7 +766,7 @@ async fn test_focused_timeline_filters_out_threaded_events() {
 
     let f = EventFactory::new().room(room_id).sender(user_id);
     let focus_event = f.text_msg("Hey").into_event();
-    let focus_event_id = focus_event.event_id().unwrap().clone();
+    let focus_event_id = focus_event.event_id().unwrap().to_owned();
 
     // Mock the initial /context request to check if the event is in a thread.
     let events_before = vec![

@@ -47,7 +47,7 @@ pub async fn filter_duplicate_events(
         new_events.retain(|event| {
             // Only keep events with IDs, and those for which `insert` returns `true`
             // (meaning they were not in the set).
-            event.event_id().is_some_and(|event_id| event_ids.insert(event_id))
+            event.event_id().is_some_and(|event_id| event_ids.insert(event_id.to_owned()))
         });
     }
 
@@ -55,7 +55,7 @@ pub async fn filter_duplicate_events(
     let duplicated_event_ids = store_guard
         .filter_duplicated_events(
             linked_chunk_id,
-            new_events.iter().filter_map(|event| event.event_id()).collect(),
+            new_events.iter().filter_map(|event| event.event_id().map(ToOwned::to_owned)).collect(),
         )
         .await?;
 
@@ -279,11 +279,11 @@ mod tests {
 
         // The deduplication says 5 events are valid.
         assert_eq!(outcome.all_events.len(), 5);
-        assert_eq!(outcome.all_events[0].event_id(), Some(event_id_0.clone()));
-        assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1.clone()));
-        assert_eq!(outcome.all_events[2].event_id(), Some(event_id_2.clone()));
-        assert_eq!(outcome.all_events[3].event_id(), Some(event_id_3.clone()));
-        assert_eq!(outcome.all_events[4].event_id(), Some(event_id_4.clone()));
+        assert_eq!(outcome.all_events[0].event_id(), Some(event_id_0.as_ref()));
+        assert_eq!(outcome.all_events[1].event_id(), Some(event_id_1.as_ref()));
+        assert_eq!(outcome.all_events[2].event_id(), Some(event_id_2.as_ref()));
+        assert_eq!(outcome.all_events[3].event_id(), Some(event_id_3.as_ref()));
+        assert_eq!(outcome.all_events[4].event_id(), Some(event_id_4.as_ref()));
 
         // From these 5 events, 2 are duplicated and have been loaded in memory.
         //
@@ -398,9 +398,9 @@ mod tests {
         assert!(non_empty_all_duplicates.not());
 
         assert_eq!(events.len(), 3);
-        assert_eq!(events[0].event_id().as_deref(), Some(eid1));
-        assert_eq!(events[1].event_id().as_deref(), Some(eid2));
-        assert_eq!(events[2].event_id().as_deref(), Some(eid3));
+        assert_eq!(events[0].event_id(), Some(eid1));
+        assert_eq!(events[1].event_id(), Some(eid2));
+        assert_eq!(events[2].event_id(), Some(eid3));
 
         assert!(in_memory_duplicated_event_ids.is_empty());
 
