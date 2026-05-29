@@ -189,6 +189,8 @@ use crate::{
 };
 
 pub mod edit;
+#[cfg(feature = "experimental-event-streams")]
+mod event_streams;
 pub mod futures;
 pub mod identity_status_changes;
 /// Contains code related to requests to join a room.

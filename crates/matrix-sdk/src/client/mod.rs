@@ -14,6 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "experimental-event-streams")]
+use std::sync::OnceLock;
 use std::{
     collections::{BTreeMap, BTreeSet, btree_map},
     fmt::{self, Debug},
@@ -55,15 +57,13 @@ use ruma::{
             authenticated_media,
             device::{self, delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discovery::{
-                discover_homeserver::{self, RtcFocusInfo},
-                get_supported_versions,
-            },
+            discovery::{discover_homeserver, get_supported_versions},
             filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
             room::create_room,
+            rtc::RtcTransport,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
             threads::get_thread_subscriptions_changes,
@@ -87,6 +87,8 @@ use self::{
     caches::{Cache, CachedValue, ClientCaches},
     futures::SendRequest,
 };
+#[cfg(feature = "experimental-event-streams")]
+use crate::event_streams::EventStreams;
 use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
@@ -411,6 +413,9 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) duplicate_key_upload_error_sender:
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
+
+    #[cfg(feature = "experimental-event-streams")]
+    event_streams: OnceLock<EventStreams>,
 }
 
 impl ClientInner {
@@ -481,6 +486,8 @@ impl ClientInner {
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
+            #[cfg(feature = "experimental-event-streams")]
+            event_streams: OnceLock::new(),
         };
 
         #[allow(clippy::let_and_return)]
@@ -529,6 +536,12 @@ impl Client {
     /// Create a new [`ClientBuilder`].
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
+    }
+
+    /// Get the client-owned event stream manager.
+    #[cfg(feature = "experimental-event-streams")]
+    pub fn event_streams(&self) -> EventStreams {
+        self.inner.event_streams.get_or_init(|| EventStreams::new(self.clone())).clone()
     }
 
     pub(crate) fn base_client(&self) -> &BaseClient {
@@ -2558,14 +2571,14 @@ impl Client {
     ///
     /// # Examples
     /// ```no_run
-    /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::discovery::discover_homeserver::RtcFocusInfo};
+    /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::rtc::RtcTransport};
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let rtc_foci = client.rtc_foci().await?;
     /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
-    ///     RtcFocusInfo::LiveKit(info) => Some(info),
+    ///     RtcTransport::LiveKit(info) => Some(info),
     ///     _ => None,
     /// });
     /// if let Some(info) = default_livekit_focus_info {
@@ -2573,7 +2586,7 @@ impl Client {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcFocusInfo>> {
+    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
         let well_known = self.well_known().await;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
@@ -3660,10 +3673,7 @@ pub(crate) mod tests {
         RoomId, ServerName, UserId,
         api::{
             FeatureFlag, MatrixVersion,
-            client::{
-                discovery::discover_homeserver::RtcFocusInfo,
-                room::create_room::v3::Request as CreateRoomRequest,
-            },
+            client::{room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport},
         },
         assign,
         events::{
@@ -4114,7 +4124,7 @@ pub(crate) mod tests {
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let server_name = <&ServerName>::try_from(domain).unwrap();
-        let rtc_foci = vec![RtcFocusInfo::livekit("https://livekit.example.com".to_owned())];
+        let rtc_foci = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
 
         let well_known_mock = server
             .mock_well_known()
@@ -4191,7 +4201,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_missing_well_known_caching() {
         let server = MatrixMockServer::new().await;
-        let rtc_foci: Vec<RtcFocusInfo> = vec![];
+        let rtc_foci: Vec<RtcTransport> = vec![];
 
         let well_known_mock = server
             .mock_well_known()

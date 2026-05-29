@@ -3497,6 +3497,21 @@ impl<'a> MockEndpoint<'a, DeleteRoomKeysVersionEndpoint> {
 /// This mock can be used to simulate sending to-device messages in tests.
 pub struct SendToDeviceEndpoint;
 impl<'a> MockEndpoint<'a, SendToDeviceEndpoint> {
+    /// Ensures that the request sends a particular to-device event type.
+    pub fn for_type(self, event_type: &str) -> Self {
+        Self {
+            mock: self
+                .mock
+                .and(path_regex(format!(r"^/_matrix/client/v3/sendToDevice/{event_type}/.*"))),
+            ..self
+        }
+    }
+
+    /// Ensures that the request body exactly matches the provided JSON.
+    pub fn body_json(self, body: Value) -> Self {
+        Self { mock: self.mock.and(body_json(body)), ..self }
+    }
+
     /// Returns a successful response with default data.
     pub fn ok(self) -> MatrixMock<'a> {
         self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
