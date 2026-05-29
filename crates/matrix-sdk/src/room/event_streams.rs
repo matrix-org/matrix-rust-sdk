@@ -1,9 +1,11 @@
+use std::time::Duration;
+
 use matrix_sdk_base::deserialized_responses::TimelineEvent;
 use ruma::{
     EventId, assign,
     events::{
-        AnyMessageLikeEventContent, AnySyncTimelineEvent, event_stream::StreamDescriptor,
-        room::message::RoomMessageEventContent,
+        AnyMessageLikeEventContent, AnySyncTimelineEvent, room::message::RoomMessageEventContent,
+        stream::StreamDescriptor,
     },
 };
 
@@ -25,7 +27,7 @@ impl Room {
             self.client().device_id().ok_or(EventStreamError::AuthenticationRequired)?.to_owned();
         let content_with_descriptor = assign!(message_content.clone(), {
             stream: Some(assign!(StreamDescriptor::new(device_id.clone()), {
-                expiry_ms: Some(options.descriptor_expiry_ms),
+                expiry_ms: Some(Duration::from_millis(u64::from(options.descriptor_expiry_ms))),
             })),
         });
         let response = self.send(content_with_descriptor).await?;

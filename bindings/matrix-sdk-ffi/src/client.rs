@@ -38,12 +38,10 @@ use matrix_sdk::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
             account::request_openid_token,
-            discovery::{
-                discover_homeserver::RtcFocusInfo,
-                get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
-            },
+            discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{Visibility, create_room},
+            rtc::RtcTransport,
             session::get_login_types,
             user_directory::search_users,
         },
@@ -2060,7 +2058,7 @@ impl Client {
             .rtc_foci()
             .await?
             .iter()
-            .any(|focus| matches!(focus, RtcFocusInfo::LiveKit(_))))
+            .any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
     }
 
     /// Checks if the server supports login using a QR code.

@@ -11,14 +11,20 @@ use ruma::{
     events::{
         AnyStateEvent, AnySyncTimelineEvent, AnyToDeviceEventContent, StateEventType,
         StaticEventContent, ToDeviceEvent,
-        event_stream::{
-            StreamCancelCode, StreamCancelEventContent, StreamSubscribeEventContent,
-            StreamUpdateContent, StreamUpdateEventContent, StreamUpdateOperation,
-        },
         room::{
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
             member::{MembershipState, RoomMemberEventContent},
             message::RoomMessageEventContentWithoutRelation,
+        },
+        stream::{
+            cancel::{
+                StreamCancelCode, ToDeviceStreamCancelEventContent as StreamCancelEventContent,
+            },
+            subscribe::ToDeviceStreamSubscribeEventContent as StreamSubscribeEventContent,
+            update::{
+                StreamUpdateContent, StreamUpdateOperation,
+                ToDeviceStreamUpdateEventContent as StreamUpdateEventContent,
+            },
         },
     },
     serde::Raw,

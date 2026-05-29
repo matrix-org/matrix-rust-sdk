@@ -4803,7 +4803,7 @@ dependencies = [
 [[package]]
 name = "ruma"
 version = "0.15.1"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "assign",
  "js_int",
@@ -4821,7 +4821,7 @@ dependencies = [
 [[package]]
 name = "ruma-client-api"
 version = "0.23.1"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "as_variant",
  "assign",
@@ -4843,7 +4843,7 @@ dependencies = [
 [[package]]
 name = "ruma-common"
 version = "0.18.0"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "as_variant",
  "base64",
@@ -4876,7 +4876,7 @@ dependencies = [
 [[package]]
 name = "ruma-events"
 version = "0.33.0"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "as_variant",
  "indexmap",
@@ -4899,7 +4899,7 @@ dependencies = [
 [[package]]
 name = "ruma-federation-api"
 version = "0.14.0"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "headers",
  "http",
@@ -4920,7 +4920,7 @@ dependencies = [
 [[package]]
 name = "ruma-html"
 version = "0.7.0"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "as_variant",
  "html5ever",
@@ -4931,7 +4931,7 @@ dependencies = [
 [[package]]
 name = "ruma-identifiers-validation"
 version = "0.12.1"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "js_int",
  "thiserror 2.0.18",
@@ -4940,7 +4940,7 @@ dependencies = [
 [[package]]
 name = "ruma-macros"
 version = "0.18.0"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "as_variant",
  "cfg-if",
@@ -4956,7 +4956,7 @@ dependencies = [
 [[package]]
 name = "ruma-signatures"
 version = "0.20.0"
-source = "git+https://github.com/bradtgmurray/ruma?branch=msc4471-event-streams#8e060f2faf372a1710aa67cc6e5c89995866ef5b"
+source = "git+https://github.com/ruma/ruma?rev=e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16#e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16"
 dependencies = [
  "base64",
  "ed25519-dalek",

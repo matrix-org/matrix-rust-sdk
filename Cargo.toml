@@ -71,7 +71,7 @@ rand = { version = "0.10.1", default-features = false, features = ["std", "std_r
 regex = { version = "1.12.2", default-features = false }
 reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = { version = "1.3.0", default-features = false }
-ruma = { version = "0.15.1", git = "https://github.com/bradtgmurray/ruma", branch = "msc4471-event-streams", features = [
+ruma = { version = "0.15.1", git = "https://github.com/ruma/ruma", rev = "e54e5b8048a1ff77a07f1a7a48f631b78d0a0a16", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
@@ -89,6 +89,7 @@ ruma = { version = "0.15.1", git = "https://github.com/bradtgmurray/ruma", branc
     "unstable-msc4140",
     "unstable-msc4143",
     "unstable-msc4171",
+    "unstable-msc4195",
     "unstable-msc4278",
     "unstable-msc4286",
     "unstable-msc4306",

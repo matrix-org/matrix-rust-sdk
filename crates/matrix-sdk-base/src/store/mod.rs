@@ -147,7 +147,7 @@ pub enum StoreError {
     ///
     /// This should never happen.
     #[error("Redaction failed: {0}")]
-    Redaction(#[source] ruma::canonical_json::RedactionError),
+    Redaction(#[source] ruma::canonical_json::CanonicalJsonFieldError),
 
     /// The store contains invalid data.
     #[error("The store contains invalid data: {details}")]

@@ -5,11 +5,17 @@ use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedRoomId, OwnedUserId, assign,
     events::{
         ToDeviceEvent,
-        event_stream::{
-            StreamCancelCode, StreamCancelEventContent, StreamDescriptor,
-            StreamSubscribeEventContent, StreamUpdateEventContent, StreamUpdateOperation,
-        },
         room::message::{OriginalSyncRoomMessageEvent, Relation},
+        stream::{
+            StreamDescriptor,
+            cancel::{
+                StreamCancelCode, ToDeviceStreamCancelEventContent as StreamCancelEventContent,
+            },
+            subscribe::ToDeviceStreamSubscribeEventContent as StreamSubscribeEventContent,
+            update::{
+                StreamUpdateOperation, ToDeviceStreamUpdateEventContent as StreamUpdateEventContent,
+            },
+        },
     },
 };
 use tokio::sync::{Mutex, broadcast};
@@ -295,7 +301,7 @@ impl EventStreamSubscriptions {
             }
 
             let mut should_resync = false;
-            let update = match content.op {
+            let update = match content.operation {
                 StreamUpdateOperation::Replace(new_content) => {
                     trace!(
                         room_id = %stream_id.room_id,
@@ -499,8 +505,11 @@ mod tests {
         MilliSecondsSinceUnixEpoch, event_id,
         events::{
             StaticEventContent, ToDeviceEvent,
-            event_stream::{StreamUpdateContent, StreamUpdateEventContent, StreamUpdateOperation},
             room::message::{OriginalSyncRoomMessageEvent, RoomMessageEventContentWithoutRelation},
+            stream::update::{
+                StreamUpdateContent, StreamUpdateOperation,
+                ToDeviceStreamUpdateEventContent as StreamUpdateEventContent,
+            },
         },
         owned_device_id, owned_user_id, room_id,
     };
