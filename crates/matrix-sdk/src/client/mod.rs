@@ -4426,10 +4426,10 @@ pub(crate) mod tests {
         server.mock_room_join(target_room_id).ok().mount().await;
 
         let ret = client.join_room_by_id_or_alias(target_alias.into(), &[]).await;
-        assert_matches!(ret, Ok(_));
+        assert!(ret.is_ok());
 
         let ret = client.join_room_by_id_or_alias(target_room_id.into(), &[]).await;
-        assert_matches!(ret, Ok(_));
+        assert!(ret.is_ok());
     }
 
     #[async_test]
