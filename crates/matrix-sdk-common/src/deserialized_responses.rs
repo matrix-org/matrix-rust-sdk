@@ -490,6 +490,16 @@ impl ThreadSummaryStatus {
 // [`recursion_limit`]: https://doc.rust-lang.org/reference/attributes/limits.html#the-recursion_limit-attribute
 #[derive(Clone, Debug, Serialize)]
 pub struct TimelineEvent {
+    /// The event ID (cached from `Self::kind`).
+    ///
+    /// This field contains a copy of `self.kind.event_id()`. Why? Because
+    /// reading the event ID is done **a lot** in the SDK.
+    /// [`TimelineEventKind::event_id`] implies parsing/deserializing the JSON
+    /// payload looking for the event ID. It has a non-negligible cost. Hence
+    /// this cache.
+    #[serde(skip)]
+    event_id: Option<OwnedEventId>,
+
     /// The event itself, together with any information on decryption.
     pub kind: TimelineEventKind,
 
@@ -612,7 +622,14 @@ impl TimelineEvent {
 
         let timestamp = extract_timestamp(raw, max_timestamp);
 
-        Self { kind, push_actions, timestamp, thread_summary, bundled_latest_thread_event }
+        Self {
+            event_id: kind.event_id(),
+            kind,
+            push_actions,
+            timestamp,
+            thread_summary,
+            bundled_latest_thread_event,
+        }
     }
 
     /// Transform this [`TimelineEvent`] into another [`TimelineEvent`] with the
@@ -632,8 +649,13 @@ impl TimelineEvent {
             "`TimelineEvent::to_decrypted` has been called on an already decrypted `TimelineEvent`."
         );
 
+        let kind = TimelineEventKind::Decrypted(decrypted);
+
         Self {
-            kind: TimelineEventKind::Decrypted(decrypted),
+            // We could clone `self.event_id`, but we prefer to re-parse the event ID from
+            // `decrypted` in case it has changed (it MUST NOT happen, but we never know).
+            event_id: kind.event_id(),
+            kind,
             timestamp: self.timestamp,
             push_actions,
             thread_summary: self.thread_summary.clone(),
@@ -655,6 +677,7 @@ impl TimelineEvent {
         );
 
         Self {
+            event_id: self.event_id.clone(),
             kind: TimelineEventKind::UnableToDecrypt { event: self.raw().clone(), utd_info },
             timestamp: self.timestamp,
             push_actions: None,
@@ -778,10 +801,10 @@ impl TimelineEvent {
         self.push_actions = Some(push_actions);
     }
 
-    /// Get the event id of this [`TimelineEvent`] if the event has any valid
-    /// id.
+    /// Get the (cached) event ID of this [`TimelineEvent`] if the event has any
+    /// valid ID.
     pub fn event_id(&self) -> Option<OwnedEventId> {
-        self.kind.event_id()
+        self.event_id.clone()
     }
 
     /// Get the sender of this [`TimelineEvent`] if the event has one.
@@ -806,6 +829,8 @@ impl TimelineEvent {
                 *event = replacement.cast();
             }
         }
+
+        self.event_id = self.kind.event_id();
     }
 
     /// Get the timestamp.
@@ -924,13 +949,13 @@ impl TimelineEventKind {
         }
     }
 
-    /// Get the event id of this `TimelineEventKind` if the event has any valid
-    /// id.
+    /// Parse the event ID of this `TimelineEventKind` if the event has any
+    /// valid id.
     pub fn event_id(&self) -> Option<OwnedEventId> {
         self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 
-    /// Get the sender of this [`TimelineEventKind`] if the event has one.
+    /// Parse the sender of this [`TimelineEventKind`] if the event has one.
     pub fn sender(&self) -> Option<OwnedUserId> {
         self.raw().get_field::<OwnedUserId>("sender").ok().flatten()
     }
@@ -987,7 +1012,7 @@ impl TimelineEventKind {
         }
     }
 
-    /// Get the event type of this event.
+    /// Parse the event type of this event.
     ///
     /// Returns `None` if there isn't an event type or if the event failed to be
     /// deserialized.
@@ -1327,6 +1352,7 @@ impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
         // [`TimelineEvent::timestamp`] to handle that case for us.
 
         TimelineEvent {
+            event_id: kind.event_id(),
             kind,
             timestamp,
             push_actions: Some(push_actions),
@@ -1395,6 +1421,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
         };
 
         TimelineEvent {
+            event_id: kind.event_id(),
             kind,
             timestamp,
             push_actions: Some(push_actions),
@@ -1641,28 +1668,30 @@ mod tests {
 
     #[test]
     fn sync_timeline_event_serialisation() {
-        let room_event = TimelineEvent {
-            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
-                event: Raw::new(&example_event()).unwrap().cast_unchecked(),
-                encryption_info: Arc::new(EncryptionInfo {
-                    sender: owned_user_id!("@sender:example.com"),
-                    sender_device: None,
-                    forwarder: None,
-                    algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                        curve25519_key: "xxx".to_owned(),
-                        sender_claimed_keys: Default::default(),
-                        session_id: Some("xyz".to_owned()),
-                    },
-                    verification_state: VerificationState::Verified,
-                }),
-                unsigned_encryption_info: Some(BTreeMap::from([(
-                    UnsignedEventLocation::RelationsReplace,
-                    UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
-                        session_id: Some("xyz".to_owned()),
-                        reason: UnableToDecryptReason::MalformedEncryptedEvent,
-                    }),
-                )])),
+        let kind = TimelineEventKind::Decrypted(DecryptedRoomEvent {
+            event: Raw::new(&example_event()).unwrap().cast_unchecked(),
+            encryption_info: Arc::new(EncryptionInfo {
+                sender: owned_user_id!("@sender:example.com"),
+                sender_device: None,
+                forwarder: None,
+                algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                    curve25519_key: "xxx".to_owned(),
+                    sender_claimed_keys: Default::default(),
+                    session_id: Some("xyz".to_owned()),
+                },
+                verification_state: VerificationState::Verified,
             }),
+            unsigned_encryption_info: Some(BTreeMap::from([(
+                UnsignedEventLocation::RelationsReplace,
+                UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+                    session_id: Some("xyz".to_owned()),
+                    reason: UnableToDecryptReason::MalformedEncryptedEvent,
+                }),
+            )])),
+        });
+        let room_event = TimelineEvent {
+            event_id: kind.event_id(),
+            kind,
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
             thread_summary: ThreadSummaryStatus::Unknown,
@@ -1712,7 +1741,8 @@ mod tests {
 
         // And it can be properly deserialized from the new format.
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id(), Some(owned_event_id!("$xxxxx:example.org")));
+        assert_eq!(event.event_id, Some(owned_event_id!("$xxxxx:example.org")));
+        assert_eq!(event.event_id, event.event_id());
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
@@ -1778,7 +1808,8 @@ mod tests {
             }
         });
         let event: TimelineEvent = serde_json::from_value(serialized).unwrap();
-        assert_eq!(event.event_id(), Some(owned_event_id!("$xxxxx:example.org")));
+        assert_eq!(event.event_id, event.event_id());
+        assert_eq!(event.event_id, Some(owned_event_id!("$xxxxx:example.org")));
         assert_matches!(
             event.encryption_info().unwrap().algorithm_info,
             AlgorithmInfo::MegolmV1AesSha2 { .. }
@@ -2088,39 +2119,41 @@ mod tests {
 
     #[test]
     fn snapshot_test_sync_timeline_event() {
-        let room_event = TimelineEvent {
-            kind: TimelineEventKind::Decrypted(DecryptedRoomEvent {
-                event: Raw::new(&example_event()).unwrap().cast_unchecked(),
-                encryption_info: Arc::new(EncryptionInfo {
-                    sender: owned_user_id!("@sender:example.com"),
-                    sender_device: Some(owned_device_id!("ABCDEFGHIJ")),
-                    forwarder: None,
-                    algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
-                        curve25519_key: "xxx".to_owned(),
-                        sender_claimed_keys: BTreeMap::from([
-                            (
-                                DeviceKeyAlgorithm::Ed25519,
-                                "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo".to_owned(),
-                            ),
-                            (
-                                DeviceKeyAlgorithm::Curve25519,
-                                "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY".to_owned(),
-                            ),
-                        ]),
-                        session_id: Some("mysessionid112".to_owned()),
-                    },
-                    verification_state: VerificationState::Verified,
-                }),
-                unsigned_encryption_info: Some(BTreeMap::from([(
-                    UnsignedEventLocation::RelationsThreadLatestEvent,
-                    UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
-                        session_id: Some("xyz".to_owned()),
-                        reason: UnableToDecryptReason::MissingMegolmSession {
-                            withheld_code: Some(WithheldCode::Unverified),
-                        },
-                    }),
-                )])),
+        let kind = TimelineEventKind::Decrypted(DecryptedRoomEvent {
+            event: Raw::new(&example_event()).unwrap().cast_unchecked(),
+            encryption_info: Arc::new(EncryptionInfo {
+                sender: owned_user_id!("@sender:example.com"),
+                sender_device: Some(owned_device_id!("ABCDEFGHIJ")),
+                forwarder: None,
+                algorithm_info: AlgorithmInfo::MegolmV1AesSha2 {
+                    curve25519_key: "xxx".to_owned(),
+                    sender_claimed_keys: BTreeMap::from([
+                        (
+                            DeviceKeyAlgorithm::Ed25519,
+                            "I3YsPwqMZQXHkSQbjFNEs7b529uac2xBpI83eN3LUXo".to_owned(),
+                        ),
+                        (
+                            DeviceKeyAlgorithm::Curve25519,
+                            "qzdW3F5IMPFl0HQgz5w/L5Oi/npKUFn8Um84acIHfPY".to_owned(),
+                        ),
+                    ]),
+                    session_id: Some("mysessionid112".to_owned()),
+                },
+                verification_state: VerificationState::Verified,
             }),
+            unsigned_encryption_info: Some(BTreeMap::from([(
+                UnsignedEventLocation::RelationsThreadLatestEvent,
+                UnsignedDecryptionResult::UnableToDecrypt(UnableToDecryptInfo {
+                    session_id: Some("xyz".to_owned()),
+                    reason: UnableToDecryptReason::MissingMegolmSession {
+                        withheld_code: Some(WithheldCode::Unverified),
+                    },
+                }),
+            )])),
+        });
+        let room_event = TimelineEvent {
+            event_id: kind.event_id(),
+            kind,
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
             thread_summary: ThreadSummaryStatus::Some(ThreadSummary {
