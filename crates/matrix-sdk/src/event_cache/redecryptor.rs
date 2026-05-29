@@ -418,7 +418,7 @@ impl EventCache {
             // TODO: This ain't great for performance; there shouldn't be
             // that many thread caches alive at the same time, but they could
             // accumulate over time. Consider keeping track of which linked
-            // chunk contain which event id, to avoid doing the linear searches
+            // chunk contains which event ID, to avoid doing the linear searches
             // here.
 
             // Replaces UTDs in each thread, and maybe update the thread summary.
@@ -459,7 +459,7 @@ impl EventCache {
             // TODO: This ain't great for performance; there shouldn't be that many
             // event-focused caches alive at the same time, but they could
             // accumulate over time. Consider keeping track of which linked chunk
-            // contain which event id, to avoid doing the linear searches here.
+            // contains which event ID, to avoid doing the linear searches here.
             join_all(
                 all_caches
                     .event_focused
