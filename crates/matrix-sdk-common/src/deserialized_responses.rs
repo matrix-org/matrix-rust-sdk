@@ -2210,4 +2210,41 @@ mod tests {
         assert!(utd_info.session_id.is_some());
         assert_eq!(utd_info.session_id.unwrap(), session_id);
     }
+
+    #[test]
+    fn test_timeline_event_replace_raw_update_the_event_id() {
+        let mut timeline_event = TimelineEvent::from_plaintext(
+            Raw::new(&json!({
+                "event_id": "$ev0",
+                "type": "m.room.message",
+                "sender": "@alice",
+                "origin_server_ts": 42,
+                "content": {
+                    "body": "Hello, World!",
+                },
+                "unsigned": {},
+            }))
+            .unwrap()
+            .cast_unchecked(),
+        );
+
+        assert_eq!(timeline_event.event_id(), Some(owned_event_id!("$ev0")));
+
+        timeline_event.replace_raw(
+            Raw::new(&json!({
+                "event_id": "$ev1",
+                "type": "m.room.message",
+                "sender": "@bob",
+                "origin_server_ts": 153,
+                "content": {
+                    "body": "Bonjour !",
+                },
+                "unsigned": {},
+            }))
+            .unwrap()
+            .cast_unchecked(),
+        );
+
+        assert_eq!(timeline_event.event_id(), Some(owned_event_id!("$ev1")));
+    }
 }
