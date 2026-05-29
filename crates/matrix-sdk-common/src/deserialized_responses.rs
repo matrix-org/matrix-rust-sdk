@@ -15,7 +15,8 @@
 use std::{collections::BTreeMap, fmt, ops::Not, sync::Arc};
 
 use ruma::{
-    DeviceKeyAlgorithm, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId, OwnedUserId,
+    DeviceKeyAlgorithm, EventId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedEventId,
+    OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, AnyTimelineEvent, AnyToDeviceEvent,
         MessageLikeEventType, room::encrypted::EncryptedEventScheme,
@@ -801,10 +802,10 @@ impl TimelineEvent {
         self.push_actions = Some(push_actions);
     }
 
-    /// Get the (cached) event ID of this [`TimelineEvent`] if the event has any
-    /// valid ID.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
-        self.event_id.clone()
+    /// Get the (cached) event ID of this [`TimelineEvent`] if the event has
+    /// any valid ID.
+    pub fn event_id(&self) -> Option<&EventId> {
+        self.event_id.as_deref()
     }
 
     /// Get the sender of this [`TimelineEvent`] if the event has one.
