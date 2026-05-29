@@ -492,11 +492,11 @@ impl ThreadSummaryStatus {
 pub struct TimelineEvent {
     /// The event ID (cached from `Self::kind`).
     ///
-    /// This field contains a copy of `self.kind.event_id()`. Why? Because
-    /// reading the event ID is done **a lot** in the SDK.
-    /// [`TimelineEventKind::event_id`] implies parsing/deserializing the JSON
-    /// payload looking for the event ID. It has a non-negligible cost. Hence
-    /// this cache.
+    /// This field contains a copy of `TimeilneEventKind::parse_event_id`. Why?
+    /// Because reading the event ID is done **a lot** in the SDK.
+    /// `TimelineEventKind::parse_event_id` implies parsing/deserializing the
+    /// JSON payload looking for the event ID. It has a non-negligible cost.
+    /// Hence this cache.
     #[serde(skip)]
     event_id: Option<OwnedEventId>,
 
@@ -623,7 +623,7 @@ impl TimelineEvent {
         let timestamp = extract_timestamp(raw, max_timestamp);
 
         Self {
-            event_id: kind.event_id(),
+            event_id: kind.parse_event_id(),
             kind,
             push_actions,
             timestamp,
@@ -654,7 +654,7 @@ impl TimelineEvent {
         Self {
             // We could clone `self.event_id`, but we prefer to re-parse the event ID from
             // `decrypted` in case it has changed (it MUST NOT happen, but we never know).
-            event_id: kind.event_id(),
+            event_id: kind.parse_event_id(),
             kind,
             timestamp: self.timestamp,
             push_actions,
@@ -809,7 +809,7 @@ impl TimelineEvent {
 
     /// Get the sender of this [`TimelineEvent`] if the event has one.
     pub fn sender(&self) -> Option<OwnedUserId> {
-        self.kind.sender()
+        self.kind.parse_sender()
     }
 
     /// Returns a reference to the (potentially decrypted) Matrix event inside
@@ -830,7 +830,7 @@ impl TimelineEvent {
             }
         }
 
-        self.event_id = self.kind.event_id();
+        self.event_id = self.kind.parse_event_id();
     }
 
     /// Get the timestamp.
@@ -951,12 +951,12 @@ impl TimelineEventKind {
 
     /// Parse the event ID of this `TimelineEventKind` if the event has any
     /// valid id.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    pub fn parse_event_id(&self) -> Option<OwnedEventId> {
         self.raw().get_field::<OwnedEventId>("event_id").ok().flatten()
     }
 
     /// Parse the sender of this [`TimelineEventKind`] if the event has one.
-    pub fn sender(&self) -> Option<OwnedUserId> {
+    pub fn parse_sender(&self) -> Option<OwnedUserId> {
         self.raw().get_field::<OwnedUserId>("sender").ok().flatten()
     }
 
@@ -1352,7 +1352,7 @@ impl From<SyncTimelineEventDeserializationHelperV1> for TimelineEvent {
         // [`TimelineEvent::timestamp`] to handle that case for us.
 
         TimelineEvent {
-            event_id: kind.event_id(),
+            event_id: kind.parse_event_id(),
             kind,
             timestamp,
             push_actions: Some(push_actions),
@@ -1421,7 +1421,7 @@ impl From<SyncTimelineEventDeserializationHelperV0> for TimelineEvent {
         };
 
         TimelineEvent {
-            event_id: kind.event_id(),
+            event_id: kind.parse_event_id(),
             kind,
             timestamp,
             push_actions: Some(push_actions),
@@ -1690,7 +1690,7 @@ mod tests {
             )])),
         });
         let room_event = TimelineEvent {
-            event_id: kind.event_id(),
+            event_id: kind.parse_event_id(),
             kind,
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
@@ -2152,7 +2152,7 @@ mod tests {
             )])),
         });
         let room_event = TimelineEvent {
-            event_id: kind.event_id(),
+            event_id: kind.parse_event_id(),
             kind,
             timestamp: Some(MilliSecondsSinceUnixEpoch(UInt::new_saturating(2189))),
             push_actions: Default::default(),
