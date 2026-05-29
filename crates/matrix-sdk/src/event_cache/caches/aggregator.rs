@@ -65,7 +65,7 @@ pub async fn aggregate_timeline_for_threads(
                     if let Some(thread_root) = match timeline.events[..nth]
                         .iter()
                         .rev()
-                        .find(|event| event.event_id().as_ref() == Some(&related_event_id))
+                        .find(|event| event.event_id() == Some(&related_event_id))
                     {
                         // The related event has been found in the `timeline`! Extract its thread
                         // root.
@@ -91,10 +91,10 @@ pub async fn aggregate_timeline_for_threads(
                 // We previously found events that are part of a thread, but we didn't see the
                 // thread root yet. And guess what? This might be this event!
                 if let Some(event_id) = event.event_id()
-                    && existing_threads.contains_key(&event_id)
+                    && existing_threads.contains_key(event_id)
                 {
                     new_events_by_thread
-                        .entry(event_id)
+                        .entry(event_id.to_owned())
                         .or_insert_with(default_timeline)
                         .events
                         .push(event.clone());

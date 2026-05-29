@@ -96,7 +96,7 @@ impl Builder {
                         // Return the latest known edit of the event or the event itself if it
                         // hasn't been replaced or the replacement is invalid.
                         if let Some(event_id) = event.event_id()
-                            && let Some(edit) = latest_edit_for_event.get(&event_id)
+                            && let Some(edit) = latest_edit_for_event.get(event_id)
                         {
                             let original = event.kind.raw();
                             let original_encryption_info = event.kind.encryption_info();

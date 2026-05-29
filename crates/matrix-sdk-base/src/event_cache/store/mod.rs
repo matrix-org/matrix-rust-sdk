@@ -232,7 +232,7 @@ impl TryLock for LockableEventCacheStore {
 /// Helper to extract the relation information from an event.
 ///
 /// If the event isn't in relation to another event, then this will return
-/// `None`. Otherwise, returns both the event id this event relates to, and the
+/// `None`. Otherwise, returns both the event ID this event relates to, and the
 /// kind of relation as a string (e.g. `m.replace`).
 pub fn extract_event_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(OwnedEventId, String)> {
     #[derive(serde::Deserialize)]

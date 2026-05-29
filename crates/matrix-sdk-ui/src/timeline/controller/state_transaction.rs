@@ -114,7 +114,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     for event in events {
                         let recycled_timeline_id = event
                             .event_id()
-                            .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
+                            .and_then(|event_id| recycled_timeline_ids.remove(event_id));
                         self.handle_remote_event(
                             event,
                             TimelineItemPosition::End { origin },
@@ -131,7 +131,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 VectorDiff::PushFront { value: event } => {
                     let recycled_timeline_id = event
                         .event_id()
-                        .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
+                        .and_then(|event_id| recycled_timeline_ids.remove(event_id));
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::Start { origin },
@@ -147,7 +147,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 VectorDiff::PushBack { value: event } => {
                     let recycled_timeline_id = event
                         .event_id()
-                        .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
+                        .and_then(|event_id| recycled_timeline_ids.remove(event_id));
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::End { origin },
@@ -163,7 +163,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 VectorDiff::Insert { index: event_index, value: event } => {
                     let recycled_timeline_id = event
                         .event_id()
-                        .and_then(|event_id| recycled_timeline_ids.remove(&event_id));
+                        .and_then(|event_id| recycled_timeline_ids.remove(event_id));
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::At { event_index, origin },
@@ -382,8 +382,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         )
                         .await;
                     } else if let Some(event_id) = event.event_id()
-                        && let Some(meta) =
-                            self.items.all_remote_events().get_by_event_id(&event_id)
+                        && let Some(meta) = self.items.all_remote_events().get_by_event_id(event_id)
                         && let Some(timeline_item_index) = meta.timeline_item_index
                     {
                         // FIXME: This branch is a complete hackjob.
@@ -751,7 +750,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             room_data_provider
                 .load_user_receipt(
                     ReceiptType::Read,
-                    ReceiptThread::Thread(event_id),
+                    ReceiptThread::Thread(event_id.to_owned()),
                     &self.meta.own_user_id,
                 )
                 .await
@@ -764,7 +763,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             room_data_provider
                 .load_user_receipt(
                     ReceiptType::ReadPrivate,
-                    ReceiptThread::Thread(event_id),
+                    ReceiptThread::Thread(event_id.to_owned()),
                     &self.meta.own_user_id,
                 )
                 .await

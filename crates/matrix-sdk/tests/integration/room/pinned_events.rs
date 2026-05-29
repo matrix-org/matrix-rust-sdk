@@ -338,8 +338,8 @@ async fn test_pinned_events_are_reloaded_from_storage_from_many_chunks() {
 
     // Verify the pinned event was loaded from the storage and the network.
     assert_eq!(events.len(), 2, "Expected pinned events to be loaded from the network");
-    assert_eq!(events[0].event_id().as_deref(), Some(pinned_event_id_0));
-    assert_eq!(events[1].event_id().as_deref(), Some(pinned_event_id_1));
+    assert_eq!(events[0].event_id(), Some(pinned_event_id_0));
+    assert_eq!(events[1].event_id(), Some(pinned_event_id_1));
 }
 
 #[async_test]

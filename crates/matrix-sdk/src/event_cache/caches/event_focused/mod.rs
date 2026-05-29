@@ -144,7 +144,7 @@ impl EventFocusedCacheState {
                 let focused_event = result
                     .events
                     .iter()
-                    .find(|event| event.event_id().as_ref() == Some(&self.focused_event_id));
+                    .find(|event| event.event_id() == Some(&self.focused_event_id));
 
                 // If the focused event has a thread root, use it.
                 let mut thread_root =
@@ -167,7 +167,7 @@ impl EventFocusedCacheState {
                 result
                     .events
                     .iter()
-                    .find(|event| event.event_id().as_ref() == Some(&self.focused_event_id))
+                    .find(|event| event.event_id() == Some(&self.focused_event_id))
                     .and_then(|event| extract_thread_root(event.raw()))
             }
         };
@@ -182,7 +182,7 @@ impl EventFocusedCacheState {
             // beginning, since it's more likely to be around there, in that
             // case.
             let includes_root =
-                result.events.iter().any(|event| event.event_id().as_ref() == Some(&root_id));
+                result.events.iter().any(|event| event.event_id() == Some(&root_id));
 
             self.pagination_mode =
                 EventFocusedPaginationMode::Thread { thread_root: root_id.clone() };
@@ -193,7 +193,7 @@ impl EventFocusedCacheState {
                 .iter()
                 .filter(|event| {
                     extract_thread_root(event.raw()).as_ref() == Some(&root_id)
-                        || event.event_id().as_ref() == Some(&root_id)
+                        || event.event_id() == Some(&root_id)
                 })
                 .cloned()
                 .collect();

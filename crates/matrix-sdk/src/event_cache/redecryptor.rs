@@ -232,7 +232,7 @@ impl RedecryptorChannels {
 fn filter_timeline_event_to_utd(
     event: TimelineEvent,
 ) -> Option<(OwnedEventId, Raw<AnySyncTimelineEvent>)> {
-    let event_id = event.event_id();
+    let event_id = event.event_id().map(ToOwned::to_owned);
 
     // Only pick out events that are UTDs, get just the Raw event as this is what
     // the OlmMachine needs.
@@ -250,7 +250,7 @@ fn filter_timeline_event_to_utd(
 fn filter_timeline_event_to_decrypted(
     event: TimelineEvent,
 ) -> Option<(OwnedEventId, DecryptedRoomEvent)> {
-    let event_id = event.event_id();
+    let event_id = event.event_id().map(ToOwned::to_owned);
 
     let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
     // Zip the event ID and event together so we don't have to pick out the event ID
