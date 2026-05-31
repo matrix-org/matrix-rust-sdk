@@ -14,7 +14,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
         FeatureFlag, MatrixVersion,
-        client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
+        client::{discovery::discover_homeserver::HomeserverInfo, rtc::RtcTransport},
     },
     event_id,
     events::{
@@ -559,7 +559,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
             identity_server: None,
             tile_server: None,
-            rtc_foci: vec![RtcFocusInfo::livekit("livekit.example.com".to_owned())],
+            rtc_foci: vec![RtcTransport::livekit("livekit.example.com".to_owned())],
         };
 
         self.set_kv_data(
