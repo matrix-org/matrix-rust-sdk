@@ -29,11 +29,12 @@ use ruma::{
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
         MatrixVersion, SupportedVersions,
-        client::discovery::{
-            discover_homeserver::{
-                self, HomeserverInfo, IdentityServerInfo, RtcFocusInfo, TileServerInfo,
+        client::{
+            discovery::{
+                discover_homeserver::{self, HomeserverInfo, IdentityServerInfo, TileServerInfo},
+                get_capabilities::v3::Capabilities,
             },
-            get_capabilities::v3::Capabilities,
+            rtc::RtcTransport,
         },
     },
     events::{
@@ -2070,7 +2071,7 @@ pub struct WellKnownResponse {
     pub tile_server: Option<TileServerInfo>,
 
     /// A list of the available MatrixRTC foci, ordered by priority.
-    pub rtc_foci: Vec<RtcFocusInfo>,
+    pub rtc_foci: Vec<RtcTransport>,
 }
 
 impl From<discover_homeserver::Response> for WellKnownResponse {

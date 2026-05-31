@@ -106,7 +106,7 @@ pub enum Error {
     Unpickle,
 
     #[error("Redaction failed: {0}")]
-    Redaction(#[source] ruma::canonical_json::RedactionError),
+    Redaction(#[source] ruma::canonical_json::CanonicalJsonFieldError),
 
     #[error("An update keyed by unique ID touched more than one entry")]
     InconsistentUpdate,
