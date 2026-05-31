@@ -68,7 +68,7 @@ use matrix_sdk::{
 pub use room_list::*;
 use ruma::{
     OwnedRoomId, RoomId, UInt, api::client::sync::sync_events::v5 as http, assign,
-    events::StateEventType,
+    events::StateEventType, presence::PresenceState,
 };
 pub use state::*;
 use thiserror::Error;
@@ -158,9 +158,29 @@ impl RoomListService {
         connection_id: &str,
         timeline_limit: u32,
     ) -> Result<Self, Error> {
+        Self::new_with_presence(
+            client,
+            share_pos,
+            connection_id,
+            timeline_limit,
+            PresenceState::Online,
+        )
+        .await
+    }
+
+    /// Like [`RoomListService::new_with`] but with an explicit presence state
+    /// for the generated sliding sync requests.
+    pub async fn new_with_presence(
+        client: Client,
+        share_pos: bool,
+        connection_id: &str,
+        timeline_limit: u32,
+        presence: PresenceState,
+    ) -> Result<Self, Error> {
         let mut builder = client
             .sliding_sync(connection_id)
             .map_err(Error::SlidingSync)?
+            .set_presence(presence)
             .with_account_data_extension(
                 assign!(http::request::AccountData::default(), { enabled: Some(true) }),
             )
@@ -266,6 +286,11 @@ impl RoomListService {
         client.event_cache().subscribe()?;
 
         Ok(Self { client, sliding_sync, state_machine })
+    }
+
+    /// Set the presence state to send with future sliding sync requests.
+    pub fn set_presence(&self, presence: PresenceState) {
+        self.sliding_sync.set_presence(presence);
     }
 
     /// Start to sync the room list.

@@ -38,6 +38,7 @@ use matrix_sdk::{
     executor::{JoinHandle, spawn},
     sleep::sleep,
 };
+use ruma::presence::PresenceState;
 use thiserror::Error;
 use tokio::sync::{
     Mutex as AsyncMutex, OwnedMutexGuard,
@@ -618,6 +619,12 @@ impl SyncService {
         self.state.subscribe()
     }
 
+    /// Set the presence state to send with future sliding sync requests.
+    pub async fn set_presence(&self, presence: PresenceState) {
+        self.room_list_service.set_presence(presence.clone());
+        self.inner.lock().await.encryption_sync_service.set_presence(presence);
+    }
+
     /// Start (or restart) the underlying sliding syncs.
     ///
     /// This can be called multiple times safely:
@@ -785,6 +792,9 @@ pub struct SyncServiceBuilder {
     /// [`room_list_service::DEFAULT_LIST_TIMELINE_LIMIT`].
     room_list_timeline_limit: u32,
 
+    /// Presence state to send with the generated sliding sync requests.
+    presence: PresenceState,
+
     /// The parent tracing span to use for the tasks within this service.
     ///
     /// Normally this will be [`Span::none`], but it may be useful to assign a
@@ -801,6 +811,7 @@ impl SyncServiceBuilder {
             with_share_pos: true,
             room_list_conn_id: DEFAULT_CONNECTION_ID.to_owned(),
             room_list_timeline_limit: DEFAULT_LIST_TIMELINE_LIMIT,
+            presence: PresenceState::Online,
             parent_span: Span::none(),
         }
     }
@@ -834,6 +845,15 @@ impl SyncServiceBuilder {
         self
     }
 
+    /// Set the presence state to send with the generated sliding sync requests.
+    ///
+    /// The default is [`PresenceState::Online`], matching the Matrix
+    /// Client-Server API default when `set_presence` is not specified.
+    pub fn with_presence(mut self, presence: PresenceState) -> Self {
+        self.presence = presence;
+        self
+    }
+
     /// Set the parent tracing span to be used for the tasks within this
     /// service.
     pub fn with_parent_span(mut self, parent_span: Span) -> Self {
@@ -853,20 +873,23 @@ impl SyncServiceBuilder {
             with_share_pos,
             room_list_conn_id,
             room_list_timeline_limit,
+            presence,
             parent_span,
         } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new_with(
+        let room_list = RoomListService::new_with_presence(
             client.clone(),
             with_share_pos,
             &room_list_conn_id,
             room_list_timeline_limit,
+            presence.clone(),
         )
         .await?;
 
-        let encryption_sync = Arc::new(EncryptionSyncService::new(client, None).await?);
+        let encryption_sync =
+            Arc::new(EncryptionSyncService::new_with_presence(client, None, presence).await?);
 
         let room_list_service = Arc::new(room_list);
         let state = SharedObservable::new(State::Idle);

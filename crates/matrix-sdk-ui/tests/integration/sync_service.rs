@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::{
+    collections::BTreeSet,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -21,6 +22,7 @@ use assert_matches::assert_matches;
 use matrix_sdk::{assert_next_matches_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
+use ruma::presence::PresenceState;
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
@@ -201,6 +203,56 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     );
 
     assert_pending!(state_stream);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_sync_service_presence_is_used_by_both_syncs() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let encryption_pos = Arc::new(Mutex::new(0));
+    let room_pos = Arc::new(Mutex::new(0));
+    let _guard = setup_mocking_sliding_sync_server(&server, encryption_pos, room_pos).await;
+
+    let sync_service = SyncService::builder(client).build().await.unwrap();
+    sync_service.set_presence(PresenceState::Unavailable).await;
+    sync_service.start().await;
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    sync_service.stop().await;
+
+    let mut conn_ids_with_presence = BTreeSet::new();
+    for request in &server.received_requests().await.expect("Request recording has been disabled") {
+        if !SlidingSyncMatcher.matches(request) {
+            continue;
+        }
+
+        let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
+        let Some(conn_id) = json_value.get("conn_id").and_then(|obj| obj.as_str()) else {
+            continue;
+        };
+
+        if conn_id != "encryption" && conn_id != "room-list" {
+            panic!("unexpected conn id seen server side: {conn_id}");
+        }
+
+        let set_presence = request
+            .url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "set_presence").then_some(value.into_owned()));
+
+        if set_presence.as_deref() == Some("unavailable") {
+            conn_ids_with_presence.insert(conn_id.to_owned());
+        }
+    }
+
+    assert_eq!(
+        conn_ids_with_presence,
+        BTreeSet::from(["encryption".to_owned(), "room-list".to_owned()])
+    );
 
     Ok(())
 }
