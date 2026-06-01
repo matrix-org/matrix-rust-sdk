@@ -38,10 +38,8 @@ use tokio::sync::{Notify, mpsc};
 use tracing::{instrument, trace, warn};
 
 use self::pagination::RoomPagination;
-pub(super) use self::state::{
-    LockedRoomEventCacheState, RoomEventCacheStateLockReadGuard, RoomEventCacheStateLockWriteGuard,
-};
 pub use self::{
+    state::RoomEventCacheState,
     subscriber::RoomEventCacheSubscriber,
     updates::{
         RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
@@ -49,7 +47,10 @@ pub use self::{
     },
 };
 use super::{
-    super::{AutoShrinkChannelPayload, EventsOrigin, Result},
+    super::{
+        AutoShrinkChannelPayload, EventsOrigin, Result,
+        states::{CacheStateLock, StateLockWriteGuard, selectors::RoomStateSelector},
+    },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
@@ -76,7 +77,7 @@ impl RoomEventCache {
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
         own_user_id: OwnedUserId,
-        state: LockedRoomEventCacheState,
+        state: CacheStateLock<RoomStateSelector>,
         shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
@@ -231,7 +232,7 @@ impl RoomEventCache {
     }
 
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &LockedRoomEventCacheState {
+    pub(in super::super) fn state(&self) -> &CacheStateLock<RoomStateSelector> {
         &self.inner.state
     }
 
@@ -337,8 +338,8 @@ pub(super) struct RoomEventCacheInner {
     /// The user's own user id.
     own_user_id: OwnedUserId,
 
-    /// State for this room's event cache.
-    state: LockedRoomEventCacheState,
+    /// State for this room's cache.
+    state: CacheStateLock<RoomStateSelector>,
 
     /// A notifier that we received a new pagination token.
     pagination_batch_token_notifier: Notify,
@@ -441,7 +442,7 @@ impl RoomEventCacheInner {
 
     async fn handle_timeline_inner(
         &self,
-        mut state: RoomEventCacheStateLockWriteGuard<'_>,
+        mut state: StateLockWriteGuard<'_, RoomEventCacheState>,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
@@ -802,10 +803,7 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{
-            super::TimelineVectorDiffs, lock::Reload as _,
-            pagination::LoadMoreEventsBackwardsOutcome,
-        },
+        super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
     use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};

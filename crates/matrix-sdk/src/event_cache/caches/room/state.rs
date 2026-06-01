@@ -22,10 +22,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, apply_redaction,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
-    event_cache::{
-        Event, Gap,
-        store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
-    },
+    event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
@@ -57,15 +54,14 @@ use super::{
                 find_event, find_event_relations, find_event_with_relations,
                 load_linked_chunk_metadata, send_updates_to_store,
             },
+            states::{StateLockReadGuard, StateLockWriteGuard},
         },
-        EventLocation, TimelineVectorDiffs,
+        EventLocation,
         event_linked_chunk::EventLinkedChunk,
-        lock,
         pagination::SharedPaginationStatus,
         read_receipts::compute_unread_counts,
     },
-    EventsOrigin, RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
-    RoomEventCacheUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
+    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
 use crate::room::WeakRoom;
 
@@ -82,9 +78,6 @@ pub struct RoomEventCacheState {
     /// The user's own user id.
     pub own_user_id: OwnedUserId,
 
-    /// Reference to the underlying backing store.
-    store: EventCacheStoreLock,
-
     /// The loaded events for the current room, that is, the in-memory
     /// linked chunk for this room.
     room_linked_chunk: EventLinkedChunk,
@@ -95,7 +88,7 @@ pub struct RoomEventCacheState {
     ///
     /// This is used only by the [`RoomEventCacheStateLock::read`] and
     /// [`RoomEventCacheStateLock::write`] when the state must be reset.
-    update_sender: RoomEventCacheUpdateSender,
+    pub update_sender: RoomEventCacheUpdateSender,
 
     /// A clone of
     /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
@@ -119,25 +112,6 @@ pub struct RoomEventCacheState {
 }
 
 impl RoomEventCacheState {
-    /// Return a read-only reference to the underlying room linked chunk.
-    pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
-        &self.room_linked_chunk
-    }
-}
-
-impl lock::Store for RoomEventCacheState {
-    fn store(&self) -> &EventCacheStoreLock {
-        &self.store
-    }
-}
-
-/// State for a single room's event cache.
-///
-/// This contains all the inner mutable states that ought to be updated at
-/// the same time.
-pub type LockedRoomEventCacheState = lock::StateLock<RoomEventCacheState>;
-
-impl LockedRoomEventCacheState {
     /// Create a new state, or reload it from storage if it's been enabled.
     ///
     /// Not all events are going to be loaded. Only a portion of them. The
@@ -157,23 +131,10 @@ impl LockedRoomEventCacheState {
         enabled_thread_support: bool,
         update_sender: RoomEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-        store: EventCacheStoreLock,
+        store_guard: EventCacheStoreLockGuard,
         pagination_status: SharedObservable<SharedPaginationStatus>,
         automatic_pagination: Option<AutomaticPagination>,
     ) -> Result<Self, EventCacheError> {
-        let store_guard = match store.lock().await? {
-            // Lock is clean: all good!
-            EventCacheStoreLockState::Clean(guard) => guard,
-
-            // Lock is dirty, not a problem, it's the first time we are creating this state, no
-            // need to refresh.
-            EventCacheStoreLockState::Dirty(guard) => {
-                EventCacheStoreLockGuard::clear_dirty(&guard);
-
-                guard
-            }
-        };
-
         let linked_chunk_id = LinkedChunkId::Room(&room_id);
 
         // Load the full linked chunk's metadata, so as to feed the order tracker.
@@ -217,12 +178,11 @@ impl LockedRoomEventCacheState {
             }
         };
 
-        Ok(Self::new_inner(RoomEventCacheState {
+        Ok(RoomEventCacheState {
             own_user_id,
             enabled_thread_support,
             room_id,
             weak_room,
-            store,
             room_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
                 full_linked_chunk_metadata,
@@ -234,41 +194,16 @@ impl LockedRoomEventCacheState {
             waited_for_initial_prev_token: false,
             subscriber_count: Default::default(),
             automatic_pagination,
-        }))
+        })
+    }
+
+    /// Return a read-only reference to the underlying room linked chunk.
+    pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
+        &self.room_linked_chunk
     }
 }
 
-/// The read-lock guard around [`RoomEventCacheState`].
-///
-/// See [`RoomEventCacheStateLock::read`] to acquire it.
-pub type RoomEventCacheStateLockReadGuard<'a> = lock::StateLockReadGuard<'a, RoomEventCacheState>;
-
-/// The write-lock guard around [`RoomEventCacheState`].
-///
-/// See [`RoomEventCacheStateLock::write`] to acquire it.
-pub type RoomEventCacheStateLockWriteGuard<'a> = lock::StateLockWriteGuard<'a, RoomEventCacheState>;
-
-impl<'a> lock::Reload for RoomEventCacheStateLockWriteGuard<'a> {
-    /// Force to shrink the room, whenever there is subscribers or not.
-    async fn reload(&mut self) -> Result<(), EventCacheError> {
-        self.shrink_to_last_chunk().await?;
-
-        let diffs = self.state.room_linked_chunk.updates_as_vector_diffs();
-
-        // Notify observers about the update.
-        self.state.update_sender.send(
-            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                diffs,
-                origin: EventsOrigin::Cache,
-            }),
-            Some(RoomEventCacheGenericUpdate { room_id: self.state.room_id.clone() }),
-        );
-
-        Ok(())
-    }
-}
-
-impl<'a> RoomEventCacheStateLockReadGuard<'a> {
+impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
     /// Return the subscriber count.
     pub fn subscriber_count(&self) -> &Arc<AtomicUsize> {
         &self.state.subscriber_count
@@ -328,7 +263,7 @@ impl<'a> RoomEventCacheStateLockReadGuard<'a> {
     }
 }
 
-impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
+impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     /// Return a mutable reference to the underlying room linked chunk.
     pub fn room_linked_chunk_mut(&mut self) -> &mut EventLinkedChunk {
         &mut self.state.room_linked_chunk
@@ -352,6 +287,14 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
         find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
+    /// Force to shrink the room, whenever there is subscribers or not.
+    #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
+    pub async fn reload(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        self.shrink_to_last_chunk().await?;
+
+        Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())
+    }
+
     /// If storage is enabled, unload all the chunks, then reloads only the
     /// last one.
     ///
@@ -360,7 +303,7 @@ impl<'a> RoomEventCacheStateLockWriteGuard<'a> {
     /// pending diff updates with the result of this function.
     ///
     /// Otherwise, returns `None`.
-    pub async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
+    async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
 

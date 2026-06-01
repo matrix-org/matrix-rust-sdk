@@ -45,6 +45,12 @@ pub trait CacheState {
 /// Select a [`RoomEventCacheState`] in [`State`].
 pub struct RoomStateSelector(OwnedRoomId);
 
+impl RoomStateSelector {
+    pub fn new(room_id: OwnedRoomId) -> Self {
+        Self(room_id)
+    }
+}
+
 impl CacheState for RoomStateSelector {
     type Item = RoomEventCacheState;
 
