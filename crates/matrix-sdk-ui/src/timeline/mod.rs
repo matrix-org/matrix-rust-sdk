@@ -40,13 +40,13 @@ use matrix_sdk::{
 };
 use mime::Mime;
 use ruma::{
-    EventId, OwnedEventId, OwnedTransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
-        relation::Thread,
+        relation::{RelationType, Thread},
         room::message::{
             AddMentions, Relation, RelationWithoutReplacement, ReplyWithinThread,
             RoomMessageEventContentWithoutRelation, TextMessageEventContent,
@@ -89,7 +89,7 @@ pub use self::{
     error::*,
     event_filter::{TimelineEventCondition, TimelineEventFilter},
     event_item::{
-        AnyOtherStateEventContentChange, BeaconInfo, EmbeddedEvent, EncryptedMessage,
+        AnyOtherStateEventContentChange, BeaconInfo, EditRevision, EmbeddedEvent, EncryptedMessage,
         EventItemOrigin, EventSendState, EventTimelineItem, InReplyToDetails, LiveLocationState,
         MediaUploadProgress, MemberProfileChange, MembershipChange, Message, MsgLikeContent,
         MsgLikeKind, OtherMessageLike, OtherState, PollResult, PollState, Profile, ReactionInfo,
@@ -284,6 +284,50 @@ impl Timeline {
         let items = self.controller.items().await;
         let (_, item) = rfind_event_by_id(&items, event_id)?;
         Some(item.to_owned())
+    }
+
+    /// Get the edit history for the given event.
+    ///
+    /// Returns all revisions of the event, in chronological order.
+    /// The first entry is the original event content, followed by each
+    /// edit in the order they were applied.
+    ///
+    /// This queries the Event Cache for all `m.replace` relations targeting
+    /// the given event, so it will find edits even if they are not currently
+    /// visible in the timeline.
+    pub async fn edit_revisions(&self, event_id: &EventId) -> Result<Vec<EditRevision>, Error> {
+        let result = self
+            .event_cache
+            .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
+            .await;
+
+        let Some(events) = result? else {
+            return Ok(Vec::new());
+        };
+
+        let (original_event, edit_events) = events;
+        let room = self.room();
+        let mut revisions = Vec::with_capacity(edit_events.len() + 1);
+
+        let original_ts = original_event.timestamp;
+        if let Some(content) = TimelineItemContent::from_event(room, original_event).await {
+            revisions.push(EditRevision {
+                content,
+                timestamp: original_ts.unwrap_or(MilliSecondsSinceUnixEpoch::now()),
+            });
+        }
+
+        for edit_event in edit_events {
+            let ts = edit_event.timestamp;
+            if let Some(content) = TimelineItemContent::from_event(room, edit_event).await {
+                revisions.push(EditRevision {
+                    content,
+                    timestamp: ts.unwrap_or(MilliSecondsSinceUnixEpoch::now()),
+                });
+            }
+        }
+
+        Ok(revisions)
     }
 
     /// Get the latest of the timeline's remote event ids.

@@ -124,6 +124,18 @@ pub(crate) enum TimelineItemHandle<'a> {
     Local(&'a SendHandle),
 }
 
+/// A single revision in the edit history of a message.
+///
+/// Created on-demand by querying the Event Cache for all `m.replace`
+/// relations targeting a particular event.
+#[derive(Clone, Debug)]
+pub struct EditRevision {
+    /// The timeline item content after this revision.
+    pub content: TimelineItemContent,
+    /// The timestamp of the event that created this revision.
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+}
+
 /// A container for temporarily holding onto data that is going to be erased by
 /// a redaction once the server plays it back.
 #[derive(Clone, Debug)]
