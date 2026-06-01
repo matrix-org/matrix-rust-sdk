@@ -74,13 +74,9 @@ use ruma::{
         error::{ErrorBody, StandardErrorBody},
     },
     assign,
-    events::{
-        ToDeviceEventContent,
-        room::{
-            MediaSource, ThumbnailInfo,
-            member::{MembershipChange, OriginalSyncRoomMemberEvent},
-        },
-        secret::request::{RequestAction, SecretRequestAction, ToDeviceSecretRequestEventContent},
+    events::room::{
+        MediaSource, ThumbnailInfo,
+        member::{MembershipChange, OriginalSyncRoomMemberEvent},
     },
 };
 #[cfg(feature = "experimental-send-custom-to-device")]
@@ -128,7 +124,6 @@ pub use matrix_sdk_base::crypto::{
     },
     vodozemac,
 };
-use matrix_sdk_base::crypto::{GossipRequest, SecretInfo, store::types::Changes};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 
 #[cfg(feature = "experimental-send-custom-to-device")]
@@ -893,57 +888,6 @@ pub struct Encryption {
 }
 
 impl Encryption {
-    /// TODO: AJB
-    pub async fn send_signed_secret_requests(&self) {
-        error!("AJB send_signed_secret_requests");
-        // Sign our device with the X.509 key (maybe as part of encrypting the message)
-
-        // Get list of devices
-        let own_user_id = self.client.user_id().unwrap();
-        let own_user_devices: Vec<Device> =
-            self.get_user_devices(own_user_id).await.unwrap().devices().collect();
-        let own_user_devices: Vec<&Device> = own_user_devices.iter().collect();
-
-        let own_device_id = self.client.device_id().unwrap().to_owned();
-
-        let olm_machine_guard = self.client.olm_machine().await;
-        let olm_machine = olm_machine_guard.as_ref().unwrap();
-        let secrets = olm_machine.get_missing_secrets().await.unwrap();
-        error!("AJB secrets={secrets:?}");
-
-        for secret in secrets {
-            let transaction_id = TransactionId::new();
-
-            let content =
-                AnyToDeviceEventContent::SecretRequest(ToDeviceSecretRequestEventContent::new(
-                    RequestAction::Request(SecretRequestAction::new(secret.clone())),
-                    own_device_id.clone(),
-                    transaction_id.clone(),
-                ));
-
-            let content_raw: Raw<AnyToDeviceEventContent> = Raw::new(&content).unwrap();
-
-            error!("AJB sending secret {secret}, {own_user_devices:?}");
-            self.encrypt_and_send_raw_to_device(
-                own_user_devices.clone(),
-                &content.event_type().to_string(),
-                content_raw,
-                CollectStrategy::AllDevices,
-            )
-            .await
-            .unwrap();
-
-            let mut store_changes = Changes::default();
-            store_changes.key_requests.push(GossipRequest {
-                request_recipient: own_user_id.to_owned(),
-                request_id: transaction_id,
-                info: SecretInfo::SecretRequest(secret),
-                sent_out: true,
-            });
-            olm_machine.store().save_changes(store_changes).await.unwrap();
-        }
-    }
-
     pub(crate) fn new(client: Client) -> Self {
         Self { client }
     }
@@ -2144,6 +2088,7 @@ impl Encryption {
     ///
     /// # Returns
     /// A list of failures. The list of devices that couldn't get the messages.
+    #[cfg(feature = "experimental-send-custom-to-device")]
     pub async fn encrypt_and_send_raw_to_device(
         &self,
         recipient_devices: Vec<&Device>,

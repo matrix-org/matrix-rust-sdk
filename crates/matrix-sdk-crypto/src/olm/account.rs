@@ -127,7 +127,6 @@ pub(crate) struct DecryptionResult {
     pub raw_event: Raw<AnyToDeviceEvent>,
     pub sender_key: Curve25519PublicKey,
     pub encryption_info: EncryptionInfo,
-    pub from_x509_signed_device: bool,
 }
 
 /// A hash of a successfully decrypted Olm message.
@@ -1357,17 +1356,7 @@ impl Account {
                     }
                 }
 
-                let mut device_keys = store.get_own_device().await?.as_device_keys().clone();
-
-                if sender == self.user_id
-                    && let Some(x509_signer) = store.x509_signer()
-                {
-                    info!(
-                        "X509: signing device keys when creating inbound session with our own device"
-                    );
-                    x509_signer.sign_device_keys(&self.user_id, &mut device_keys).unwrap();
-                }
-
+                let device_keys = store.get_own_device().await?.as_device_keys().clone();
                 let result =
                     match self.create_inbound_session(sender_key, device_keys, prekey_message) {
                         Ok(r) => r,
@@ -1485,19 +1474,6 @@ impl Account {
     ) -> OlmResult<DecryptionResult> {
         let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
 
-        info!(
-            "X509: received decrypted event, verifier {}, sender_device_keys {}",
-            store.x509_verifier().is_some(),
-            event.sender_device_keys().is_some()
-        );
-        let from_x509_signed_device = if let Some(x509_verifier) = store.x509_verifier()
-            && let Some(sender_device_keys) = event.sender_device_keys()
-        {
-            x509_verifier.verify_signed_object(sender, sender_device_keys)
-        } else {
-            false
-        };
-
         let identity_keys = &self.static_data.identity_keys;
 
         if event.recipient() != self.static_data.user_id {
@@ -1526,7 +1502,6 @@ impl Account {
                 raw_event: Raw::from_json(RawJsonValue::from_string(plaintext)?),
                 sender_key,
                 encryption_info,
-                from_x509_signed_device,
             };
 
             // Return an error if the sender is unverified (and we care)

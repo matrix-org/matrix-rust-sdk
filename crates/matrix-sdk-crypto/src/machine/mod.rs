@@ -76,7 +76,7 @@ use crate::{
     backups::{BackupMachine, MegolmV1BackupKey},
     dehydrated_devices::{DehydratedDevices, DehydrationError},
     error::{EventError, MegolmError, MegolmResult, OlmError, OlmResult, SetRoomSettingsError},
-    gossiping::{GossipMachine, SecretRequestEventAndTrust},
+    gossiping::GossipMachine,
     identities::{Device, IdentityManager, UserDevices, user::UserIdentity},
     olm::{
         Account, CrossSigningStatus, EncryptionSettings, IdentityKeys, InboundGroupSession,
@@ -1392,13 +1392,7 @@ impl OlmMachine {
                 let name = self
                     .inner
                     .key_request_machine
-                    .receive_secret_event(
-                        cache,
-                        decrypted.result.sender_key,
-                        decrypted.result.from_x509_signed_device,
-                        e,
-                        changes,
-                    )
+                    .receive_secret_event(cache, decrypted.result.sender_key, e, changes)
                     .await?;
 
                 // Set the secret name so other consumers of the event know
@@ -1479,12 +1473,7 @@ impl OlmMachine {
     /// plaintext, handle it.
     ///
     /// Here, we only process events that are allowed to arrive in plaintext.
-    async fn handle_to_device_event(
-        &self,
-        changes: &mut Changes,
-        event: &ToDeviceEvents,
-        from_x509_signed_device: bool,
-    ) {
+    async fn handle_to_device_event(&self, changes: &mut Changes, event: &ToDeviceEvents) {
         use crate::types::events::ToDeviceEvents::*;
 
         match event {
@@ -1494,9 +1483,7 @@ impl OlmMachine {
             // Note: this list should match the allowed types in
             // check_to_device_is_from_verified_device_or_allowed_type
             RoomKeyRequest(e) => self.inner.key_request_machine.receive_incoming_key_request(e),
-            SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(
-                &SecretRequestEventAndTrust { event: e.clone(), from_x509_signed_device },
-            ),
+            SecretRequest(e) => self.inner.key_request_machine.receive_incoming_secret_request(e),
             RoomKeyWithheld(e) => self.add_withheld_info(changes, e),
             KeyVerificationAccept(..)
             | KeyVerificationCancel(..)
@@ -1585,8 +1572,7 @@ impl OlmMachine {
                 .await
             }
             e => {
-                self.handle_to_device_event(changes, &e, false /* unencrypted, so no trust */)
-                    .await;
+                self.handle_to_device_event(changes, &e).await;
                 Some(ProcessedToDeviceEvent::PlainText(raw_event))
             }
         }
@@ -1659,12 +1645,7 @@ impl OlmMachine {
 
         match decrypted.result.raw_event.deserialize_as() {
             Ok(event) => {
-                self.handle_to_device_event(
-                    changes,
-                    &event,
-                    decrypted.result.from_x509_signed_device,
-                )
-                .await;
+                self.handle_to_device_event(changes, &event).await;
 
                 raw_event = event
                     .serialize_zeroized()
@@ -2016,11 +1997,18 @@ impl OlmMachine {
     /// # anyhow::Ok(()) };
     /// ```
     pub async fn query_missing_secrets_from_other_sessions(&self) -> StoreResult<bool> {
-        let secrets = self.get_missing_secrets().await?;
+        let identity = self.inner.user_identity.lock().await;
+        let mut secrets = identity.get_missing_secrets().await;
+
+        if self.store().load_backup_keys().await?.decryption_key.is_none() {
+            secrets.push(SecretName::RecoveryKey);
+        }
+
         if secrets.is_empty() {
             debug!("No missing requests to query");
             return Ok(false);
         }
+
         let secret_requests = GossipMachine::request_missing_secrets(self.user_id(), secrets);
 
         // Check if there are already in-flight requests for these secrets?
@@ -2041,16 +2029,6 @@ impl OlmMachine {
             self.store().save_changes(changes).await?;
             Ok(true)
         }
-    }
-
-    /// TODO: AJB
-    pub async fn get_missing_secrets(&self) -> Result<Vec<SecretName>, CryptoStoreError> {
-        let identity = self.inner.user_identity.lock().await;
-        let mut secrets = identity.get_missing_secrets().await;
-        if self.store().load_backup_keys().await?.decryption_key.is_none() {
-            secrets.push(SecretName::RecoveryKey);
-        }
-        Ok(secrets)
     }
 
     /// Push a secret to all of our other verified devices.

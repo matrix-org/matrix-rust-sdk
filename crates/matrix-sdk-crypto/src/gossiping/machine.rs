@@ -36,7 +36,9 @@ use ruma::{
     DeviceId, OneTimeKeyAlgorithm, OwnedDeviceId, OwnedTransactionId, OwnedUserId, RoomId,
     TransactionId, UserId,
     api::client::keys::claim_keys::v3::Request as KeysClaimRequest,
-    events::secret::request::{RequestAction, SecretName},
+    events::secret::request::{
+        RequestAction, SecretName, ToDeviceSecretRequestEvent as SecretRequestEvent,
+    },
 };
 use tracing::{Span, debug, field::debug, info, instrument, trace, warn};
 use vodozemac::Curve25519PublicKey;
@@ -45,7 +47,6 @@ use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInf
 use crate::{
     Device, MegolmError,
     error::{EventError, OlmError, OlmResult},
-    gossiping::SecretRequestEventAndTrust,
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
     session_manager::GroupSessionCache,
@@ -223,8 +224,8 @@ impl GossipMachine {
         }
     }
 
-    pub fn receive_incoming_secret_request(&self, event_and_trust: &SecretRequestEventAndTrust) {
-        self.receive_event(event_and_trust.clone().into())
+    pub fn receive_incoming_secret_request(&self, event: &SecretRequestEvent) {
+        self.receive_event(event.clone().into())
     }
 
     /// Handle all the incoming key requests that are queued up and empty our
@@ -389,9 +390,8 @@ impl GossipMachine {
     async fn handle_secret_request(
         &self,
         cache: &StoreCache,
-        event_and_trust: &SecretRequestEventAndTrust,
+        event: &SecretRequestEvent,
     ) -> OlmResult<Option<Session>> {
-        let event = &event_and_trust.event;
         let secret_name = match &event.content.action {
             RequestAction::Request(r) => &r.name,
             // We ignore cancellations here since there's nothing to serve.
@@ -414,7 +414,7 @@ impl GossipMachine {
 
         if let Some(device) = device {
             if device.user_id() == self.user_id() {
-                if device.is_verified() || event_and_trust.from_x509_signed_device {
+                if device.is_verified() {
                     info!(
                         user_id = ?device.user_id(),
                         device_id = ?device.device_id(),
@@ -432,10 +432,7 @@ impl GossipMachine {
                                 "Secret request is missing an Olm session, \
                                 putting the request in the wait queue",
                             );
-                            self.handle_key_share_without_session(
-                                device,
-                                event_and_trust.clone().into(),
-                            );
+                            self.handle_key_share_without_session(device, event.clone().into());
 
                             Ok(None)
                         }
@@ -998,29 +995,7 @@ impl GossipMachine {
     ) -> Result<(), CryptoStoreError> {
         if secret.secret_name != SecretName::RecoveryKey {
             match self.inner.store.import_secret(&secret).await {
-                Ok(_) => {
-                    self.mark_as_done(&secret.gossip_request).await?;
-
-                    if secret.secret_name == SecretName::CrossSigningSelfSigningKey {
-                        info!("X509: signing device with just-received SSK");
-                        // TODO RAV: don't do this unless the device is unsigned.
-                        let private_identity_mutex = self.inner.store.private_identity();
-                        let private_identity = private_identity_mutex.lock().await;
-                        let signature_upload_request = private_identity
-                            .sign_account(self.inner.store.static_account())
-                            .await
-                            .unwrap();
-                        let request = OutgoingRequest {
-                            request_id: TransactionId::new(),
-                            request: Arc::new(signature_upload_request.into()),
-                        };
-                        self.inner
-                            .outgoing_requests
-                            .write()
-                            .insert(request.request_id.clone(), request);
-                    }
-                }
-
+                Ok(_) => self.mark_as_done(&secret.gossip_request).await?,
                 // If this is a store error propagate it up the call stack.
                 Err(SecretImportError::Store(e)) => return Err(e),
                 // Otherwise warn that there was something wrong with the
@@ -1051,7 +1026,6 @@ impl GossipMachine {
         &self,
         cache: &StoreCache,
         sender_key: Curve25519PublicKey,
-        from_x509_signed_device: bool,
         secret: GossippedSecret,
         changes: &mut Changes,
     ) -> Result<(), CryptoStoreError> {
@@ -1061,9 +1035,7 @@ impl GossipMachine {
             self.inner.store.get_device_from_curve_key(&secret.event.sender, sender_key).await?
         {
             // Only accept secrets from one of our own trusted devices.
-            if device.user_id() == self.user_id()
-                && (device.is_verified() || from_x509_signed_device)
-            {
+            if device.user_id() == self.user_id() && device.is_verified() {
                 self.accept_secret(secret, changes).await?;
             } else {
                 warn!("Received a m.secret.send event from another user or from unverified device");
@@ -1087,7 +1059,6 @@ impl GossipMachine {
         &self,
         cache: &StoreCache,
         sender_key: Curve25519PublicKey,
-        from_x509_signed_device: bool,
         event: &DecryptedSecretSendEvent,
         changes: &mut Changes,
     ) -> Result<Option<SecretName>, CryptoStoreError> {
@@ -1115,14 +1086,7 @@ impl GossipMachine {
                         gossip_request: request,
                     };
 
-                    self.receive_secret(
-                        cache,
-                        sender_key,
-                        from_x509_signed_device,
-                        secret,
-                        changes,
-                    )
-                    .await?;
+                    self.receive_secret(cache, sender_key, secret, changes).await?;
 
                     Some(secret_name)
                 }
@@ -2119,7 +2083,7 @@ mod tests {
         );
 
         // The device isn't trusted
-        alice_machine.receive_incoming_secret_request(&event.clone().into());
+        alice_machine.receive_incoming_secret_request(&event);
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2131,7 +2095,7 @@ mod tests {
         let devices = std::slice::from_ref(&alice_device);
         alice_machine.inner.store.save_device_data(devices).await.unwrap();
 
-        alice_machine.receive_incoming_secret_request(&event.clone().into());
+        alice_machine.receive_incoming_secret_request(&event);
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2203,7 +2167,7 @@ mod tests {
             .save_decryption_key(Some(decryption_key), None)
             .await
             .unwrap();
-        alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event.into());
+        alice_machine.inner.key_request_machine.receive_incoming_secret_request(&event);
         {
             let alice_cache = alice_machine.store().cache().await.unwrap();
             alice_machine

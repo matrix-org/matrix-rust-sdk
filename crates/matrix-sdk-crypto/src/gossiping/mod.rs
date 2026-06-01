@@ -239,27 +239,15 @@ impl PartialEq for GossipRequest {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct SecretRequestEventAndTrust {
-    pub event: SecretRequestEvent,
-    pub from_x509_signed_device: bool,
-}
-
-impl From<SecretRequestEvent> for SecretRequestEventAndTrust {
-    fn from(event: SecretRequestEvent) -> Self {
-        Self { event: event, from_x509_signed_device: false }
-    }
-}
-
 #[derive(Debug)]
 enum RequestEvent {
     KeyShare(RoomKeyRequestEvent),
-    Secret(SecretRequestEventAndTrust),
+    Secret(SecretRequestEvent),
 }
 
-impl From<SecretRequestEventAndTrust> for RequestEvent {
-    fn from(event_and_trust: SecretRequestEventAndTrust) -> Self {
-        Self::Secret(event_and_trust)
+impl From<SecretRequestEvent> for RequestEvent {
+    fn from(e: SecretRequestEvent) -> Self {
+        Self::Secret(e)
     }
 }
 
@@ -281,21 +269,21 @@ impl RequestEvent {
     fn sender(&self) -> &UserId {
         match self {
             RequestEvent::KeyShare(e) => &e.sender,
-            RequestEvent::Secret(e) => &e.event.sender,
+            RequestEvent::Secret(e) => &e.sender,
         }
     }
 
     fn requesting_device_id(&self) -> &DeviceId {
         match self {
             RequestEvent::KeyShare(e) => &e.content.requesting_device_id,
-            RequestEvent::Secret(e) => &e.event.content.requesting_device_id,
+            RequestEvent::Secret(e) => &e.content.requesting_device_id,
         }
     }
 
     fn request_id(&self) -> &TransactionId {
         match self {
             RequestEvent::KeyShare(e) => &e.content.request_id,
-            RequestEvent::Secret(e) => &e.event.content.request_id,
+            RequestEvent::Secret(e) => &e.content.request_id,
         }
     }
 }
