@@ -786,7 +786,7 @@ impl EventCacheInner {
                     self.auto_shrink_sender.get().cloned().expect(
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
-                    self.store.clone(),
+                    &self.state,
                     self.automatic_pagination.get().cloned(),
                 )
                 .await?;

@@ -18,7 +18,7 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     ThreadingSupport,
-    event_cache::{Event, store::EventCacheStoreLock},
+    event_cache::Event,
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
@@ -26,7 +26,9 @@ use once_cell::sync::OnceCell;
 use ruma::{OwnedEventId, OwnedRoomId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc};
 
-use super::{EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination};
+use super::{
+    EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination, states,
+};
 use crate::{client::WeakClient, room::WeakRoom};
 
 mod aggregator;
@@ -71,7 +73,7 @@ pub(super) struct Caches {
 
 #[derive(Debug)]
 struct CachesInternals {
-    store: EventCacheStoreLock,
+    state: states::StateLock,
     linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
     room_version_rules: RoomVersionRules,
 }
@@ -84,7 +86,7 @@ impl Caches {
         generic_update_sender: Sender<room::RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
         auto_shrink_sender: mpsc::Sender<OwnedRoomId>,
-        store: EventCacheStoreLock,
+        state: &states::StateLock,
         automatic_pagination: Option<AutomaticPagination>,
     ) -> Result<Self> {
         let Some(client) = weak_client.get() else {
@@ -110,19 +112,25 @@ impl Caches {
         let own_user_id =
             client.user_id().expect("the user must be logged in, at this point").to_owned();
 
-        let room_state = room::LockedRoomEventCacheState::new(
-            own_user_id.clone(),
-            room_id.to_owned(),
-            weak_room.clone(),
-            room_version_rules.clone(),
-            enabled_thread_support,
-            update_sender.clone(),
-            linked_chunk_update_sender.clone(),
-            store.clone(),
-            pagination_status.clone(),
-            automatic_pagination,
-        )
-        .await?;
+        let room_state = state
+            .try_insert_once_with(
+                states::selectors::RoomStateSelector::new(room_id.to_owned()),
+                |store_guard| {
+                    room::RoomEventCacheState::new(
+                        own_user_id.clone(),
+                        room_id.to_owned(),
+                        weak_room.clone(),
+                        room_version_rules.clone(),
+                        enabled_thread_support,
+                        update_sender.clone(),
+                        linked_chunk_update_sender.clone(),
+                        store_guard,
+                        pagination_status.clone(),
+                        automatic_pagination,
+                    )
+                },
+            )
+            .await?;
 
         let timeline_is_not_empty =
             room_state.read().await?.room_linked_chunk().revents().next().is_some();
@@ -149,7 +157,11 @@ impl Caches {
             threads: Arc::new(RwLock::new(HashMap::new())),
             pinned_events: OnceCell::new(),
             event_focused: Arc::new(RwLock::new(HashMap::new())),
-            internals: CachesInternals { store, linked_chunk_update_sender, room_version_rules },
+            internals: CachesInternals {
+                state: state.clone(),
+                linked_chunk_update_sender,
+                room_version_rules,
+            },
         })
     }
 
@@ -192,7 +204,8 @@ impl Caches {
                         room.own_user_id().to_owned(),
                         self.internals.room_version_rules.clone(),
                         room.weak_room().to_owned(),
-                        self.internals.store.clone(),
+                        // self.internals.store.clone(),
+                        todo!(),
                         room.update_sender().generic_update_sender().clone(),
                         self.internals.linked_chunk_update_sender.clone(),
                     )
@@ -218,7 +231,8 @@ impl Caches {
                 self.room.own_user_id().clone(),
                 self.internals.room_version_rules.clone(),
                 self.internals.linked_chunk_update_sender.clone(),
-                self.internals.store.clone(),
+                // self.internals.store.clone(),
+                todo!(),
             )
         })
     }
@@ -420,7 +434,10 @@ impl Caches {
 /// To reset all the event caches, call [`ResetCaches::reset_all`]. If this type
 /// is dropped, no reset happens and the exclusive lock is released.
 pub(super) struct ResetCaches<'c> {
-    room_lock: (room::RoomEventCacheStateLockWriteGuard<'c>, room::RoomEventCacheUpdateSender),
+    room_lock: (
+        states::StateLockWriteGuard<'c, room::RoomEventCacheState>,
+        room::RoomEventCacheUpdateSender,
+    ),
     threads_lock: OwnedRwLockWriteGuard<HashMap<OwnedEventId, thread::ThreadEventCache>>,
     thread_locks: Vec<(
         thread::OwnedThreadEventCacheStateLockWriteGuard,

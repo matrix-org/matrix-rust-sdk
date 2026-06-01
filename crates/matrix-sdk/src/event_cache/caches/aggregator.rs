@@ -20,7 +20,11 @@ use matrix_sdk_base::{
 };
 use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
 
-use super::{super::Result, room::RoomEventCacheStateLockReadGuard, thread::ThreadEventCache};
+use super::{
+    super::{Result, states::StateLockReadGuard},
+    room::RoomEventCacheState,
+    thread::ThreadEventCache,
+};
 
 pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
     timeline
@@ -29,7 +33,7 @@ pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
 pub async fn aggregate_timeline_for_threads(
     timeline: &Timeline,
     existing_threads: &HashMap<OwnedEventId, ThreadEventCache>,
-    room_event_cache: RoomEventCacheStateLockReadGuard<'_>,
+    room_event_cache: StateLockReadGuard<'_, RoomEventCacheState>,
     redaction_rules: &RedactionRules,
 ) -> Result<HashMap<OwnedEventId, Timeline>> {
     let mut new_events_by_thread = HashMap::new();
