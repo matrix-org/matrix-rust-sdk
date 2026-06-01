@@ -69,7 +69,6 @@ mod tasks;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
-use self::caches::{Caches, room::RoomEventCacheLinkedChunkUpdate};
 pub use self::{
     automatic_pagination::AutomaticPagination,
     caches::{
@@ -83,6 +82,10 @@ pub use self::{
         },
         thread::{ThreadEventCache, pagination::ThreadPagination},
     },
+};
+use self::{
+    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate},
+    states::StateLock,
 };
 
 /// An error observed in the [`EventCache`].
@@ -254,6 +257,7 @@ impl EventCache {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
                 config: StdRwLock::new(EventCacheConfig::default()),
+                state: StateLock::new(event_cache_store.clone()),
                 store: event_cache_store,
                 multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
@@ -562,6 +566,10 @@ struct EventCacheInner {
 
     /// Reference to the underlying store.
     store: EventCacheStoreLock,
+
+    /// Lock around the state of the Event Cache, containing all the cache
+    /// states.
+    state: StateLock,
 
     /// A lock used when many rooms must be updated at once.
     ///
