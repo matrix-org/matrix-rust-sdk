@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
+
+### Added
+
+- Add `Room::compute_joined_service_members` to compute the number of joined
+  service members in a room. This is needed for calculating display names of
+  `SpaceRoom`s with service members.
+  ([#6561](https://github.com/matrix-org/matrix-rust-sdk/pulls/6561))
+- Add `RoomInfo::fully_read_event_id` and `Room::fully_read_event_id` to expose
+  the user's `m.fully_read` event ID.
+  ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pulls/6569))
+
+### Changed
+
+- `Client::sync_once` acquires the state store lock when processing a sync and
+  response and holds it until processing has completed. This mimics the behavior
+  of `SlidingSync::sync_once`.
+  ([#6555](https://github.com/matrix-org/matrix-rust-sdk/pulls/6555))
+- [**breaking**] `RoomInfoNotableUpdateReasons` is now a `u16` to include a
+  `FULLY_READ` flag to notify on changes of the `m.fully_read` marker.
+  ([#6569](https://github.com/matrix-org/matrix-rust-sdk/pulls/6569))
+
 ## [0.17.0] - 2026-05-08
 
 ### Bug fixes
