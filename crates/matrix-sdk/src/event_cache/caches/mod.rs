@@ -204,8 +204,7 @@ impl Caches {
                         room.own_user_id().to_owned(),
                         self.internals.room_version_rules.clone(),
                         room.weak_room().to_owned(),
-                        // self.internals.store.clone(),
-                        todo!(),
+                        &self.internals.state,
                         room.update_sender().generic_update_sender().clone(),
                         self.internals.linked_chunk_update_sender.clone(),
                     )

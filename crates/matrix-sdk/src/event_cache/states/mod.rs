@@ -33,6 +33,7 @@ use super::{
         TimelineVectorDiffs,
         event_focused::EventFocusedCacheKey,
         room::{self, RoomEventCacheState},
+        thread::ThreadEventCacheState,
     },
 };
 
@@ -40,7 +41,6 @@ pub(in super::super) mod selectors;
 
 // Temporary types to make the code compiles. Will be removed one after the
 // other.
-pub struct ThreadEventCacheState;
 pub struct PinnedEventsCacheState;
 pub struct EventFocusedCacheState;
 
@@ -331,13 +331,13 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
     async fn reload(&mut self) -> Result<()> {
         // Iterate over all states and reload them.
-        for StateForRoom { room, threads: _, pinned_events: _, event_focused: _ } in
-            self.state.by_room.values_mut()
+        for (room_id, StateForRoom { room, threads, pinned_events: _, event_focused: _ }) in
+            self.state.by_room.iter_mut()
         {
             // Room.
-            if let Some(room) = room {
+            if let Some(room_state) = room {
                 let mut room_state = StateLockWriteGuard {
-                    state: StateLockWriteGuardKind::Reference(room),
+                    state: StateLockWriteGuardKind::Reference(room_state),
                     store: self.store.clone(),
                 };
 
@@ -347,7 +347,24 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
                     }),
-                    Some(room::RoomEventCacheGenericUpdate { room_id: room_state.room_id.clone() }),
+                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
+                );
+            }
+
+            // Threads.
+            for thread_state in threads.values_mut() {
+                let mut thread_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(thread_state),
+                    store: self.store.clone(),
+                };
+
+                let updates_as_vector_diffs = thread_state.reload().await?;
+                thread_state.update_sender.send(
+                    TimelineVectorDiffs {
+                        diffs: updates_as_vector_diffs,
+                        origin: EventsOrigin::Cache,
+                    },
+                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
                 );
             }
         }

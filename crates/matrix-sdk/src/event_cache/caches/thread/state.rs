@@ -16,10 +16,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
     deserialized_responses::ThreadSummary,
-    event_cache::{
-        Event, Gap,
-        store::{EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState},
-    },
+    event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
@@ -40,17 +37,17 @@ use super::super::super::redecryptor::ResolvedUtd;
 use super::{
     super::{
         super::{
-            EventCacheError, EventsOrigin, Result,
+            EventCacheError, Result,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::{
                 find_event, find_event_with_relations, load_linked_chunk_metadata,
                 send_updates_to_store,
             },
+            states::{StateLockReadGuard, StateLockWriteGuard},
         },
-        EventLocation, TimelineVectorDiffs,
+        EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
-        lock,
-        room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+        room::RoomEventCacheLinkedChunkUpdate,
     },
     ThreadEventCacheUpdateSender,
 };
@@ -69,9 +66,6 @@ pub struct ThreadEventCacheState {
     /// The rules for the version of this room.
     room_version_rules: RoomVersionRules,
 
-    /// Reference to the underlying backing store.
-    store: EventCacheStoreLock,
-
     /// The linked chunk for this thread.
     thread_linked_chunk: EventLinkedChunk,
 
@@ -79,7 +73,7 @@ pub struct ThreadEventCacheState {
     ///
     /// This is used only by the [`LockedThreadEventCacheState::read`] and
     /// [`LockedThreadEventCacheState::write`] when the state must be reset.
-    update_sender: ThreadEventCacheUpdateSender,
+    pub update_sender: ThreadEventCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
     /// during a sync or a back-pagination.
@@ -173,19 +167,7 @@ impl ThreadEventCacheState {
     }
 }
 
-impl lock::Store for ThreadEventCacheState {
-    fn store(&self) -> &EventCacheStoreLock {
-        &self.store
-    }
-}
-
-/// State for a single thread's event cache.
-///
-/// This contains all the inner mutable states that ought to be updated at
-/// the same time.
-pub type LockedThreadEventCacheState = lock::StateLock<ThreadEventCacheState>;
-
-impl LockedThreadEventCacheState {
+impl ThreadEventCacheState {
     /// Create a new state, or reload it from storage if it's been enabled.
     ///
     /// Not all events are going to be loaded. Only a portion of them. The
@@ -201,23 +183,10 @@ impl LockedThreadEventCacheState {
         thread_id: OwnedEventId,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
-        store: EventCacheStoreLock,
+        store_guard: EventCacheStoreLockGuard,
         update_sender: ThreadEventCacheUpdateSender,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
-        let store_guard = match store.lock().await? {
-            // Lock is clean: all good!
-            EventCacheStoreLockState::Clean(guard) => guard,
-
-            // Lock is dirty, not a problem, it's the first time we are creating this state, no
-            // need to refresh.
-            EventCacheStoreLockState::Dirty(guard) => {
-                EventCacheStoreLockGuard::clear_dirty(&guard);
-
-                guard
-            }
-        };
-
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 
         // Load the full linked chunk's metadata, so as to feed the order tracker.
@@ -261,12 +230,11 @@ impl LockedThreadEventCacheState {
             }
         };
 
-        Ok(Self::new_inner(ThreadEventCacheState {
+        Ok(ThreadEventCacheState {
             room_id,
             thread_id,
             own_user_id,
             room_version_rules,
-            store,
             thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
                 linked_chunk,
                 full_linked_chunk_metadata,
@@ -274,63 +242,11 @@ impl LockedThreadEventCacheState {
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
-        }))
+        })
     }
 }
 
-/// The read-lock guard around [`ThreadEventCacheState`].
-///
-/// See [`ThreadEventCacheStateLock::read`] to acquire it.
-pub type ThreadEventCacheStateLockReadGuard<'a> =
-    lock::StateLockReadGuard<'a, ThreadEventCacheState>;
-
-/// The write-lock guard around [`ThreadEventCacheState`].
-///
-/// See [`ThreadEventCacheStateLock::write`] to acquire it.
-pub type ThreadEventCacheStateLockWriteGuard<'a> =
-    lock::StateLockWriteGuard<'a, ThreadEventCacheState>;
-
-/// The owned write-lock guard around [`ThreadEventCacheState`].
-pub type OwnedThreadEventCacheStateLockWriteGuard =
-    lock::OwnedStateLockWriteGuard<ThreadEventCacheState>;
-
-impl<'a> lock::Reload for ThreadEventCacheStateLockWriteGuard<'a> {
-    /// Force to shrink the room, whenever there is subscribers or not.
-    async fn reload(&mut self) -> Result<()> {
-        self.state.shrink_to_last_chunk(&self.store).await?;
-
-        let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
-
-        if !diffs.is_empty() {
-            self.state.update_sender.send(
-                TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
-                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.to_owned() }),
-            );
-        }
-
-        Ok(())
-    }
-}
-
-impl lock::Reload for OwnedThreadEventCacheStateLockWriteGuard {
-    /// Force to shrink the room, whenever there is subscribers or not.
-    async fn reload(&mut self) -> Result<()> {
-        self.state.shrink_to_last_chunk(&self.store).await?;
-
-        let diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
-
-        if !diffs.is_empty() {
-            self.state.update_sender.send(
-                TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
-                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.to_owned() }),
-            );
-        }
-
-        Ok(())
-    }
-}
-
-impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
+impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
     /// Return a read-only reference to the underlying thread linked chunk.
     pub fn thread_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.thread_linked_chunk
@@ -433,7 +349,7 @@ impl<'a> ThreadEventCacheStateLockReadGuard<'a> {
     }
 }
 
-impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
+impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     /// Return a read-only reference to the underlying thread linked chunk.
     pub fn thread_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.thread_linked_chunk
@@ -452,6 +368,14 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
     /// Get the `waited_for_initial_prev_token` value.
     pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
+    }
+
+    /// Force to shrink the room, whenever there is subscribers or not.
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn reload(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+        self.state.shrink_to_last_chunk(&self.store).await?;
+
+        Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())
     }
 
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
@@ -697,9 +621,7 @@ impl<'a> ThreadEventCacheStateLockWriteGuard<'a> {
             None
         })
     }
-}
 
-impl OwnedThreadEventCacheStateLockWriteGuard {
     /// Reset this data structure as if it were brand new.
     ///
     /// Return a single diff update that is a clear of all events; as a
