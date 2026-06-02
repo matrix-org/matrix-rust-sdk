@@ -100,7 +100,6 @@ assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
-async-once-cell.workspace = true
 axum = { version = "0.8.4", optional = true }
 bytes = { version = "1.11.1", default-features = false, features = ["std"] }
 bytesize = { version = "2.3.0", default-features = false, features = ["std"] }
