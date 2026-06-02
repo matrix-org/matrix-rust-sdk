@@ -996,12 +996,13 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             .optional()?)
     }
 
-    async fn get_outgoing_secret_requests(&self) -> Result<Vec<(Vec<u8>, bool)>> {
+    async fn get_secret_request_by_info(&self, info: Key) -> Result<Option<(Vec<u8>, bool)>> {
         Ok(self
-            .prepare("SELECT data, sent_out FROM key_requests", |mut stmt| {
-                stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
+            .query_row("SELECT data, sent_out FROM key_requests WHERE info = ?", (info,), |row| {
+                Ok((row.get(0)?, row.get(1)?))
             })
-            .await?)
+            .await
+            .optional()?)
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<Vec<u8>>> {
@@ -1653,14 +1654,14 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         key_info: &SecretInfo,
     ) -> Result<Option<GossipRequest>> {
-        let requests = self.read().await?.get_outgoing_secret_requests().await?;
-        for (request, sent_out) in requests {
-            let request = self.deserialize_key_request(&request, sent_out)?;
-            if request.info == *key_info {
-                return Ok(Some(request));
-            }
-        }
-        Ok(None)
+        let key_info = self.encode_key("key_requests", key_info.as_key());
+        Ok(self
+            .read()
+            .await?
+            .get_secret_request_by_info(key_info)
+            .await?
+            .map(|(value, sent_out)| self.deserialize_key_request(&value, sent_out))
+            .transpose()?)
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
