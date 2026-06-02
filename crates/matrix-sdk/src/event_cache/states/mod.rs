@@ -302,10 +302,12 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         EventCacheError: From<&'selector Selector>,
     {
         Ok(StateLockWriteGuard {
-            state: RwLockWriteGuard::try_map(self.state, |state| {
-                cache_state_selector.select_mut(state)
-            })
-            .map_err(|_| EventCacheError::from(cache_state_selector))?,
+            state: StateLockWriteGuardKind::MappedGuard(
+                RwLockWriteGuard::try_map(self.state, |state| {
+                    cache_state_selector.select_mut(state)
+                })
+                .map_err(|_| EventCacheError::from(cache_state_selector))?,
+            ),
             store: self.store,
         })
     }
@@ -326,10 +328,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
     }
 }
 
-/// The write lock guard return by [`StateLock::write`].
+/// The write lock guard returned by [`StateLock::write`].
 pub struct StateLockWriteGuard<'state, S> {
     /// The per-thread write lock guard over the state `S`.
-    pub state: RwLockMappedWriteGuard<'state, S>,
+    pub state: StateLockWriteGuardKind<'state, S>,
 
     /// The cross-process lock guard over the store.
     pub store: EventCacheStoreLockGuard,
@@ -346,6 +348,41 @@ impl<'state, S> Deref for StateLockWriteGuard<'state, S> {
 impl<'state, S> DerefMut for StateLockWriteGuard<'state, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.state
+    }
+}
+
+/// The kind of guard [`StateLockWriteGuard`] owns.
+pub enum StateLockWriteGuardKind<'state, S> {
+    /// A write lock over the state is acquired, and this is a reference to a
+    /// cache (sub-)state.
+    ///
+    /// This is useful if one needs to run operations over multiple cache
+    /// (sub-)states without mapping the write lock guard over the state
+    /// (because it would consume it).
+    Reference(&'state mut S),
+
+    /// The write lock over the state `S` is acquired, and this is a mapped
+    /// guard to a cache (sub-)state.
+    MappedGuard(RwLockMappedWriteGuard<'state, S>),
+}
+
+impl<'state, S> Deref for StateLockWriteGuardKind<'state, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Reference(state) => state,
+            Self::MappedGuard(state) => state.deref(),
+        }
+    }
+}
+
+impl<'state, S> DerefMut for StateLockWriteGuardKind<'state, S> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            Self::Reference(state) => state,
+            Self::MappedGuard(state) => state.deref_mut(),
+        }
     }
 }
 
