@@ -1702,17 +1702,11 @@ impl Client {
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
     ) -> Result<Room> {
-        let pre_join_info = {
-            match alias.try_into() {
-                Ok(room_id) => self.prepare_join_room_by_id(room_id).await,
-                Err(_) => {
-                    // The id is a room alias. We assume (possibly incorrectly?) that we are not
-                    // responding to an invitation to the room, and therefore don't need to handle
-                    // things that happen as a result of invites.
-                    None
-                }
-            }
+        let room_id = match <&RoomId>::try_from(alias) {
+            Ok(room_id) => room_id,
+            Err(room_alias) => &self.resolve_room_alias(room_alias).await?.room_id,
         };
+        let pre_join_info = self.prepare_join_room_by_id(room_id).await;
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             via: server_names.to_owned(),
         });
@@ -4396,6 +4390,41 @@ pub(crate) mod tests {
             )
             .await;
         assert_matches!(ret, Ok(()));
+    }
+
+    #[async_test]
+    async fn test_join_room_by_id_or_alias() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let target_room_id = room_id!("!some_id:matrix.org");
+        let target_alias = room_alias_id!("#some_alias:matrix.org");
+
+        Mock::given(method("POST"))
+            .and(path_regex("^/_matrix/client/v3/join/.*$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "room_id": target_room_id
+            })))
+            .mount(server.server())
+            .await;
+
+        server
+            .mock_room_directory_resolve_alias()
+            .ok(target_room_id.as_str(), Vec::new())
+            .mount()
+            .await;
+
+        server.mock_room_join(target_room_id).ok().mount().await;
+
+        let ret = client.join_room_by_id_or_alias(target_alias.into(), &[]).await;
+        assert!(ret.is_ok());
+
+        let ret = client.join_room_by_id_or_alias(target_room_id.into(), &[]).await;
+        assert!(ret.is_ok());
     }
 
     #[async_test]
