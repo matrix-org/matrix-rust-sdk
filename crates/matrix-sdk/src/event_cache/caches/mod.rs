@@ -265,9 +265,11 @@ impl Caches {
                 Err(mut event_focused_caches) => {
                     let cache = event_focused::EventFocusedCache::new(
                         self.room.weak_room().clone(),
-                        key.focused_event_id.clone(),
+                        key.clone(),
+                        &self.internals.state,
                         self.internals.linked_chunk_update_sender.clone(),
-                    );
+                    )
+                    .await?;
                     cache.start_from(number_of_initial_events, thread_mode).await?;
 
                     event_focused_caches.insert(key.clone(), cache);

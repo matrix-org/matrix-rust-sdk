@@ -112,7 +112,10 @@ pub(in crate::timeline) async fn event_focused_task(
                 // The updates might have lagged, but the room event cache might have
                 // events, so retrieve them and add them back again to the timeline,
                 // after clearing it.
-                let (initial_events, _) = event_cache.subscribe().await;
+                let Ok((initial_events, _)) = event_cache.subscribe().await else {
+                    error!("Failed to subscribe to the event-focused cache");
+                    break;
+                };
 
                 timeline_controller
                     .replace_with_initial_remote_events(initial_events, RemoteEventOrigin::Cache)

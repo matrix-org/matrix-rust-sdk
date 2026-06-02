@@ -1384,13 +1384,13 @@ impl TimelineController {
                 event_cache,
                 ..
             } => {
-                let (events, receiver) = event_cache.subscribe().await;
+                let (events, receiver) = event_cache.subscribe().await?;
 
                 let has_events = !events.is_empty();
 
                 // Ask the cache for the thread root, if it managed to extract one or decided
                 // that the target event was the thread root.
-                if let Some(thread_root) = event_cache.thread_root().await {
+                if let Some(thread_root) = event_cache.thread_root().await? {
                     focus_thread_root.get_or_init(|| thread_root);
                 }
 
