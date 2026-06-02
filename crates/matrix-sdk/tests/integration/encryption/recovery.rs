@@ -248,26 +248,6 @@ async fn enable(
 
     let backup_disabled_content = Arc::new(Mutex::new(None));
 
-    let _quard = Mock::given(method("PUT"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .and({
-            let backup_disabled_content = backup_disabled_content.clone();
-            move |request: &wiremock::Request| {
-                let content: Value = request.body_json().expect("The body should be a JSON body");
-
-                *backup_disabled_content.lock().unwrap() = Some(content);
-
-                true
-            }
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount_as_scoped(server)
-        .await;
-
     let _guard = Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
         .and(header("authorization", "Bearer 1234"))
@@ -533,28 +513,6 @@ async fn test_backups_enabling() {
         .mount(&server)
         .await;
 
-    Mock::given(method("PUT"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .and(|request: &wiremock::Request| {
-            #[derive(Deserialize)]
-            struct Disabled {
-                disabled: bool,
-            }
-
-            let content: Disabled = request.body_json().expect("The body should be a JSON body");
-
-            assert!(!content.disabled, "The backup support should be marked as enabled.");
-
-            true
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount(&server)
-        .await;
-
     Mock::given(method("POST"))
         .and(path("_matrix/client/unstable/room_keys/version"))
         .and(header("authorization", "Bearer 1234"))
@@ -664,28 +622,6 @@ async fn test_recovery_disabling() {
             let content: Enabled = request.body_json().expect("The body should be a JSON body");
 
             assert!(!content.enabled, "The backup support should be marked as disabled.");
-
-            true
-        })
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    Mock::given(method("PUT"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .and(|request: &wiremock::Request| {
-            #[derive(Deserialize)]
-            struct Disabled {
-                disabled: bool,
-            }
-
-            let content: Disabled = request.body_json().expect("The body should be a JSON body");
-
-            assert!(content.disabled, "The backup support should be marked as disabled.");
 
             true
         })
@@ -973,17 +909,6 @@ async fn test_reset_identity() {
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
         .expect(1)
         .named("m.key_backup PUT")
-        .mount(&server)
-        .await;
-
-    Mock::given(method("PUT"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.org.matrix.custom.backup_disabled"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-        .expect(1)
-        .named("m.org.matrix.custom.backup_disabled PUT")
         .mount(&server)
         .await;
 
