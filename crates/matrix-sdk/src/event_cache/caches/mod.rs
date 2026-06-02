@@ -22,9 +22,10 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
-use once_cell::sync::OnceCell;
 use ruma::{OwnedEventId, OwnedRoomId, RoomId, room_version_rules::RoomVersionRules};
-use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc};
+use tokio::sync::{
+    OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
+};
 
 use super::{
     EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination, states,
@@ -223,17 +224,18 @@ impl Caches {
     /// Get or create a [`PinnedEventsCache`].
     ///
     /// [`PinnedEventsCache`]: pinned_events::PinnedEventsCache
-    pub fn pinned_events(&self) -> Result<&pinned_events::PinnedEventsCache> {
-        self.pinned_events.get_or_try_init(|| {
-            pinned_events::PinnedEventsCache::new(
-                self.room.weak_room(),
-                self.room.own_user_id().clone(),
-                self.internals.room_version_rules.clone(),
-                self.internals.linked_chunk_update_sender.clone(),
-                // self.internals.store.clone(),
-                todo!(),
-            )
-        })
+    pub async fn pinned_events(&self) -> Result<&pinned_events::PinnedEventsCache> {
+        self.pinned_events
+            .get_or_try_init(|| {
+                pinned_events::PinnedEventsCache::new(
+                    self.room.weak_room(),
+                    self.room.own_user_id().clone(),
+                    self.internals.room_version_rules.clone(),
+                    self.internals.linked_chunk_update_sender.clone(),
+                    &self.internals.state,
+                )
+            })
+            .await
     }
 
     /// Get or create a [`EventFocusedCache`].
