@@ -126,9 +126,15 @@ impl From<&ThreadStateSelector> for EventCacheError {
 }
 
 /// Select a [`PinnedEventCacheState`] in [`State`].
-pub struct PinnedStateSelector(OwnedRoomId);
+pub struct PinnedEventsStateSelector(OwnedRoomId);
 
-impl CacheState for PinnedStateSelector {
+impl PinnedEventsStateSelector {
+    pub fn new(room_id: OwnedRoomId) -> Self {
+        Self(room_id)
+    }
+}
+
+impl CacheState for PinnedEventsStateSelector {
     type Item = PinnedEventsCacheState;
 
     fn select<'state>(&self, state: &'state State) -> Option<&'state Self::Item> {
@@ -156,8 +162,8 @@ impl CacheState for PinnedStateSelector {
     }
 }
 
-impl From<&PinnedStateSelector> for EventCacheError {
-    fn from(value: &PinnedStateSelector) -> Self {
+impl From<&PinnedEventsStateSelector> for EventCacheError {
+    fn from(value: &PinnedEventsStateSelector) -> Self {
         Self::PinnedEventsNotFound { room_id: value.0.clone() }
     }
 }

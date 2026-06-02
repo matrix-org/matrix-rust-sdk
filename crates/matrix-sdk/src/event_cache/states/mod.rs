@@ -32,6 +32,7 @@ use super::{
     caches::{
         TimelineVectorDiffs,
         event_focused::EventFocusedCacheKey,
+        pinned_events::PinnedEventsCacheState,
         room::{self, RoomEventCacheState},
         thread::ThreadEventCacheState,
     },
@@ -41,7 +42,6 @@ pub(in super::super) mod selectors;
 
 // Temporary types to make the code compiles. Will be removed one after the
 // other.
-pub struct PinnedEventsCacheState;
 pub struct EventFocusedCacheState;
 
 /// The type containing all the states, for real.
@@ -331,7 +331,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
     async fn reload(&mut self) -> Result<()> {
         // Iterate over all states and reload them.
-        for (room_id, StateForRoom { room, threads, pinned_events: _, event_focused: _ }) in
+        for (room_id, StateForRoom { room, threads, pinned_events, event_focused: _ }) in
             self.state.by_room.iter_mut()
         {
             // Room.
@@ -366,6 +366,20 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     },
                     Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
                 );
+            }
+
+            // Pinned events.
+            if let Some(pinned_events_state) = pinned_events {
+                let mut pinned_events_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(pinned_events_state),
+                    store: self.store.clone(),
+                };
+
+                let updates_as_vector_diffs = pinned_events_state.reload().await?;
+                pinned_events_state.update_sender.send(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
             }
         }
 

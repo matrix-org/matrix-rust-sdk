@@ -437,7 +437,7 @@ impl EventCache {
 
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((caches_for_room.pinned_events()?.clone(), drop_handles))
+        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
     }
 
     /// Return an event-focused view over the [`EventCache`].
