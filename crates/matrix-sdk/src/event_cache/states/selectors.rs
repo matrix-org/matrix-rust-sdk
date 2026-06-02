@@ -171,6 +171,12 @@ impl From<&PinnedEventsStateSelector> for EventCacheError {
 /// Select a [`EventFocusedCacheState`] in [`State`].
 pub struct EventFocusedStateSelector(OwnedRoomId, EventFocusedCacheKey);
 
+impl EventFocusedStateSelector {
+    pub fn new(room_id: OwnedRoomId, key: EventFocusedCacheKey) -> Self {
+        Self(room_id, key)
+    }
+}
+
 impl CacheState for EventFocusedStateSelector {
     type Item = EventFocusedCacheState;
 

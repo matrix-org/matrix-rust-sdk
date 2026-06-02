@@ -31,7 +31,7 @@ use super::{
     EventCacheError, EventsOrigin, Result,
     caches::{
         TimelineVectorDiffs,
-        event_focused::EventFocusedCacheKey,
+        event_focused::{EventFocusedCacheKey, EventFocusedCacheState},
         pinned_events::PinnedEventsCacheState,
         room::{self, RoomEventCacheState},
         thread::ThreadEventCacheState,
@@ -39,10 +39,6 @@ use super::{
 };
 
 pub(in super::super) mod selectors;
-
-// Temporary types to make the code compiles. Will be removed one after the
-// other.
-pub struct EventFocusedCacheState;
 
 /// The type containing all the states, for real.
 pub struct State {
@@ -331,7 +327,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
     async fn reload(&mut self) -> Result<()> {
         // Iterate over all states and reload them.
-        for (room_id, StateForRoom { room, threads, pinned_events, event_focused: _ }) in
+        for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
             self.state.by_room.iter_mut()
         {
             // Room.
@@ -377,6 +373,20 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
                 let updates_as_vector_diffs = pinned_events_state.reload().await?;
                 pinned_events_state.update_sender.send(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
+            }
+
+            // Event-focused.
+            for event_focused_state in event_focused.values_mut() {
+                let mut event_focused_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(event_focused_state),
+                    store: self.store.clone(),
+                };
+
+                let updates_as_vector_diffs = event_focused_state.reload().await?;
+                let _ = event_focused_state.update_sender.send(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
                 });

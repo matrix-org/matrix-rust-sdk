@@ -121,11 +121,7 @@ use std::{
 
 use as_variant::as_variant;
 use futures_core::Stream;
-use futures_util::{
-    StreamExt,
-    future::{join_all, try_join_all},
-    pin_mut,
-};
+use futures_util::{StreamExt, future::try_join_all, pin_mut};
 #[cfg(doc)]
 use matrix_sdk_base::{BaseClient, crypto::OlmMachine};
 use matrix_sdk_base::{
@@ -460,7 +456,7 @@ impl EventCache {
             // event-focused caches alive at the same time, but they could
             // accumulate over time. Consider keeping track of which linked chunk
             // contains which event ID, to avoid doing the linear searches here.
-            join_all(
+            try_join_all(
                 all_caches
                     .event_focused
                     .read()
@@ -468,7 +464,7 @@ impl EventCache {
                     .values()
                     .map(|event_focused_cache| event_focused_cache.replace_utds(&events)),
             )
-            .await;
+            .await?;
         }
 
         let report =
