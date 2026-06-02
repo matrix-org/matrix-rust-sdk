@@ -85,6 +85,12 @@ impl From<&RoomStateSelector> for EventCacheError {
 /// Select a [`ThreadEventCacheState`] in [`State`].
 pub struct ThreadStateSelector(OwnedRoomId, OwnedEventId);
 
+impl ThreadStateSelector {
+    pub fn new(room_id: OwnedRoomId, thread_id: OwnedEventId) -> Self {
+        Self(room_id, thread_id)
+    }
+}
+
 impl CacheState for ThreadStateSelector {
     type Item = ThreadEventCacheState;
 

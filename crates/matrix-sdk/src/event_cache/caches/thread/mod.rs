@@ -21,7 +21,7 @@ mod updates;
 use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::{
-    event_cache::{Event, store::EventCacheStoreLock},
+    event_cache::Event,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -35,14 +35,15 @@ use tokio::sync::{
 use tracing::{instrument, trace};
 
 use self::pagination::ThreadPagination;
-pub(super) use self::{
-    state::{LockedThreadEventCacheState, OwnedThreadEventCacheStateLockWriteGuard},
-    updates::ThreadEventCacheUpdateSender,
-};
+pub(in super::super) use self::state::ThreadEventCacheState;
+pub(super) use self::updates::ThreadEventCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::{
-    super::Result,
+    super::{
+        Result,
+        states::{CacheStateLock, StateLock, selectors::ThreadStateSelector},
+    },
     EventsOrigin, TimelineVectorDiffs,
     room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
 };
@@ -68,7 +69,7 @@ struct ThreadEventCacheInner {
     weak_room: WeakRoom,
 
     /// State for this thread's event cache.
-    state: LockedThreadEventCacheState,
+    state: CacheStateLock<ThreadStateSelector>,
 
     /// A notifier that we received a new pagination token.
     pagination_batch_token_notifier: Notify,
@@ -92,32 +93,38 @@ impl ThreadEventCache {
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
         weak_room: WeakRoom,
-        store: EventCacheStoreLock,
+        state: &StateLock,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
-        let state = LockedThreadEventCacheState::new(
-            room_id.clone(),
-            thread_id.clone(),
-            own_user_id,
-            room_version_rules,
-            store,
-            update_sender.clone(),
-            linked_chunk_update_sender,
-        )
-        .await?;
+        let cache_state = state
+            .try_insert_once_with(
+                ThreadStateSelector::new(room_id.clone(), thread_id.clone()),
+                |store_guard| {
+                    ThreadEventCacheState::new(
+                        room_id.clone(),
+                        thread_id.clone(),
+                        own_user_id,
+                        room_version_rules,
+                        store_guard,
+                        update_sender.clone(),
+                        linked_chunk_update_sender,
+                    )
+                },
+            )
+            .await?;
 
         let timeline_is_not_empty =
-            state.read().await?.thread_linked_chunk().revents().next().is_some();
+            cache_state.read().await?.thread_linked_chunk().revents().next().is_some();
 
         let cache = Self {
             inner: Arc::new(ThreadEventCacheInner {
                 room_id: room_id.clone(),
                 thread_id,
                 weak_room,
-                state,
+                state: cache_state,
                 pagination_batch_token_notifier: Notify::new(),
                 update_sender,
             }),
@@ -162,7 +169,7 @@ impl ThreadEventCache {
     }
 
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &LockedThreadEventCacheState {
+    pub(in super::super) fn state(&self) -> &CacheStateLock<ThreadStateSelector> {
         &self.inner.state
     }
 
