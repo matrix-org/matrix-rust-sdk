@@ -2306,8 +2306,8 @@ mod tests {
 
     /// Test that we migrate the secrets inbox properly.
     ///
-    /// The format for the secrets inbox changed in version 15.  Previously, the
-    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 15,
+    /// The format for the secrets inbox changed in version 17.  Previously, the
+    /// secrets inbox stored a full `GossippedSecrets` struct.  In version 17,
     /// the secrets inbox now stores only the secret.
     #[async_test]
     async fn test_secrets_inbox_migration() {
@@ -2383,6 +2383,151 @@ mod tests {
             store.get_secrets_from_inbox(&SecretName::CrossSigningMasterKey).await.unwrap();
         assert_eq!(secrets.len(), 1);
         assert_eq!(secrets[0].deref(), "It is a secret to everybody");
+    }
+
+    /// Test that we migrate the key requests table properly.
+    ///
+    /// Version 18 added a new column, with a unique index on the column,
+    /// meaning that it can now only store one request per requested secret/key.
+    /// Test that when we migrate from an older version that has multiple
+    /// requests for the same secret, it only keeps one.
+    #[async_test]
+    async fn test_key_requests_migration() {
+        use matrix_sdk_crypto::{GossipRequest, SecretInfo};
+        use ruma::{TransactionId, events::secret::request::SecretName, owned_user_id};
+
+        use crate::utils::{EncryptableStore, SqliteAsyncConnExt};
+
+        // Create a database with version 16
+        let tmpdir = tempdir().unwrap();
+        let config = SqliteStoreConfig::new(tmpdir.path());
+        let pool = config.build_pool_of_connections(super::DATABASE_NAME).unwrap();
+        let conn = pool.get().await.unwrap();
+        let version = super::initialize_store(&conn, 0).await.unwrap();
+        let old_data_store = SqliteCryptoStore::create_raw(
+            config.secret.clone(),
+            pool,
+            conn,
+            config.pool_config(),
+            config.runtime_config(),
+        )
+        .await
+        .unwrap();
+        super::run_migrations(&old_data_store, version, Some(16)).await.unwrap();
+        old_data_store.write().await.unwrap().wal_checkpoint().await;
+
+        // Store a secret using the old format
+        let recovery_request1 = GossipRequest {
+            request_recipient: owned_user_id!("@alice:example.com"),
+            request_id: TransactionId::new(),
+            info: SecretInfo::SecretRequest(SecretName::RecoveryKey),
+            sent_out: true,
+        };
+        let serialized_recovery_request1 =
+            old_data_store.serialize_value(&recovery_request1).unwrap();
+        let recovery_request2 = GossipRequest {
+            request_recipient: owned_user_id!("@alice:example.com"),
+            request_id: TransactionId::new(),
+            info: SecretInfo::SecretRequest(SecretName::RecoveryKey),
+            sent_out: true,
+        };
+        let serialized_recovery_request2 =
+            old_data_store.serialize_value(&recovery_request2).unwrap();
+        let msk_request = GossipRequest {
+            request_recipient: owned_user_id!("@alice:example.com"),
+            request_id: TransactionId::new(),
+            info: SecretInfo::SecretRequest(SecretName::CrossSigningMasterKey),
+            sent_out: true,
+        };
+        let serialized_msk_request = old_data_store.serialize_value(&msk_request).unwrap();
+        let recovery_request1_clone = recovery_request1.clone();
+        let recovery_request2_clone = recovery_request2.clone();
+        let msk_request_clone = msk_request.clone();
+        old_data_store
+            .write()
+            .await
+            .unwrap()
+            .prepare(
+                "INSERT INTO key_requests (request_id, sent_out, data) VALUES (?1, ?2, ?3)",
+                move |mut stmt| {
+                    stmt.execute((
+                        old_data_store.encode_key(
+                            "key_requests",
+                            recovery_request1_clone.request_id.as_bytes(),
+                        ),
+                        recovery_request1_clone.sent_out,
+                        serialized_recovery_request1,
+                    ))?;
+                    stmt.execute((
+                        old_data_store.encode_key(
+                            "key_requests",
+                            recovery_request2_clone.request_id.as_bytes(),
+                        ),
+                        recovery_request2_clone.sent_out,
+                        serialized_recovery_request2,
+                    ))?;
+                    stmt.execute((
+                        old_data_store
+                            .encode_key("key_requests", msk_request_clone.request_id.as_bytes()),
+                        msk_request_clone.sent_out,
+                        serialized_msk_request,
+                    ))
+                },
+            )
+            .await
+            .unwrap();
+
+        // After we open the store, the data will be migrated
+        let store = SqliteCryptoStore::open_with_config(&config).await.unwrap();
+
+        // and we should be able to read one request for the recovery key and
+        // one request for the MSK
+        if let Some(GossipRequest {
+            request_id,
+            info: SecretInfo::SecretRequest(SecretName::RecoveryKey),
+            ..
+        }) = store
+            .get_secret_request_by_info(&SecretInfo::SecretRequest(SecretName::RecoveryKey))
+            .await
+            .unwrap()
+        {
+            if request_id == recovery_request1.request_id {
+                assert!(
+                    store
+                        .get_outgoing_secret_requests(&recovery_request2.request_id)
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+            } else if request_id == recovery_request2.request_id {
+                assert!(
+                    store
+                        .get_outgoing_secret_requests(&recovery_request1.request_id)
+                        .await
+                        .unwrap()
+                        .is_none()
+                );
+            } else {
+                panic!("unexpected record found");
+            }
+        } else {
+            panic!("expected to get a secret request");
+        }
+        if let Some(GossipRequest {
+            request_id,
+            info: SecretInfo::SecretRequest(SecretName::CrossSigningMasterKey),
+            ..
+        }) = store
+            .get_secret_request_by_info(&SecretInfo::SecretRequest(
+                SecretName::CrossSigningMasterKey,
+            ))
+            .await
+            .unwrap()
+        {
+            assert_eq!(request_id, msk_request.request_id);
+        } else {
+            panic!("expected to get a secret request");
+        }
     }
 
     async fn get_store(
