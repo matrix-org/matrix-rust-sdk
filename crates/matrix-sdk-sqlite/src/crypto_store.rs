@@ -467,6 +467,7 @@ pub(crate) async fn run_migrations(
     }
 
     if version < 17 {
+        debug!("Upgrading database to version 17");
         let store = store.clone();
         conn.with_transaction(move |txn| {
             txn.execute_batch(include_str!(
@@ -496,6 +497,33 @@ pub(crate) async fn run_migrations(
                 "../migrations/crypto_store/017_drop_old_secrets_inbox.sql"
             ))?;
             txn.set_db_version(17)
+        })
+        .await?;
+    }
+
+    if version < 18 {
+        debug!("Upgrading database to version 18");
+        let store = store.clone();
+        conn.with_transaction(move |txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/crypto_store/018_add_gossip_request_info.sql"
+            ))?;
+            let mut select_query =
+                txn.prepare("SELECT request_id, sent_out, data FROM key_requests")?;
+            let mut requests = select_query.query([])?;
+            let mut update_query =
+                txn.prepare("UPDATE OR REPLACE key_requests SET info = ?1 WHERE request_id = ?2")?;
+            while let Some(row) = requests.next()? {
+                let Ok(request) = store.deserialize_key_request(
+                    row.get::<_, Vec<u8>>(2)?.as_ref(),
+                    row.get::<_, bool>(1)?,
+                ) else {
+                    continue;
+                };
+                let info = store.encode_key("key_requests", request.info.as_key());
+                update_query.execute((info, row.get::<_, Vec<u8>>(0)?))?;
+            }
+            txn.set_db_version(18)
         })
         .await?;
     }
@@ -535,6 +563,7 @@ trait SqliteConnectionExt {
         request_id: &[u8],
         sent_out: bool,
         data: &[u8],
+        info: &[u8],
     ) -> rusqlite::Result<()>;
 
     fn set_direct_withheld(
@@ -646,12 +675,17 @@ impl SqliteConnectionExt for rusqlite::Connection {
         request_id: &[u8],
         sent_out: bool,
         data: &[u8],
+        info: &[u8],
     ) -> rusqlite::Result<()> {
+        // The first `ON CONFLICT` cause will update a request if we try to save
+        // it again.  The second `ON CONFLICT` will replace an old request for
+        // the same key/secret with the new request.
         self.execute(
-            "INSERT INTO key_requests (request_id, sent_out, data)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3",
-            (request_id, sent_out, data),
+            "INSERT INTO key_requests (request_id, sent_out, data, info)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT (request_id) DO UPDATE SET sent_out = ?2, data = ?3, info = ?4
+            ON CONFLICT (info) DO UPDATE SET request_id = ?1, sent_out = ?2, data = ?3",
+            (request_id, sent_out, data, info),
         )?;
         Ok(())
     }
@@ -1248,7 +1282,13 @@ impl CryptoStore for SqliteCryptoStore {
                 for request in changes.key_requests {
                     let request_id = this.encode_key("key_requests", request.request_id.as_bytes());
                     let serialized_request = this.serialize_value(&request)?;
-                    txn.set_key_request(&request_id, request.sent_out, &serialized_request)?;
+                    let serialized_info = this.encode_key("key_requests", request.info.as_key());
+                    txn.set_key_request(
+                        &request_id,
+                        request.sent_out,
+                        &serialized_request,
+                        &serialized_info,
+                    )?;
                 }
 
                 for (room_id, data) in changes.withheld_session_info {
