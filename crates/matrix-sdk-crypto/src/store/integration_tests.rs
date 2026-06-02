@@ -1074,14 +1074,24 @@ macro_rules! cryptostore_integration_tests {
                     info: SecretName::RecoveryKey.into(),
                     sent_out: false,
                 };
+                let msk_id = TransactionId::new();
+                let msk_request = GossipRequest {
+                    request_recipient: account.user_id().to_owned(),
+                    request_id: msk_id.clone(),
+                    info: SecretName::CrossSigningMasterKey.into(),
+                    sent_out: false,
+                };
+
 
                 assert!(store.get_outgoing_secret_requests(&id1).await.unwrap().is_none());
 
                 let mut changes = Changes::default();
                 changes.key_requests.push(request1.clone());
+                changes.key_requests.push(msk_request.clone());
                 store.save_changes(changes).await.unwrap();
 
                 assert!(store.get_outgoing_secret_requests(&id1).await.unwrap().is_some());
+                assert!(store.get_outgoing_secret_requests(&msk_id).await.unwrap().is_some());
 
                 let id2 = TransactionId::new();
                 let request2 = GossipRequest {
@@ -1095,8 +1105,11 @@ macro_rules! cryptostore_integration_tests {
                 changes.key_requests.push(request2.clone());
                 store.save_changes(changes).await.unwrap();
 
+                // The first request for the recovery key should be replaced by
+                // the second request, but request for the MSK should remain.
                 assert!(store.get_outgoing_secret_requests(&id1).await.unwrap().is_none());
                 assert!(store.get_outgoing_secret_requests(&id2).await.unwrap().is_some());
+                assert!(store.get_outgoing_secret_requests(&msk_id).await.unwrap().is_some());
             }
 
             #[async_test]
