@@ -433,28 +433,7 @@ impl Caches {
 ///
 /// To reset all the event caches, call [`ResetCaches::reset_all`]. If this type
 /// is dropped, no reset happens and the exclusive lock is released.
-pub(super) struct ResetCaches<'c> {
-    room_lock: (
-        states::StateLockWriteGuard<'c, room::RoomEventCacheState>,
-        room::RoomEventCacheUpdateSender,
-    ),
-    threads_lock: OwnedRwLockWriteGuard<HashMap<OwnedEventId, thread::ThreadEventCache>>,
-    thread_locks: Vec<(
-        thread::OwnedThreadEventCacheStateLockWriteGuard,
-        thread::ThreadEventCacheUpdateSender,
-    )>,
-    pinned_events_lock: Option<(
-        pinned_events::PinnedEventsCacheStateLockWriteGuard<'c>,
-        pinned_events::PinnedEventsCacheUpdateSender,
-    )>,
-    event_focused_lock: OwnedRwLockWriteGuard<
-        HashMap<event_focused::EventFocusedCacheKey, event_focused::EventFocusedCache>,
-    >,
-    event_focused_locks: Vec<(
-        OwnedRwLockWriteGuard<event_focused::EventFocusedCacheState>,
-        event_focused::EventFocusedCacheUpdateSender,
-    )>,
-}
+pub(super) struct ResetCaches<'c> {}
 
 impl<'c> ResetCaches<'c> {
     /// Create a new [`ResetCaches`].
@@ -463,46 +442,7 @@ impl<'c> ResetCaches<'c> {
     async fn new(
         Caches { room, threads, pinned_events, event_focused, internals: _ }: &'c mut Caches,
     ) -> Result<Self> {
-        // Acquire an exclusive access to the state of the room.
-        let room_lock = (room.state().write().await?, room.update_sender().clone());
-
-        // Acquire an exclusive access to the threads.
-        // Then, for each thread, acquire an exclusive access to its state.
-        let threads_lock = threads.clone().write_owned().await;
-        let mut thread_locks = Vec::new();
-
-        for thread in threads_lock.values() {
-            thread_locks
-                .push((thread.state().write_owned().await?, thread.update_sender().clone()));
-        }
-
-        // Acquire an exclusive access to the pinned-events if any.
-        let pinned_events_lock = if let Some(pinned_events) = pinned_events.get_mut() {
-            Some((pinned_events.state().write().await?, pinned_events.update_sender().clone()))
-        } else {
-            None
-        };
-
-        // Acquire an exclusive access to the event-focused caches.
-        // Then, for each event-focused, acquire an exclusive access to its state.
-        let event_focused_lock = event_focused.clone().write_owned().await;
-        let mut event_focused_locks = Vec::new();
-
-        for event_focused in event_focused_lock.values() {
-            event_focused_locks.push((
-                event_focused.state().clone().write_owned().await,
-                event_focused.update_sender().await,
-            ));
-        }
-
-        Ok(Self {
-            room_lock,
-            threads_lock,
-            thread_locks,
-            pinned_events_lock,
-            event_focused_lock,
-            event_focused_locks,
-        })
+        todo!()
     }
 
     /// Reset all the event caches, and broadcast the [`TimelineVectorDiffs`].
@@ -512,6 +452,9 @@ impl<'c> ResetCaches<'c> {
     ///
     /// It can fail if resetting an event cache fails.
     pub async fn reset_all(self) -> Result<()> {
+        todo!()
+
+        /*
         let Self {
             room_lock,
             threads_lock,
@@ -581,6 +524,7 @@ impl<'c> ResetCaches<'c> {
         }
 
         Ok(())
+        */
     }
 }
 
