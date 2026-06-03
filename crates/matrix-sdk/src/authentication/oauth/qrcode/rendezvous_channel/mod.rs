@@ -160,8 +160,8 @@ impl RendezvousChannel {
                 let msc_4388::Channel { base_url, rendezvous_id, sequence_token, .. } = channel;
 
                 let base_url_len: u16 = base_url.len();
-                let rendezvous_id_len: u16 = rendezvous_id.len();
-                let sequence_token_len: u16 = sequence_token.len();
+                let rendezvous_id_len = rendezvous_id.len();
+                let sequence_token_len = sequence_token.len();
 
                 Some(
                     [
