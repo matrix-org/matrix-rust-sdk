@@ -46,7 +46,7 @@ All notable changes to this project will be documented in this file.
 ### Security fixes
 
 - Reject invalid edits as candidates for the latest event.
-  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454), High,
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454), Moderate,
   [CVE-2026-45057](https://www.cve.org/CVERecord?id=CVE-2026-45057),
   [GHSA-h97m-27fx-42rx](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-h97m-27fx-42rx))
 
