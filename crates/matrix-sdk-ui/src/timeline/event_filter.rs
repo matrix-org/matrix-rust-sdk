@@ -14,7 +14,7 @@
 
 use ruma::events::{
     AnySyncStateEvent, AnySyncTimelineEvent, SyncStateEvent, TimelineEventType,
-    room::member::MembershipChange,
+    room::member::{MembershipChange, MembershipState},
 };
 
 /// A timeline filter that in- or excludes events based on their type or
@@ -51,10 +51,29 @@ pub enum TimelineEventCondition {
     EventType(TimelineEventType),
     /// The event is an `m.room.member` event that represents a membership
     /// change (join, leave, etc.).
-    MembershipChange,
+    MembershipChange(MembershipChangeFilter),
     /// The event is an `m.room.member` event that represents a profile
     /// change (displayname or avatar URL).
     ProfileChange,
+}
+
+/// The membership states that should be included/excluded from the timeline
+/// item filters.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone)]
+pub enum MembershipChangeFilter {
+    /// Include/exclude all membership state events.
+    Any,
+    /// Include/exclude only `join` membership state events.
+    Join,
+    /// Include/exclude only `leave` membership state events.
+    Leave,
+    /// Include/exclude only `invite` membership state events.
+    Invite,
+    /// Include/exclude only `ban` membership state events.
+    Ban,
+    /// Include/exclude only `knock` membership state events.
+    Knock,
 }
 
 impl TimelineEventCondition {
@@ -69,10 +88,25 @@ impl TimelineEventCondition {
     fn matches(&self, event: &AnySyncTimelineEvent) -> bool {
         match self {
             Self::EventType(event_type) => event.event_type() == *event_type,
-            Self::MembershipChange => match event {
+            Self::MembershipChange(filter) => match event {
                 AnySyncTimelineEvent::State(AnySyncStateEvent::RoomMember(
                     SyncStateEvent::Original(ev),
-                )) => !matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. }),
+                )) => {
+                    if matches!(ev.membership_change(), MembershipChange::ProfileChanged { .. }) {
+                        return false;
+                    }
+                    match (filter, &ev.content.membership) {
+                        (MembershipChangeFilter::Any, _) => {
+                            !matches!(ev.membership_change(), MembershipChange::None)
+                        }
+                        (MembershipChangeFilter::Join, MembershipState::Join) => true,
+                        (MembershipChangeFilter::Invite, MembershipState::Invite) => true,
+                        (MembershipChangeFilter::Leave, MembershipState::Leave) => true,
+                        (MembershipChangeFilter::Knock, MembershipState::Knock) => true,
+                        (MembershipChangeFilter::Ban, MembershipState::Ban) => true,
+                        _ => false,
+                    }
+                }
                 _ => false,
             },
             Self::ProfileChange => match event {
