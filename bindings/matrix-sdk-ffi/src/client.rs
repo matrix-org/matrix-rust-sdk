@@ -307,6 +307,8 @@ pub trait X509Sign: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
+    ///
+    /// TODO: AJB: why is message a`Vec`? Can we make it a `&[u8]`?
     fn sign(&self, message: Vec<u8>) -> Result<X509SignatureAndKeyId, ClientError>;
 }
 
@@ -317,6 +319,8 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     ///
     /// Also validates that the certificate used for the signature is issued via
     /// one of our trusted CAs.
+    ///
+    /// TODO: AJB: why is message a`Vec`? Can we make it a `&[u8]`?
     fn verify(&self, message: Vec<u8>, sig: X509Signature) -> bool;
 }
 

@@ -410,6 +410,10 @@ impl ClientBuilder {
         // ClientBuilder (which is Clone) without wrapping it in an Arc. Since
         // we're making an Arc anyway, we may as well wrap it now rather than
         // have two layers of Arcs later.
+        //
+        // TODO: AJB: if we took x509_sign as an Arc here, and changed the argument type
+        // of `X509Sign::sign` to `&[u8]` instead of `Vec` I think we could get
+        // rid of this shim.
         #[derive(Debug)]
         struct X509SignImpl(Box<dyn X509Sign>);
         impl matrix_sdk_base::crypto::x509::X509Sign for X509SignImpl {
