@@ -19,7 +19,7 @@
 use std::{fs, path::PathBuf};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
-#[cfg(not(any(target_family = "wasm", target_os = "android")))]
+#[cfg(not(any(target_family = "wasm")))]
 use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
 use matrix_sdk::search_index::SearchIndexStoreKind;
@@ -457,34 +457,26 @@ impl ClientBuilder {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            #[cfg(target_os = "android")]
-            {
-                inner_builder =
-                    inner_builder.add_raw_root_certificates(builder.additional_root_certificates)
-            }
-            #[cfg(not(target_os = "android"))]
-            {
-                let mut certificates = Vec::new();
-                for certificate in builder.additional_root_certificates {
-                    // We don't really know what type of certificate we may get here, so let's try
-                    // first one type, then the other.
-                    match Certificate::from_der(&certificate) {
-                        Ok(cert) => {
-                            certificates.push(cert);
-                        }
-                        Err(der_error) => {
-                            let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
-                                ClientBuildError::Generic {
-                                    message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
-                                }
-                            })?;
-                            certificates.push(cert);
-                        }
+            let mut certificates = Vec::new();
+            for certificate in builder.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(&certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+                            ClientBuildError::Generic {
+                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                            }
+                        })?;
+                        certificates.push(cert);
                     }
                 }
-
-                inner_builder = inner_builder.add_root_certificates(certificates);
             }
+
+            inner_builder = inner_builder.add_root_certificates(certificates);
 
             if builder.disable_built_in_root_certificates {
                 inner_builder = inner_builder.disable_built_in_root_certificates();
