@@ -21,6 +21,13 @@ All notable changes to this project will be documented in this file.
 
 ## [0.17.0] - 2026-05-08
 
+### Security fixes
+
+- Reject invalid edits as candidates for timeline updates.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454), Moderate,
+  [CVE-2026-45057](https://www.cve.org/CVERecord?id=CVE-2026-45057),
+  [GHSA-h97m-27fx-42rx](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-h97m-27fx-42rx))
+
 ### Bug fixes
 
 - Fix a possible panic in `RoomList::entries_with_dynamic_adapters`.
