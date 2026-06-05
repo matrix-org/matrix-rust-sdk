@@ -1014,24 +1014,6 @@ impl Room {
             ),
         );
 
-        // Save the loaded events into the event cache, if it's set up.
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            let mut events_to_save: Vec<TimelineEvent> = Vec::new();
-            if let Some(event) = &target_event {
-                events_to_save.push(event.clone());
-            }
-
-            for event in &events_before {
-                events_to_save.push(event.clone());
-            }
-
-            for event in &events_after {
-                events_to_save.push(event.clone());
-            }
-
-            cache.save_events(events_to_save).await;
-        }
-
         Ok(EventWithContextResponse {
             event: target_event,
             events_before,
