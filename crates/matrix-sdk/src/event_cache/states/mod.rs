@@ -28,7 +28,7 @@ use ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{
-    EventCacheError, EventsOrigin, Result,
+    CachesByRoom, EventCacheError, EventsOrigin, Result,
     caches::{
         TimelineVectorDiffs,
         event_focused::{EventFocusedCacheKey, EventFocusedCacheState},
@@ -184,7 +184,7 @@ impl StateLock {
     /// dropped.
     ///
     /// If the cross-process lock over the store is dirty (see
-    /// [`EventCacheStoreLockState`]), the state is reloaded.
+    /// [`EventCacheStoreLockState`]), the state is reloaded automatically.
     async fn write<'state>(&'state self) -> Result<ReloadableStateLockWriteGuard<'state>> {
         let state_guard = self.inner.locked_state.write().await;
 
@@ -205,6 +205,42 @@ impl StateLock {
                 guard
             }
         })
+    }
+
+    /// Clear and reload all states: in-memory and in-store.
+    ///
+    /// The `caches_for_all_rooms_exclusive_lock_guard` argument ensures an
+    /// exclusive lock over all the caches has been acquired. This is required
+    /// to ensure safety for this method.
+    pub(super) async fn clear_and_reload(
+        &self,
+        caches_for_all_rooms_exclusive_lock_guard: RwLockWriteGuard<'_, CachesByRoom>,
+    ) -> Result<()> {
+        let state_guard = self.inner.locked_state.write().await;
+
+        let mut guard = match state_guard.store.lock().await? {
+            EventCacheStoreLockState::Clean(store_guard)
+            | EventCacheStoreLockState::Dirty(store_guard) => {
+                ReloadableStateLockWriteGuard { state: state_guard, store: store_guard }
+            }
+        };
+
+        // Clear the storage for all the caches for all rooms.
+        guard.store.clear_all_linked_chunks().await?;
+
+        // At this point, all the in-memory linked chunks are desynchronised
+        // from the storage. Resynchronise them manually by reloading them.
+        guard.reload().await?;
+
+        if EventCacheStoreLockGuard::is_dirty(&guard.store) {
+            // All good because the state has been reloaded, mark the
+            // cross-process lock as non-dirty.
+            EventCacheStoreLockGuard::clear_dirty(&guard.store);
+        }
+
+        drop(caches_for_all_rooms_exclusive_lock_guard);
+
+        Ok(())
     }
 
     /// Insert a new cache state at location `cache_state_selector` if none
