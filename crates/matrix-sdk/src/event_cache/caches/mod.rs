@@ -35,7 +35,6 @@ use crate::{client::WeakClient, room::WeakRoom};
 mod aggregator;
 pub mod event_focused;
 pub mod event_linked_chunk;
-pub(super) mod lock;
 pub mod pagination;
 pub mod pinned_events;
 mod read_receipts;
