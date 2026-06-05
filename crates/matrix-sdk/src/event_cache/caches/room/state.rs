@@ -333,7 +333,21 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             self.state.room_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
         {
             error!("error when replacing the linked chunk: {err}");
-            return self.reset_internal().await;
+
+            self.state.room_linked_chunk.reset();
+            self.propagate_changes().await?;
+
+            // Reset the pagination state too: pretend we never waited for the initial
+            // prev-batch token, and indicate that we're not at the start of the
+            // timeline, since we don't know about that anymore.
+            self.state.waited_for_initial_prev_token = false;
+
+            // Note: this may cancel an ongoing pagination.
+            self.state
+                .pagination_status
+                .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
+
+            return Ok(());
         }
 
         // Let pagination observers know that we may have not reached the start of the
@@ -446,40 +460,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             updates,
         )
         .await
-    }
-
-    /// Reset this data structure as if it were brand new.
-    ///
-    /// Return a single diff update that is a clear of all events; as a
-    /// result, the caller may override any pending diff updates
-    /// with the result of this function.
-    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
-        self.reset_internal().await?;
-
-        let diff_updates = self.state.room_linked_chunk.updates_as_vector_diffs();
-
-        // Ensure the contract defined in the doc comment is true:
-        debug_assert_eq!(diff_updates.len(), 1);
-        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-        Ok(diff_updates)
-    }
-
-    async fn reset_internal(&mut self) -> Result<(), EventCacheError> {
-        self.state.room_linked_chunk.reset();
-        self.propagate_changes().await?;
-
-        // Reset the pagination state too: pretend we never waited for the initial
-        // prev-batch token, and indicate that we're not at the start of the
-        // timeline, since we don't know about that anymore.
-        self.state.waited_for_initial_prev_token = false;
-
-        // Note: this may cancel an ongoing pagination.
-        self.state
-            .pagination_status
-            .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
-
-        Ok(())
     }
 
     /// Handle the result of a sync.

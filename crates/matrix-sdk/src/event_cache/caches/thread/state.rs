@@ -125,25 +125,21 @@ impl ThreadEventCacheState {
             self.thread_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
         {
             error!("error when replacing the linked chunk: {err}");
-            return self.reset_internal(store).await;
+
+            self.thread_linked_chunk.reset();
+            self.propagate_changes(store).await?;
+
+            // Reset the pagination state too: pretend we never waited for the initial
+            // prev-batch token, and indicate that we're not at the start of the
+            // timeline, since we don't know about that anymore.
+            self.waited_for_initial_prev_token = false;
+
+            return Ok(());
         }
 
         // Don't propagate those updates to the store; this is only for the in-memory
         // representation that we're doing this. Let's drain those store updates.
         let _ = self.thread_linked_chunk.store_updates().take();
-
-        Ok(())
-    }
-
-    async fn reset_internal(&mut self, store: &EventCacheStoreLockGuard) -> Result<()> {
-        self.thread_linked_chunk.reset();
-
-        self.propagate_changes(store).await?;
-
-        // Reset the pagination state too: pretend we never waited for the initial
-        // prev-batch token, and indicate that we're not at the start of the
-        // timeline, since we don't know about that anymore.
-        self.waited_for_initial_prev_token = false;
 
         Ok(())
     }
@@ -620,22 +616,5 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         } else {
             None
         })
-    }
-
-    /// Reset this data structure as if it were brand new.
-    ///
-    /// Return a single diff update that is a clear of all events; as a
-    /// result, the caller may override any pending diff updates
-    /// with the result of this function.
-    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
-        self.state.reset_internal(&self.store).await?;
-
-        let diff_updates = self.state.thread_linked_chunk.updates_as_vector_diffs();
-
-        // Ensure the contract defined in the doc comment is true:
-        debug_assert_eq!(diff_updates.len(), 1);
-        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-        Ok(diff_updates)
     }
 }
