@@ -43,6 +43,7 @@ pub trait CacheState {
 }
 
 /// Select a [`RoomEventCacheState`] in [`State`].
+#[derive(Debug)]
 pub struct RoomStateSelector(OwnedRoomId);
 
 impl RoomStateSelector {
@@ -83,6 +84,7 @@ impl From<&RoomStateSelector> for EventCacheError {
 }
 
 /// Select a [`ThreadEventCacheState`] in [`State`].
+#[derive(Debug)]
 pub struct ThreadStateSelector(OwnedRoomId, OwnedEventId);
 
 impl ThreadStateSelector {
@@ -126,6 +128,7 @@ impl From<&ThreadStateSelector> for EventCacheError {
 }
 
 /// Select a [`PinnedEventCacheState`] in [`State`].
+#[derive(Debug)]
 pub struct PinnedEventsStateSelector(OwnedRoomId);
 
 impl PinnedEventsStateSelector {
@@ -169,6 +172,7 @@ impl From<&PinnedEventsStateSelector> for EventCacheError {
 }
 
 /// Select a [`EventFocusedCacheState`] in [`State`].
+#[derive(Debug)]
 pub struct EventFocusedStateSelector(OwnedRoomId, EventFocusedCacheKey);
 
 impl EventFocusedStateSelector {
