@@ -34,10 +34,9 @@ use std::{
     sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use futures_util::future::try_join_all;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockError,
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
+    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
     linked_chunk::lazy_loader::LazyLoaderError,
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,

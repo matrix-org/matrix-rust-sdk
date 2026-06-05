@@ -157,7 +157,7 @@ impl ThreadEventCache {
         let events =
             state.thread_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
-        let recv = self.inner.update_sender.new_thread_receiver();
+        let recv = state.update_sender.new_thread_receiver();
 
         Ok((events, recv))
     }
@@ -171,11 +171,6 @@ impl ThreadEventCache {
     /// Return a reference to the state.
     pub(in super::super) fn state(&self) -> &CacheStateLock<ThreadStateSelector> {
         &self.inner.state
-    }
-
-    /// Get a reference to the [`ThreadEventCacheUpdateSender`].
-    pub(in super::super) fn update_sender(&self) -> &ThreadEventCacheUpdateSender {
-        &self.inner.update_sender
     }
 
     /// Handle a [`JoinedRoomUpdate`].
@@ -203,8 +198,9 @@ impl ThreadEventCache {
 
         trace!("adding new events");
 
-        let (stored_prev_batch_token, timeline_event_diffs) =
-            self.inner.state.write().await?.handle_sync(timeline).await?;
+        let mut state = self.inner.state.write().await?;
+
+        let (stored_prev_batch_token, timeline_event_diffs) = state.handle_sync(timeline).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -213,7 +209,7 @@ impl ThreadEventCache {
         }
 
         if !timeline_event_diffs.is_empty() {
-            self.inner.update_sender.send(
+            state.update_sender.send(
                 TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
                 // This function is part of the `RoomEventCache` flow. The generic update is
                 // handled by it.
@@ -271,13 +267,14 @@ impl ThreadEventCache {
     /// Return `true` if at least one event has been updated.
     #[cfg(feature = "e2e-encryption")]
     pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<bool> {
-        let timeline_event_diffs = self.inner.state.write().await?.replace_utds(events).await?;
+        let mut state = self.inner.state.write().await?;
+        let timeline_event_diffs = state.replace_utds(events).await?;
 
         Ok(
             if let Some(timeline_event_diffs) = timeline_event_diffs
                 && !timeline_event_diffs.is_empty()
             {
-                self.inner.update_sender.send(
+                state.update_sender.send(
                     TimelineVectorDiffs {
                         diffs: timeline_event_diffs,
                         origin: EventsOrigin::Cache,

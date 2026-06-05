@@ -71,10 +71,7 @@ pub struct PinnedEventsCacheState {
     /// relations over time.
     chunk: EventLinkedChunk,
 
-    /// A clone of [`PinnedEventsCacheInner::update_sender`].
-    ///
-    /// This is used only by the [`LockedPinnedEventsCacheState::read`] and
-    /// [`LockedPinnedEventsCacheState::write`] when the state must be reset.
+    /// Update sender for this pinned events cache.
     pub update_sender: PinnedEventsCacheUpdateSender,
 
     /// A sender for the globally observable linked chunk updates that happened
@@ -100,29 +97,6 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         self.reload_from_storage().await?;
 
         Ok(self.state.chunk.updates_as_vector_diffs())
-    }
-
-    /// Reset this data structure as if it were brand new.
-    ///
-    /// However, pinned-events are not only stored here. They are also coming at
-    /// a state-event containing all the pinned-events ID list in the `Room`.
-    /// This is a best-effort here: we are resetting the events stored in this
-    /// cache only.
-    ///
-    /// Return a single diff update that is a clear of all events; as a
-    /// result, the caller may override any pending diff updates
-    /// with the result of this function.
-    pub async fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
-        self.state.chunk.reset();
-        self.propagate_changes().await?;
-
-        let diff_updates = self.state.chunk.updates_as_vector_diffs();
-
-        // Ensure the contract defined in the doc comment is true:
-        debug_assert_eq!(diff_updates.len(), 1);
-        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-        Ok(diff_updates)
     }
 
     async fn handle_sync(&mut self, timeline: Timeline) -> Result<()> {
@@ -449,9 +423,6 @@ struct PinnedEventsCacheInner {
     ///
     /// It is behind an `Arc` because it is shared with the task.
     state: CacheStateLock<PinnedEventsStateSelector>,
-
-    /// Update sender for this pinned events cache.
-    update_sender: PinnedEventsCacheUpdateSender,
 }
 
 impl PinnedEventsCache {
@@ -466,10 +437,6 @@ impl PinnedEventsCache {
         let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let room_id = room.room_id().to_owned();
 
-        let update_sender = PinnedEventsCacheUpdateSender::new();
-
-        let chunk = EventLinkedChunk::new();
-
         let cache_state = state
             .try_insert_once_with(
                 PinnedEventsStateSelector::new(room_id.clone()),
@@ -478,15 +445,15 @@ impl PinnedEventsCache {
                         room_id: room_id.clone(),
                         own_user_id,
                         room_version_rules,
-                        chunk,
-                        update_sender: update_sender.clone(),
+                        chunk: EventLinkedChunk::new(),
+                        update_sender: PinnedEventsCacheUpdateSender::new(),
                         linked_chunk_update_sender,
                     })
                 },
             )
             .await?;
 
-        let inner = Arc::new(PinnedEventsCacheInner { room_id, state: cache_state, update_sender });
+        let inner = Arc::new(PinnedEventsCacheInner { room_id, state: cache_state });
 
         let task = room
             .client()
@@ -503,11 +470,6 @@ impl PinnedEventsCache {
     /// Return a reference to the state.
     pub(super) fn state(&self) -> &CacheStateLock<PinnedEventsStateSelector> {
         &self.inner.state
-    }
-
-    /// Get a reference to the [`RoomEventCacheUpdateSender`].
-    pub(in super::super) fn update_sender(&self) -> &PinnedEventsCacheUpdateSender {
-        &self.inner.update_sender
     }
 
     /// Subscribe to live events from this room's pinned events cache.

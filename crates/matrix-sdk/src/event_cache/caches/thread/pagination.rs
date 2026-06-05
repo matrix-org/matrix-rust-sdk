@@ -179,7 +179,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             state
                 .store
                 .handle_linked_chunk_updates(
-                    LinkedChunkId::Thread(&state.state.room_id, &state.state.thread_id),
+                    LinkedChunkId::Thread(&state.room_id, &state.thread_id),
                     vec![Update::Clear],
                 )
                 .await?;
@@ -331,9 +331,9 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             in_store_duplicated_event_ids,
             non_empty_all_duplicates: all_duplicates,
         } = filter_duplicate_events(
-            &state.state.own_user_id,
+            &state.own_user_id,
             &state.store,
-            LinkedChunkId::Thread(&state.state.room_id, &state.state.thread_id),
+            LinkedChunkId::Thread(&state.room_id, &state.thread_id),
             state.thread_linked_chunk(),
             events,
         )
@@ -382,12 +382,12 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         if !timeline_event_diffs.is_empty() {
-            self.cache.update_sender.send(
+            state.update_sender.send(
                 TimelineVectorDiffs {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Pagination,
                 },
-                Some(RoomEventCacheGenericUpdate { room_id: state.state.room_id.clone() }),
+                Some(RoomEventCacheGenericUpdate { room_id: state.room_id.clone() }),
             );
         }
 

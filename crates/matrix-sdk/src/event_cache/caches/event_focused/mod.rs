@@ -536,24 +536,6 @@ impl EventFocusedCacheState {
 
         Ok((result.chunk, result.next_batch_token))
     }
-
-    /// Reset this data structure as if it were brand new.
-    ///
-    /// Return a single diff update that is a clear of all events; as a
-    /// result, the caller may override any pending diff updates
-    /// with the result of this function.
-    pub fn reset(&mut self) -> Result<Vec<VectorDiff<Event>>> {
-        self.chunk.reset();
-        self.propagate_changes();
-
-        let diff_updates = self.chunk.updates_as_vector_diffs();
-
-        // Ensure the contract defined in the doc comment is true:
-        debug_assert_eq!(diff_updates.len(), 1);
-        debug_assert!(matches!(diff_updates[0], VectorDiff::Clear));
-
-        Ok(diff_updates)
-    }
 }
 
 /// A cache for an event-focused timeline.
@@ -604,16 +586,6 @@ impl EventFocusedCache {
             .await?;
 
         Ok(Self { inner: Arc::new(cache_state) })
-    }
-
-    /// Return a reference to the state.
-    pub(super) fn state(&self) -> &CacheStateLock<EventFocusedStateSelector> {
-        &self.inner
-    }
-
-    /// Get a reference to the _update sender_.
-    pub(super) async fn update_sender(&self) -> Result<EventFocusedCacheUpdateSender> {
-        Ok(self.inner.read().await?.update_sender.clone())
     }
 
     /// Subscribe to updates from this event-focused timeline.
