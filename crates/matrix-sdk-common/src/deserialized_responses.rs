@@ -493,7 +493,7 @@ impl ThreadSummaryStatus {
 pub struct TimelineEvent {
     /// The event ID (cached from `Self::kind`).
     ///
-    /// This field contains a copy of `TimeilneEventKind::parse_event_id`. Why?
+    /// This field contains a copy of `TimelineEventKind::parse_event_id`. Why?
     /// Because reading the event ID is done **a lot** in the SDK.
     /// `TimelineEventKind::parse_event_id` implies parsing/deserializing the
     /// JSON payload looking for the event ID. It has a non-negligible cost.
