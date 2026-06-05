@@ -639,63 +639,33 @@ impl EventCacheInner {
 
     /// Clears all the room's data.
     async fn clear_all_rooms(&self) -> Result<()> {
-        // Okay, here's where things get complicated.
+        // Okay, here's where things get delicate.
         //
-        // On the one hand, `by_room` may include storage for *some* rooms that we know
-        // about, but not *all* of them. Any room that hasn't been loaded in the
-        // client, or touched by a sync, will remain unloaded in memory, so it
-        // will be missing from `self.by_room`. As a result, we need to make
-        // sure that we're hitting the storage backend to *really* clear all the
-        // rooms, including those that haven't been loaded yet.
+        // On the one hand, `by_room` may include storage for *some* caches
+        // that we know about, but not *all* of them. Any cache that hasn't been
+        // loaded in the client, or touched by a sync, will remain unloaded in
+        // memory, so it will be missing from `self.by_room`. As a result, we
+        // need to make sure that we're hitting the storage backend to *really*
+        // clear all the caches, including those that haven't been loaded yet.
         //
-        // On the other hand, one must NOT clear the `by_room` map, because if someone
-        // subscribed to a room update, they would never get any new update for
-        // that room, since re-creating the `RoomEventCache` would create a new,
-        // unrelated sender.
+        // On the other hand, one must NOT clear the `by_room` map, because if
+        // someone subscribed to a cache update, they would never get any new
+        // update for that cache, since re-creating the cache would create a
+        // new, unrelated sender.
         //
-        // So we need to *keep* the rooms in `by_room` alive, while clearing them in the
-        // store backend.
+        // So we need to *keep* the caches in `by_room` alive, while clearing
+        // them in the store backend.
         //
-        // As a result, for a short while, the in-memory linked chunks
-        // will be desynchronized from the storage. We need to be careful then. During
-        // that short while, we don't want *anyone* to touch the linked chunk
+        // As a result, for a short while, the in-memory linked chunks will be
+        // desynchronised from the storage. We need to be careful then. During
+        // that short while, we don't want *anyone* to touch the linked chunks
         // (be it in memory or in the storage).
         //
-        // And since that requirement applies to *any* room in `by_room` at the same
-        // time, we'll have to take the locks for *all* the live rooms, so as to
-        // properly clear the underlying storage.
-        //
-        // At this point, you might be scared about the potential for deadlocking. I am
-        // as well, but I'm convinced we're fine:
-        //
-        // 1. the lock for `by_room` is usually held only for a short while, and
-        //    independently of the other two kinds.
-        // 2. the state may acquire the store cross-process lock internally, but only
-        //    while the state's methods are called (so it's always transient). As a
-        //    result, as soon as we've acquired the state locks, the store lock ought to
-        //    be free.
-        // 3. The store lock is held explicitly only in a small scoped area below.
-        // 4. Then the store lock will be held internally when calling `reset_all()`,
-        //    but at this point it's only held for a short while each time, so rooms
-        //    will take turn to acquire it.
+        // And since that requirement applies to *any* cache in `by_room` at the
+        // same time, we'll have to take the lock for *all* the live caches and
+        // for the states, so as to properly clear the underlying storage.
 
-        let mut all_caches = self.by_room.write().await;
-
-        // Prepare to reset all the caches: it ensures nobody is accessing or mutating
-        // them.
-        let resets =
-            try_join_all(all_caches.values_mut().map(|caches| caches.prepare_to_reset())).await?;
-
-        // Clear the storage for all the rooms, using the storage facility.
-        let store_guard = match self.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard) => store_guard,
-            EventCacheStoreLockState::Dirty(store_guard) => store_guard,
-        };
-        store_guard.clear_all_linked_chunks().await?;
-
-        // At this point, all the in-memory linked chunks are desynchronized from their
-        // storages. Resynchronize them manually by resetting them.
-        try_join_all(resets.into_iter().map(|reset_cache| reset_cache.reset_all())).await?;
+        self.state.clear_and_reload(self.by_room.write().await).await?;
 
         Ok(())
     }

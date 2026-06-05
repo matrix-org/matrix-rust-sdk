@@ -408,17 +408,6 @@ impl Caches {
         Ok(())
     }
 
-    /// Try to acquire exclusive locks over all the event caches managed by
-    /// this [`Caches`], in order to reset all the in-memory data.
-    ///
-    /// Note that this method takes `&mut self`, ensuring only one reset can
-    /// happen at a time.
-    ///
-    /// If the returned value is dropped, no data will be reset.
-    pub async fn prepare_to_reset(&mut self) -> Result<ResetCaches<'_>> {
-        ResetCaches::new(self).await
-    }
-
     /// Get all events from all the event caches manged by this [`Caches`].
     ///
     /// Events can be duplicated if present in different event caches.
@@ -427,106 +416,6 @@ impl Caches {
         let events_from_room = self.room.events().await?;
 
         Ok(events_from_room.into_iter())
-    }
-}
-
-/// Type holding exclusive locks over all event caches managed by a
-/// [`Caches`].
-///
-/// To reset all the event caches, call [`ResetCaches::reset_all`]. If this type
-/// is dropped, no reset happens and the exclusive lock is released.
-pub(super) struct ResetCaches<'c> {}
-
-impl<'c> ResetCaches<'c> {
-    /// Create a new [`ResetCaches`].
-    ///
-    /// It can fail if acquiring an exclusive lock fails.
-    async fn new(
-        Caches { room, threads, pinned_events, event_focused, internals: _ }: &'c mut Caches,
-    ) -> Result<Self> {
-        todo!()
-    }
-
-    /// Reset all the event caches, and broadcast the [`TimelineVectorDiffs`].
-    ///
-    /// Note that this method consumes `self`, ensuring the acquired exclusive
-    /// locks over the event caches are released.
-    ///
-    /// It can fail if resetting an event cache fails.
-    pub async fn reset_all(self) -> Result<()> {
-        todo!()
-
-        /*
-        let Self {
-            room_lock,
-            threads_lock,
-            thread_locks,
-            pinned_events_lock,
-            event_focused_lock,
-            event_focused_locks,
-        } = self;
-
-        // Room.
-        {
-            let (mut room_state, room_update_sender) = room_lock;
-
-            let updates_as_vector_diffs = room_state.reset().await?;
-            room_update_sender.send(
-                room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: updates_as_vector_diffs,
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(room::RoomEventCacheGenericUpdate { room_id: room_state.room_id.clone() }),
-            );
-        }
-
-        // Threads.
-        {
-            for (mut thread_state, thread_update_sender) in thread_locks {
-                let updates_as_vector_diffs = thread_state.reset().await?;
-                thread_update_sender.send(
-                    TimelineVectorDiffs {
-                        diffs: updates_as_vector_diffs,
-                        origin: EventsOrigin::Cache,
-                    },
-                    // This function is part of the `RoomEventCache` flow. The generic update is
-                    // handled by it.
-                    None,
-                );
-            }
-
-            // Now we can release the exclusive access over the threads.
-            drop(threads_lock);
-        }
-
-        // Pinned-events.
-        {
-            if let Some((mut pinned_events_state, pinned_events_update_sender)) = pinned_events_lock
-            {
-                let updates_as_vector_diffs = pinned_events_state.reset().await?;
-                pinned_events_update_sender.send(TimelineVectorDiffs {
-                    diffs: updates_as_vector_diffs,
-                    origin: EventsOrigin::Cache,
-                });
-            }
-        }
-
-        // Event-focused.
-        {
-            for (mut event_focused_state, event_focused_update_sender) in event_focused_locks {
-                let updates_as_vector_diffs = event_focused_state.reset()?;
-                let _ = event_focused_update_sender.send(TimelineVectorDiffs {
-                    diffs: updates_as_vector_diffs,
-                    origin: EventsOrigin::Cache,
-                });
-            }
-
-            // Now we can release the exclusive access over the event-focused caches.
-            drop(event_focused_lock);
-        }
-
-        Ok(())
-        */
     }
 }
 
