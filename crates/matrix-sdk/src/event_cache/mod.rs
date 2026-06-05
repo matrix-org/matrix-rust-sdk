@@ -40,11 +40,10 @@ use matrix_sdk_base::{
     linked_chunk::lazy_loader::LazyLoaderError,
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
-    timer,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
-    Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
+    OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
@@ -258,7 +257,6 @@ impl EventCache {
                 config: StdRwLock::new(EventCacheConfig::default()),
                 state: StateLock::new(event_cache_store.clone()),
                 store: event_cache_store,
-                multiple_room_updates_lock: Default::default(),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
@@ -570,14 +568,6 @@ struct EventCacheInner {
     /// states.
     state: StateLock,
 
-    /// A lock used when many rooms must be updated at once.
-    ///
-    /// [`Mutex`] is “fair”, as it is implemented as a FIFO. It is important to
-    /// ensure that multiple updates will be applied in the correct order, which
-    /// is enforced by taking this lock when handling an update.
-    // TODO: that's the place to add a cross-process lock!
-    multiple_room_updates_lock: Mutex<()>,
-
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     //
     // It's behind an `Arc` to get owned locks.
@@ -672,13 +662,6 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
-        // First, take the lock that indicates we're processing updates, to avoid
-        // handling multiple updates concurrently.
-        let _lock = {
-            let _timer = timer!("Taking the `multiple_room_updates_lock`");
-            self.multiple_room_updates_lock.lock().await
-        };
-
         // NOTE: We tried to make this concurrent at some point, but it turned out to be
         // a performance regression, even for large sync updates. Lacking time
         // to investigate, this code remains sequential for now. See also
