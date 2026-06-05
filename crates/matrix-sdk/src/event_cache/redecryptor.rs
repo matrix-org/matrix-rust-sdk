@@ -435,13 +435,10 @@ impl EventCache {
             // Filter out results that are `None`, i.e. a thread where no UTD has been replaced.
             .flatten()
             {
-                all_caches
-                    .room
-                    .update_thread_summary(
-                        &thread_id,
-                        thread_cache.state().read().await?.compute_thread_summary().await?,
-                    )
-                    .await?;
+                let new_thread_summary =
+                    thread_cache.state().read().await?.compute_thread_summary().await?;
+
+                all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
             }
         }
 
