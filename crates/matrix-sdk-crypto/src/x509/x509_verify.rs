@@ -117,3 +117,60 @@ fn get_email_address_from_certificate_subject(certificate: &CertificateDer<'_>) 
     let email = parsed_cert.subject.iter_email().next()?;
     email.as_str().ok().map(ToOwned::to_owned)
 }
+
+#[cfg(test)]
+mod tests {
+    use rcgen::{CertificateParams, KeyPair, generate_simple_self_signed};
+    use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
+
+    use super::*;
+
+    #[test]
+    fn can_extract_email_address_from_a_cert() {
+        // Given a certificate containing an email address
+        let cert = cert_with_email("myname@company.co.uk");
+
+        // When we extract the email address it contains
+        let email = get_email_address_from_certificate_subject(cert.der())
+            .expect("Failed to get email address from cert");
+
+        // Then it matches what we put in
+        assert_eq!(email, "myname@company.co.uk");
+    }
+
+    #[test]
+    fn extract_email_address_from_a_cert_that_does_not_contain_one_returns_none() {
+        // Given a certificate not containing an email address
+        let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
+
+        // When we attempt to extract the email address
+        let email = get_email_address_from_certificate_subject(cert.cert.der());
+
+        // Then the answer is empty
+        assert!(email.is_none());
+    }
+
+    /// Create a certificate that contains the supplied email address in its
+    /// Subject Distinguished Name
+    ///
+    /// Note: https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.6 says:
+    ///
+    /// > Legacy implementations exist where an electronic mail address is
+    /// > embedded in the subject distinguished name as an emailAddress
+    /// > attribute [RFC2985].
+    ///
+    /// So this is a legacy implementation. To be non-legacy it should, at a
+    /// minimum, include the email address in the Subject Alternative Name
+    /// as well as in Subject Distinguished Name.
+    fn cert_with_email(email: &str) -> rcgen::Certificate {
+        let mut cert_params = CertificateParams::default();
+        cert_params.distinguished_name.push(
+            rcgen::DnType::CustomDnType(OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect()),
+            email,
+        );
+
+        let signing_key = KeyPair::generate().expect("Failed to generate key pair");
+
+        cert_params.self_signed(&signing_key).expect("Failed to generate certificate")
+    }
+}
