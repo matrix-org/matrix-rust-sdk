@@ -41,7 +41,6 @@ use ruma::{
 };
 use rustls::SignatureScheme;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_json::json;
 use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
@@ -242,14 +241,17 @@ impl Signature {
     pub fn ed25519(&self) -> Option<Ed25519Signature> {
         as_variant!(self, Self::Ed25519).copied()
     }
+}
 
-    /// Convert the signature to a base64 encoded string.
-    pub fn to_json(&self) -> serde_json::Value {
+impl Serialize for Signature {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         match self {
-            Signature::Ed25519(s) => json!(s.to_base64()),
-            Signature::X509(s) => serde_json::to_value(s)
-                .expect("Failed to convert an X.509 signature to a JSON value"),
-            Signature::Other(s) => json!(s.to_owned()),
+            Signature::Ed25519(s) => Serialize::serialize(&s.to_base64(), serializer),
+            Signature::X509(s) => Serialize::serialize(s, serializer),
+            Signature::Other(s) => Serialize::serialize(s, serializer),
         }
     }
 }
@@ -352,34 +354,37 @@ impl<'de> Deserialize<'de> for Signatures {
                     .map(|(key_id, s)| {
                         let algorithm = key_id.algorithm();
                         let signature = match algorithm {
-                            DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(
-                                s.as_str().expect("TODO: AJB: deal with non-str JSON object"),
-                            )
-                            .map(|s| s.into())
-                            .map_err(|_| InvalidSignature {
-                                source: s
-                                    .as_str()
-                                    .expect("TODO: AJB: deal with non-str JSON object")
-                                    .to_owned(),
-                            }),
+                            DeviceKeyAlgorithm::Ed25519 => {
+                                if let Some(s) = s.as_str() {
+                                    Ed25519Signature::from_base64(s)
+                                        .map(|s| s.into())
+                                        .map_err(|_| InvalidSignature { source: s.to_owned() })
+                                } else {
+                                    Err(InvalidSignature {
+                                        source: format!("non-string content: {}", s.to_string()),
+                                    })
+                                }
+                            }
                             DeviceKeyAlgorithm::_Custom(_) => {
                                 if let Ok(x509_signature) = serde_json::from_value(s.clone()) {
                                     Ok(Signature::X509(x509_signature))
+                                } else if let Some(s) = s.as_str() {
+                                    Ok(Signature::Other(s.to_owned()))
                                 } else {
-                                    Ok(Signature::Other(
-                                        s.as_str()
-                                            .unwrap_or(
-                                                "<<TODO: AJB: deal with non-str JSON object>>",
-                                            )
-                                            .to_owned(),
-                                    ))
+                                    Err(InvalidSignature {
+                                        source: format!("non-string content: {}", s.to_string()),
+                                    })
                                 }
                             }
-                            _ => Ok(Signature::Other(
-                                s.as_str()
-                                    .expect("TODO: AJB: deal with non-str JSON object")
-                                    .to_owned(),
-                            )),
+                            _ => {
+                                if let Some(s) = s.as_str() {
+                                    Ok(Signature::Other(s.to_owned()))
+                                } else {
+                                    Err(InvalidSignature {
+                                        source: format!("non-string content: {}", s.to_string()),
+                                    })
+                                }
+                            }
                         };
 
                         Ok((key_id, signature))
@@ -394,31 +399,51 @@ impl<'de> Deserialize<'de> for Signatures {
     }
 }
 
+enum SignatureOrInvalid<'a> {
+    Signature(&'a Signature),
+    InvalidSignature(&'a String),
+}
+
+impl Serialize for SignatureOrInvalid<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            SignatureOrInvalid::Signature(s) => Serialize::serialize(s, serializer),
+            SignatureOrInvalid::InvalidSignature(i) => Serialize::serialize(i, serializer),
+        }
+    }
+}
+
 impl Serialize for Signatures {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, serde_json::Value>> =
-            self.0
-                .iter()
-                .map(|(u, m)| {
-                    (
-                        u,
-                        m.iter()
-                            .map(|(d, s)| {
-                                (
-                                    d,
-                                    match s {
-                                        Ok(s) => json!(s.to_json()),
-                                        Err(i) => json!(i.source.to_owned()),
-                                    },
-                                )
-                            })
-                            .collect(),
-                    )
-                })
-                .collect();
+        let signatures: BTreeMap<
+            &OwnedUserId,
+            BTreeMap<&OwnedDeviceKeyId, SignatureOrInvalid<'_>>,
+        > = self
+            .0
+            .iter()
+            .map(|(u, m)| {
+                (
+                    u,
+                    m.iter()
+                        .map(|(d, s)| {
+                            (
+                                d,
+                                match s {
+                                    Ok(s) => SignatureOrInvalid::Signature(s),
+                                    Err(i) => SignatureOrInvalid::InvalidSignature(&i.source),
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            })
+            .collect();
 
         Serialize::serialize(&signatures, serializer)
     }
