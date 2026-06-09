@@ -54,7 +54,7 @@ use super::{
                 find_event, find_event_relations, find_event_with_relations,
                 load_linked_chunk_metadata, send_updates_to_store,
             },
-            states::{StateLockReadGuard, StateLockWriteGuard},
+            states::{ReloadPreprocessing, StateLockReadGuard, StateLockWriteGuard},
         },
         EventLocation,
         event_linked_chunk::EventLinkedChunk,
@@ -287,9 +287,36 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
-    /// Force to shrink the room, whenever there is subscribers or not.
+    /// Reload the room: only the last events will be reloaded, shrinking the
+    /// in-memory size of the cache.
+    ///
+    /// If `preprocessing` is set to [`ReloadPreprocessing::ForgetAll`], all
+    /// events will be erased before reloaded.
     #[must_use = "Propagate `VectorDiff` updates via `RoomEventCacheUpdate`"]
-    pub async fn reload(&mut self) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+    pub async fn reload(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+    ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        match preprocessing {
+            ReloadPreprocessing::ForgetAll => {
+                // Clear the `LinkedChunk` and broadcast the updates to the store.
+                self.room_linked_chunk_mut().reset();
+                self.propagate_changes().await?;
+
+                // Reset the pagination state too: pretend we never waited for the initial
+                // prev-batch token, and indicate that we're not at the start of the timeline,
+                // since we don't know about that anymore.
+                *self.waited_for_initial_prev_token_mut() = false;
+
+                // Note: this may cancel an ongoing pagination.
+                self.state
+                    .pagination_status
+                    .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
+            }
+
+            ReloadPreprocessing::None => {}
+        }
+
         self.shrink_to_last_chunk().await?;
 
         Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())

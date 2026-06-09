@@ -44,7 +44,8 @@ use super::{
         deduplicator::{DeduplicationOutcome, filter_duplicate_events},
         persistence::{find_event, send_updates_to_store},
         states::{
-            CacheStateLock, StateLock, StateLockWriteGuard, selectors::PinnedEventsStateSelector,
+            CacheStateLock, ReloadPreprocessing, StateLock, StateLockWriteGuard,
+            selectors::PinnedEventsStateSelector,
         },
     },
     EventLocation, TimelineVectorDiffs,
@@ -92,8 +93,28 @@ impl fmt::Debug for PinnedEventsCacheState {
 }
 
 impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
+    /// Reload the pinned-events: only the last events will be reloaded,
+    /// shrinking the in-memory size of the cache.
+    ///
+    /// If `preprocessing` is set to [`ReloadPreprocessing::ForgetAll`], all
+    /// events will be erased before reloaded.
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub async fn reload(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+    pub async fn reload(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        match preprocessing {
+            ReloadPreprocessing::ForgetAll => {
+                // Clear the `LinkedChunk` and broadcast the updates to the store.
+                self.state.chunk.reset();
+                self.propagate_changes().await?;
+            }
+
+            ReloadPreprocessing::None => {}
+        }
+
+        // The task will notice there is a desynchronisation and will reload from
+        // network.
         self.reload_from_storage().await?;
 
         Ok(self.state.chunk.updates_as_vector_diffs())
