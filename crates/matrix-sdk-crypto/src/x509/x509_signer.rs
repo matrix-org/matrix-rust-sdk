@@ -11,22 +11,22 @@ use crate::{
 /// Hold one of these if you want to sign cross-signing keys, and call
 /// [`Self::sign_cross_signing_key`] to do it.
 ///
-/// Internally, this holds an implementation of [`X509Sign`] that does the real
-/// work of signing things. This struct provides a convenient wrapper that e.g.
-/// converts a cross-signing key to signable canonical JSON.
+/// Internally, this holds an implementation of [`RawX509Signer`] that does the
+/// real work of signing things. This struct provides a convenient wrapper that
+/// e.g. converts a cross-signing key to signable canonical JSON.
 #[derive(Debug, Clone)]
 pub struct X509Signer {
-    x509_sign: Arc<dyn X509Sign>,
+    x509_sign: Arc<dyn RawX509Signer>,
 }
 
 impl X509Signer {
-    /// Create a new `X509Signer` that wraps the supplied `X509Sign`.
-    pub fn new(x509_sign: Arc<dyn X509Sign>) -> Self {
+    /// Create a new `X509Signer` that wraps the supplied [`RawX509Signer`].
+    pub fn new(x509_sign: Arc<dyn RawX509Signer>) -> Self {
         Self { x509_sign }
     }
 
     /// Add a signature to the given cross-signing key using our private X.509
-    /// key
+    /// key.
     pub fn sign_cross_signing_key(
         &self,
         signing_user_id: &UserId,
@@ -48,7 +48,7 @@ impl X509Signer {
 
 /// A low-level interface for signing messages with a private key. We have Rust
 /// and platform-specific implementations.
-pub trait X509Sign: std::fmt::Debug + Send + Sync {
+pub trait RawX509Signer: std::fmt::Debug + Send + Sync {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)

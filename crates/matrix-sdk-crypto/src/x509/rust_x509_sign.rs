@@ -24,9 +24,9 @@ use rustls::{
 use thiserror::Error;
 use vodozemac::base64_encode;
 
-use crate::{SignatureError, types::X509Signature, x509::x509_signer::X509Sign};
+use crate::{SignatureError, types::X509Signature, x509::x509_signer::RawX509Signer};
 
-/// A Rust implementation of [`X509Sign`]. This does the verification itself
+/// A Rust implementation of [`RawX509Signer`]. This does the verification itself
 /// (using `rustls`) rather than delegating the work to some external system.
 #[derive(Clone)]
 pub struct RustX509Sign {
@@ -89,7 +89,7 @@ impl RustX509Sign {
     }
 }
 
-impl X509Sign for RustX509Sign {
+impl RawX509Signer for RustX509Sign {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
@@ -144,7 +144,7 @@ mod tests {
     use rustls::pki_types::{CertificateDer, pem::PemObject};
 
     use crate::x509::{
-        X509Sign,
+        RawX509Signer,
         rust_x509_sign::{RustX509Sign, get_authority_key_identifier},
     };
 

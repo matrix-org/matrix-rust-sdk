@@ -160,7 +160,7 @@ pub struct ClientBuilder {
 
     threading_support: ThreadingSupport,
 
-    x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::X509Sign>>,
+    x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Signer>>,
     x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::X509Verify>>,
 }
 
@@ -419,14 +419,17 @@ impl ClientBuilder {
         // rid of this shim.
         #[derive(Debug)]
         struct X509SignImpl(Box<dyn X509Sign>);
-        impl matrix_sdk_base::crypto::x509::X509Sign for X509SignImpl {
+        impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
             fn sign(
                 &self,
                 message: &[u8],
             ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
                 let result = self.0.sign(message.to_vec()).expect("Signing failed");
                 Ok((
-                    DeviceKeyId::from_parts("io.element.x509".into(), result.device_id.as_str().into()),
+                    DeviceKeyId::from_parts(
+                        "io.element.x509".into(),
+                        result.device_id.as_str().into(),
+                    ),
                     result.signature.into(),
                 ))
             }

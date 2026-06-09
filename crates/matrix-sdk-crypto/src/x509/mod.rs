@@ -23,5 +23,5 @@ mod x509_verify;
 
 pub use rust_x509_sign::RustX509Sign;
 pub use x509_data::X509Data;
-pub use x509_signer::{X509Sign, X509Signer};
+pub use x509_signer::{RawX509Signer, X509Signer};
 pub use x509_verify::{X509Verifier, X509Verify};
