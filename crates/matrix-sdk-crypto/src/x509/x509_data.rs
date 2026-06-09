@@ -36,14 +36,14 @@ impl X509Data {
         // TODO: it would be sensible to validate that the private key matches the
         //   certificate chain here, to catch configuration errors early.
 
-        X509Data {
-            x509_signer: Some(X509Signer::new(Arc::new(RustX509Sign::new_from_pem_data(
-                cert_chain_pem,
-                private_key_pem,
-            )))),
-            x509_verifier: Some(X509Verifier::new(Arc::new(RustX509Verify::new_from_pem_data(
-                ca_certs_pem,
-            )))),
-        }
+        let x509_signer = RustX509Sign::new_from_pem_data(cert_chain_pem, private_key_pem)
+            .map(|signer| X509Signer::new(Arc::new(signer)))
+            .ok();
+
+        let x509_verifier = RustX509Verify::new_from_pem_data(ca_certs_pem)
+            .map(|verifier| X509Verifier::new(Arc::new(verifier)))
+            .ok();
+
+        X509Data { x509_signer, x509_verifier }
     }
 }

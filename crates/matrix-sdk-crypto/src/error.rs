@@ -287,6 +287,10 @@ pub enum SignatureError {
     #[error(transparent)]
     InvalidKey(#[from] vodozemac::KeyError),
 
+    /// The message could not be signed with X.509
+    #[error(transparent)]
+    X509SigningError(#[from] rustls::Error),
+
     /// The signature could not be decoded.
     #[error("the given signature is not valid and can't be decoded")]
     InvalidSignature,

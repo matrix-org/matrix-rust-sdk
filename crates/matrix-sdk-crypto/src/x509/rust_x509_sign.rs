@@ -21,6 +21,7 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
     sign::SigningKey,
 };
+use thiserror::Error;
 use vodozemac::base64_encode;
 
 use crate::{SignatureError, types::X509Signature, x509::x509_signer::X509Sign};
@@ -40,29 +41,51 @@ pub struct RustX509Sign {
     signing_key: Arc<dyn SigningKey>,
 }
 
+#[derive(Error, Debug)]
+pub enum RustX509SignError {
+    /// There was an error parsing the certificate chain.
+    #[error("failed to parse certificate chain {0}")]
+    CertificateParseError(rustls::pki_types::pem::Error),
+
+    /// No certificates were found.
+    #[error("no certificates found in chain")]
+    CertificateNotFoundError,
+
+    /// There was an error parsing the private key.
+    #[error("failed to parse private key {0}")]
+    PrivateKeyParseError(rustls::pki_types::pem::Error),
+
+    /// There was an error loading the private key.
+    #[error("failed to load private key {0}")]
+    PrivateKeyLoadError(rustls::Error),
+}
+
 impl RustX509Sign {
     /// Create a new `RustX509Sign` from the supplied PEM data.
-    pub fn new_from_pem_data(certificate_chain_pem: &str, private_key_pem: &str) -> Self {
+    pub fn new_from_pem_data(
+        certificate_chain_pem: &str,
+        private_key_pem: &str,
+    ) -> Result<Self, RustX509SignError> {
         let provider = aws_lc_rs::default_provider();
 
         let cert_iter = CertificateDer::pem_slice_iter(certificate_chain_pem.as_bytes());
         let last_cert = cert_iter
             .last()
-            .expect("unable to parse certificate chain")
-            .expect("no certificates found in chain");
+            .ok_or(RustX509SignError::CertificateNotFoundError)?
+            .map_err(|e| RustX509SignError::CertificateParseError(e))?;
         let last_cert_aki =
             get_authority_key_identifier(&last_cert).expect("no AKI found in last cert");
         let device_id =
             DeviceKeyId::from_parts("io.element.x509".into(), last_cert_aki.as_str().into());
 
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
-            .expect("unable to parse private key");
+            .map_err(|e| RustX509SignError::PrivateKeyParseError(e))?;
         let signing_key: Arc<dyn SigningKey> = provider
             .key_provider
             .load_private_key(private_key)
-            .expect("unable to load private key");
+            .map_err(|e| RustX509SignError::PrivateKeyLoadError(e))?;
 
-        Self { certificate_chain: certificate_chain_pem.to_owned(), device_id, signing_key }
+        Ok(Self { certificate_chain: certificate_chain_pem.to_owned(), device_id, signing_key })
     }
 }
 
@@ -71,15 +94,13 @@ impl X509Sign for RustX509Sign {
     ///
     /// Returns (key ID, signature)
     fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
-        // TODO RAV: error handling
-
         let signature_scheme = SignatureScheme::RSA_PSS_SHA512;
         let signer = self
             .signing_key
             .choose_scheme(&[signature_scheme])
-            .expect("unable to choose signature scheme");
+            .ok_or(SignatureError::UnsupportedAlgorithm)?;
 
-        let signature = signer.sign(message).expect("unable to sign");
+        let signature = signer.sign(message).map_err(|e| SignatureError::X509SigningError(e))?;
         Ok((
             self.device_id.clone(),
             X509Signature {
@@ -146,7 +167,7 @@ mod tests {
 
     #[test]
     fn can_sign() {
-        let x509_sign = RustX509Sign::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY);
+        let x509_sign = RustX509Sign::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
 
         let (key_id, sig) = x509_sign.sign(b"hello world").unwrap();
 

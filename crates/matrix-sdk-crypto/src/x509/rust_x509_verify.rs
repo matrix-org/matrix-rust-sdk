@@ -18,7 +18,7 @@ use rustls::{
     RootCertStore,
     crypto::CryptoProvider,
     pki_types::{CertificateDer, UnixTime, pem::PemObject},
-    server::{WebPkiClientVerifier, danger::ClientCertVerifier},
+    server::{VerifierBuilderError, WebPkiClientVerifier, danger::ClientCertVerifier},
 };
 use vodozemac::base64_decode;
 use webpki::EndEntityCert;
@@ -34,7 +34,7 @@ pub struct RustX509Verify {
 /// (using `rustls`) rather than delegating the work to some external system.
 impl RustX509Verify {
     /// Create a new `RustX509Verify` from the supplied CA certificates PEM.
-    pub fn new_from_pem_data(ca_certs_pem: &str) -> Self {
+    pub fn new_from_pem_data(ca_certs_pem: &str) -> Result<Self, VerifierBuilderError> {
         let mut root_store = RootCertStore::empty();
         for result in CertificateDer::pem_slice_iter(ca_certs_pem.as_bytes()) {
             root_store
@@ -43,10 +43,9 @@ impl RustX509Verify {
         }
         let verifier = WebPkiClientVerifier::builder(Arc::new(root_store))
             //.with_crls(...)
-            .build()
-            .unwrap();
+            .build()?;
 
-        Self { verifier }
+        Ok(Self { verifier })
     }
 }
 
@@ -96,8 +95,10 @@ impl X509Verify for RustX509Verify {
         };
 
         // TODO: AJB: make it harder to forget to base64 encode/decode this?
-        let signature_bin =
-            base64_decode(&sig.signature).expect("Failed to decode base64 signature");
+        let Ok(signature_bin) = base64_decode(&sig.signature) else {
+            tracing::warn!("Failed to base64-decode the signaturea");
+            return false;
+        };
         let result = cert.verify_signature(alg, message, &signature_bin);
 
         if let Err(e) = result {
