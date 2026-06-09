@@ -37,7 +37,10 @@ use matrix_sdk_base::crypto::{
     types::X509Signature,
     x509::{X509Signer, X509Verifier},
 };
-use ruma::api::error::{DeserializationError, FromHttpResponseError};
+use ruma::{
+    DeviceKeyId, OwnedDeviceKeyId,
+    api::error::{DeserializationError, FromHttpResponseError},
+};
 use tracing::debug;
 
 use super::client::{Client, X509Sign, X509Verify};
@@ -417,9 +420,15 @@ impl ClientBuilder {
         #[derive(Debug)]
         struct X509SignImpl(Box<dyn X509Sign>);
         impl matrix_sdk_base::crypto::x509::X509Sign for X509SignImpl {
-            fn sign(&self, message: &[u8]) -> Result<(String, X509Signature), SignatureError> {
+            fn sign(
+                &self,
+                message: &[u8],
+            ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
                 let result = self.0.sign(message.to_vec()).expect("Signing failed");
-                Ok((result.key_id, result.signature.into()))
+                Ok((
+                    DeviceKeyId::from_parts("io.element.x509".into(), result.device_id),
+                    result.signature.into(),
+                ))
             }
         }
 

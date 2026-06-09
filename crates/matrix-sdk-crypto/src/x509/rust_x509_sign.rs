@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use ruma::{DeviceKeyId, OwnedDeviceKeyId};
 use rustls::{
     SignatureScheme,
     crypto::aws_lc_rs,
@@ -33,7 +34,7 @@ pub struct RustX509Sign {
     certificate_chain: String,
 
     /// The key ID for signatures we generate.
-    key_id: String,
+    device_id: OwnedDeviceKeyId,
 
     /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
@@ -51,7 +52,8 @@ impl RustX509Sign {
             .expect("no certificates found in chain");
         let last_cert_aki =
             get_authority_key_identifier(&last_cert).expect("no AKI found in last cert");
-        let key_id = format!("io.element.x509:{}", last_cert_aki);
+        let device_id =
+            DeviceKeyId::from_parts("io.element.x509".into(), last_cert_aki.as_str().into());
 
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
             .expect("unable to parse private key");
@@ -60,7 +62,7 @@ impl RustX509Sign {
             .load_private_key(private_key)
             .expect("unable to load private key");
 
-        Self { certificate_chain: certificate_chain_pem.to_owned(), key_id, signing_key }
+        Self { certificate_chain: certificate_chain_pem.to_owned(), device_id, signing_key }
     }
 }
 
@@ -68,7 +70,7 @@ impl X509Sign for RustX509Sign {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<(String, X509Signature), SignatureError> {
+    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
         // TODO RAV: error handling
 
         let signature_scheme = SignatureScheme::RSA_PSS_SHA512;
@@ -79,7 +81,7 @@ impl X509Sign for RustX509Sign {
 
         let signature = signer.sign(message).expect("unable to sign");
         Ok((
-            self.key_id.clone(),
+            self.device_id.clone(),
             X509Signature {
                 certificate_chain: self.certificate_chain.clone(),
                 signature_scheme,
@@ -148,7 +150,7 @@ mod tests {
 
         let (key_id, sig) = x509_sign.sign(b"hello world").unwrap();
 
-        assert_eq!(key_id, "io.element.x509:2F6Rmhfww1sT23VCfSE3mt8+lhE");
+        assert_eq!(key_id.as_str(), "io.element.x509:2F6Rmhfww1sT23VCfSE3mt8+lhE");
         assert_eq!(sig.certificate_chain, TEST_CERT_CHAIN);
         assert_eq!(u16::from(sig.signature_scheme), 2054); // SignatureScheme::RSA_PSS_SHA512
         assert_eq!(sig.signature.len(), 342);

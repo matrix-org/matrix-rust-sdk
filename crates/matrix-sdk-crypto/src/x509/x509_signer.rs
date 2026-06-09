@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use ruma::{UserId, canonical_json::to_canonical_value};
-use serde_json::json;
+use ruma::{OwnedDeviceKeyId, UserId, canonical_json::to_canonical_value};
 
 use crate::{
     SignatureError,
@@ -35,10 +34,7 @@ impl X509Signer {
     ) -> Result<(), SignatureError> {
         let json = to_signable_json(to_canonical_value(&cross_signing_key)?)?;
 
-        let (key_id, signature) = self.x509_sign.sign(json.as_bytes())?;
-
-        let device_key_id =
-            serde_json::from_value(json!(key_id)).expect("Failed to deserialize device key id");
+        let (device_key_id, signature) = self.x509_sign.sign(json.as_bytes())?;
 
         cross_signing_key.signatures.add_signature(
             signing_user_id.to_owned(),
@@ -56,5 +52,5 @@ pub trait X509Sign: std::fmt::Debug + Send + Sync {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<(String, X509Signature), SignatureError>;
+    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError>;
 }

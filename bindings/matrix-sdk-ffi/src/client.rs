@@ -326,8 +326,8 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
 
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct X509SignatureAndKeyId {
-    /// The key ID of the key used to sign the message.
-    pub key_id: String,
+    /// The device ID to use to identify the key used to sign the message.
+    pub device_id: String,
 
     /// The signature itself.
     pub signature: X509Signature,
