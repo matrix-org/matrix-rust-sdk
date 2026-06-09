@@ -72,18 +72,18 @@ impl RustX509Sign {
         let last_cert = cert_iter
             .last()
             .ok_or(RustX509SignError::CertificateNotFoundError)?
-            .map_err(|e| RustX509SignError::CertificateParseError(e))?;
+            .map_err(RustX509SignError::CertificateParseError)?;
         let last_cert_aki =
             get_authority_key_identifier(&last_cert).expect("no AKI found in last cert");
         let device_id =
             DeviceKeyId::from_parts("io.element.x509".into(), last_cert_aki.as_str().into());
 
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
-            .map_err(|e| RustX509SignError::PrivateKeyParseError(e))?;
+            .map_err(RustX509SignError::PrivateKeyParseError)?;
         let signing_key: Arc<dyn SigningKey> = provider
             .key_provider
             .load_private_key(private_key)
-            .map_err(|e| RustX509SignError::PrivateKeyLoadError(e))?;
+            .map_err(RustX509SignError::PrivateKeyLoadError)?;
 
         Ok(Self { certificate_chain: certificate_chain_pem.to_owned(), device_id, signing_key })
     }
@@ -100,7 +100,7 @@ impl X509Sign for RustX509Sign {
             .choose_scheme(&[signature_scheme])
             .ok_or(SignatureError::UnsupportedAlgorithm)?;
 
-        let signature = signer.sign(message).map_err(|e| SignatureError::X509SigningError(e))?;
+        let signature = signer.sign(message).map_err(SignatureError::X509SigningError)?;
         Ok((
             self.device_id.clone(),
             X509Signature {

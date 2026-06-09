@@ -20,10 +20,22 @@ use rustls::{
     pki_types::{CertificateDer, UnixTime, pem::PemObject},
     server::{VerifierBuilderError, WebPkiClientVerifier, danger::ClientCertVerifier},
 };
+use thiserror::Error;
 use vodozemac::base64_decode;
 use webpki::EndEntityCert;
 
 use crate::{types::X509Signature, x509::x509_verify::X509Verify};
+
+#[derive(Error, Debug)]
+pub enum RustX509VerifyError {
+    /// There was an error building the verifier
+    #[error("failed to build verifier {0}")]
+    VerifierBuilderError(VerifierBuilderError),
+
+    /// There was an error adding the certificate to the root store.
+    #[error("failed to add certificate to root store {0}")]
+    StoreError(rustls::Error),
+}
 
 #[derive(Debug, Clone)]
 pub struct RustX509Verify {
@@ -34,16 +46,17 @@ pub struct RustX509Verify {
 /// (using `rustls`) rather than delegating the work to some external system.
 impl RustX509Verify {
     /// Create a new `RustX509Verify` from the supplied CA certificates PEM.
-    pub fn new_from_pem_data(ca_certs_pem: &str) -> Result<Self, VerifierBuilderError> {
+    pub fn new_from_pem_data(ca_certs_pem: &str) -> Result<Self, RustX509VerifyError> {
         let mut root_store = RootCertStore::empty();
         for result in CertificateDer::pem_slice_iter(ca_certs_pem.as_bytes()) {
             root_store
                 .add(result.expect("Unable to parse certificate in root store"))
-                .expect("Unable to add certificate to root store");
+                .map_err(RustX509VerifyError::StoreError)?;
         }
         let verifier = WebPkiClientVerifier::builder(Arc::new(root_store))
             //.with_crls(...)
-            .build()?;
+            .build()
+            .map_err(RustX509VerifyError::VerifierBuilderError)?;
 
         Ok(Self { verifier })
     }
