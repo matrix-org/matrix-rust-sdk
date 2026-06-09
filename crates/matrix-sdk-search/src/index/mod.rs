@@ -136,7 +136,7 @@ impl RoomIndex {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
         let query = self.query_parser.parse_query(query)?;
         let searcher = self.get_reader()?.searcher();
 
@@ -146,14 +146,14 @@ impl RoomIndex {
             &query,
             &TopDocs::with_limit(max_number_of_results).and_offset(offset).order_by_score(),
         )?;
-        let mut ret: Vec<OwnedEventId> = Vec::new();
+        let mut ret: Vec<(f32, OwnedEventId)> = Vec::new();
         let pk = self.schema.primary_key();
 
-        for (_score, doc_address) in results {
+        for (score, doc_address) in results {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
             match retrieved_doc.get_first(pk).and_then(|maybe_value| maybe_value.as_str()) {
                 Some(value) => match OwnedEventId::try_from(value) {
-                    Ok(event_id) => ret.push(event_id),
+                    Ok(event_id) => ret.push((score, event_id)),
                     Err(err) => error!("error while parsing event_id from search result: {err:?}"),
                 },
                 _ => error!("unexpected value type while searching documents"),
@@ -167,12 +167,19 @@ impl RoomIndex {
         &self,
         event_id: &EventId,
     ) -> Result<Vec<OwnedEventId>, IndexError> {
-        self.search(
-            format!("{}:\"{event_id}\"", self.schema.get_field_name(self.schema.deletion_key()))
+        Ok(self
+            .search(
+                format!(
+                    "{}:\"{event_id}\"",
+                    self.schema.get_field_name(self.schema.deletion_key())
+                )
                 .as_str(),
-            10000,
-            None,
-        )
+                10000,
+                None,
+            )?
+            .into_iter()
+            .map(|(_, id)| id)
+            .collect())
     }
 
     fn add(
@@ -425,7 +432,7 @@ mod tests {
         )?;
 
         let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
-        let result: HashSet<_> = result.iter().collect();
+        let result: HashSet<_> = result.iter().map(|(_, id)| id).collect();
 
         let true_value = [event_id_1.to_owned(), event_id_3.to_owned()];
         let true_value: HashSet<_> = true_value.iter().collect();
