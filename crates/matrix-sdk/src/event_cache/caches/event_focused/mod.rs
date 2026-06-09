@@ -47,7 +47,9 @@ use super::super::redecryptor::ResolvedUtd;
 use super::{
     super::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
-        states::{CacheStateLock, StateLock, selectors::EventFocusedStateSelector},
+        states::{
+            CacheStateLock, ReloadPreprocessing, StateLock, selectors::EventFocusedStateSelector,
+        },
     },
     TimelineVectorDiffs,
     event_linked_chunk::EventLinkedChunk,
@@ -154,8 +156,16 @@ impl EventFocusedCacheState {
         Ok(result)
     }
 
+    /// Reload the event-focused cache: only the last events will be reloaded,
+    /// shrinking the in-memory size of the cache.
+    ///
+    /// Since there is no persistent storage for this cache, `preprocessing` is
+    /// ignored.
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub async fn reload(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+    pub async fn reload(
+        &mut self,
+        _preprocessing: ReloadPreprocessing,
+    ) -> Result<Vec<VectorDiff<Event>>> {
         let _ = self.reload_impl().await?;
 
         Ok(self.chunk.updates_as_vector_diffs())

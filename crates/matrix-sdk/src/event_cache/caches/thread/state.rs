@@ -43,7 +43,7 @@ use super::{
                 find_event, find_event_with_relations, load_linked_chunk_metadata,
                 send_updates_to_store,
             },
-            states::{StateLockReadGuard, StateLockWriteGuard},
+            states::{ReloadPreprocessing, StateLockReadGuard, StateLockWriteGuard},
         },
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
@@ -366,9 +366,31 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         &mut self.state.waited_for_initial_prev_token
     }
 
-    /// Force to shrink the room, whenever there is subscribers or not.
+    /// Reload the thread: only the last events will be reloaded, shrinking the
+    /// in-memory size of the cache.
+    ///
+    /// If `preprocessing` is set to [`ReloadPreprocessing::ForgetAll`], all
+    /// events will be erased before reloaded.
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub async fn reload(&mut self) -> Result<Vec<VectorDiff<Event>>> {
+    pub async fn reload(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        match preprocessing {
+            ReloadPreprocessing::ForgetAll => {
+                // Clear the `LinkedChunk` and broadcast the updates to the store.
+                self.thread_linked_chunk_mut().reset();
+                self.state.propagate_changes(&self.store).await?;
+
+                // Reset the pagination state too: pretend we never waited for the initial
+                // prev-batch token, and indicate that we're not at the start of the timeline,
+                // since we don't know about that anymore.
+                *self.waited_for_initial_prev_token_mut() = false;
+            }
+
+            ReloadPreprocessing::None => {}
+        }
+
         self.state.shrink_to_last_chunk(&self.store).await?;
 
         Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())

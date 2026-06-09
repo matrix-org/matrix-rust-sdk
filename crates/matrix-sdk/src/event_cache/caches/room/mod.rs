@@ -803,7 +803,10 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
+        super::{
+            super::{TimelineVectorDiffs, states::ReloadPreprocessing},
+            pagination::LoadMoreEventsBackwardsOutcome,
+        },
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
     use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
@@ -1103,8 +1106,10 @@ mod timed_tests {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 stream.recv()
         );
-        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs.len(), 2);
         assert_let!(VectorDiff::Clear = &diffs[0]);
+        assert_let!(VectorDiff::Append { values } = &diffs[1]);
+        assert!(values.is_empty());
 
         // … same with a generic update.
         assert_let_timeout!(
@@ -1573,7 +1578,7 @@ mod timed_tests {
             .write()
             .await
             .unwrap()
-            .reload()
+            .reload(ReloadPreprocessing::None)
             .await
             .expect("shrinking should succeed");
 

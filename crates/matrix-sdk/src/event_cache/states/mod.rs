@@ -165,7 +165,7 @@ impl StateLock {
                 };
 
                 // Reload the state.
-                guard.reload().await?;
+                guard.reload(ReloadPreprocessing::None).await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
@@ -197,7 +197,7 @@ impl StateLock {
                     ReloadableStateLockWriteGuard { state: state_guard, store: store_guard };
 
                 // Reload the state.
-                guard.reload().await?;
+                guard.reload(ReloadPreprocessing::None).await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
@@ -225,12 +225,12 @@ impl StateLock {
             }
         };
 
-        // Clear the storage for all the caches for all rooms.
+        // Clear all the events.
         guard.store.clear_all_events().await?;
 
-        // At this point, all the in-memory linked chunks are desynchronised
+        // At this point, all the in-memory `LinkedChunk`s are desynchronised
         // from the storage. Resynchronise them manually by reloading them.
-        guard.reload().await?;
+        guard.reload(ReloadPreprocessing::ForgetAll).await?;
 
         if EventCacheStoreLockGuard::is_dirty(&guard.store) {
             // All good because the state has been reloaded, mark the
@@ -361,7 +361,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         StateLockReadGuard { state: self.state.downgrade(), store: self.store }
     }
 
-    async fn reload(&mut self) -> Result<()> {
+    async fn reload(&mut self, preprocessing: ReloadPreprocessing) -> Result<()> {
         // Iterate over all states and reload them.
         for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
             self.state.by_room.iter_mut()
@@ -373,7 +373,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     store: self.store.clone(),
                 };
 
-                let updates_as_vector_diffs = room_state.reload().await?;
+                let updates_as_vector_diffs = room_state.reload(preprocessing).await?;
                 room_state.update_sender.send(
                     room::RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
                         diffs: updates_as_vector_diffs,
@@ -390,7 +390,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     store: self.store.clone(),
                 };
 
-                let updates_as_vector_diffs = thread_state.reload().await?;
+                let updates_as_vector_diffs = thread_state.reload(preprocessing).await?;
                 thread_state.update_sender.send(
                     TimelineVectorDiffs {
                         diffs: updates_as_vector_diffs,
@@ -407,7 +407,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     store: self.store.clone(),
                 };
 
-                let updates_as_vector_diffs = pinned_events_state.reload().await?;
+                let updates_as_vector_diffs = pinned_events_state.reload(preprocessing).await?;
                 pinned_events_state.update_sender.send(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
@@ -421,7 +421,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     store: self.store.clone(),
                 };
 
-                let updates_as_vector_diffs = event_focused_state.reload().await?;
+                let updates_as_vector_diffs = event_focused_state.reload(preprocessing).await?;
                 let _ = event_focused_state.update_sender.send(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
@@ -533,4 +533,14 @@ where
     pub async fn write(&self) -> Result<StateLockWriteGuard<'_, Selector::Item>> {
         self.state_lock.write().await?.try_map_into_cache_state(&self.cache_state_selector)
     }
+}
+
+/// Kind of pre-processing to do when reloading a cache.
+#[derive(Clone, Copy)]
+pub enum ReloadPreprocessing {
+    /// Erase all events before reloading.
+    ForgetAll,
+
+    /// Do nothing before reloading.
+    None,
 }
