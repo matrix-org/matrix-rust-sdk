@@ -24,7 +24,7 @@ use thiserror::Error;
 use vodozemac::base64_decode;
 use webpki::EndEntityCert;
 
-use crate::{types::X509Signature, x509::x509_verify::X509Verify};
+use crate::{types::X509Signature, x509::x509_verify::RawX509Verifier};
 
 #[derive(Error, Debug)]
 pub enum RustX509VerifyError {
@@ -42,8 +42,9 @@ pub struct RustX509Verify {
     verifier: Arc<dyn ClientCertVerifier>,
 }
 
-/// A Rust implementation of [`X509Verify`]. This does the verification itself
-/// (using `rustls`) rather than delegating the work to some external system.
+/// A Rust implementation of [`RawX509Verifier`]. This does the verification
+/// itself (using `rustls`) rather than delegating the work to some external
+/// system.
 impl RustX509Verify {
     /// Create a new `RustX509Verify` from the supplied CA certificates PEM.
     pub fn new_from_pem_data(ca_certs_pem: &str) -> Result<Self, RustX509VerifyError> {
@@ -62,7 +63,7 @@ impl RustX509Verify {
     }
 }
 
-impl X509Verify for RustX509Verify {
+impl RawX509Verifier for RustX509Verify {
     fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
         let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
         let Some(Ok(end_cert)) = cert_iter.next() else {

@@ -161,7 +161,7 @@ pub struct ClientBuilder {
     threading_support: ThreadingSupport,
 
     x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Signer>>,
-    x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::X509Verify>>,
+    x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Verifier>>,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -446,7 +446,7 @@ impl ClientBuilder {
         // results. As per with_x509_sign, easier to do it here than in build().
         #[derive(Debug)]
         struct X509VerifyImpl(Box<dyn X509Verify>);
-        impl matrix_sdk_base::crypto::x509::X509Verify for X509VerifyImpl {
+        impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
             fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
                 tracing::info!("X509VerifyImpl::verify");
                 let r = self.0.verify(message.to_vec(), sig.clone().into());
