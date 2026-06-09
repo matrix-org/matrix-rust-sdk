@@ -19,19 +19,20 @@
 //!
 //! ## Searching within a single room
 //!
-//! Use [`Room::search_messages`] to obtain a [`RoomSearchIterator`] and call
-//! [`RoomSearchIterator::next`] to paginate through event IDs, or
-//! [`RoomSearchIterator::next_events`] to load the full [`TimelineEvent`]s.
+//! Use [`Room::search_messages`] to get a [`Stream`] of `(score, event_id)`
+//! pairs, or [`Room::search_messages_events`] to load the full
+//! [`TimelineEvent`]s. Consume them with the [`StreamExt`](futures_util::StreamExt)
+//! / [`TryStreamExt`](futures_util::TryStreamExt) combinators.
 //!
 //! ```no_run
 //! # use matrix_sdk::Room;
+//! # use futures_util::StreamExt as _;
 //! # async fn example(room: Room) -> anyhow::Result<()> {
-//! let mut iter = room.search_messages("hello world".to_owned(), 10);
+//! let mut stream = Box::pin(room.search_messages("hello world".to_owned()));
 //!
-//! while let Some(event_ids) = iter.next().await? {
-//!     for event_id in event_ids {
-//!         println!("Found event: {event_id}");
-//!     }
+//! while let Some(result) = stream.next().await {
+//!     let (score, event_id) = result?;
+//!     println!("Found event {event_id} (score: {score})");
 //! }
 //! # Ok(())
 //! # }
@@ -69,6 +70,8 @@
 
 use std::collections::HashSet;
 
+use async_stream::try_stream;
+use futures_util::{Stream, StreamExt as _};
 use matrix_sdk_base::{RoomStateFilter, deserialized_responses::TimelineEvent};
 use matrix_sdk_search::error::IndexError;
 #[cfg(doc)]
@@ -76,6 +79,10 @@ use matrix_sdk_search::index::RoomIndex;
 use ruma::{OwnedEventId, OwnedRoomId};
 
 use crate::{Client, Room};
+
+/// Number of results pulled from the index in one go while paginating through a
+/// search stream.
+const SEARCH_RESULTS_PAGE_SIZE: usize = 100;
 
 impl Room {
     /// Search this room's [`RoomIndex`] for query and return at most
@@ -104,76 +111,50 @@ pub enum SearchError {
 }
 
 impl Room {
-    /// Search for messages in this room matching the given query, returning an
-    /// iterator over the results.
+    /// Search for messages in this room matching the given query, returning a
+    /// stream of `(score, event_id)` results sorted by descending relevance
+    /// score.
+    ///
+    /// The stream paginates through the index lazily as it is polled.
     pub fn search_messages(
         &self,
         query: String,
-        num_results_per_batch: usize,
-    ) -> RoomSearchIterator {
-        RoomSearchIterator {
-            room: self.clone(),
-            query,
-            offset: None,
-            is_done: false,
-            num_results_per_batch,
-        }
-    }
-}
-
-/// An async iterator for a search query in a single room.
-#[derive(Debug)]
-pub struct RoomSearchIterator {
-    /// The room in which the search is performed.
-    room: Room,
-
-    /// The search query, directly forwarded to the search API.
-    query: String,
-
-    /// The current start offset in the search results, or `None` if we haven't
-    /// called the iterator yet.
-    offset: Option<usize>,
-
-    /// Whether we have exhausted the search results.
-    is_done: bool,
-
-    /// Number of results to return (at most) per batch when calling
-    /// [`Self::next()`].
-    num_results_per_batch: usize,
-}
-
-impl RoomSearchIterator {
-    /// Return the next batch of event IDs matching the search query, or `None`
-    /// if there are no more results.
-    pub async fn next(&mut self) -> Result<Option<Vec<OwnedEventId>>, IndexError> {
-        if self.is_done {
-            return Ok(None);
-        }
+    ) -> impl Stream<Item = Result<(f32, OwnedEventId), IndexError>> + use<> {
+        let room = self.clone();
 
         // TODO: use the client/server API search endpoint for public rooms, as those
         // may require lots of time for indexing all events.
-        let result = self.room.search(&self.query, self.num_results_per_batch, self.offset).await?;
-
-        if result.is_empty() {
-            self.is_done = true;
-            Ok(None)
-        } else {
-            self.offset = Some(self.offset.unwrap_or(0) + result.len());
-            Ok(Some(result.into_iter().map(|(_, id)| id).collect()))
+        try_stream! {
+            let mut offset = 0;
+            loop {
+                let page = room.search(&query, SEARCH_RESULTS_PAGE_SIZE, Some(offset)).await?;
+                if page.is_empty() {
+                    break;
+                }
+                offset += page.len();
+                for result in page {
+                    yield result;
+                }
+            }
         }
     }
 
-    /// Returns [`TimelineEvent`]s instead of event IDs, by loading the events
-    /// from the store or from network.
-    pub async fn next_events(&mut self) -> Result<Option<Vec<TimelineEvent>>, SearchError> {
-        let Some(event_ids) = self.next().await? else {
-            return Ok(None);
-        };
-        let mut results = Vec::new();
-        for event_id in event_ids {
-            results.push(self.room.load_or_fetch_event(&event_id, None).await?);
+    /// Same as [`Room::search_messages`], but yields the full
+    /// [`TimelineEvent`]s instead of event IDs, by loading them from the store
+    /// or from the network.
+    pub fn search_messages_events(
+        &self,
+        query: String,
+    ) -> impl Stream<Item = Result<TimelineEvent, SearchError>> + use<> {
+        let room = self.clone();
+
+        try_stream! {
+            let mut results = Box::pin(room.search_messages(query));
+            while let Some(result) = results.next().await {
+                let (_score, event_id) = result?;
+                yield room.load_or_fetch_event(&event_id, None).await?;
+            }
         }
-        Ok(Some(results))
     }
 }
 
@@ -382,8 +363,9 @@ impl GlobalSearchIterator {
 mod tests {
     use std::time::Duration;
 
+    use futures_util::TryStreamExt as _;
     use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
-    use ruma::{event_id, room_id, user_id};
+    use ruma::{OwnedEventId, event_id, room_id, user_id};
 
     use crate::{sleep::sleep, test_utils::mocks::MatrixMockServer};
 
@@ -413,50 +395,27 @@ mod tests {
         // Let the search indexer process the new event.
         sleep(Duration::from_millis(200)).await;
 
-        // Search for a missing keyword.
+        // Searching for a missing keyword should succeed and yield nothing.
         {
-            let mut room_search = room.search_messages("search query".to_owned(), 5);
-
-            // Searching for an event that's non-existing should succeed.
-            let maybe_results = room_search.next().await.unwrap();
-            assert!(maybe_results.is_none());
-
-            // Calling the iterator after it's exhausted should still return `None` and not
-            // error or return more results.
-            let maybe_results = room_search.next().await.unwrap();
-            assert!(maybe_results.is_none());
+            let results: Vec<(f32, OwnedEventId)> =
+                room.search_messages("search query".to_owned()).try_collect().await.unwrap();
+            assert!(results.is_empty());
         }
 
         // Search for an existing keyword, by event id.
         {
-            let mut room_search = room.search_messages("world".to_owned(), 5);
-
-            // Searching for a keyword that matches an existing event should return the
-            // event ID.
-            let maybe_results = room_search.next().await.unwrap();
-            let results = maybe_results.unwrap();
+            let results: Vec<(f32, OwnedEventId)> =
+                room.search_messages("world".to_owned()).try_collect().await.unwrap();
             assert_eq!(results.len(), 1);
-            assert_eq!(&results[0], event_id,);
-
-            // And no more results after that.
-            let maybe_results = room_search.next().await.unwrap();
-            assert!(maybe_results.is_none());
+            assert_eq!(results[0].1, event_id);
         }
 
         // Search for an existing keyword, by events.
         {
-            let mut room_search = room.search_messages("world".to_owned(), 5);
-
-            // Searching for a keyword that matches an existing event should return the
-            // event ID.
-            let maybe_results = room_search.next_events().await.unwrap();
-            let results = maybe_results.unwrap();
-            assert_eq!(results.len(), 1);
-            assert_eq!(results[0].event_id().unwrap(), event_id,);
-
-            // And no more results after that.
-            let maybe_results = room_search.next_events().await.unwrap();
-            assert!(maybe_results.is_none());
+            let events: Vec<_> =
+                room.search_messages_events("world".to_owned()).try_collect().await.unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].event_id().unwrap(), event_id);
         }
     }
 
@@ -541,10 +500,10 @@ mod tests {
             // Search results order is not guaranteed, so we check that both expected
             // results are present in the returned batch.
             assert!(results.iter().any(|(room_id, event)| {
-                room_id == room_id1 && event.event_id() == Some(result_event_id1)
+                room_id == room_id1 && event.event_id().as_deref() == Some(result_event_id1)
             }));
             assert!(results.iter().any(|(room_id, event)| {
-                room_id == room_id2 && event.event_id() == Some(result_event_id2)
+                room_id == room_id2 && event.event_id().as_deref() == Some(result_event_id2)
             }));
 
             // And no more results after that.
@@ -695,7 +654,7 @@ mod tests {
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].0, room_id2);
-            assert_eq!(results[0].1.event_id().unwrap(), result_event_id2);
+            assert_eq!(results[0].1.event_id().as_deref().unwrap(), result_event_id2);
 
             // And no more results after that.
             let maybe_results = search.next().await.unwrap();
