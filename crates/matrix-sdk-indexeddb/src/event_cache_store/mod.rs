@@ -416,7 +416,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn clear_all_linked_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
+    async fn clear_all_events(&self) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
         let transaction = self.transaction(

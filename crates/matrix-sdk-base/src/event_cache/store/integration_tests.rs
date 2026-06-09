@@ -192,7 +192,7 @@ pub trait EventCacheStoreIntegrationTests {
     async fn test_load_all_chunks_metadata(&self);
 
     /// Test that clear all the rooms' linked chunks works.
-    async fn test_clear_all_linked_chunks(&self);
+    async fn test_clear_all_events(&self);
 
     /// Test that removing a room from storage empties all associated data.
     async fn test_remove_room(&self);
@@ -1246,7 +1246,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         });
     }
 
-    async fn test_clear_all_linked_chunks(&self) {
+    async fn test_clear_all_events(&self) {
         let r0 = room_id!("!r0:matrix.org");
         let linked_chunk_id0 = LinkedChunkId::Room(r0);
         let r1 = room_id!("!r1:matrix.org");
@@ -1310,7 +1310,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Clear the chunks.
-        self.clear_all_linked_chunks().await.unwrap();
+        self.clear_all_events().await.unwrap();
 
         // Both rooms now have no linked chunk.
         assert!(
@@ -1527,7 +1527,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Clearing the rooms also clears the event's storage.
-        self.clear_all_linked_chunks().await.expect("failed to clear all rooms chunks");
+        self.clear_all_events().await.expect("failed to clear all rooms chunks");
         assert!(
             self.find_event(room_id, event_comte.event_id().unwrap().as_ref())
                 .await
@@ -2417,10 +2417,10 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
-            async fn test_clear_all_linked_chunks() {
+            async fn test_clear_all_events() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
-                event_cache_store.test_clear_all_linked_chunks().await;
+                event_cache_store.test_clear_all_events().await;
             }
 
             #[async_test]
