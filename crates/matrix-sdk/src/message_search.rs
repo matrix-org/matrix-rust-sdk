@@ -554,6 +554,78 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_global_message_search_score_ordering() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id1 = room_id!("!r1:localhost");
+        let room_id2 = room_id!("!r2:localhost");
+
+        let f = EventFactory::new().sender(user_id!("@user_id:localhost"));
+
+        // Both rooms get two documents of identical length (padded with filler so
+        // document-length normalization and the per-corpus IDF of "world" match across
+        // rooms). The score then depends only on how many times "world" appears.
+        //
+        // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by rank:
+        // room1 holds the 4x and 2x events, room2 the 3x and 1x events. A correct
+        // cross-room sort therefore interleaves the rooms: r1, r2, r1, r2.
+        let r1_rank1 = event_id!("$r1_rank1:localhost"); // room1, "world" x4
+        let r2_rank2 = event_id!("$r2_rank2:localhost"); // room2, "world" x3
+        let r1_rank3 = event_id!("$r1_rank3:localhost"); // room1, "world" x2
+        let r2_rank4 = event_id!("$r2_rank4:localhost"); // room2, "world" x1
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |sync_builder| {
+                sync_builder
+                    .add_joined_room(
+                        JoinedRoomBuilder::new(room_id1)
+                            .add_timeline_event(
+                                f.text_msg("world world world world filler filler filler filler filler filler")
+                                    .room(room_id1)
+                                    .event_id(r1_rank1),
+                            )
+                            .add_timeline_event(
+                                f.text_msg("world world filler filler filler filler filler filler filler filler")
+                                    .room(room_id1)
+                                    .event_id(r1_rank3),
+                            ),
+                    )
+                    .add_joined_room(
+                        JoinedRoomBuilder::new(room_id2)
+                            .add_timeline_event(
+                                f.text_msg("world world world filler filler filler filler filler filler filler")
+                                    .room(room_id2)
+                                    .event_id(r2_rank2),
+                            )
+                            .add_timeline_event(
+                                f.text_msg("world filler filler filler filler filler filler filler filler filler")
+                                    .room(room_id2)
+                                    .event_id(r2_rank4),
+                            ),
+                    );
+            })
+            .await;
+
+        sleep(Duration::from_millis(200)).await;
+
+        let mut search = client.search_messages("world".to_owned(), 10).build();
+
+        let results = search.next().await.unwrap().unwrap();
+        assert_eq!(results.len(), 4);
+
+        // Results are interleaved across the two rooms strictly by score.
+        assert_eq!(results[0], (room_id1.to_owned(), r1_rank1.to_owned()));
+        assert_eq!(results[1], (room_id2.to_owned(), r2_rank2.to_owned()));
+        assert_eq!(results[2], (room_id1.to_owned(), r1_rank3.to_owned()));
+        assert_eq!(results[3], (room_id2.to_owned(), r2_rank4.to_owned()));
+    }
+
+    #[async_test]
     async fn test_global_message_search_dm_or_groups() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
