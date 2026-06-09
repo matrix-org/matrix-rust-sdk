@@ -15,8 +15,8 @@
 use std::{fmt::Debug, sync::Arc};
 
 use crate::x509::{
-    rust_x509_sign::RustX509Sign, rust_x509_verify::RustX509Verify, x509_signer::X509Signer,
-    x509_verify::X509Verifier,
+    rust_raw_x509_signer::RustRawX509Signer, rust_x509_verify::RustX509Verify,
+    x509_signer::X509Signer, x509_verify::X509Verifier,
 };
 
 /// The information needed to sign keys and verify signatures using
@@ -36,7 +36,7 @@ impl X509Data {
         // TODO: it would be sensible to validate that the private key matches the
         //   certificate chain here, to catch configuration errors early.
 
-        let x509_signer = RustX509Sign::new_from_pem_data(cert_chain_pem, private_key_pem)
+        let x509_signer = RustRawX509Signer::new_from_pem_data(cert_chain_pem, private_key_pem)
             .map(|signer| X509Signer::new(Arc::new(signer)))
             .ok();
 

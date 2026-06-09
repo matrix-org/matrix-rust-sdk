@@ -26,10 +26,11 @@ use vodozemac::base64_encode;
 
 use crate::{SignatureError, types::X509Signature, x509::x509_signer::RawX509Signer};
 
-/// A Rust implementation of [`RawX509Signer`]. This does the verification itself
-/// (using `rustls`) rather than delegating the work to some external system.
+/// A Rust implementation of [`RawX509Signer`]. This does the signing
+/// itself (using `rustls`) rather than delegating the work to some external
+/// system.
 #[derive(Clone)]
-pub struct RustX509Sign {
+pub struct RustRawX509Signer {
     /// The PEM-encoded certificate chain, starting with the device's own
     /// certificate, followed by intermediate certificates.
     certificate_chain: String,
@@ -60,8 +61,8 @@ pub enum RustX509SignError {
     PrivateKeyLoadError(rustls::Error),
 }
 
-impl RustX509Sign {
-    /// Create a new `RustX509Sign` from the supplied PEM data.
+impl RustRawX509Signer {
+    /// Create a new `RustRawX509Signer` from the supplied PEM data.
     pub fn new_from_pem_data(
         certificate_chain_pem: &str,
         private_key_pem: &str,
@@ -89,7 +90,7 @@ impl RustX509Sign {
     }
 }
 
-impl RawX509Signer for RustX509Sign {
+impl RawX509Signer for RustRawX509Signer {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
@@ -112,7 +113,7 @@ impl RawX509Signer for RustX509Sign {
     }
 }
 
-impl std::fmt::Debug for RustX509Sign {
+impl std::fmt::Debug for RustRawX509Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("X509Keys").field(&"<redacted>".to_owned()).finish()
     }
@@ -145,7 +146,7 @@ mod tests {
 
     use crate::x509::{
         RawX509Signer,
-        rust_x509_sign::{RustX509Sign, get_authority_key_identifier},
+        rust_raw_x509_signer::{RustRawX509Signer, get_authority_key_identifier},
     };
 
     #[test]
@@ -167,7 +168,8 @@ mod tests {
 
     #[test]
     fn can_sign() {
-        let x509_sign = RustX509Sign::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
+        let x509_sign =
+            RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
 
         let (key_id, sig) = x509_sign.sign(b"hello world").unwrap();
 
