@@ -38,15 +38,16 @@ pub enum RustX509VerifyError {
 }
 
 #[derive(Debug, Clone)]
-pub struct RustX509Verify {
+pub struct RustRawX509Verifier {
     verifier: Arc<dyn ClientCertVerifier>,
 }
 
 /// A Rust implementation of [`RawX509Verifier`]. This does the verification
 /// itself (using `rustls`) rather than delegating the work to some external
 /// system.
-impl RustX509Verify {
-    /// Create a new `RustX509Verify` from the supplied CA certificates PEM.
+impl RustRawX509Verifier {
+    /// Create a new `RustRawX509Verifier` from the supplied CA certificates
+    /// PEM.
     pub fn new_from_pem_data(ca_certs_pem: &str) -> Result<Self, RustX509VerifyError> {
         let mut root_store = RootCertStore::empty();
         for result in CertificateDer::pem_slice_iter(ca_certs_pem.as_bytes()) {
@@ -63,7 +64,7 @@ impl RustX509Verify {
     }
 }
 
-impl RawX509Verifier for RustX509Verify {
+impl RawX509Verifier for RustRawX509Verifier {
     fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
         let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
         let Some(Ok(end_cert)) = cert_iter.next() else {

@@ -16,7 +16,7 @@
 //! certificates.
 
 mod rust_raw_x509_signer;
-mod rust_x509_verify;
+mod rust_raw_x509_verifier;
 mod x509_data;
 mod x509_signer;
 mod x509_verify;

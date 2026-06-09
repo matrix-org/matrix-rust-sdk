@@ -15,7 +15,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use crate::x509::{
-    rust_raw_x509_signer::RustRawX509Signer, rust_x509_verify::RustX509Verify,
+    rust_raw_x509_signer::RustRawX509Signer, rust_raw_x509_verifier::RustRawX509Verifier,
     x509_signer::X509Signer, x509_verify::X509Verifier,
 };
 
@@ -40,7 +40,7 @@ impl X509Data {
             .map(|signer| X509Signer::new(Arc::new(signer)))
             .ok();
 
-        let x509_verifier = RustX509Verify::new_from_pem_data(ca_certs_pem)
+        let x509_verifier = RustRawX509Verifier::new_from_pem_data(ca_certs_pem)
             .map(|verifier| X509Verifier::new(Arc::new(verifier)))
             .ok();
 
