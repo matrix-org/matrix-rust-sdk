@@ -743,23 +743,19 @@ impl App {
                                 Enter => {
                                     if let Some(query) = view.get_text() {
                                         if *is_global {
-                                            let mut search =
-                                                self.client.search_messages(query, 5).build();
+                                            let search =
+                                                self.client.search_messages(query).build_events();
+                                            pin_mut!(search);
 
                                             let mut all_results = HashMap::new();
-                                            loop {
-                                                let Ok(results) = search.next_events().await else {
+                                            while let Some(result) = search.next().await {
+                                                let Ok((room_id, event)) = result else {
                                                     continue;
                                                 };
-                                                let Some(results) = results else {
-                                                    break;
-                                                };
-                                                for (room_id, event_id) in results {
-                                                    all_results
-                                                        .entry(room_id)
-                                                        .or_insert_with(Vec::new)
-                                                        .push(event_id);
-                                                }
+                                                all_results
+                                                    .entry(room_id)
+                                                    .or_insert_with(Vec::new)
+                                                    .push(event);
                                             }
 
                                             view.set_results(
@@ -773,13 +769,12 @@ impl App {
                                         } else if let Some((query, room)) =
                                             view.get_text().zip(self.room_view.room())
                                         {
-                                            let mut room_search = room.search_messages(query, 5);
+                                            let room_search = room.search_messages_events(query);
+                                            pin_mut!(room_search);
 
                                             let mut all_results = Vec::new();
-                                            while let Some(results) =
-                                                room_search.next_events().await?
-                                            {
-                                                all_results.extend(results);
+                                            while let Some(result) = room_search.next().await {
+                                                all_results.push(result?);
                                             }
                                             view.set_results(vec![(None, all_results)]);
                                         }
