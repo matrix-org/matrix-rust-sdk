@@ -226,7 +226,7 @@ impl StateLock {
         };
 
         // Clear the storage for all the caches for all rooms.
-        guard.store.clear_all_linked_chunks().await?;
+        guard.store.clear_all_events().await?;
 
         // At this point, all the in-memory linked chunks are desynchronised
         // from the storage. Resynchronise them manually by reloading them.

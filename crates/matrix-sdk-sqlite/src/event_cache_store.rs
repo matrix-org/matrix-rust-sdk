@@ -1270,7 +1270,7 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
+    async fn clear_all_events(&self) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
         self.write()

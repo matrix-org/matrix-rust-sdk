@@ -1273,8 +1273,8 @@ mod tests {
             self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
         }
 
-        async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
-            self.memory_store.clear_all_linked_chunks().await
+        async fn clear_all_events(&self) -> Result<(), Self::Error> {
+            self.memory_store.clear_all_events().await
         }
 
         async fn filter_duplicated_events(
