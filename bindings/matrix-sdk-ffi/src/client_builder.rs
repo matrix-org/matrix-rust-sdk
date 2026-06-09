@@ -426,7 +426,7 @@ impl ClientBuilder {
             ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
                 let result = self.0.sign(message.to_vec()).expect("Signing failed");
                 Ok((
-                    DeviceKeyId::from_parts("io.element.x509".into(), result.device_id),
+                    DeviceKeyId::from_parts("io.element.x509".into(), result.device_id.as_str().into()),
                     result.signature.into(),
                 ))
             }
