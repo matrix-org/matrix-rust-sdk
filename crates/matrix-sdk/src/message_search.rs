@@ -85,7 +85,7 @@ impl Room {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
         let mut search_index_guard = self.client.search_index().lock().await;
         search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
@@ -159,7 +159,7 @@ impl RoomSearchIterator {
             Ok(None)
         } else {
             self.offset = Some(self.offset.unwrap_or(0) + result.len());
-            Ok(Some(result))
+            Ok(Some(result.into_iter().map(|(_, id)| id).collect()))
         }
     }
 
@@ -280,10 +280,9 @@ pub struct GlobalSearchIterator {
     /// until it's empty and the overall iteration is done.
     room_state: Vec<GlobalSearchRoomState>,
 
-    /// A buffer for the current batch of results across all rooms, so that we
-    /// can return results in a more interleaved way instead of exhausting
-    /// one room at a time.
-    current_batch: Vec<(OwnedRoomId, OwnedEventId)>,
+    /// A buffer for the current batch of results across all rooms, sorted by
+    /// score descending so results are returned in relevance order.
+    current_batch: Vec<(f32, OwnedRoomId, OwnedEventId)>,
 
     /// Number of results to return (at most) per batch when calling
     /// [`Self::next()`].
@@ -299,9 +298,14 @@ impl GlobalSearchIterator {
         }
 
         // If there was enough results from a previous room iteration, return them
-        // immediately.
+        // immediately (they're already sorted from the previous fill).
         if self.current_batch.len() >= self.num_results_per_batch {
-            return Ok(Some(self.current_batch.drain(0..self.num_results_per_batch).collect()));
+            return Ok(Some(
+                self.current_batch
+                    .drain(0..self.num_results_per_batch)
+                    .map(|(_, room_id, event_id)| (room_id, event_id))
+                    .collect(),
+            ));
         }
 
         let mut to_remove = HashSet::new();
@@ -322,11 +326,9 @@ impl GlobalSearchIterator {
                 room_state.offset = Some(room_state.offset.unwrap_or(0) + room_results.len());
 
                 // Append the search results to the current batch.
-                self.current_batch.extend(
-                    room_results
-                        .into_iter()
-                        .map(|event_id| (room_state.room.room_id().to_owned(), event_id)),
-                );
+                self.current_batch.extend(room_results.into_iter().map(|(score, event_id)| {
+                    (score, room_state.room.room_id().to_owned(), event_id)
+                }));
 
                 if self.current_batch.len() >= self.num_results_per_batch {
                     // We have enough events to return now.
@@ -341,8 +343,16 @@ impl GlobalSearchIterator {
         }
 
         if !self.current_batch.is_empty() {
+            // Sort by score descending so cross-room results are returned in relevance
+            // order.
+            self.current_batch.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
             let high = self.num_results_per_batch.min(self.current_batch.len());
-            Ok(Some(self.current_batch.drain(0..high).collect()))
+            Ok(Some(
+                self.current_batch
+                    .drain(0..high)
+                    .map(|(_, room_id, event_id)| (room_id, event_id))
+                    .collect(),
+            ))
         } else {
             debug_assert!(self.room_state.is_empty());
             Ok(None)
