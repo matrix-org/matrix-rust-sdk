@@ -131,3 +131,137 @@ impl RawX509Verifier for RustRawX509Verifier {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::x509::{
+        RawX509Signer, RawX509Verifier, rust_raw_x509_signer::RustRawX509Signer,
+        rust_raw_x509_verifier::RustRawX509Verifier,
+    };
+
+    #[test]
+    fn can_verify() {
+        let x509_sign =
+            RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
+
+        // After we sign a text
+        let (_key_id, sig) = x509_sign.sign(b"hello world").unwrap();
+
+        let x509_verify = RustRawX509Verifier::new_from_pem_data(TEST_CERT_CHAIN).unwrap();
+
+        // checking the signature on the same string should succeed
+        assert!(x509_verify.verify(b"hello world", &sig));
+
+        // checking the signature on a different string should fail
+        assert!(!x509_verify.verify(b"Hello World", &sig));
+
+        // checking the signature with an unknown algorithm should fail
+        let sig_with_unknown_alg = {
+            let mut sig = sig.clone();
+            sig.signature_scheme = 0.into();
+            sig
+        };
+        assert!(!x509_verify.verify(b"hello world", &sig_with_unknown_alg));
+
+        // checking the signature with a bad certificate should fail
+        let sig_with_bad_certificate_chain = {
+            let mut sig = sig.clone();
+            sig.certificate_chain = "".to_owned();
+            sig
+        };
+        assert!(!x509_verify.verify(b"hello world", &sig_with_bad_certificate_chain));
+    }
+
+    /// A leaf and intermediate CA cert, generated with openssl
+    const TEST_CERT_CHAIN: &str = "
+-----BEGIN CERTIFICATE-----
+MIIEMTCCAhmgAwIBAgIBADANBgkqhkiG9w0BAQsFADBNMQswCQYDVQQGEwJVSzEP
+MA0GA1UECAwGTG9uZG9uMRMwEQYDVQQKDAplbGVtZW50LmlvMRgwFgYDVQQDDA9p
+bnRlcm1lZGlhdGUtY2EwHhcNMjYwNjA1MTUwNTI1WhcNMjcwNjA1MTUwNTI1WjAn
+MSUwIwYJKoZIhvcNAQkBFhZAdmRoLXg1MDl0ZXN0OnN3MXYub3JnMIIBIjANBgkq
+hkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkFuPng0+VJXnFpzni48zCHEP7HUW9tLj
+xYokTZs0u5L1iMbEy4trfKZoULMaiNwnSFslnxB8uejafuBwlQmB6ChHPR/2Ztlt
+jet2BU2aJe1SlWEQBzx3TYdOsusG9S7s03bObkqRLL0Yaq6teLHGAkIhVbLXbauT
+3PheQ6S5xqaNRr8yYhdU+VqTYJPRKnD/WLKOK6cM79UzrDal/dU3o9rbAGb0W5AZ
+rCC8qBTHtxQcGWBst53eejM/y4MSeBWRG8x3h0Not46Xos+wxEluVRhVB8INRXVg
+BrU8xE/nqFQ0QvWM0UfimvMkK7tJBWiwIQFI78qDKNTW/AtSKEk7VQIDAQABo0Iw
+QDAdBgNVHQ4EFgQUjIkEHB4OiMX34PJZJwCtcGONn4wwHwYDVR0jBBgwFoAUdA1q
+amMSSNDPNbhUpaqGL3JAgN4wDQYJKoZIhvcNAQELBQADggIBAHVck9j2uVf19bTh
+fMs4s61/PWzzo8oE7EjTVKMwuA8dBs/e0hR+AL5iFbSBBEfWIWGd8859+xkddlIS
+IL6Q+Uh8pYLh0NCdypIJfULD0bvU+OelYzLSnjznPr4fUsqBeNxLLpXI+Ft43C56
+r5weAR0OwUyIYiXwleU3brUVQuSEThllh4uhXxqgLng/U/BPOdmAsQwjjrc6ZGP1
+S4aNNcfTeSEIBwDvfuPch4thI1oMUDnnoAZiYJCIpi4Kn14lMZb2pakALLJd2LZ6
+QD9/uKnF8bPiO5Jvi7hq/RUZDBVgxU1gCbJXiHq8T83/tlnIOud8xOXdxPSCRgrj
+AFqCdgZ/AGKD7hhLr6NBUghfMrsVzRV1tOwchxNdECBLCvSg9PsE9HlVV+2CjMy2
+XQ0Qxfr/wIDAzbqxywc8u4C6ew+VacwoSneKhHycR8CHBTPJpVGcUTtQvBWQbUiU
+xbMuNt86a5L7eeVwKn1hvY9HfaFhOe0FM3/G7WMo7HjBdFuKG41TYAFF26tw2Pnq
+CfuKxOLgLYNdbJL1Vs06QfWl39FtKN9GPTsx3Lfa1zrdXIljVdJ0U88AEMmgQsOV
+oAp5r/OXnVT0fm+gW6mvAqWOdQb7EO6vnyd0mGWQi5RIfPeaIaUUHezBJ5P6/OnS
+XizEmWnNxHOTdDHfql91PPJCDuQZ
+-----END CERTIFICATE-----
+-----BEGIN CERTIFICATE-----
+MIIFcDCCA1igAwIBAgIBCDANBgkqhkiG9w0BAQsFADBFMQswCQYDVQQGEwJVSzEP
+MA0GA1UECAwGTG9uZG9uMRMwEQYDVQQKDAplbGVtZW50LmlvMRAwDgYDVQQDDAd0
+ZXN0LWNhMB4XDTI2MDYwNTE1MDIxNloXDTI3MDYwNTE1MDIxNlowTTELMAkGA1UE
+BhMCVUsxDzANBgNVBAgMBkxvbmRvbjETMBEGA1UECgwKZWxlbWVudC5pbzEYMBYG
+A1UEAwwPaW50ZXJtZWRpYXRlLWNhMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIIC
+CgKCAgEAt+6qbrTcH+TiHxJl7pJjIajUXvu0nYwnfqDQcaZRY0qlqPuHccBudNfk
+FMoD6fchj5OvyQsZLP8UnirLxVgf6GgTLZ2JK4tTpaCFWv45ukHVYeY/r+c0fOuy
+zUw4H5LljJ4ikPI3w7vncSQTOCYHpDGVhW8Mh4mAug7ODlL3RZVSsRxuikDhLQoR
+OS2pRDwTFll1CYE8+MTkxPcGrnOFQMqB9290af0PnkS64BO0nPUZYqsPELkcPkGU
+lc0mTWYunvfG21cU7TnPGRto4nj5l4xZBGpRZSEf3L3yh+4Chi35Rq1hWHlQ8ito
+X7n1vNELkHShkQcSmALEmlspGPt6Mhjdb3Xj1N3wNlftXe7g2tFEcnpXu6EwNJYP
+mljN1qEA/37xBz9JyZzeahPvOg/hF/+EX3/FcnXLDAYCbFnx/44Ljnr7MHqjQwfH
+B7Ndcp22OHC6fwAEjuTPTQlbMmxrxXETKsQwg7aVIPs743R6RJeBQbkUP3hm/7G0
+uwoB2kphdjvGHYJtDguNXHuiXz/Pn6F+D6m3j/SDF4uAfnzxKDDVURPlQg2Wr2od
+ez0aklHgJ9ZUAfpk3C6f1VGUmxpjVhp6nPsQ5ZgGFHNOjWZuV2+cwxahpYG6KzVD
+mO/brmSc76ibzRwapIOLSjb+plbp8VGrBElIhvqRFyZmTOcGdLkCAwEAAaNjMGEw
+HQYDVR0OBBYEFHQNampjEkjQzzW4VKWqhi9yQIDeMB8GA1UdIwQYMBaAFNhekZoX
+8MNbE9t1Qn0hN5rfPpYRMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgGG
+MA0GCSqGSIb3DQEBCwUAA4ICAQA1X27xupoF0brABykMbCE4Q1QQ2u3oLUOoX0vP
+EVBjGC7tlIe6O1+s8lCSSM6pAly61kMl2rIXE7GzPMLVNjg67etXfNbb8KXPqiKi
+bPPLQ6Pk5/RJd3D8DUO4gKgEKtkBZK30JzKVsl5eLgxT1GVnDXgV9jNLqXuNgreZ
+Ba4BYjdtR2pMbVlW0ZEda7m4N5CDh8rfJQqnZeudhzqjecXV5bxxvKotvOEgsYml
+WZ4yxAwuJhlb+I/Rmc+hocsRBx8v8LIIQh/biUMaZnoCqj8d9qkpFmf9nWhXQRbJ
+Sqz2ad08ZXxMY+vXHQ3mR1H4cYm5jOWuyXWSULo/WT+OrGPFrH1/E3IjhvVaal6m
+c4IJQZCI7iHhyeHLxjaVmctgwV2yMUZnCuBXrv0yHkkDyr1D6OBaHF/0dYSd/rym
+ZDo1S4QcKmoJJRP0nDdq7zMoLneu7Ytmn3PZ8qiAUnh5vlaQCg3SHkdQ0berp7yU
++0tFAPc7c4+yad+YBxLi+Zqplqw9Ra810Nn+coBH54+DOytWQQdK4kx0pXc+2MYR
+sykQE11ItydeFcAu2Rtp6dw5G9DNOIQJWYeGOECx6phCZYrZVEPZoeF0dnsEcdP8
+F5aVeO+O1gffTCxzhLTqMXNvm86oP6QC71gC1w6eM4uuGubc56Dm4hxVywwRUGgJ
+tsmVjQ==
+-----END CERTIFICATE-----
+";
+
+    /// Private key for the leaf certificate above
+    const TEST_CERT_KEY: &str = "
+-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCQW4+eDT5UlecW
+nOeLjzMIcQ/sdRb20uPFiiRNmzS7kvWIxsTLi2t8pmhQsxqI3CdIWyWfEHy56Np+
+4HCVCYHoKEc9H/Zm2W2N63YFTZol7VKVYRAHPHdNh06y6wb1LuzTds5uSpEsvRhq
+rq14scYCQiFVstdtq5Pc+F5DpLnGpo1GvzJiF1T5WpNgk9EqcP9Yso4rpwzv1TOs
+NqX91Tej2tsAZvRbkBmsILyoFMe3FBwZYGy3nd56Mz/LgxJ4FZEbzHeHQ2i3jpei
+z7DESW5VGFUHwg1FdWAGtTzET+eoVDRC9YzRR+Ka8yQru0kFaLAhAUjvyoMo1Nb8
+C1IoSTtVAgMBAAECggEAEOKg2SYn6wlwsxitzcl1ePCOogQtKDhRO6c1qV007Rba
+wQGs/bkEXNtzGrNkcGs97gz5SNKLIEzQF+SlTo2C5Dan5IqzTeLzWVUYJDUoSXTp
+wr7Meugz9T3VMwDiOrYfLfn42fY/ZmoE69+cO2Ch7lwxXX6Si8m0vTVRA10GfOmL
+2xcaXTN5EcDT4aA9IuEEzs3bGd1j4+WufDtPVV5zZXQLPXzxMBqegphnqW36ACs4
+14a6HaWOfy+ggy52xxx92TeHO5Sf6MX7o2BIIEp2UXGEl8Nur7UTifZpiiqfGbxj
+z2AD69Q8+Oh6qiM49JNKUJ1FKpeHrUtI/qdZpKAvuQKBgQDI+7wLvMAfQ+xRUv4u
+EHhWh5uK5PTf9YojfPqGsLls5xzHlwIa2CYNbWFk7/grFL2lT0uv3beoVcxSQC8+
+ITMxrNl2OnqSwIiLF3rAIEQn/XfeiU/cdq1wakLEBdeNxCY3G4p7vk85s+KAkoH/
+ebs2ChuXnuTQGQf32S4GGdQU+QKBgQC3365jChmHK0LW8pJyjJIJrWjvQ9dLXb30
+j6dnCWPd6M0dK5+NfumOPMvw15cu6tkjs7IMwxFcnSN84h1BKe79PGSTaLl1JaOC
+wo24ZGqTZZEELkehSWqc6isBce5aVInXUzBH9MSvxvLdXlW+zaItH/PvSRwO2sUS
+kSY0sF0cPQKBgQCE/odt4OXlCoZLPjbydnWbFLspit47gPh7CU2iaTkaRki2DkgX
+SWbMxc+IAn9eyqe/xxwXcQkB/FxrJQvd+gwtV+rCoGnRyFPSbqQMlI1lRQXYHVba
+VTHpzHcHzbHYnq6HEtNtlP5J+a3tVIVvb7chSEj/6OYSii3KpU0ePmMnyQKBgGpp
+oVrf9XYsqzoKmIaCo+HF4fzWnjqXvd9TY+ZVoN5EZLCFFomk8TXIKZ7wpiYY9CGd
+VWXdXqbiqi8UDSoxQoZ79Rj6epo5di+uuKYGN0emeA6bWgkVnAXD36+uZ+sPEdbz
+5fU+yrWPxe4nMiiCiWDkJSBOh1ZxdawRJLNJfhlhAoGBAMF2/htOA9Zucf23I/7X
+xvt0tTxmh11PlmWJqAdP4w8Pi0xM6LgXpsnU8tFhK/ouHsgshcrDfZpugE7j6ZLv
+xJoRUZyn77BUtdyTi/hbMsK5v9GzujTmK2hXYH+mamYRStsIZWFB1haAGT7W6njW
+oJQP+ghjUYgZHGzfyheUm0L6
+-----END PRIVATE KEY-----
+";
+}
