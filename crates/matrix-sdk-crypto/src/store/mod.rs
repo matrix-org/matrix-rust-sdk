@@ -1405,7 +1405,7 @@ impl Store {
     /// # use futures_util::{pin_mut, StreamExt};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     ///
     /// let secret_stream = machine.store().secrets_stream();
     /// pin_mut!(secret_stream);
@@ -1441,7 +1441,7 @@ impl Store {
     /// # use futures_util::{pin_mut, StreamExt};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let bundle_stream = machine.store().historic_room_key_stream();
     /// pin_mut!(bundle_stream);
     ///
@@ -1517,7 +1517,7 @@ impl Store {
     /// # use ruma::{device_id, user_id};
     /// # let alice = user_id!("@alice:example.org");
     /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// # let export = Cursor::new("".to_owned());
     /// let exported_keys = decrypt_room_key_export(export, "1234").unwrap();
     /// machine.store().import_exported_room_keys(exported_keys, |_, _| {}).await.unwrap();
@@ -1595,7 +1595,7 @@ impl Store {
     /// # use ruma::{device_id, user_id, room_id};
     /// # let alice = user_id!("@alice:example.org");
     /// # async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
     /// let exported_keys = machine.store().export_room_keys(|s| s.room_id() == room_id).await.unwrap();
     /// let encrypted_export = encrypt_room_key_export(&exported_keys, "1234", 1);
@@ -1638,7 +1638,7 @@ impl Store {
     /// use tokio_stream::StreamExt;
     /// # async {
     /// let alice = user_id!("@alice:example.org");
-    /// let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let room_id = room_id!("!test:localhost");
     /// let mut keys = pin!(
     ///     machine
@@ -1965,7 +1965,7 @@ mod tests {
     #[async_test]
     async fn test_merge_received_group_session() {
         let alice_account = Account::with_device_id(user_id!("@a:s.co"), device_id!("ABC"));
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("DEF"), None).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("DEF")).await;
 
         let room_id = room_id!("!test:localhost");
 
@@ -2261,8 +2261,8 @@ mod tests {
     async fn test_build_room_key_bundle() {
         // Given: Alice has sent a number of room keys to Bob, including some in the
         // wrong room, and some that are not marked as shared...
-        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE"), None).await;
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB"), None).await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
 
         let room1_id = room_id!("!room1:localhost");
         let room2_id = room_id!("!room2:localhost");
@@ -2348,9 +2348,9 @@ mod tests {
 
     #[async_test]
     async fn test_receive_room_key_bundle() {
-        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE"), None).await;
+        let alice = OlmMachine::new(user_id!("@a:s.co"), device_id!("ALICE")).await;
         let alice_key = alice.identity_keys().curve25519;
-        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB"), None).await;
+        let bob = OlmMachine::new(user_id!("@b:s.co"), device_id!("BOB")).await;
 
         let room_id = room_id!("!room1:localhost");
 

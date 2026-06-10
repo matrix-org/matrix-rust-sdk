@@ -142,7 +142,7 @@ pub fn to_device_requests_to_content(
 #[async_test]
 async fn test_create_olm_machine() {
     let test_start_ts = MilliSecondsSinceUnixEpoch::now();
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
     let device_creation_time = machine.device_creation_time();
     assert!(device_creation_time <= MilliSecondsSinceUnixEpoch::now());
@@ -163,7 +163,7 @@ async fn test_create_olm_machine() {
 
 #[async_test]
 async fn test_generate_one_time_keys() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
     machine
         .store()
@@ -207,7 +207,7 @@ async fn test_generate_one_time_keys() {
 
 #[async_test]
 async fn test_device_key_signing() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
     let (device_keys, identity_keys) = {
         let cache = machine.store().cache().await.unwrap();
@@ -229,7 +229,7 @@ async fn test_device_key_signing() {
 
 #[async_test]
 async fn test_session_invalidation() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
     let room_id = room_id!("!test:example.org");
 
     machine.create_outbound_group_session_with_defaults_test_helper(room_id).await.unwrap();
@@ -290,7 +290,7 @@ fn test_one_time_key_signing() {
 
 #[async_test]
 async fn test_keys_for_upload() {
-    let machine = OlmMachine::new(user_id(), alice_device_id(), None).await;
+    let machine = OlmMachine::new(user_id(), alice_device_id()).await;
 
     let decryption_settings =
         DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
@@ -1260,7 +1260,7 @@ async fn test_query_ratcheted_key() {
     // Need a second bob session to check gossiping
     let bob_id = user_id();
     let bob_other_device = device_id!("OTHERBOB");
-    let bob_other_machine = OlmMachine::new(bob_id, bob_other_device, None).await;
+    let bob_other_machine = OlmMachine::new(bob_id, bob_other_device).await;
     let bob_other_device = DeviceData::from_machine_test_helper(&bob_other_machine).await.unwrap();
     bob.store().save_device_data(&[bob_other_device]).await.unwrap();
     bob.get_device(bob_id, device_id!("OTHERBOB"), None)
@@ -1476,8 +1476,7 @@ async fn test_room_key_with_fake_identity_keys() {
 #[async_test]
 async fn test_importing_private_cross_signing_keys_verifies_the_public_identity() {
     async fn create_additional_machine(machine: &OlmMachine) -> OlmMachine {
-        let second_machine =
-            OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into(), None).await;
+        let second_machine = OlmMachine::new(machine.user_id(), "ADDITIONAL_MACHINE".into()).await;
 
         let identity = machine
             .get_identity(machine.user_id(), None)
@@ -1568,7 +1567,7 @@ async fn test_wait_on_key_query_doesnt_block_store() {
     // This test will end immediately if it works, and times out after a few seconds
     // if it failed.
 
-    let machine = OlmMachine::new(bob_id(), bob_device_id(), None).await;
+    let machine = OlmMachine::new(bob_id(), bob_device_id()).await;
 
     // Mark Alice as a tracked user, so it gets into the groups of users for which
     // we need to query keys.

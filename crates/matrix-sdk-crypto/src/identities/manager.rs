@@ -2195,7 +2195,7 @@ pub(crate) mod tests {
     async fn common_verified_identity_changes_machine_setup() -> OlmMachine {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();
@@ -2314,7 +2314,7 @@ pub(crate) mod tests {
         use test_json::keys_query_sets::VerificationViolationTestData as DataSet;
 
         // Start on a non-verified session
-        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL"), None).await;
+        let machine = OlmMachine::new(DataSet::own_id(), device_id!("LOCAL")).await;
 
         let keys_query = DataSet::own_keys_query_response_1();
         let txn_id = TransactionId::new();

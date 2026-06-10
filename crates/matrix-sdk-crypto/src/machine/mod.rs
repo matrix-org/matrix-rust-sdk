@@ -190,8 +190,8 @@ impl OlmMachine {
     /// * `user_id` - The unique id of the user that owns this machine.
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
-    pub async fn new(user_id: &UserId, device_id: &DeviceId, x509_data: Option<X509Data>) -> Self {
-        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None, x509_data)
+    pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
+        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None, None)
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -2710,7 +2710,7 @@ impl OlmMachine {
     /// # use ruma::{device_id, owned_user_id};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let device = machine.get_device(&alice, device_id!("DEVICEID"), None).await;
     ///
     /// println!("{:?}", device);
@@ -2768,7 +2768,7 @@ impl OlmMachine {
     /// # use ruma::{device_id, owned_user_id};
     /// # let alice = owned_user_id!("@alice:example.org");
     /// # futures_executor::block_on(async {
-    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID"), None).await;
+    /// # let machine = OlmMachine::new(&alice, device_id!("DEVICEID")).await;
     /// let devices = machine.get_user_devices(&alice, None).await.unwrap();
     ///
     /// for device in devices.devices() {
