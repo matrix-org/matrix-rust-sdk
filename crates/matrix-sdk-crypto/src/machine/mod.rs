@@ -116,7 +116,7 @@ use crate::{
     },
     utilities::timestamp_to_iso8601,
     verification::{Verification, VerificationMachine, VerificationRequest},
-    x509::X509Data,
+    x509::{X509Data, X509Signer, X509Verifier},
 };
 
 #[derive(Debug, Serialize)]
@@ -216,8 +216,13 @@ impl OlmMachine {
             })
             .await?;
 
-        let (verification_machine, store, identity_manager) =
-            Self::new_helper_prelude(store, static_account, self.store().private_identity(), None);
+        let (verification_machine, store, identity_manager) = Self::new_helper_prelude(
+            store,
+            static_account,
+            self.store().private_identity(),
+            self.store().x509_verifier().cloned(),
+            self.store().x509_signer().cloned(),
+        );
 
         Ok(Self::new_helper(
             device_id,
@@ -233,15 +238,11 @@ impl OlmMachine {
         store_wrapper: Arc<CryptoStoreWrapper>,
         account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
-        x509_data: Option<X509Data>,
+        x509_verifier: Option<X509Verifier>,
+        x509_signer: Option<X509Signer>,
     ) -> (VerificationMachine, Store, IdentityManager) {
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store_wrapper.clone());
-
-        let (x509_verifier, x509_signer) = match x509_data {
-            None => (None, None),
-            Some(data) => (data.x509_verifier, data.x509_signer),
-        };
 
         let store = Store::new_with_x509(
             account,
@@ -416,8 +417,18 @@ impl OlmMachine {
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
 
-        let (verification_machine, store, identity_manager) =
-            Self::new_helper_prelude(store, static_account, identity.clone(), x509_data);
+        let (x509_verifier, x509_signer) = match x509_data {
+            None => (None, None),
+            Some(data) => (data.x509_verifier, data.x509_signer),
+        };
+
+        let (verification_machine, store, identity_manager) = Self::new_helper_prelude(
+            store,
+            static_account,
+            identity.clone(),
+            x509_verifier,
+            x509_signer,
+        );
 
         // FIXME: We might want in the future a more generic high-level data migration
         // mechanism (at the store wrapper layer).
