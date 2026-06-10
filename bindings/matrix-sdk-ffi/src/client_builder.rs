@@ -35,26 +35,18 @@ use matrix_sdk::{
         VersionBuilderError,
     },
 };
-<<<<<<< HEAD
-use matrix_sdk_base::crypto::{
-    CollectStrategy, DecryptionSettings, TrustRequirement,
-    types::X509Signature,
-    x509::{X509Signer, X509Verifier},
+use matrix_sdk_base::{
+    DmRoomDefinition,
+    crypto::{
+        CollectStrategy, DecryptionSettings, TrustRequirement,
+        types::X509Signature,
+        x509::{X509Signer, X509Verifier},
+    },
 };
 use ruma::{
     DeviceKeyId, OwnedDeviceKeyId,
     api::error::{DeserializationError, FromHttpResponseError},
 };
-||||||| c7d44ddad
-use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
-use ruma::api::error::{DeserializationError, FromHttpResponseError};
-=======
-use matrix_sdk_base::{
-    DmRoomDefinition,
-    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
-};
-use ruma::api::error::{DeserializationError, FromHttpResponseError};
->>>>>>> main
 use tracing::debug;
 
 use super::client::{Client, X509Sign, X509Verify};
@@ -176,15 +168,11 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
 
     threading_support: ThreadingSupport,
-<<<<<<< HEAD
 
     x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Signer>>,
     x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Verifier>>,
-||||||| c7d44ddad
-=======
 
     dm_room_definition: DmRoomDefinition,
->>>>>>> main
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -230,14 +218,11 @@ impl ClientBuilder {
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store: None,
-<<<<<<< HEAD
 
             x509_sign: None,
             x509_verify: None,
-||||||| c7d44ddad
-=======
+
             dm_room_definition: DmRoomDefinition::MatrixSpec,
->>>>>>> main
         })
     }
 
@@ -408,38 +393,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-<<<<<<< HEAD
-    /// Set up the search index store for this client, which is used to store
-    /// the message search index locally.
-    ///
-    /// As soon as this is enabled, messages will start to be indexed, and can
-    /// be later queried for search.
-    ///
-    /// `path` is the directory where the search index will be stored. It must
-    /// be unique per session.
-    ///
-    /// `password` is an optional password to encrypt the search index at rest.
-    /// If `None`, the search index will be stored unencrypted.
-    pub fn with_search_index_store(
-        self: Arc<Self>,
-        path: String,
-        password: Option<String>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-
-        // Note: creation of the path is deferred to later.
-        let path = PathBuf::from(path);
-
-        let kind = if let Some(password) = password {
-            SearchIndexStoreKind::EncryptedDirectory(path, password)
-        } else {
-            SearchIndexStoreKind::UnencryptedDirectory(path)
-        };
-
-        builder.search_index_store = Some(kind);
-        Arc::new(builder)
-    }
-
     pub fn with_x509_sign(self: Arc<Self>, x509_sign: Box<dyn X509Sign>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
 
@@ -494,40 +447,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-||||||| c7d44ddad
-    /// Set up the search index store for this client, which is used to store
-    /// the message search index locally.
-    ///
-    /// As soon as this is enabled, messages will start to be indexed, and can
-    /// be later queried for search.
-    ///
-    /// `path` is the directory where the search index will be stored. It must
-    /// be unique per session.
-    ///
-    /// `password` is an optional password to encrypt the search index at rest.
-    /// If `None`, the search index will be stored unencrypted.
-    pub fn with_search_index_store(
-        self: Arc<Self>,
-        path: String,
-        password: Option<String>,
-    ) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-
-        // Note: creation of the path is deferred to later.
-        let path = PathBuf::from(path);
-
-        let kind = if let Some(password) = password {
-            SearchIndexStoreKind::EncryptedDirectory(path, password)
-        } else {
-            SearchIndexStoreKind::UnencryptedDirectory(path)
-        };
-
-        builder.search_index_store = Some(kind);
-        Arc::new(builder)
-    }
-
-=======
->>>>>>> main
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
