@@ -19,7 +19,10 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{self, OwnedLinkedChunkId},
 };
-use ruma::{OwnedEventId, OwnedRoomId, events::AnySyncEphemeralRoomEvent, serde::Raw};
+use ruma::{
+    OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, events::AnySyncEphemeralRoomEvent,
+    serde::Raw,
+};
 use tokio::sync::broadcast::{Receiver, Sender};
 
 use super::super::TimelineVectorDiffs;
@@ -40,6 +43,9 @@ pub enum RoomEventCacheUpdate {
         /// This is a map of event ID of the `m.room.member` event to the
         /// details of the ambiguity change.
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
+
+        /// Collection of avatar changes that room member events trigger.
+        avatar_changes: Option<BTreeMap<OwnedUserId, Option<OwnedMxcUri>>>,
     },
 
     /// The room has received updates for the timeline as _diffs_.

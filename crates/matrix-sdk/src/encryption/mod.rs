@@ -38,9 +38,7 @@ use futures_util::{
 use matrix_sdk_base::crypto::CollectStrategy;
 use matrix_sdk_base::{
     StateStoreDataKey, StateStoreDataValue,
-    cross_process_lock::{
-        AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError, CrossProcessLockState,
-    },
+    cross_process_lock::{AcquireCrossProcessLockFn, CrossProcessLock, CrossProcessLockError},
     crypto::{
         CrossSigningBootstrapRequests, OlmMachine,
         store::{
@@ -85,7 +83,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{debug, error, instrument, warn};
+use tracing::{Span, debug, error, instrument, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -99,7 +97,7 @@ use self::{
     verification::{SasVerification, Verification, VerificationRequest},
 };
 use crate::{
-    Client, Error, HttpError, Result, Room, RumaApiError, TransmissionProgress,
+    Client, Error, HttpError, Result, Room, TransmissionProgress,
     attachment::Thumbnail,
     client::{ClientInner, WeakClient},
     cross_process_lock::CrossProcessLockGuard,
@@ -376,7 +374,11 @@ impl CrossSigningResetHandle {
 
                 match e.as_uiaa_response() {
                     Some(uiaa_info) => {
-                        if uiaa_info.auth_error.is_some() {
+                        // Return the error except if we are at the `m.oauth` stage where we want to
+                        // keep polling.
+                        if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
+                            && uiaa_info.auth_error.is_some()
+                        {
                             return Err(e.into());
                         }
                     }
@@ -438,6 +440,9 @@ impl CrossSigningResetAuthType {
 pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: Url,
+
+    /// Session key to use to complete the authentication.
+    pub session: Option<String>,
 }
 
 impl OAuthCrossSigningResetInfo {
@@ -446,7 +451,10 @@ impl OAuthCrossSigningResetInfo {
             return Ok(None);
         };
 
-        Ok(Some(OAuthCrossSigningResetInfo { approval_url: parameters.url.as_str().try_into()? }))
+        Ok(Some(OAuthCrossSigningResetInfo {
+            approval_url: parameters.url.as_str().try_into()?,
+            session: auth_info.session.clone(),
+        }))
     }
 }
 
@@ -746,8 +754,8 @@ impl Client {
                 let response = self.keys_upload(r.request_id(), request).await;
 
                 if let Err(e) = &response {
-                    match e.as_ruma_api_error() {
-                        Some(RumaApiError::ClientApi(e)) if e.status_code == 400 => {
+                    match e.as_client_api_error() {
+                        Some(e) if e.status_code == 400 => {
                             if let ErrorBody::Standard(StandardErrorBody { message, .. }) = &e.body
                             {
                                 // This is one of the nastiest errors we can have. The server
@@ -1403,11 +1411,11 @@ impl Encryption {
     /// # Example
     ///
     /// ```no_run
-    /// # use matrix_sdk::{ruma::api::client::uiaa, Client, encryption::CrossSigningResetAuthType};
-    /// # use url::Url;
+    /// use matrix_sdk::{ruma::api::client::uiaa, encryption::CrossSigningResetAuthType};
+    ///
     /// # async {
-    /// # let homeserver = Url::parse("http://example.com")?;
-    /// # let client = Client::new(homeserver).await?;
+    /// # let homeserver = url::Url::parse("http://example.com")?;
+    /// # let client = matrix_sdk::Client::new(homeserver).await?;
     /// # let user_id = unimplemented!();
     /// let encryption = client.encryption();
     ///
@@ -1428,7 +1436,11 @@ impl Encryption {
     ///                 you first need to approve it at {}",
     ///                 o.approval_url
     ///             );
-    ///             handle.auth(None).await?;
+    ///
+    ///             let mut oauth = uiaa::OAuth::new();
+    ///             oauth.session = o.session;
+    ///
+    ///             handle.auth(Some(uiaa::AuthData::OAuth(oauth))).await?;
     ///         }
     ///     }
     /// }
@@ -1818,6 +1830,22 @@ impl Encryption {
             CrossProcessLockConfig::multi_process(lock_value.to_owned()),
         );
 
+        // Gently try to initialize the crypto store generation counter.
+        //
+        // If we don't get the lock immediately, then it is already acquired by another
+        // process, and we'll get to reload next time we acquire the lock.
+        {
+            let lock_result = lock.try_lock_once().await?;
+
+            if lock_result.is_ok() {
+                olm_machine
+                    .initialize_crypto_store_generation(
+                        &self.client.locks().crypto_store_generation,
+                    )
+                    .await?;
+            }
+        }
+
         self.client
             .locks()
             .cross_process_crypto_store_lock
@@ -1825,6 +1853,41 @@ impl Encryption {
             .map_err(|_| Error::BadCryptoStoreState)?;
 
         Ok(())
+    }
+
+    /// Maybe reload the `OlmMachine` after acquiring the lock for the first
+    /// time.
+    ///
+    /// Returns the current generation number.
+    #[instrument(skip(self), fields(olm_machine_new_generation, olm_machine_generation))]
+    async fn on_lock_newly_acquired(&self) -> Result<u64, Error> {
+        let olm_machine_guard = self.client.olm_machine().await;
+        if let Some(olm_machine) = olm_machine_guard.as_ref() {
+            let (new_gen, generation_number) = olm_machine
+                .maintain_crypto_store_generation(&self.client.locks().crypto_store_generation)
+                .await?;
+
+            Span::current()
+                .record("olm_machine_new_generation", new_gen)
+                .record("olm_machine_generation", generation_number);
+            debug!("OlmMachine generation maintained in CryptoStore");
+
+            // If the crypto store generation has changed,
+            if new_gen {
+                // (get rid of the reference to the current crypto store first)
+                drop(olm_machine_guard);
+                // Recreate the OlmMachine.
+                self.client.base_client().regenerate_olm(None).await?;
+            }
+            Ok(generation_number)
+        } else {
+            // XXX: not sure this is reachable. Seems like the OlmMachine should always have
+            // been initialised by the time we get here. Ideally we'd panic, or return an
+            // error, but for now I'm just adding some logging to check if it
+            // happens, and returning the magic number 0.
+            warn!("Encryption::on_lock_newly_acquired: called before OlmMachine initialised");
+            Ok(0)
+        }
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
@@ -1849,7 +1912,14 @@ impl Encryption {
     ///
     /// Returns a guard to the lock, if it was obtained.
     pub async fn try_lock_store_once(&self) -> Result<Option<CrossProcessLockGuard>, Error> {
-        self.lock_store(CrossProcessLock::try_lock_once).await
+        match self.lock_store(CrossProcessLock::try_lock_once).await {
+            Err(Error::CrossProcessLockError(e))
+                if matches!(*e, CrossProcessLockError::Unobtained(_)) =>
+            {
+                Ok(None)
+            }
+            other => other,
+        }
     }
 
     /// If a lock was created with [`Self::enable_cross_process_store_lock`],
@@ -1866,14 +1936,9 @@ impl Encryption {
             Error::CrossProcessLockError(Box::new(CrossProcessLockError::TryLock(Arc::new(e))))
         };
         if let Some(lock) = self.client.locks().cross_process_crypto_store_lock.get() {
-            Ok(Some(match acquire(lock).await.map_err(wrap_err)?? {
-                CrossProcessLockState::Clean(guard) => guard,
-                CrossProcessLockState::Dirty(guard) => {
-                    self.client.base_client().regenerate_olm(None).await?;
-                    guard.clear_dirty();
-                    guard
-                }
-            }))
+            let guard = acquire(lock).await.map_err(wrap_err)??;
+            let _ = self.on_lock_newly_acquired().await?;
+            Ok(Some(guard.into_guard()))
         } else {
             Ok(None)
         }
@@ -2187,7 +2252,7 @@ mod tests {
     };
 
     use crate::{
-        Client, Error, assert_next_matches_with_timeout,
+        Client, assert_next_matches_with_timeout,
         config::RequestConfig,
         encryption::{
             DuplicateOneTimeKeyErrorMessage, OAuthCrossSigningResetInfo, VerificationState,
@@ -2309,8 +2374,8 @@ mod tests {
         assert!(client1.encryption().backups().are_enabled().await);
 
         // The other client can't take the lock too.
-        let error = client2.encryption().try_lock_store_once().await.unwrap_err();
-        assert!(matches!(error, Error::CrossProcessLockError(_)));
+        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
+        assert!(acquired2.is_none());
 
         // Now have the first client release the lock,
         drop(acquired1);
@@ -2386,15 +2451,6 @@ mod tests {
         assert!(initial_olm_machine.same_as(&after_enabling_lock));
 
         {
-            let acquired = client.encryption().try_lock_store_once().await.unwrap();
-            assert!(acquired.is_some());
-        }
-
-        // Taking the lock the first time will not update the olm machine.
-        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(initial_olm_machine.same_as(&after_taking_lock_first_time));
-
-        {
             // Simulate that another client hold the lock before.
             let client2 = Client::builder()
                 .homeserver_url("http://localhost:1234")
@@ -2427,9 +2483,9 @@ mod tests {
             assert!(acquired.is_some());
         }
 
-        // Taking the lock the second time updates the olm machine.
-        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(!after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
+        // Taking the lock the first time will update the olm machine.
+        let after_taking_lock_first_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(!initial_olm_machine.same_as(&after_taking_lock_first_time));
 
         {
             let acquired = client.encryption().try_lock_store_once().await.unwrap();
@@ -2437,8 +2493,8 @@ mod tests {
         }
 
         // Re-taking the lock doesn't update the olm machine.
-        let after_taking_lock_third_time = client.olm_machine().await.as_ref().unwrap().clone();
-        assert!(after_taking_lock_second_time.same_as(&after_taking_lock_third_time));
+        let after_taking_lock_second_time = client.olm_machine().await.as_ref().unwrap().clone();
+        assert!(after_taking_lock_first_time.same_as(&after_taking_lock_second_time));
     }
 
     #[async_test]

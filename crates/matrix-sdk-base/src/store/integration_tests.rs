@@ -8,13 +8,13 @@ use std::{
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use growable_bloom_filter::GrowableBloomBuilder;
-use matrix_sdk_common::ttl_cache::TtlValue;
+use matrix_sdk_common::ttl::TtlValue;
 use matrix_sdk_test::{TestResult, event_factory::EventFactory};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedUserId, RoomId, TransactionId, UserId,
     api::{
         FeatureFlag, MatrixVersion,
-        client::discovery::discover_homeserver::{HomeserverInfo, RtcFocusInfo},
+        client::{discovery::discover_homeserver::HomeserverInfo, rtc::RtcTransport},
     },
     event_id,
     events::{
@@ -559,7 +559,7 @@ impl StateStoreIntegrationTests for DynStateStore {
             homeserver: HomeserverInfo::new("matrix.example.com".to_owned()),
             identity_server: None,
             tile_server: None,
-            rtc_foci: vec![RtcFocusInfo::livekit("livekit.example.com".to_owned())],
+            rtc_foci: vec![RtcTransport::livekit("livekit.example.com".to_owned())],
         };
 
         self.set_kv_data(

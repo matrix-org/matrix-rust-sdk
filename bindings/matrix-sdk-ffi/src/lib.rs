@@ -11,7 +11,7 @@ mod error;
 mod event;
 mod helpers;
 mod identity_status_change;
-mod live_location_share;
+mod live_locations_observer;
 mod notification;
 mod notification_settings;
 mod platform;
@@ -24,6 +24,7 @@ mod room_member;
 mod room_preview;
 mod ruma;
 mod runtime;
+#[cfg(feature = "experimental-search")]
 mod search;
 mod session_verification;
 mod spaces;

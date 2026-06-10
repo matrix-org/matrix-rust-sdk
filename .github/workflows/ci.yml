@@ -3,9 +3,9 @@ name: Rust tests
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
   pull_request:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
 
 permissions: {}
 
@@ -70,7 +70,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v 2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v 2.81.1
         with:
           tool: nextest
 
@@ -107,7 +107,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v 2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v 2.81.1
         with:
           tool: nextest
 
@@ -150,7 +150,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v 2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v 2.81.1
         with:
           tool: nextest
 
@@ -192,7 +192,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
         with:
           tool: protoc@3.20.3
 
@@ -213,7 +213,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v 2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v 2.81.1
         with:
           tool: nextest
 
@@ -292,7 +292,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v 2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v 2.81.1
         with:
           tool: nextest
 
@@ -323,7 +323,7 @@ jobs:
           persist-credentials: false
 
       - name: Check the spelling of the files in our repo
-        uses: crate-ci/typos@cf5f1c29a8ac336af8568821ec41919923b05a83 # v1.45.1
+        uses: crate-ci/typos@7b04f660f4ee4f048d18fd341887cf28dfbedfe2 # v1.46.3
 
   lint:
     name: Lint
@@ -337,7 +337,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
         with:
           tool: protoc@3.20.3
 
@@ -413,7 +413,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install nextest
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v 2.75.10
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v 2.81.1
         with:
           tool: nextest
 

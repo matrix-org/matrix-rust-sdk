@@ -37,7 +37,7 @@ use matrix_sdk_ui::{
     sync_service::SyncService,
     timeline::{RoomExt as _, TimelineFocus, TimelineItem},
 };
-use ratatui::{prelude::*, style::palette::tailwind, widgets::*};
+use ratatui::{DefaultTerminal, prelude::*, style::palette::tailwind, widgets::*};
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{
     spawn,
@@ -649,7 +649,7 @@ impl App {
         }
     }
 
-    async fn render_loop(&mut self, mut terminal: Terminal<impl Backend>) -> Result<()> {
+    async fn render_loop(&mut self, mut terminal: DefaultTerminal) -> Result<()> {
         use KeyCode::*;
 
         let mut check_channel = true;
@@ -832,7 +832,7 @@ impl App {
         Ok(())
     }
 
-    async fn run(&mut self, terminal: Terminal<impl Backend>) -> Result<()> {
+    async fn run(&mut self, terminal: DefaultTerminal) -> Result<()> {
         self.render_loop(terminal).await?;
 
         // At this point the user has exited the loop, so shut down the application.

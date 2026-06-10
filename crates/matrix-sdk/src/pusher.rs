@@ -33,9 +33,12 @@ impl Pusher {
         Self { client }
     }
 
-    /// Sets a given pusher
-    pub async fn set(&self, pusher: ruma::api::client::push::Pusher) -> Result<()> {
-        let request = set_pusher::v3::Request::post(pusher);
+    /// Sets a given pusher.
+    pub async fn set(&self, pusher: ruma::api::client::push::Pusher, append: bool) -> Result<()> {
+        let mut request = set_pusher::v3::Request::post(pusher);
+        if let set_pusher::v3::PusherAction::Post(data) = &mut request.action {
+            data.append = append;
+        }
         self.client.send(request).await?;
         Ok(())
     }
@@ -56,9 +59,10 @@ mod tests {
         api::client::push::{PusherIds, PusherInit, PusherKind},
         push::HttpPusherData,
     };
+    use serde_json::json;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
-        matchers::{method, path},
+        matchers::{body_partial_json, method, path},
     };
 
     use crate::test_utils::logged_in_client;
@@ -71,23 +75,42 @@ mod tests {
             .await;
     }
 
-    #[async_test]
-    async fn test_set_pusher() {
-        let server = MockServer::start().await;
-        let client = logged_in_client(Some(server.uri())).await;
-        mock_api(server).await;
-
-        // prepare dummy pusher
-        let pusher = PusherInit {
+    fn dummy_pusher() -> PusherInit {
+        PusherInit {
             ids: PusherIds::new("pushKey".to_owned(), "app_id".to_owned()),
             app_display_name: "name".to_owned(),
             kind: PusherKind::Http(HttpPusherData::new("dummy".to_owned())),
             lang: "EN".to_owned(),
             device_display_name: "name".to_owned(),
             profile_tag: None,
-        };
+        }
+    }
 
-        let response = client.pusher().set(pusher.into()).await;
+    #[async_test]
+    async fn test_set_pusher() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        mock_api(server).await;
+
+        let response = client.pusher().set(dummy_pusher().into(), false).await;
+
+        assert!(response.is_ok());
+    }
+
+    #[async_test]
+    async fn test_set_pusher_forwards_append_flag() {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        Mock::given(method("POST"))
+            .and(path("_matrix/client/r0/pushers/set"))
+            .and(body_partial_json(json!({ "append": true })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::EMPTY))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let response = client.pusher().set(dummy_pusher().into(), true).await;
 
         assert!(response.is_ok());
     }

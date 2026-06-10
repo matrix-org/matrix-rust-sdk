@@ -26,10 +26,7 @@ mod state;
 mod tags;
 mod tombstone;
 
-use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub use call::CallIntentConsensus;
 pub use create::*;
@@ -55,6 +52,7 @@ use ruma::{
             guest_access::GuestAccess,
             history_visibility::HistoryVisibility,
             join_rules::JoinRule,
+            member::MembershipState,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource},
         },
     },
@@ -65,14 +63,14 @@ pub use state::{RoomState, RoomStateFilter};
 pub(crate) use tags::RoomNotableTags;
 use tokio::sync::broadcast;
 pub use tombstone::{PredecessorRoom, SuccessorRoom};
-use tracing::{info, instrument, warn};
+use tracing::{info, instrument, trace, warn};
 
 use crate::{
-    Error,
+    DmRoomDefinition, Error, StateStore,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
     read_receipts::RoomReadReceipts,
-    store::{DynStateStore, Result as StoreResult, StateStoreExt},
+    store::{Result as StoreResult, SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
 };
 
@@ -94,7 +92,7 @@ pub struct Room {
     pub(super) room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
 
     /// A clone of the state store.
-    pub(super) store: Arc<DynStateStore>,
+    pub(super) store: SaveLockedStateStore,
 
     /// A map for ids of room membership events in the knocking state linked to
     /// the user id of the user affected by the member event, that the current
@@ -109,7 +107,7 @@ pub struct Room {
 impl Room {
     pub(crate) fn new(
         own_user_id: &UserId,
-        store: Arc<DynStateStore>,
+        store: SaveLockedStateStore,
         room_id: &RoomId,
         room_state: RoomState,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
@@ -120,7 +118,7 @@ impl Room {
 
     pub(crate) fn restore(
         own_user_id: &UserId,
-        store: Arc<DynStateStore>,
+        store: SaveLockedStateStore,
         room_info: RoomInfo,
         room_info_notable_update_sender: broadcast::Sender<RoomInfoNotableUpdate>,
     ) -> Self {
@@ -303,6 +301,26 @@ impl Room {
         }
     }
 
+    /// Computes if the current room is a DM based on the rules from the
+    /// [`DmRoomDefinition`], updating the active service members.
+    pub async fn compute_is_dm(&self, dm_room_definition: &DmRoomDefinition) -> StoreResult<bool> {
+        let is_direct = self.is_direct().await?;
+
+        match *dm_room_definition {
+            DmRoomDefinition::MatrixSpec => Ok(is_direct),
+            DmRoomDefinition::TwoMembers => {
+                if !is_direct {
+                    return Ok(false);
+                }
+                let active_service_member_count =
+                    self.update_active_service_members().await?.unwrap_or_default().len() as u64;
+                let has_at_most_two_members =
+                    self.active_members_count().saturating_sub(active_service_member_count) <= 2;
+                Ok(has_at_most_two_members)
+            }
+        }
+    }
+
     /// If this room is a direct message, get the members that we're sharing the
     /// room with.
     ///
@@ -450,8 +468,18 @@ impl Room {
     }
 
     /// Get the heroes for this room.
+    ///
+    /// This also filters out possible service members from the list of heroes
+    /// returned by the homeserver.
     pub fn heroes(&self) -> Vec<RoomHero> {
-        self.info.read().heroes().to_vec()
+        let guard = self.info.read();
+        let heroes = guard.heroes();
+
+        if let Some(service_members) = guard.service_members() {
+            heroes.iter().filter(|hero| !service_members.contains(&hero.user_id)).cloned().collect()
+        } else {
+            heroes.to_vec()
+        }
     }
 
     /// Get the receipt as an `OwnedEventId` and `Receipt` tuple for the given
@@ -485,6 +513,12 @@ impl Room {
         self.info.read().base_info.is_marked_unread
     }
 
+    /// Returns the event ID of the user's `m.fully_read` marker for this room,
+    /// if any.
+    pub fn fully_read_event_id(&self) -> Option<OwnedEventId> {
+        self.info.read().fully_read_event_id().map(ToOwned::to_owned)
+    }
+
     /// Returns the [`RoomVersionId`] of the room, if known.
     pub fn version(&self) -> Option<RoomVersionId> {
         self.info.read().room_version().cloned()
@@ -508,6 +542,93 @@ impl Room {
     /// Returns the current pinned event ids for this room.
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.info.read().pinned_event_ids()
+    }
+
+    /// Computes and stores the list of service members that are either in a
+    /// joined or invited state in this room, checking the service member
+    /// list against the locally available room members.
+    pub async fn update_active_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
+        if let Some(service_members) = self.service_members() {
+            let mut found = Vec::new();
+            for user_id in service_members {
+                match self.get_member(&user_id).await {
+                    Ok(Some(member)) => {
+                        // We only care about active members (joined or invited)
+                        if matches!(
+                            member.membership(),
+                            MembershipState::Join | MembershipState::Invite
+                        ) {
+                            found.push(member);
+                        }
+                    }
+                    Ok(None) => (),
+                    Err(error) => return Err(error),
+                }
+            }
+
+            trace!("Updating active service members ({}) in room {}", found.len(), self.room_id());
+
+            let new_active_service_member_count = found.len() as u64;
+            let current_active_service_member_count =
+                self.info.read().summary.active_service_members.unwrap_or_default();
+            if new_active_service_member_count != current_active_service_member_count {
+                self.update_and_save_room_info(|mut info| {
+                    info.update_active_service_member_count(Some(new_active_service_member_count));
+                    (info, RoomInfoNotableUpdateReasons::ACTIVE_SERVICE_MEMBERS)
+                })
+                .await?;
+            }
+
+            Ok(Some(found))
+        } else {
+            if self.info.read().summary.active_service_members.is_some() {
+                self.update_and_save_room_info(|mut info| {
+                    info.update_active_service_member_count(None);
+                    (info, RoomInfoNotableUpdateReasons::ACTIVE_SERVICE_MEMBERS)
+                })
+                .await?;
+            }
+            Ok(None)
+        }
+    }
+
+    /// Computes the joined service members in this room.
+    ///
+    /// This result is useful for computing a room's display name, i.e.
+    #[instrument(skip_all, fields(room_id = ?self.room_id))]
+    pub async fn compute_joined_service_members(&self) -> StoreResult<Option<Vec<RoomMember>>> {
+        if !self.are_members_synced() {
+            trace!("Tried to compute joined service members in a room that is not synced");
+            return Ok(None);
+        }
+        if let Some(service_member_ids) = self.service_members() {
+            let mut ret = vec![];
+            for user_id in service_member_ids.iter() {
+                if let Some(member) = self.get_member(user_id).await.unwrap()
+                    && matches!(member.membership(), MembershipState::Join)
+                {
+                    trace!("Found a joined service member ({})", user_id);
+                    ret.push(member);
+                } else {
+                    trace!("Did not find a joined service member ({})", user_id);
+                }
+            }
+            trace!(
+                "Computed joined service members ({}) for service member count {}",
+                ret.len(),
+                service_member_ids.len()
+            );
+            Ok(Some(ret))
+        } else {
+            trace!("Tried to compute joined service members in a room that has no service members",);
+            Ok(None)
+        }
+    }
+
+    /// Returns a cached value containing the active (joined/invited) service
+    /// member count, if known.
+    pub fn active_service_members_count(&self) -> Option<u64> {
+        self.info.read().summary.active_service_members
     }
 }
 
@@ -540,4 +661,52 @@ pub(crate) enum AccountDataSource {
     /// The source is account data with the unstable prefix.
     #[default]
     Unstable,
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_test::{
+        JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
+    };
+    use ruma::{room_id, user_id};
+    use serde_json::json;
+
+    use super::*;
+    use crate::test_utils::logged_in_base_client;
+
+    #[async_test]
+    async fn test_room_heroes_filters_out_service_members() {
+        let client = logged_in_base_client(None).await;
+        let user_id = &client.session_meta().unwrap().user_id;
+        let service_member_id = user_id!("@service:example.org");
+        let alice_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+
+        // Create a room response with 2 heroes, one of them a service member.
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .set_room_summary(json!({
+                        "m.joined_member_count": 3,
+                        "m.invited_member_count": 0,
+                        "m.heroes": [alice_id.to_owned(), service_member_id.to_owned()],
+                    }))
+                    .add_state_event(
+                        EventFactory::new()
+                            .sender(user_id)
+                            .member_hints(BTreeSet::from([service_member_id.to_owned()])),
+                    ),
+            )
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        // The service member should be filtered out.
+        let heroes = room.heroes();
+        assert_eq!(heroes.len(), 1);
+        assert_eq!(heroes[0].user_id, alice_id);
+    }
 }

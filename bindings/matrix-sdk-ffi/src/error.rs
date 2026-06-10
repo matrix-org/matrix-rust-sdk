@@ -347,6 +347,39 @@ pub enum RoomError {
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 #[uniffi(flat_error)]
+pub enum LiveLocationError {
+    #[error("Network error")]
+    Network,
+    #[error("Existing beacon information not found")]
+    NotFound,
+    #[error("Beacon event is redacted and cannot be processed")]
+    Redacted,
+    #[error("Must join the room to access beacon information")]
+    Stripped,
+    #[error("The beacon event has expired")]
+    NotLive,
+    #[error("Deserialization error")]
+    Deserialization,
+    #[error("Other error: {msg}")]
+    Other { msg: String },
+}
+
+impl From<matrix_sdk::BeaconError> for LiveLocationError {
+    fn from(value: matrix_sdk::BeaconError) -> Self {
+        match value {
+            matrix_sdk::BeaconError::Network(_) => Self::Network,
+            matrix_sdk::BeaconError::NotFound => Self::NotFound,
+            matrix_sdk::BeaconError::Redacted => Self::Redacted,
+            matrix_sdk::BeaconError::Stripped => Self::Stripped,
+            matrix_sdk::BeaconError::Deserialization(_) => Self::Deserialization,
+            matrix_sdk::BeaconError::NotLive => Self::NotLive,
+            matrix_sdk::BeaconError::Other(err) => Self::Other { msg: err.to_string() },
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi(flat_error)]
 pub enum MediaInfoError {
     #[error("Required value missing from the media info")]
     MissingField,

@@ -15,10 +15,14 @@
 // Allow UniFFI to use methods marked as `#[deprecated]`.
 #![allow(deprecated)]
 
-use std::{fs, num::NonZeroUsize, path::PathBuf, sync::Arc, time::Duration};
+#[cfg(feature = "experimental-search")]
+use std::{fs, path::PathBuf};
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
 #[cfg(not(any(target_family = "wasm", target_os = "android")))]
 use matrix_sdk::reqwest::Certificate;
+#[cfg(feature = "experimental-search")]
+use matrix_sdk::search_index::SearchIndexStoreKind;
 use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, ThreadingSupport,
@@ -26,12 +30,12 @@ use matrix_sdk::{
     encryption::{BackupDownloadStrategy, EncryptionSettings, SignatureError},
     event_cache::EventCacheError,
     ruma::{ServerName, UserId},
-    search_index::SearchIndexStoreKind,
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
         VersionBuilderError,
     },
 };
+<<<<<<< HEAD
 use matrix_sdk_base::crypto::{
     CollectStrategy, DecryptionSettings, TrustRequirement,
     types::X509Signature,
@@ -41,6 +45,16 @@ use ruma::{
     DeviceKeyId, OwnedDeviceKeyId,
     api::error::{DeserializationError, FromHttpResponseError},
 };
+||||||| c7d44ddad
+use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
+use ruma::api::error::{DeserializationError, FromHttpResponseError};
+=======
+use matrix_sdk_base::{
+    DmRoomDefinition,
+    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
+};
+use ruma::api::error::{DeserializationError, FromHttpResponseError};
+>>>>>>> main
 use tracing::debug;
 
 use super::client::{Client, X509Sign, X509Verify};
@@ -83,6 +97,8 @@ pub enum ClientBuildError {
     Sdk(MatrixClientBuildError),
     #[error(transparent)]
     EventCache(#[from] EventCacheError),
+    #[error("The supplied raw key is invalid. Check it's a byte array of 32 bytes.")]
+    InvalidRawKey,
     #[error("Failed to build the client: {message}")]
     Generic { message: String },
 }
@@ -145,6 +161,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
     request_config: Option<RequestConfig>,
+    #[cfg(feature = "experimental-search")]
     search_index_store: Option<SearchIndexStoreKind>,
 
     #[cfg(not(target_family = "wasm"))]
@@ -159,9 +176,15 @@ pub struct ClientBuilder {
     additional_root_certificates: Vec<Vec<u8>>,
 
     threading_support: ThreadingSupport,
+<<<<<<< HEAD
 
     x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Signer>>,
     x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Verifier>>,
+||||||| c7d44ddad
+=======
+
+    dm_room_definition: DmRoomDefinition,
+>>>>>>> main
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -205,11 +228,23 @@ impl ClientBuilder {
             enable_share_history_on_invite: false,
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
+            #[cfg(feature = "experimental-search")]
             search_index_store: None,
+<<<<<<< HEAD
 
             x509_sign: None,
             x509_verify: None,
+||||||| c7d44ddad
+=======
+            dm_room_definition: DmRoomDefinition::MatrixSpec,
+>>>>>>> main
         })
+    }
+
+    pub fn dm_room_definition(self: Arc<Self>, dm_room_definition: DmRoomDefinition) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.dm_room_definition = dm_room_definition;
+        Arc::new(builder)
     }
 
     pub fn cross_process_lock_config(
@@ -373,6 +408,7 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+<<<<<<< HEAD
     /// Set up the search index store for this client, which is used to store
     /// the message search index locally.
     ///
@@ -458,6 +494,40 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+||||||| c7d44ddad
+    /// Set up the search index store for this client, which is used to store
+    /// the message search index locally.
+    ///
+    /// As soon as this is enabled, messages will start to be indexed, and can
+    /// be later queried for search.
+    ///
+    /// `path` is the directory where the search index will be stored. It must
+    /// be unique per session.
+    ///
+    /// `password` is an optional password to encrypt the search index at rest.
+    /// If `None`, the search index will be stored unencrypted.
+    pub fn with_search_index_store(
+        self: Arc<Self>,
+        path: String,
+        password: Option<String>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+
+        // Note: creation of the path is deferred to later.
+        let path = PathBuf::from(path);
+
+        let kind = if let Some(password) = password {
+            SearchIndexStoreKind::EncryptedDirectory(path, password)
+        } else {
+            SearchIndexStoreKind::UnencryptedDirectory(path)
+        };
+
+        builder.search_index_store = Some(kind);
+        Arc::new(builder)
+    }
+
+=======
+>>>>>>> main
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
@@ -486,6 +556,7 @@ impl ClientBuilder {
             None
         };
 
+        #[cfg(feature = "experimental-search")]
         if let Some(search_index_store) = builder.search_index_store {
             // Create the search index directory.
             match search_index_store {
@@ -618,7 +689,9 @@ impl ClientBuilder {
             inner_builder = inner_builder.request_config(updated_config);
         }
 
-        inner_builder = inner_builder.with_threading_support(builder.threading_support);
+        inner_builder = inner_builder
+            .dm_room_definition(builder.dm_room_definition)
+            .with_threading_support(builder.threading_support);
 
         if let Some(x509_sign) = builder.x509_sign {
             inner_builder = inner_builder.with_x509_signer(Some(X509Signer::new(x509_sign)));
@@ -770,5 +843,40 @@ impl From<CrossProcessLockConfig> for SdkCrossProcessLockConfig {
             }
             CrossProcessLockConfig::SingleProcess => SdkCrossProcessLockConfig::SingleProcess,
         }
+    }
+}
+
+#[cfg(feature = "experimental-search")]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    /// Set up the search index store for this client, which is used to store
+    /// the message search index locally.
+    ///
+    /// As soon as this is enabled, messages will start to be indexed, and can
+    /// be later queried for search.
+    ///
+    /// `path` is the directory where the search index will be stored. It must
+    /// be unique per session.
+    ///
+    /// `password` is an optional password to encrypt the search index at rest.
+    /// If `None`, the search index will be stored unencrypted.
+    pub fn with_search_index_store(
+        self: Arc<Self>,
+        path: String,
+        password: Option<String>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+
+        // Note: creation of the path is deferred to later.
+        let path = PathBuf::from(path);
+
+        let kind = if let Some(password) = password {
+            SearchIndexStoreKind::EncryptedDirectory(path, password)
+        } else {
+            SearchIndexStoreKind::UnencryptedDirectory(path)
+        };
+
+        builder.search_index_store = Some(kind);
+        Arc::new(builder)
     }
 }

@@ -39,7 +39,6 @@
 
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
-use as_variant::as_variant;
 use matrix_sdk::{check_validity_of_replacement_events, deserialized_responses::EncryptionInfo};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
@@ -154,6 +153,12 @@ pub(crate) enum AggregationKind {
     ///
     /// Unlike [`BeaconUpdate`], a beacon stop is not reversible.
     BeaconStop { content: BeaconInfoEventContent },
+
+    /// An m.rtc.decline event for an m.rtc.notification event
+    CallDeclined {
+        /// Sender of the decline.
+        sender: OwnedUserId,
+    },
 }
 
 /// An aggregation is an event related to another event (for instance a
@@ -177,18 +182,16 @@ pub(crate) struct Aggregation {
 fn poll_state_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut PollState, AggregationError> {
-    if event.content().is_poll() {
-        // It was a poll! Now return the state as mutable.
-        let state = as_variant!(
-            event.to_mut().content_mut(),
-            TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(s), ..}) => s
-        )
-        .expect("it was a poll just above");
+    let content = event.to_mut().content_mut();
+
+    if let TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Poll(state), .. }) =
+        content
+    {
         Ok(state)
     } else {
         Err(AggregationError::InvalidType {
             expected: "a poll".to_owned(),
-            actual: event.content().debug_string().to_owned(),
+            actual: content.debug_string().to_owned(),
         })
     }
 }
@@ -197,18 +200,34 @@ fn poll_state_from_item<'a>(
 fn live_location_state_from_item<'a>(
     event: &'a mut Cow<'_, EventTimelineItem>,
 ) -> Result<&'a mut LiveLocationState, AggregationError> {
-    if event.content().is_live_location() {
-        // It was a live location! Now return the state as mutable.
-        let state = event
-            .to_mut()
-            .content_mut()
-            .as_live_location_state_mut()
-            .expect("it was a live location just above");
+    let content = event.to_mut().content_mut();
+
+    if let TimelineItemContent::MsgLike(MsgLikeContent {
+        kind: MsgLikeKind::LiveLocation(state),
+        ..
+    }) = content
+    {
         Ok(state)
     } else {
         Err(AggregationError::InvalidType {
             expected: "a live location".to_owned(),
-            actual: event.content().debug_string().to_owned(),
+            actual: content.debug_string().to_owned(),
+        })
+    }
+}
+
+/// Gets the mutable list of users that did decline this notification event.
+fn rtc_notification_declinations_from_item<'a>(
+    event: &'a mut Cow<'_, EventTimelineItem>,
+) -> Result<&'a mut Vec<OwnedUserId>, AggregationError> {
+    let content = event.to_mut().content_mut();
+
+    if let TimelineItemContent::RtcNotification { declined_by, .. } = content {
+        Ok(declined_by)
+    } else {
+        Err(AggregationError::InvalidType {
+            expected: "an rtc notification".to_owned(),
+            actual: content.debug_string().to_owned(),
         })
     }
 }
@@ -335,6 +354,20 @@ impl Aggregation {
                 }
                 Err(err) => ApplyAggregationResult::Error(err),
             },
+
+            AggregationKind::CallDeclined { sender } => {
+                match rtc_notification_declinations_from_item(event) {
+                    Ok(declinations) => {
+                        if declinations.contains(sender) {
+                            ApplyAggregationResult::LeftItemIntact
+                        } else {
+                            declinations.push(sender.clone());
+                            ApplyAggregationResult::UpdatedItem
+                        }
+                    }
+                    Err(err) => ApplyAggregationResult::Error(err),
+                }
+            }
         }
     }
 
@@ -429,6 +462,11 @@ impl Aggregation {
             AggregationKind::BeaconStop { .. } => {
                 // Stopping a live location share is not reversible.
                 ApplyAggregationResult::Error(AggregationError::CantUndoBeaconStop)
+            }
+
+            AggregationKind::CallDeclined { .. } => {
+                // One cannot un-decline a call
+                ApplyAggregationResult::Error(AggregationError::CantUndoRtcDecline)
             }
         }
     }
@@ -739,7 +777,8 @@ impl Aggregations {
                 | AggregationKind::PollEnd { .. }
                 | AggregationKind::Edit(..)
                 | AggregationKind::BeaconUpdate { .. }
-                | AggregationKind::BeaconStop { .. } => {
+                | AggregationKind::BeaconStop { .. }
+                | AggregationKind::CallDeclined { .. } => {
                     // Nothing particular to do.
                 }
 
@@ -1028,6 +1067,9 @@ pub(crate) enum AggregationError {
 
     #[error("a beacon stop can't be unapplied")]
     CantUndoBeaconStop,
+
+    #[error("a call decline can't be unapplied")]
+    CantUndoRtcDecline,
 
     #[error(
         "trying to apply an aggregation of one type to an invalid target: \

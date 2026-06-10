@@ -127,7 +127,7 @@ macro_rules! cryptostore_integration_tests {
                     one_time_key,
                     false,
                     alice.device_keys(),
-                );
+                ).unwrap();
 
                 (alice, session)
             }

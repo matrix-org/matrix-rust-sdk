@@ -81,7 +81,7 @@ pub enum EventFocusThreadMode {
 pub(crate) enum EventFocusedPaginationMode {
     /// Standard room pagination (for all events as for an unthreaded/main room
     /// linked chunk).
-    Room,
+    Room { hide_thread_events: bool },
 
     /// Threaded pagination (the focused event is part of a thread).
     Thread {
@@ -210,12 +210,27 @@ impl EventFocusedCacheInner {
             self.add_initial_events_with_gaps(thread_events, backward_token, forward_token);
         } else {
             trace!("focused event is not part of a thread, setting up room pagination");
-            self.pagination_mode = EventFocusedPaginationMode::Room;
 
             let backward_token = tokens.previous.into_token();
             let forward_token = tokens.next.into_token();
 
-            self.add_initial_events_with_gaps(result.events.clone(), backward_token, forward_token);
+            let hide_thread_events =
+                matches!(thread_mode, EventFocusThreadMode::Automatic) && thread_root.is_none();
+
+            self.pagination_mode = EventFocusedPaginationMode::Room { hide_thread_events };
+
+            let events = if hide_thread_events {
+                result
+                    .events
+                    .iter()
+                    .filter(|event| extract_thread_root(event.raw()).is_none())
+                    .cloned()
+                    .collect()
+            } else {
+                result.events.clone()
+            };
+
+            self.add_initial_events_with_gaps(events, backward_token, forward_token);
         }
 
         self.propagate_changes();
@@ -304,7 +319,7 @@ impl EventFocusedCacheInner {
 
         // Fetch events based on pagination mode.
         let (mut events, new_token) = match &self.pagination_mode {
-            EventFocusedPaginationMode::Room => {
+            EventFocusedPaginationMode::Room { .. } => {
                 Self::fetch_room_backwards(&room, num_events, &token).await?
             }
             EventFocusedPaginationMode::Thread { thread_root } => {
@@ -318,6 +333,17 @@ impl EventFocusedCacheInner {
 
         let hit_end = new_token.is_none();
         let new_gap = new_token.map(|t| Gap { token: t });
+
+        let hide_thread_events = match &self.pagination_mode {
+            EventFocusedPaginationMode::Room { hide_thread_events } => *hide_thread_events,
+            EventFocusedPaginationMode::Thread { .. } => false,
+        };
+
+        let events = if hide_thread_events {
+            events.into_iter().filter(|event| extract_thread_root(event.raw()).is_none()).collect()
+        } else {
+            events
+        };
 
         // Replace the gap and insert the new events.
         self.chunk.push_backwards_pagination_events(Some(gap_id), new_gap, &events);
@@ -405,7 +431,7 @@ impl EventFocusedCacheInner {
 
         // Fetch events based on pagination mode.
         let (events, new_token) = match &self.pagination_mode {
-            EventFocusedPaginationMode::Room => {
+            EventFocusedPaginationMode::Room { .. } => {
                 Self::fetch_room_forwards(&room, num_events, &token).await?
             }
             EventFocusedPaginationMode::Thread { thread_root } => {
@@ -415,6 +441,17 @@ impl EventFocusedCacheInner {
 
         let hit_end = new_token.is_none();
         let new_gap = new_token.map(|t| Gap { token: t });
+
+        let hide_thread_events = match &self.pagination_mode {
+            EventFocusedPaginationMode::Room { hide_thread_events } => *hide_thread_events,
+            EventFocusedPaginationMode::Thread { .. } => false,
+        };
+
+        let events = if hide_thread_events {
+            events.into_iter().filter(|event| extract_thread_root(event.raw()).is_none()).collect()
+        } else {
+            events
+        };
 
         // Replace the gap and insert new events.
         self.chunk.push_forwards_pagination_events(Some(gap_id), new_gap, &events);
@@ -497,7 +534,7 @@ impl EventFocusedCache {
             inner: Arc::new(RwLock::new(EventFocusedCacheInner {
                 room,
                 focused_event_id,
-                pagination_mode: EventFocusedPaginationMode::Room,
+                pagination_mode: EventFocusedPaginationMode::Room { hide_thread_events: false },
                 chunk: EventLinkedChunk::new(),
                 sender: Sender::new(32),
                 linked_chunk_update_sender,

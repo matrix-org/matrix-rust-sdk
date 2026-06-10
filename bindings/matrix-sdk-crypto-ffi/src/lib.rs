@@ -1015,18 +1015,18 @@ impl PkEncryption {
     }
 
     /// Encrypt a message using this [`PkEncryption`] object.
-    pub fn encrypt(&self, plaintext: &str) -> PkMessage {
+    pub fn encrypt(&self, plaintext: &str) -> Option<PkMessage> {
         use vodozemac::base64_encode;
 
-        let message = self.inner.encrypt(plaintext.as_ref());
+        let message = self.inner.encrypt(plaintext.as_ref()).ok()?;
 
         let vodozemac::pk_encryption::Message { ciphertext, mac, ephemeral_key } = message;
 
-        PkMessage {
+        Some(PkMessage {
             ciphertext: base64_encode(ciphertext),
             mac: base64_encode(mac),
             ephemeral_key: ephemeral_key.to_base64(),
-        }
+        })
     }
 }
 

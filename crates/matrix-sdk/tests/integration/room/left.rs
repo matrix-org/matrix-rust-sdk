@@ -144,9 +144,11 @@ async fn test_forget_banned_room() {
 
     // Make the room banned
     let room = client.get_room(&DEFAULT_TEST_ROOM_ID).unwrap();
-    let mut room_info = room.clone_info();
-    room_info.mark_as_banned();
-    room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+    room.update_room_info(|mut room_info| {
+        room_info.mark_as_banned();
+        (room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+    })
+    .await;
     assert_eq!(room.state(), RoomState::Banned);
 
     room.forget().await.unwrap();

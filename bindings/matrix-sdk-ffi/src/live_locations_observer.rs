@@ -16,8 +16,9 @@ use std::{fmt::Debug, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use futures_util::StreamExt as _;
-use matrix_sdk::live_location_share::{
-    LiveLocationShare as SdkLiveLocationShare, LiveLocationShares as SdkLiveLocationShares,
+use matrix_sdk::live_locations_observer::{
+    BeaconInfoUpdate as SdkBeaconInfoUpdate, LiveLocationShare as SdkLiveLocationShare,
+    LiveLocationsObserver as SdkLiveLocationsObserver,
 };
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 
@@ -44,6 +45,19 @@ pub struct LiveLocationShare {
     /// The duration that the location sharing will be live.
     /// Meaning that the location will stop being shared at ts + timeout.
     pub timeout: u64,
+    /// The event ID of the beacon_info state event for this share.
+    pub beacon_id: String,
+}
+
+/// A beacon_info update for the current user's live location share.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct BeaconInfoUpdate {
+    /// The room where the beacon_info event changed.
+    pub room_id: String,
+    /// The beacon_info event ID.
+    pub event_id: String,
+    /// Whether the share is currently live.
+    pub live: bool,
 }
 
 /// An update to the list of active live location shares.
@@ -68,7 +82,7 @@ pub enum LiveLocationShareUpdate {
 
 /// Listener for live location share updates.
 #[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+pub trait LiveLocationsListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     /// Called with a batch of [`LiveLocationShareUpdate`]s whenever the list
     /// of active shares changes.
     fn on_update(&self, updates: Vec<LiveLocationShareUpdate>);
@@ -76,22 +90,22 @@ pub trait LiveLocationShareListener: SendOutsideWasm + SyncOutsideWasm + Debug {
 
 /// Tracks active live location shares in a room.
 ///
-/// Holds the SDK [`SdkLiveLocationShares`] which keeps the beacon and
+/// Holds the SDK [`SdkLiveLocationsObserver`] which keeps the beacon and
 /// beacon_info event handlers registered for as long as this object is alive.
-/// Call [`LiveLocationShares::subscribe`] to start receiving updates.
+/// Call [`LiveLocationsObserver::subscribe`] to start receiving updates.
 #[derive(uniffi::Object)]
-pub struct LiveLocationShares {
-    inner: SdkLiveLocationShares,
+pub struct LiveLocationsObserver {
+    inner: SdkLiveLocationsObserver,
 }
 
-impl LiveLocationShares {
-    pub fn new(inner: SdkLiveLocationShares) -> Self {
+impl LiveLocationsObserver {
+    pub fn new(inner: SdkLiveLocationsObserver) -> Self {
         Self { inner }
     }
 }
 
 #[matrix_sdk_ffi_macros::export]
-impl LiveLocationShares {
+impl LiveLocationsObserver {
     /// Subscribe to changes in the list of active live location shares.
     ///
     /// Immediately calls `listener` with a `Reset` update containing the
@@ -100,8 +114,8 @@ impl LiveLocationShares {
     ///
     /// Returns a [`TaskHandle`] that, when dropped, stops the listener.
     /// The event handlers remain registered for as long as this
-    /// [`LiveLocationShares`] object is alive.
-    pub fn subscribe(&self, listener: Box<dyn LiveLocationShareListener>) -> Arc<TaskHandle> {
+    /// [`LiveLocationsObserver`] object is alive.
+    pub fn subscribe(&self, listener: Box<dyn LiveLocationsListener>) -> Arc<TaskHandle> {
         let (initial_values, mut stream) = self.inner.subscribe();
 
         if !initial_values.is_empty() {
@@ -120,6 +134,7 @@ impl LiveLocationShares {
 
 impl From<SdkLiveLocationShare> for LiveLocationShare {
     fn from(share: SdkLiveLocationShare) -> Self {
+        let beacon_id = share.beacon_id.into();
         let start_ts = share.beacon_info.ts.0.into();
         let timeout = share.beacon_info.timeout.as_millis() as u64;
         let asset = share.beacon_info.asset.type_.into();
@@ -133,7 +148,23 @@ impl From<SdkLiveLocationShare> for LiveLocationShare {
             },
             ts: l.ts.0.into(),
         });
-        LiveLocationShare { user_id: share.user_id.to_string(), last_location, start_ts, timeout }
+        LiveLocationShare {
+            user_id: share.user_id.to_string(),
+            last_location,
+            start_ts,
+            timeout,
+            beacon_id,
+        }
+    }
+}
+
+impl From<SdkBeaconInfoUpdate> for BeaconInfoUpdate {
+    fn from(update: SdkBeaconInfoUpdate) -> Self {
+        Self {
+            room_id: update.room_id.to_string(),
+            event_id: update.event_id.to_string(),
+            live: update.content.live,
+        }
     }
 }
 

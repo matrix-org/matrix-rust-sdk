@@ -17,7 +17,7 @@ use ruma::events::{AnyRoomAccountDataEvent, RoomAccountDataEventType, tag::Tags}
 use serde::{Deserialize, Serialize};
 
 use super::Room;
-use crate::store::Result as StoreResult;
+use crate::{StateStore, store::Result as StoreResult};
 
 impl Room {
     /// Get the `Tags` for this room.
@@ -83,7 +83,7 @@ mod tests {
 
     use super::{super::BaseRoomInfo, RoomNotableTags};
     use crate::{
-        BaseClient, RoomState, SessionMeta,
+        BaseClient, DmRoomDefinition, RoomState, SessionMeta,
         client::ThreadingSupport,
         response_processors as processors,
         store::{RoomLoadSettings, StoreConfig},
@@ -95,6 +95,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
 
         client
@@ -143,6 +144,7 @@ mod tests {
         processors::changes::save_and_apply(
             context.clone(),
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )
@@ -171,6 +173,7 @@ mod tests {
         processors::changes::save_and_apply(
             context,
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )
@@ -191,6 +194,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
 
         client
@@ -239,6 +243,7 @@ mod tests {
         processors::changes::save_and_apply(
             context.clone(),
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )
@@ -267,6 +272,7 @@ mod tests {
         processors::changes::save_and_apply(
             context,
             &client.state_store,
+            &client.state_store_lock().lock().await,
             &client.ignore_user_list_changes,
             None,
         )

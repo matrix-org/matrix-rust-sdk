@@ -9,8 +9,9 @@ use matrix_sdk::{
 use matrix_sdk_common::executor::spawn;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Paragraph},
+    widgets::{Block, Paragraph, WidgetRef as _},
 };
+use ratatui_textarea::TextArea;
 use throbber_widgets_tui::{Throbber, ThrobberState};
 use tokio::{
     sync::{
@@ -19,7 +20,6 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tui_textarea::TextArea;
 
 use super::ShouldExit;
 use crate::widgets::{Hyperlink, recovery::create_centered_throbber_area};
@@ -327,7 +327,7 @@ impl Widget for &mut RecoveringView {
                     );
 
                     Text::from("To finish the reset approve it at the ").render(left, buf);
-                    hyperlink.render(right, buf);
+                    hyperlink.render_ref(right, buf);
                 }
                 ResetState::Waiting { .. } | ResetState::ResettingMatrixAuth => {
                     let throbber = Throbber::default()

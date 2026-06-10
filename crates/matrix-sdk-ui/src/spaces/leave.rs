@@ -102,7 +102,7 @@ impl LeaveSpaceHandle {
             let is_last_owner = joined_owner_ids == [room.own_user_id()];
 
             rooms.push(LeaveSpaceRoom {
-                space_room: SpaceRoom::new_from_known(&room, 0),
+                space_room: SpaceRoom::new_from_known(&room, 0).await,
                 is_last_owner,
                 are_creators_privileged,
             });

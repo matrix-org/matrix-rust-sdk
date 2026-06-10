@@ -25,19 +25,19 @@ use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
 
 use crate::{
-    authentication::OidcConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
+    authentication::OAuthConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
 };
 
 /// Handler for logging in with a QR code.
 #[derive(uniffi::Object)]
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
-    oidc_configuration: OidcConfiguration,
+    oauth_configuration: OAuthConfiguration,
 }
 
 impl LoginWithQrCodeHandler {
-    pub(crate) fn new(oauth: OAuth, oidc_configuration: OidcConfiguration) -> Self {
-        Self { oauth, oidc_configuration }
+    pub(crate) fn new(oauth: OAuth, oauth_configuration: OAuthConfiguration) -> Self {
+        Self { oauth, oauth_configuration }
     }
 }
 
@@ -71,9 +71,9 @@ impl LoginWithQrCodeHandler {
         progress_listener: Box<dyn QrLoginProgressListener>,
     ) -> Result<(), HumanQrLoginError> {
         let registration_data = self
-            .oidc_configuration
+            .oauth_configuration
             .registration_data()
-            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+            .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
         let login =
             self.oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
@@ -116,9 +116,9 @@ impl LoginWithQrCodeHandler {
         progress_listener: Box<dyn GeneratedQrLoginProgressListener>,
     ) -> Result<(), HumanQrLoginError> {
         let registration_data = self
-            .oidc_configuration
+            .oauth_configuration
             .registration_data()
-            .map_err(|_| HumanQrLoginError::OidcMetadataInvalid)?;
+            .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
         let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
 
@@ -322,8 +322,8 @@ pub enum HumanQrLoginError {
     Unknown,
     #[error("The homeserver doesn't provide sliding sync in its configuration.")]
     SlidingSyncNotAvailable,
-    #[error("Unable to use OIDC as the supplied client metadata is invalid.")]
-    OidcMetadataInvalid,
+    #[error("Unable to use OAuth as the supplied client metadata is invalid.")]
+    OAuthMetadataInvalid,
     #[error("The other device is not signed in and as such can't sign in other devices.")]
     OtherDeviceNotSignedIn,
     #[error("The check code was already sent.")]
@@ -423,7 +423,7 @@ pub enum HumanQrGrantLoginError {
     NotFound,
 
     /// An unknown error has happened.
-    #[error("An unknown error has happened.")]
+    #[error("An unknown error has happened: {0}")]
     Unknown(String),
 
     /// The requested device was not returned by the homeserver.

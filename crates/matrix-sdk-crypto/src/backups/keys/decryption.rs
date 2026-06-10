@@ -397,7 +397,7 @@ mod tests {
         let decryption_key = BackupDecryptionKey::new();
         let encryption_key = decryption_key.megolm_v1_public_key();
 
-        let encrypted = encryption_key.encrypt(session).await;
+        let encrypted = encryption_key.encrypt(session).await.unwrap();
 
         let _ = decryption_key
             .decrypt_session_data(encrypted.session_data)

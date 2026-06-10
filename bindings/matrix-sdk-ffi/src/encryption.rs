@@ -863,29 +863,27 @@ impl IdentityResetHandle {
 pub enum CrossSigningResetAuthType {
     /// The homeserver requires user-interactive authentication.
     Uiaa,
-    // /// OIDC is used for authentication and the user needs to open a URL to
-    // /// approve the upload of cross-signing keys.
-    Oidc {
-        info: OidcCrossSigningResetInfo,
-    },
+    /// OAuth is used for authentication and the user needs to open a URL to
+    /// approve the upload of cross-signing keys.
+    OAuth { info: OAuthCrossSigningResetInfo },
 }
 
 impl From<&matrix_sdk::encryption::CrossSigningResetAuthType> for CrossSigningResetAuthType {
     fn from(value: &matrix_sdk::encryption::CrossSigningResetAuthType) -> Self {
         match value {
             encryption::CrossSigningResetAuthType::Uiaa(_) => Self::Uiaa,
-            encryption::CrossSigningResetAuthType::OAuth(info) => Self::Oidc { info: info.into() },
+            encryption::CrossSigningResetAuthType::OAuth(info) => Self::OAuth { info: info.into() },
         }
     }
 }
 
 #[derive(uniffi::Record)]
-pub struct OidcCrossSigningResetInfo {
+pub struct OAuthCrossSigningResetInfo {
     /// The URL where the user can approve the reset of the cross-signing keys.
     pub approval_url: String,
 }
 
-impl From<&matrix_sdk::encryption::OAuthCrossSigningResetInfo> for OidcCrossSigningResetInfo {
+impl From<&matrix_sdk::encryption::OAuthCrossSigningResetInfo> for OAuthCrossSigningResetInfo {
     fn from(value: &matrix_sdk::encryption::OAuthCrossSigningResetInfo) -> Self {
         Self { approval_url: value.approval_url.to_string() }
     }

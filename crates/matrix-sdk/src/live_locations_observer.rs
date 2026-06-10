@@ -24,7 +24,7 @@ use imbl::Vector;
 use matrix_sdk_base::{deserialized_responses::SyncOrStrippedState, event_cache::Event};
 use matrix_sdk_common::locks::Mutex;
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
+    MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncStateEvent,
         beacon::OriginalSyncBeaconEvent,
@@ -59,22 +59,33 @@ pub struct LiveLocationShare {
     pub beacon_info: BeaconInfoEventContent,
 }
 
+/// A `beacon_info` update for the current user in one room.
+#[derive(Clone, Debug)]
+pub struct BeaconInfoUpdate {
+    /// The room where the `beacon_info` update was observed.
+    pub room_id: OwnedRoomId,
+    /// The event ID of the `beacon_info` event.
+    pub event_id: OwnedEventId,
+    /// The `beacon_info` event content.
+    pub content: BeaconInfoEventContent,
+}
+
 /// Tracks active live location shares in a room using an [`ObservableVector`].
 ///
 /// Registers event handlers for beacon (location update) and beacon info
 /// (share started/stopped) events and reflects changes into a vector that
-/// callers can subscribe to via [`LiveLocationShares::subscribe`].
+/// callers can subscribe to via [`LiveLocationsObserver::subscribe`].
 ///
 /// Event handlers are automatically unregistered when this struct is dropped.
 #[derive(Debug)]
-pub struct LiveLocationShares {
+pub struct LiveLocationsObserver {
     shares: Arc<Mutex<ObservableVector<LiveLocationShare>>>,
     _beacon_guard: EventHandlerDropGuard,
     _beacon_info_guard: EventHandlerDropGuard,
 }
 
-impl LiveLocationShares {
-    /// Create a new [`LiveLocationShares`] for the given room.
+impl LiveLocationsObserver {
+    /// Create a new [`LiveLocationsObserver`] for the given room.
     ///
     /// Loads the current active shares from the event cache as initial state,
     /// then begins listening for beacon events to keep the vector up-to-date.

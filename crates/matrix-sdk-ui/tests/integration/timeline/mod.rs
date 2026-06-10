@@ -60,6 +60,7 @@ mod replies;
 mod subscribe;
 mod thread;
 
+mod rtc;
 pub(crate) mod sliding_sync;
 
 #[async_test]

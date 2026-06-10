@@ -26,24 +26,22 @@ use std::{
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_core::Stream;
-use futures_util::StreamExt;
+use futures_util::{StreamExt, join};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
     DecryptionSettings, store::LockableCryptoStore, store::types::RoomPendingKeyBundleDetails,
 };
 use matrix_sdk_base::{
-    BaseClient, RoomInfoNotableUpdate, RoomState, RoomStateFilter, SendOutsideWasm, SessionMeta,
-    StateStoreDataKey, StateStoreDataValue, StoreError, SyncOutsideWasm, ThreadingSupport,
+    BaseClient, DmRoomDefinition, RoomInfoNotableUpdate, RoomState, RoomStateFilter,
+    SendOutsideWasm, SessionMeta, StateStoreDataKey, StateStoreDataValue, StoreError,
+    SyncOutsideWasm, ThreadingSupport,
     event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     store::{DynStateStore, RoomLoadSettings, SupportedVersionsResponse, WellKnownResponse},
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{
-    cross_process_lock::CrossProcessLockConfig,
-    ttl_cache::{TtlCache, TtlValue},
-};
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValue};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -57,15 +55,13 @@ use ruma::{
             authenticated_media,
             device::{self, delete_devices, get_devices, update_device},
             directory::{get_public_rooms, get_public_rooms_filtered},
-            discovery::{
-                discover_homeserver::{self, RtcFocusInfo},
-                get_supported_versions,
-            },
+            discovery::{discover_homeserver, get_supported_versions},
             filter::{FilterDefinition, create_filter::v3::Request as FilterUploadRequest},
             knock::knock_room,
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
             room::create_room,
+            rtc::RtcTransport,
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
             threads::get_thread_subscriptions_changes,
@@ -76,7 +72,7 @@ use ruma::{
         path_builder::PathBuilder,
     },
     assign,
-    events::direct::DirectUserIdentifier,
+    events::{beacon_info::OriginalSyncBeaconInfoEvent, direct::DirectUserIdentifier},
     push::Ruleset,
     time::Instant,
 };
@@ -110,6 +106,7 @@ use crate::{
     },
     http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
+    live_locations_observer::BeaconInfoUpdate,
     media::MediaError,
     notification_settings::NotificationSettings,
     room::RoomMember,
@@ -181,6 +178,23 @@ pub struct ServerVendorInfo {
     pub version: String,
 }
 
+/// Information about a map tile server advertised by the homeserver through the
+/// `tile_server` field of the matrix client well-known (MSC3488).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
+pub struct TileServerInfo {
+    /// The URL of a map tile server's `style.json` file. See the
+    /// [Mapbox Style Specification](https://docs.mapbox.com/mapbox-gl-js/style-spec/)
+    /// for more details.
+    pub map_style_url: String,
+}
+
+impl From<discover_homeserver::TileServerInfo> for TileServerInfo {
+    fn from(value: discover_homeserver::TileServerInfo) -> Self {
+        Self { map_style_url: value.map_style_url }
+    }
+}
+
 /// An async/await enabled Matrix client.
 ///
 /// All of the state is held in an `Arc` so the `Client` can be cloned freely.
@@ -245,6 +259,27 @@ pub(crate) struct ClientLocks {
 
     #[cfg(feature = "e2e-encryption")]
     pub(crate) cross_process_crypto_store_lock: OnceCell<CrossProcessLock<LockableCryptoStore>>,
+
+    /// Latest "generation" of data known by the crypto store.
+    ///
+    /// This is a counter that only increments, set in the database (and can
+    /// wrap). It's incremented whenever some process acquires a lock for the
+    /// first time. *This assumes the crypto store lock is being held, to
+    /// avoid data races on writing to this value in the store*.
+    ///
+    /// The current process will maintain this value in local memory and in the
+    /// DB over time. Observing a different value than the one read in
+    /// memory, when reading from the store indicates that somebody else has
+    /// written into the database under our feet.
+    ///
+    /// TODO: this should live in the `OlmMachine`, since it's information
+    /// related to the lock. As of today (2023-07-28), we blow up the entire
+    /// olm machine when there's a generation mismatch. So storing the
+    /// generation in the olm machine would make the client think there's
+    /// *always* a mismatch, and that's why we need to store the generation
+    /// outside the `OlmMachine`.
+    #[cfg(feature = "e2e-encryption")]
+    pub(crate) crypto_store_generation: Arc<Mutex<Option<u64>>>,
 }
 
 pub(crate) struct ClientInner {
@@ -405,7 +440,8 @@ impl ClientInner {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
             well_known: Cache::with_value(well_known),
-            server_metadata: Mutex::new(TtlCache::new()),
+            server_metadata: Cache::new(),
+            homeserver_capabilities: Cache::new(),
         };
 
         let client = Self {
@@ -451,19 +487,15 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")]
         client.e2ee.initialize_tasks(&client);
 
-        let _ = client
-            .event_cache
-            .get_or_init(|| async {
-                EventCache::new(&client, client.base_client.event_cache_store().clone())
-            })
-            .await;
+        let init_event_cache = client.event_cache.get_or_init(|| async {
+            EventCache::new(&client, client.base_client.event_cache_store().clone())
+        });
 
-        let _ = client
+        let init_thread_subscription_catchup = client
             .thread_subscription_catchup
-            .get_or_init(|| async {
-                ThreadSubscriptionCatchup::new(Client { inner: client.clone() })
-            })
-            .await;
+            .get_or_init(|| ThreadSubscriptionCatchup::new(Client { inner: client.clone() }));
+
+        let _ = join!(init_event_cache, init_thread_subscription_catchup);
 
         client
     }
@@ -1068,6 +1100,33 @@ impl Client {
         )
     }
 
+    /// Subscribe to future `beacon_info` updates for the current user across
+    /// all rooms.
+    ///
+    /// This stream is push-only: it emits only future updates observed during
+    /// sync processing and does not replay existing state.
+    pub fn observe_own_beacon_info_updates(
+        &self,
+    ) -> Result<impl Stream<Item = BeaconInfoUpdate> + use<>> {
+        let observer = self.observe_events::<OriginalSyncBeaconInfoEvent, Room>();
+        let mut stream = observer.subscribe();
+        let own_user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+        Ok(async_stream::stream! {
+            let _observer = observer;
+
+            while let Some((event, room)) = stream.next().await {
+                if event.state_key != own_user_id {
+                    continue;
+                }
+                yield BeaconInfoUpdate {
+                    room_id: room.room_id().to_owned(),
+                    event_id: event.event_id,
+                    content: event.content,
+                };
+            }
+        })
+    }
+
     /// Remove the event handler associated with the handle.
     ///
     /// Note that you **must not** call `remove_event_handler` from the
@@ -1643,17 +1702,11 @@ impl Client {
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
     ) -> Result<Room> {
-        let pre_join_info = {
-            match alias.try_into() {
-                Ok(room_id) => self.prepare_join_room_by_id(room_id).await,
-                Err(_) => {
-                    // The id is a room alias. We assume (possibly incorrectly?) that we are not
-                    // responding to an invitation to the room, and therefore don't need to handle
-                    // things that happen as a result of invites.
-                    None
-                }
-            }
+        let room_id = match <&RoomId>::try_from(alias) {
+            Ok(room_id) => room_id,
+            Err(room_alias) => &self.resolve_room_alias(room_alias).await?.room_id,
         };
+        let pre_join_info = self.prepare_join_room_by_id(room_id).await;
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             via: server_names.to_owned(),
         });
@@ -1790,18 +1843,36 @@ impl Client {
         self.create_room(request).await
     }
 
-    /// Get the existing DM room with the given user, if any.
+    /// Get the first existing DM room with the given user, if any.
     pub fn get_dm_room(&self, user_id: &UserId) -> Option<Room> {
+        self.get_dm_rooms(user_id).next()
+    }
+
+    /// Get an iterator with the existing DM rooms for the given user.
+    pub fn get_dm_rooms(&self, user_id: &UserId) -> impl Iterator<Item = Room> {
         let rooms = self.joined_rooms();
 
+        let dm_definition = &self.base_client().dm_room_definition;
+
         // Find the room we share with the `user_id` and only with `user_id`
-        let room = rooms.into_iter().find(|r| {
+        let rooms = rooms.into_iter().filter(move |r| {
             let targets = r.direct_targets();
-            targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id))
+            let targets_match =
+                targets.len() == 1 && targets.contains(<&DirectUserIdentifier>::from(user_id));
+            match dm_definition {
+                DmRoomDefinition::MatrixSpec => targets_match,
+                DmRoomDefinition::TwoMembers => {
+                    let service_members_count =
+                        r.service_members().map(|s| s.len()).unwrap_or_default() as u64;
+                    let active_non_service_members =
+                        r.active_members_count().saturating_sub(service_members_count);
+                    targets_match && active_non_service_members <= 2
+                }
+            }
         });
 
-        trace!(?user_id, ?room, "Found DM room with user");
-        room
+        trace!(?user_id, ?rooms, "Found DM rooms with user");
+        rooms
     }
 
     /// Search the homeserver's directory for public rooms with a filter.
@@ -2188,7 +2259,7 @@ impl Client {
 
                 if let Err(error) = guard.as_ref() {
                     // There was an error in the previous refresh, return it.
-                    return Err(HttpError::SupportedVersions(error.clone()));
+                    return Err(HttpError::Cached(error.clone()));
                 }
 
                 // Reuse the data if it was cached and it hasn't expired.
@@ -2211,7 +2282,7 @@ impl Client {
             Err(error) => {
                 let error = Arc::new(error);
                 *supported_versions_guard = Err(error.clone());
-                return Err(HttpError::SupportedVersions(error));
+                return Err(HttpError::Cached(error));
             }
         };
 
@@ -2479,14 +2550,14 @@ impl Client {
     ///
     /// # Examples
     /// ```no_run
-    /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::discovery::discover_homeserver::RtcFocusInfo};
+    /// # use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::rtc::RtcTransport};
     /// # use url::Url;
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
     /// let rtc_foci = client.rtc_foci().await?;
     /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
-    ///     RtcFocusInfo::LiveKit(info) => Some(info),
+    ///     RtcTransport::LiveKit(info) => Some(info),
     ///     _ => None,
     /// });
     /// if let Some(info) = default_livekit_focus_info {
@@ -2494,10 +2565,19 @@ impl Client {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcFocusInfo>> {
+    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
         let well_known = self.well_known().await;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
+    }
+
+    /// Get information about the homeserver's advertised map tile server, if
+    /// any, by fetching the well-known file from the server or the cache.
+    ///
+    /// Returns `None` if the homeserver has not advertised a tile server in its
+    /// well-known, or if the well-known is otherwise unavailable.
+    pub async fn tile_server(&self) -> Option<TileServerInfo> {
+        self.well_known().await.and_then(|well_known| well_known.tile_server).map(Into::into)
     }
 
     /// Empty the well-known cache.
@@ -3341,6 +3421,55 @@ impl Client {
         self.inner.thread_subscription_catchup.get().unwrap()
     }
 
+    /// Pause the client for background suspension.
+    ///
+    /// This method:
+    /// 1. Disables all send queues (prevents new message sends).
+    /// 2. Pauses all database stores, waiting for in-flight operations and
+    ///    releasing all connections and file locks.
+    ///
+    /// Call [`Client::resume()`] when the app returns to the foreground.
+    ///
+    /// # iOS
+    ///
+    /// Call this before the app is suspended to avoid `0xdead10cc` kills.
+    /// Typically called from
+    /// [`applicationDidEnterBackground`](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/applicationdidenterbackground(_:))
+    /// or an equivalent SwiftUI lifecycle event, *after* stopping the
+    /// `matrix_sdk_ui::sync_service::SyncService`.
+    pub async fn pause(&self) -> Result<()> {
+        info!("Client::pause — releasing database resources");
+
+        // Disable send queues so no new sends hit the stores.
+        self.send_queue().set_enabled(false).await;
+
+        // Close all stores (waits for in-flight ops, closes connections).
+        self.base_client().close_stores().await?;
+
+        info!("Client::pause — complete, all database connections released");
+        Ok(())
+    }
+
+    /// Resume the client after a [`Client::pause()`].
+    ///
+    /// Re-acquires store resources and re-enables send queues.
+    ///
+    /// If your app stopped the `matrix_sdk_ui::sync_service::SyncService`
+    /// before pausing, restart it separately as appropriate for your app
+    /// lifecycle.
+    pub async fn resume(&self) -> Result<()> {
+        info!("Client::resume — re-acquiring database resources");
+
+        // Reopen stores (creates new connection pools).
+        self.base_client().reopen_stores().await?;
+
+        // Re-enable send queues.
+        self.send_queue().set_enabled(true).await;
+
+        info!("Client::resume — complete");
+        Ok(())
+    }
+
     /// Perform database optimizations if any are available, i.e. vacuuming in
     /// SQLite.
     ///
@@ -3421,6 +3550,12 @@ impl Client {
         room_id: &RoomId,
     ) -> Result<Option<RoomPendingKeyBundleDetails>> {
         Ok(self.base_client().get_pending_key_bundle_details_for_room(room_id).await?)
+    }
+
+    /// Returns the [`DmRoomDefinition`] this client uses to check if a room is
+    /// a DM.
+    pub fn dm_room_definition(&self) -> &DmRoomDefinition {
+        &self.inner.base_client.dm_room_definition
     }
 }
 
@@ -3503,7 +3638,7 @@ pub(crate) mod tests {
     use matrix_sdk_base::{
         RoomState,
         store::{MemoryStore, StoreConfig},
-        ttl_cache::TtlValue,
+        ttl::TtlValue,
     };
     use matrix_sdk_test::{
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
@@ -3517,10 +3652,7 @@ pub(crate) mod tests {
         RoomId, ServerName, UserId,
         api::{
             FeatureFlag, MatrixVersion,
-            client::{
-                discovery::discover_homeserver::RtcFocusInfo,
-                room::create_room::v3::Request as CreateRoomRequest,
-            },
+            client::{room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport},
         },
         assign,
         events::{
@@ -3971,7 +4103,7 @@ pub(crate) mod tests {
         let server_url = server.uri();
         let domain = server_url.strip_prefix("http://").unwrap();
         let server_name = <&ServerName>::try_from(domain).unwrap();
-        let rtc_foci = vec![RtcFocusInfo::livekit("https://livekit.example.com".to_owned())];
+        let rtc_foci = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
 
         let well_known_mock = server
             .mock_well_known()
@@ -4048,7 +4180,7 @@ pub(crate) mod tests {
     #[async_test]
     async fn test_missing_well_known_caching() {
         let server = MatrixMockServer::new().await;
-        let rtc_foci: Vec<RtcFocusInfo> = vec![];
+        let rtc_foci: Vec<RtcTransport> = vec![];
 
         let well_known_mock = server
             .mock_well_known()
@@ -4258,6 +4390,41 @@ pub(crate) mod tests {
             )
             .await;
         assert_matches!(ret, Ok(()));
+    }
+
+    #[async_test]
+    async fn test_join_room_by_id_or_alias() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let target_room_id = room_id!("!some_id:matrix.org");
+        let target_alias = room_alias_id!("#some_alias:matrix.org");
+
+        Mock::given(method("POST"))
+            .and(path_regex("^/_matrix/client/v3/join/.*$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "room_id": target_room_id
+            })))
+            .mount(server.server())
+            .await;
+
+        server
+            .mock_room_directory_resolve_alias()
+            .ok(target_room_id.as_str(), Vec::new())
+            .mount()
+            .await;
+
+        server.mock_room_join(target_room_id).ok().mount().await;
+
+        let ret = client.join_room_by_id_or_alias(target_alias.into(), &[]).await;
+        assert!(ret.is_ok());
+
+        let ret = client.join_room_by_id_or_alias(target_room_id.into(), &[]).await;
+        assert!(ret.is_ok());
     }
 
     #[async_test]

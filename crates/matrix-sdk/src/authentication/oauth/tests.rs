@@ -1,6 +1,8 @@
+use std::time::Duration;
+
 use anyhow::Context as _;
 use assert_matches::assert_matches;
-use matrix_sdk_base::store::RoomLoadSettings;
+use matrix_sdk_base::{sleep::sleep, store::RoomLoadSettings, ttl::TtlValue};
 use matrix_sdk_test::async_test;
 use oauth2::{ClientId, CsrfToken, PkceCodeChallenge, RedirectUrl, Scope};
 use ruma::{
@@ -9,6 +11,7 @@ use ruma::{
 };
 use tokio::sync::broadcast::error::TryRecvError;
 use url::Url;
+use wiremock::ResponseTemplate;
 
 use super::{
     AuthorizationCode, AuthorizationError, AuthorizationResponse, OAuth, OAuthAuthorizationData,
@@ -20,6 +23,9 @@ use crate::{
         AuthorizationValidationData, ClientRegistrationData, OAuthAuthorizationCodeError,
         error::{AuthorizationCodeErrorResponseType, OAuthClientRegistrationError},
     },
+    client::caches::CachedValue,
+    config::RequestConfig,
+    executor::spawn,
     test_utils::{
         client::{
             MockClientBuilder, mock_prev_session_tokens_with_refresh,
@@ -678,35 +684,101 @@ async fn test_server_metadata_cache() {
     let server = MatrixMockServer::new().await;
 
     let oauth_server = server.oauth();
-    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+    oauth_server.mock_server_metadata().ok().expect(2).mount().await;
 
     let client = server.client_builder().logged_in_with_oauth().build().await;
     let oauth = client.oauth();
 
     // The cache should not contain the entry.
-    assert!(!client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::NotSet);
 
     oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
 
     // Check that the server metadata has been inserted into the cache.
-    assert!(client.inner.caches.server_metadata.lock().await.contains("SERVER_METADATA"));
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(_));
 
     // Another call doesn't make another request for the metadata.
-    oauth.cached_server_metadata().await.expect("We should be able to fetch the server_metadata");
+    let metadata = oauth
+        .cached_server_metadata()
+        .await
+        .expect("We should be able to fetch the server_metadata");
+
+    // Force an expiry of the cached data.
+    let mut ttl_value = TtlValue::new(metadata);
+    ttl_value.expire();
+    client.inner.caches.server_metadata.set_value(ttl_value);
+
+    // Call the method to trigger a cache refresh background task.
+    oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
+
+    // We wait for the task to finish, the endpoint should have been called again.
+    sleep(Duration::from_secs(1)).await;
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(value) if !value.has_expired());
+}
+
+#[async_test]
+async fn test_server_metadata_cache_refresh_lock() {
+    let server = MatrixMockServer::new().await;
+
+    let oauth_server = server.oauth();
+    // Make the first request to the endpoint fail after a second.
+    oauth_server
+        .mock_server_metadata()
+        .respond_with(ResponseTemplate::new(500).set_delay(Duration::from_secs(1)))
+        .mock_once()
+        .mount()
+        .await;
+    // The following request will succeed.
+    oauth_server.mock_server_metadata().ok().expect(1).mount().await;
+
+    let client = server
+        .client_builder()
+        .logged_in_with_oauth()
+        // Disable retries so the first request succeeds or fails without waiting.
+        .on_builder(|builder| builder.request_config(RequestConfig::new().disable_retry()))
+        .build()
+        .await;
+    let oauth = client.oauth();
+
+    // Spawn the first request that will fail after one second.
+    let oauth_clone = oauth.clone();
+    let first_request = spawn(async move { oauth_clone.server_metadata().await });
+
+    // Wait to make sure that the first request started.
+    sleep(Duration::from_millis(200)).await;
+
+    // Spawn the second and third requests. The first that acquires a lock will
+    // retry the request and succeed, and the second one will read the value from
+    // the cache.
+    let oauth_clone = oauth.clone();
+    let second_request = spawn(async move { oauth_clone.server_metadata().await });
+    let third_request = spawn(async move { oauth.server_metadata().await });
+
+    first_request.await.expect("task was not cancelled").unwrap_err();
+    second_request.await.expect("task was not cancelled").unwrap();
+    third_request.await.expect("task was not cancelled").unwrap();
 }
 
 #[async_test]
 async fn test_server_metadata() {
     let server = MatrixMockServer::new().await;
+    let oauth_server = server.oauth();
+
     let client = server.client_builder().unlogged().build().await;
     let oauth = client.oauth();
 
-    // The endpoint is not mocked so it is not supported.
+    // The endpoint is not supported.
+    oauth_server
+        .mock_server_metadata()
+        .error_unrecognized()
+        .mock_once()
+        .named("unrecognized auth metadata")
+        .mount()
+        .await;
     let error = oauth.server_metadata().await.unwrap_err();
     assert!(error.is_not_supported());
 
     // Mock the `GET /auth_metadata` endpoint.
-    let oauth_server = server.oauth();
     oauth_server.mock_server_metadata().ok().expect(1).named("auth_metadata").mount().await;
 
     oauth.server_metadata().await.unwrap();

@@ -56,7 +56,7 @@ use tracing::{Level, debug, enabled, info, instrument, warn};
 #[cfg(feature = "e2e-encryption")]
 use crate::RoomMemberships;
 use crate::{
-    RoomStateFilter, SessionMeta,
+    RoomStateFilter, SessionMeta, StateStore,
     deserialized_responses::DisplayName,
     error::{Error, Result},
     event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
@@ -66,9 +66,9 @@ use crate::{
         Room, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomMembersUpdate, RoomState,
     },
     store::{
-        BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult, RoomLoadSettings,
-        StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt, StoreConfig,
-        ambiguity_map::AmbiguityCache,
+        AvatarCache, BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult,
+        RoomLoadSettings, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
+        StoreConfig, ambiguity_map::AmbiguityCache,
     },
     sync::{RoomUpdates, SyncResponse},
 };
@@ -80,7 +80,9 @@ use crate::{
 /// rather through `matrix_sdk::Client`.
 ///
 /// ```rust
-/// use matrix_sdk_base::{BaseClient, ThreadingSupport, store::StoreConfig};
+/// use matrix_sdk_base::{
+///     BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig,
+/// };
 /// use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 ///
 /// let client = BaseClient::new(
@@ -88,6 +90,7 @@ use crate::{
 ///         "cross-process-holder-name".to_owned(),
 ///     )),
 ///     ThreadingSupport::Disabled,
+///     DmRoomDefinition::default(),
 /// );
 /// ```
 #[derive(Clone)]
@@ -135,6 +138,9 @@ pub struct BaseClient {
 
     x509_signer: Option<X509Signer>,
     x509_verifier: Option<X509Verifier>,
+
+    /// The definition of what is considered a DM room.
+    pub dm_room_definition: DmRoomDefinition,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -180,7 +186,11 @@ impl BaseClient {
     ///
     /// * `config` - the configuration for the stores (state store, event cache
     ///   store and crypto store).
-    pub fn new(config: StoreConfig, threading_support: ThreadingSupport) -> Self {
+    pub fn new(
+        config: StoreConfig,
+        threading_support: ThreadingSupport,
+        dm_room_definition: DmRoomDefinition,
+    ) -> Self {
         let store = BaseStateStore::new(config.state_store);
 
         BaseClient {
@@ -203,6 +213,7 @@ impl BaseClient {
             threading_support,
             x509_signer: None,
             x509_verifier: None,
+            dm_room_definition,
         }
     }
 
@@ -236,6 +247,7 @@ impl BaseClient {
             threading_support: self.threading_support,
             x509_signer: self.x509_signer.clone(),
             x509_verifier: self.x509_verifier.clone(),
+            dm_room_definition: self.dm_room_definition.clone(),
         };
 
         copy.state_store.derive_from_other(&self.state_store).await?;
@@ -265,7 +277,7 @@ impl BaseClient {
         _handle_verification_events: bool,
     ) -> Result<Self> {
         let config = StoreConfig::new(cross_process_store_config).state_store(MemoryStore::new());
-        Ok(Self::new(config, ThreadingSupport::Disabled))
+        Ok(Self::new(config, ThreadingSupport::Disabled, DmRoomDefinition::default()))
     }
 
     /// Get the session meta information.
@@ -423,24 +435,22 @@ impl BaseClient {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Knocked);
 
         if room.state() != RoomState::Knocked {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_knocked();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
+            let store_guard = self.state_store.lock().lock().await;
 
             // We are no longer joined to the room, so the invite acceptance details are no
             // longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
-                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+                olm_machine.store().clear_room_pending_key_bundle(room_id).await?
             }
 
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-            self.state_store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_as_knocked();
+                info.mark_state_partially_synced();
+                info.mark_members_missing(); // the own member event changed
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            })
+            .await?;
         }
 
         Ok(room)
@@ -470,11 +480,15 @@ impl BaseClient {
     /// # Examples
     ///
     /// ```rust
-    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport};
+    /// # use matrix_sdk_base::{BaseClient, store::StoreConfig, RoomState, ThreadingSupport, DmRoomDefinition};
     /// # use ruma::{OwnedRoomId, OwnedUserId, RoomId};
     /// use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     /// # async {
-    /// # let client = BaseClient::new(StoreConfig::new(CrossProcessLockConfig::multi_process("example")), ThreadingSupport::Disabled);
+    /// # let client = BaseClient::new(
+    ///     StoreConfig::new(CrossProcessLockConfig::multi_process("example")),
+    ///     ThreadingSupport::Disabled,
+    ///     DmRoomDefinition::default()
+    /// );
     /// # async fn send_join_request() -> anyhow::Result<OwnedRoomId> { todo!() }
     /// # async fn maybe_get_inviter(room_id: &RoomId) -> anyhow::Result<Option<OwnedUserId>> { todo!() }
     /// # let room_id: &RoomId = todo!();
@@ -495,13 +509,7 @@ impl BaseClient {
         // If the state isn't `RoomState::Joined` then this means that we knew about
         // this room before. Let's modify the existing state now.
         if room.state() != RoomState::Joined {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            let mut room_info = room.clone_info();
-
-            room_info.mark_as_joined();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
+            let store_guard = self.state_store_lock().lock().await;
 
             #[cfg(feature = "e2e-encryption")]
             {
@@ -529,12 +537,13 @@ impl BaseClient {
                 let _ = inviter;
             }
 
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-
-            self.state_store.save_changes(&changes).await?; // Update the store
-
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_as_joined();
+                info.mark_state_partially_synced();
+                info.mark_members_missing(); // the own member event changed
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            })
+            .await?;
         }
 
         Ok(room)
@@ -547,24 +556,22 @@ impl BaseClient {
         let room = self.state_store.get_or_create_room(room_id, RoomState::Left);
 
         if room.state() != RoomState::Left {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            let mut room_info = room.clone_info();
-            room_info.mark_as_left();
-            room_info.mark_state_partially_synced();
-            room_info.mark_members_missing(); // the own member event changed
+            let store_guard = self.state_store.lock().lock().await;
 
             // We are no longer joined to the room, so the invite acceptance details are no
             // longer relevant.
             #[cfg(feature = "e2e-encryption")]
             if let Some(olm_machine) = self.olm_machine().await.as_ref() {
-                olm_machine.store().clear_room_pending_key_bundle(room_info.room_id()).await?
+                olm_machine.store().clear_room_pending_key_bundle(room_id).await?
             }
 
-            let mut changes = StateChanges::default();
-            changes.add_room(room_info.clone());
-            self.state_store.save_changes(&changes).await?; // Update the store
-            room.set_room_info(room_info, RoomInfoNotableUpdateReasons::MEMBERSHIP);
+            room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
+                info.mark_as_left();
+                info.mark_state_partially_synced();
+                info.mark_members_missing(); // the own member event changed
+                (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
+            })
+            .await?;
         }
 
         Ok(())
@@ -617,6 +624,10 @@ impl BaseClient {
 
         let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
 
+        // Acquire the state store lock and hold on to it while processing
+        // the sync response below.
+        let state_store_guard = self.state_store_lock().lock().await;
+
         let user_id = self
             .session_meta()
             .expect("Sync shouldn't run without an authenticated user")
@@ -667,6 +678,7 @@ impl BaseClient {
             .collect();
 
         let mut ambiguity_cache = AmbiguityCache::new(self.state_store.inner.clone());
+        let mut avatar_cache = AvatarCache::new(self.state_store.inner.clone());
 
         let global_account_data_processor =
             processors::account_data::global(&response.account_data.events);
@@ -693,6 +705,7 @@ impl BaseClient {
                     &room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
+                    &mut avatar_cache,
                 ),
                 joined_room,
                 &mut updated_members_in_room,
@@ -716,6 +729,7 @@ impl BaseClient {
                     &room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
+                    &mut avatar_cache,
                 ),
                 left_room,
                 processors::notification::Notification::new(
@@ -783,17 +797,14 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
-        {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            processors::changes::save_and_apply(
-                context,
-                &self.state_store,
-                &self.ignore_user_list_changes,
-                Some(response.next_batch.clone()),
-            )
-            .await?;
-        }
+        processors::changes::save_and_apply(
+            context,
+            &self.state_store,
+            &state_store_guard,
+            &self.ignore_user_list_changes,
+            Some(response.next_batch.clone()),
+        )
+        .await?;
 
         let mut context = Context::default();
 
@@ -807,11 +818,7 @@ impl BaseClient {
         .await;
 
         // Save the new display name updates if any.
-        {
-            let _state_store_lock = self.state_store_lock().lock().await;
-
-            processors::changes::save_only(context, &self.state_store).await?;
-        }
+        processors::changes::save_only(context, &self.state_store, &state_store_guard).await?;
 
         for (room_id, member_ids) in updated_members_in_room {
             if let Some(room) = self.get_room(&room_id) {
@@ -819,6 +826,9 @@ impl BaseClient {
                     room.room_member_updates_sender.send(RoomMembersUpdate::Partial(member_ids));
             }
         }
+
+        // Release the state store lock
+        drop(state_store_guard);
 
         if enabled!(Level::INFO) {
             info!("Processed a sync response in {:?}", now.map(|now| now.elapsed()));
@@ -933,7 +943,7 @@ impl BaseClient {
         context.state_changes.ambiguity_maps.insert(room_id.to_owned(), ambiguity_map);
 
         {
-            let _state_store_lock = self.state_store_lock().lock().await;
+            let state_store_guard = self.state_store_lock().lock().await;
 
             let mut room_info = room.clone_info();
             room_info.mark_members_synced();
@@ -942,6 +952,7 @@ impl BaseClient {
             processors::changes::save_and_apply(
                 context,
                 &self.state_store,
+                &state_store_guard,
                 &self.ignore_user_list_changes,
                 None,
             )
@@ -1173,6 +1184,32 @@ impl BaseClient {
         };
         Ok(result)
     }
+
+    /// Close all stores, releasing database connections and file locks.
+    ///
+    /// In-flight operations will complete before this returns.
+    pub async fn close_stores(&self) -> Result<()> {
+        self.state_store.close().await?;
+        self.event_cache_store.close().await.map_err(Error::EventCacheStore)?;
+        self.media_store.close().await.map_err(Error::MediaStore)?;
+
+        #[cfg(feature = "e2e-encryption")]
+        self.crypto_store.close().await.map_err(Error::CryptoStore)?;
+
+        Ok(())
+    }
+
+    /// Reopen all stores after a close, re-opening database connections.
+    pub async fn reopen_stores(&self) -> Result<()> {
+        #[cfg(feature = "e2e-encryption")]
+        self.crypto_store.reopen().await.map_err(Error::CryptoStore)?;
+
+        self.media_store.reopen().await.map_err(Error::MediaStore)?;
+        self.event_cache_store.reopen().await.map_err(Error::EventCacheStore)?;
+        self.state_store.reopen().await?;
+
+        Ok(())
+    }
 }
 
 /// Represent the `required_state` values sent by a sync request.
@@ -1232,6 +1269,19 @@ impl From<&v5::Request> for RequestedRequiredStates {
     }
 }
 
+/// An enum that defines what the [`BaseClient`] should consider a DM room.
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum DmRoomDefinition {
+    /// Standard Matrix spec definition: a room linked to a user in an
+    /// `m.direct` event.
+    #[default]
+    MatrixSpec,
+    /// A room that is direct, as per the spec but also contains at most 2
+    /// active members.
+    TwoMembers,
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1257,7 +1307,7 @@ mod tests {
 
     use super::{BaseClient, RequestedRequiredStates};
     use crate::{
-        RoomDisplayName, RoomState, SessionMeta,
+        DmRoomDefinition, RoomDisplayName, RoomState, SessionMeta,
         client::ThreadingSupport,
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
@@ -1551,6 +1601,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
         client
             .activate(
@@ -1613,6 +1664,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
         client
             .activate(
@@ -1677,6 +1729,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
         client
             .activate(
@@ -1741,6 +1794,7 @@ mod tests {
         let client = BaseClient::new(
             StoreConfig::new(CrossProcessLockConfig::SingleProcess),
             ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
         );
 
         client

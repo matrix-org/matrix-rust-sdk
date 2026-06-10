@@ -2,9 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-<!-- next-header -->
+<!-- changelog start -->
 
-## [Unreleased] - ReleaseDate
+## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
+
+No significant changes.
+
+## [0.17.0] - 2026-05-08
 
 ### Features
 
@@ -13,8 +17,9 @@ All notable changes to this project will be documented in this file.
   ([#6467](https://github.com/matrix-org/matrix-rust-sdk/pull/6467))
 - Add a method to check the validity of edits.
   ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
-- A background task monitor has been added, that can spawn background tasks and monitor their
-  execution on a separate channel. Such tasks can run forever, or they can run for one-shot jobs.
+- A background task monitor has been added, that can spawn background tasks and
+  monitor their execution on a separate channel. Such tasks can run forever, or
+  they can run for one-shot jobs.
   ([#6075](https://github.com/matrix-org/matrix-rust-sdk/pull/6075) &&
   [#6421](https://github.com/matrix-org/matrix-rust-sdk/pull/6421))
 - Add `AcquireCrossProcessLockResult` and `AcquireCrossProcessLockFn`
@@ -22,51 +27,82 @@ All notable changes to this project will be documented in this file.
   ([#6326](https://github.com/matrix-org/matrix-rust-sdk/pull/6326))
 - Add support in the `MemoryStore`'s implementation of `EventCacheStore` for
   having duplicate events in a room, where each duplicate is in a different
-  `LinkedChunk`. This is useful, e.g., when an event is in a room and a 
+  `LinkedChunk`. This is useful, e.g., when an event is in a room and a
   thread in that room.
-- [**breaking**] In order to support having duplicate events in the same room (in different `LinkedChunk`'s) a few
-  functions were changed in `RelationalLinkedChunk`. The items in the `Iterator` returned by `RelationalLinkedChunk::items`
-  now also include the `LinkedChunkId` in which the `Item` was found. Additionally, `RelationalLinkedChunk::save_item`
-  now requires the `Item` to be `Clone` as it may be stored in multiple `LinkedChunk`s. 
+- [**breaking**] In order to support having duplicate events in the same room
+  (in different `LinkedChunk`'s) a few functions were changed in
+  `RelationalLinkedChunk`. The items in the `Iterator` returned by
+  `RelationalLinkedChunk::items` now also include the `LinkedChunkId` in which
+  the `Item` was found. Additionally, `RelationalLinkedChunk::save_item` now
+  requires the `Item` to be `Clone` as it may be stored in multiple
+  `LinkedChunk`s.
   (#[6200](https://github.com/matrix-org/matrix-rust-sdk/pull/6200))
-- [**breaking**] Added `CrossProcessLockConfig`, which can be used to configure the behavior of the cross-process lock.
-  `CrossProcessLock` now takes a `CrossProcessLockConfig` as an argument to its constructor instead of a `lock_holder` 
-  value. ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
+- [**breaking**] Added `CrossProcessLockConfig`, which can be used to configure
+  the behavior of the cross-process lock. `CrossProcessLock` now takes a
+  `CrossProcessLockConfig` as an argument to its constructor instead of a
+  `lock_holder` value.
+  ([#6160](https://github.com/matrix-org/matrix-rust-sdk/pull/6160))
 - [**breaking**] `ShieldStateCode` no longer includes
   `SentInClear`. `VerificationState::to_shield_state_{lax,strict}` never
   returned that code, and so having it in the enum was somewhat misleading.
   ([#5959](https://github.com/matrix-org/matrix-rust-sdk/pull/5959))
 - Add field `forwarder` of type `ForwarderInfo` to `EncryptionInfo`, which
   exposes information about the forwarder of the keys with which an event was
-  encrypted if they were shared as part of an [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268)
-  room key bundle.
+  encrypted if they were shared as part of an
+  [MSC4268](https://github.com/matrix-org/matrix-spec-proposals/pull/4268) room
+  key bundle.
   ([#5945](https://github.com/matrix-org/matrix-rust-sdk/pull/5945)).
 
-### Bug Fixes
+### Bug fixes
 
-- Fix an off-by-one check for `Error:InvalidItemIndex` in `LinkedChunk::remove_item_at`.
+- Fix an off-by-one check for `Error:InvalidItemIndex` in
+  `LinkedChunk::remove_item_at`.
   ([#6057](https://github.com/matrix-org/matrix-rust-sdk/pull/6057))
-- Fix `TimelineEvent::from_bundled_latest_event` sometimes removing the `session_id` of UTDs. This broken event could later be saved to the event cache and become an unresolvable UTD. ([#5970](https://github.com/matrix-org/matrix-rust-sdk/pull/5970)).
+- Fix `TimelineEvent::from_bundled_latest_event` sometimes removing the
+  `session_id` of UTDs. This broken event could later be saved to the event
+  cache and become an unresolvable UTD.
+  ([#5970](https://github.com/matrix-org/matrix-rust-sdk/pull/5970)).
+
+### Refactor
+
+- [**breaking**] Remove `ttl_cache::TtlCache` because it is now unused.
+  ([#6484](https://github.com/matrix-org/matrix-rust-sdk/pull/6484))
+
+## [0.16.1] - 2026-05-08
+
+### Features
+
+- Add a method to check the validity of edits.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 
 ## [0.16.0] - 2025-12-04
 
 ### Features
 
-- [**breaking**] Cross-process lock can be dirty. The `CrossProcess::try_lock_once` now returns a new type `CrossProcessResult`, which is an enum with `Clean`, `Dirty` or `Unobtained` variants. When the lock is dirty it means it's been acquired once, then acquired another time from another holder, so the current holder may want to refresh its internal state.
+- [**breaking**] Cross-process lock can be dirty. The
+  `CrossProcess::try_lock_once` now returns a new type `CrossProcessResult`,
+  which is an enum with `Clean`, `Dirty` or `Unobtained` variants. When the lock
+  is dirty it means it's been acquired once, then acquired another time from
+  another holder, so the current holder may want to refresh its internal state.
   ([#5672](https://github.com/matrix-org/matrix-rust-sdk/pull/5672)).
 
 ## [0.14.0] - 2025-09-04
 
 ### Features
 
-- Tracing subscribers created via [`matrix_sdk_common::js_tracing::MakeJsLogWriter`] or [`make_tracing_subscriber`] will now drop log events at the `TRACE` level. Previously `TRACE` logs were treated the same as `DEBUG` logs. ([#5590](https://github.com/matrix-org/matrix-rust-sdk/pull/5590)).
+- Tracing subscribers created via
+  [`matrix_sdk_common::js_tracing::MakeJsLogWriter`] or
+  [`make_tracing_subscriber`] will now drop log events at the `TRACE` level.
+  Previously `TRACE` logs were treated the same as `DEBUG` logs.
+  ([#5590](https://github.com/matrix-org/matrix-rust-sdk/pull/5590)).
 
-- [**breaking**] Use `Raw<AnyTimelineEvent>` in place of `Raw<AnyMessageLikeEvent>`
-  in `DecryptedRoomEvent::event`.
-  ([#5512](https://github.com/matrix-org/matrix-rust-sdk/pull/5512)).
-  Affects the following functions:
-  - `OlmMachine::decrypt_room_event` - existing matches on the result's event field
-     should be updated to `AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::...)`
+- [**breaking**] Use `Raw<AnyTimelineEvent>` in place of
+  `Raw<AnyMessageLikeEvent>` in `DecryptedRoomEvent::event`.
+  ([#5512](https://github.com/matrix-org/matrix-rust-sdk/pull/5512)). Affects
+  the following functions:
+  - `OlmMachine::decrypt_room_event` - existing matches on the result's event
+    field should be updated to
+    `AnyTimelineEvent::MessageLike(AnyMessageLikeEvent::...)`
 
 ## [0.13.0] - 2025-07-10
 
@@ -108,7 +144,7 @@ No notable changes in this release.
 
 ## [0.9.0] - 2024-12-18
 
-### Bug Fixes
+### Bug fixes
 
 - Change the behavior of `LinkedChunk::new_with_update_history()` to emit an
   `Update::NewItemsChunk` when a new, initial empty, chunk is created.

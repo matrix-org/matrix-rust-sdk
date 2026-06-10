@@ -40,10 +40,12 @@ impl From<matrix_sdk_ui::timeline::TimelineItemContent> for TimelineItemContent 
 
             Content::CallInvite => TimelineItemContent::CallInvite,
 
-            Content::RtcNotification { call_intent } => TimelineItemContent::RtcNotification {
-                call_intent: call_intent.map(|s| s.to_string()),
-            },
-
+            Content::RtcNotification { call_intent, declined_by: declinations } => {
+                TimelineItemContent::RtcNotification {
+                    call_intent: call_intent.map(|s| s.to_string()),
+                    declined_by: declinations.iter().map(|u| u.to_string()).collect(),
+                }
+            }
             Content::MembershipChange(membership) => {
                 let reason = match membership.content() {
                     StateEventContentChange::Original { content, .. } => content.reason.clone(),
@@ -163,6 +165,7 @@ pub enum TimelineItemContent {
     CallInvite,
     RtcNotification {
         call_intent: Option<String>,
+        declined_by: Vec<String>,
     },
     RoomMembership {
         user_id: String,

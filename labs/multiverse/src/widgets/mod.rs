@@ -1,6 +1,7 @@
 use itertools::Itertools;
 use ratatui::{prelude::*, widgets::WidgetRef};
 
+pub mod button;
 pub mod create_room;
 pub mod help;
 pub mod popup_input;
@@ -27,7 +28,7 @@ impl<'content> Hyperlink<'content> {
 
 impl WidgetRef for Hyperlink<'_> {
     fn render_ref(&self, area: Rect, buffer: &mut Buffer) {
-        self.text.render_ref(area, buffer);
+        (&self.text).render_ref(area, buffer);
 
         // this is a hacky workaround for https://github.com/ratatui-org/ratatui/issues/902, a bug
         // in the terminal code that incorrectly calculates the width of ANSI escape

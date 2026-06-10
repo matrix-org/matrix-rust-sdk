@@ -1661,7 +1661,8 @@ async fn mock_download_session_from_key_backup(
         .unwrap()
         .megolm_v1_public_key()
         .encrypt(inbound_group_session)
-        .await;
+        .await
+        .unwrap();
 
     Mock::given(method("GET"))
         .and(path(format!(

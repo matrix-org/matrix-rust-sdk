@@ -54,7 +54,7 @@ impl Room {
     /// a time.
     pub fn search_messages(&self, query: String, num_results_per_batch: u32) -> RoomSearchIterator {
         RoomSearchIterator {
-            sdk_room: self.inner.clone(),
+            sdk_room: (*self.inner).clone(),
             inner: Mutex::new(self.inner.search_messages(query, num_results_per_batch as usize)),
         }
     }

@@ -296,7 +296,7 @@ async fn test_decrypt_to_device_message_with_unsigned_sender_keys() {
     }))
     .unwrap();
 
-    let ciphertext = alice_session.encrypt_helper(&plaintext).await;
+    let ciphertext = alice_session.encrypt_helper(&plaintext).await.unwrap();
     let event = ToDeviceEvent::new(
         alice.user_id().to_owned(),
         alice_session.build_encrypted_event(ciphertext, None).await.unwrap(),

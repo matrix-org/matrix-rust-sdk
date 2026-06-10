@@ -3,9 +3,9 @@ name: Rust version
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
   pull_request:
-    branches: [main]
+    branches: ["main", "features/**", "release-**"]
 
 permissions: {}
 
@@ -16,7 +16,7 @@ jobs:
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       with:
         persist-credentials: false
-    - uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # cargo-hack
+    - uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # cargo-hack
       with:
         tool: cargo-hack
     - run: cargo hack check --rust-version --workspace --all-targets

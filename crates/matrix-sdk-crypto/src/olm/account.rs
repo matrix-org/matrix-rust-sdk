@@ -949,13 +949,13 @@ impl Account {
         one_time_key: Curve25519PublicKey,
         fallback_used: bool,
         our_device_keys: DeviceKeys,
-    ) -> Session {
-        let session = self.inner.create_outbound_session(config, identity_key, one_time_key);
+    ) -> Result<Session, vodozemac::olm::SessionCreationError> {
+        let session = self.inner.create_outbound_session(config, identity_key, one_time_key)?;
 
         let now = SecondsSinceUnixEpoch::now();
         let session_id = session.session_id();
 
-        Session {
+        Ok(Session {
             inner: Arc::new(Mutex::new(session)),
             session_id: session_id.into(),
             sender_key: identity_key,
@@ -963,7 +963,7 @@ impl Account {
             created_using_fallback_key: fallback_used,
             creation_time: now,
             last_use_time: now,
-        }
+        })
     }
 
     #[instrument(
@@ -1049,7 +1049,7 @@ impl Account {
                     one_time_key,
                     is_fallback,
                     our_device_keys,
-                ))
+                )?)
             }
         }
     }
@@ -1077,7 +1077,13 @@ impl Account {
         Span::current().record("session_id", debug(message.session_id()));
         trace!("Creating a new Olm session from a pre-key message");
 
-        let result = self.inner.create_inbound_session(their_identity_key, message)?;
+        #[cfg(not(feature = "experimental-algorithms"))]
+        let config = SessionConfig::version_1();
+
+        #[cfg(feature = "experimental-algorithms")]
+        let config = SessionConfig::version_2();
+
+        let result = self.inner.create_inbound_session(config, their_identity_key, message)?;
         let now = SecondsSinceUnixEpoch::now();
         let session_id = result.session.session_id();
 
@@ -1706,6 +1712,9 @@ impl Account {
     ///  * The Ed25519 key in the device data matches that in the `keys` field
     ///    in the event, for consistency and sanity.
     ///
+    ///  * The `user_id` property in the `sender_device_keys` matches the event
+    ///    sender.
+    ///
     /// The first two checks are sufficient to bind together the Ed25519 and
     /// Curve25519 keys:
     ///
@@ -1743,6 +1752,15 @@ impl Account {
         let Some(sender_device_keys) = event.sender_device_keys() else {
             return Ok(None);
         };
+
+        if sender_device_keys.user_id != event.sender() {
+            warn!(
+                "Received a to-device message with sender_device_keys with incorrect user_id: expected {:?}, got {:?}",
+                event.sender(),
+                sender_device_keys.user_id
+            );
+            return Err(OlmError::EventError(EventError::InvalidSenderDeviceKeys));
+        }
 
         // Check the signature within the device_keys structure
         sender_device_keys.check_self_signature().map_err(|err| {

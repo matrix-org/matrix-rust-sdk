@@ -1,11 +1,18 @@
 use std::time::Duration;
 
 use js_int::uint;
-use matrix_sdk::config::{SyncSettings, SyncToken};
-use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test, test_json};
+use matrix_sdk::{
+    BeaconError,
+    config::{SyncSettings, SyncToken},
+    test_utils::mocks::MatrixMockServer,
+};
+use matrix_sdk_test::{
+    DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, async_test, event_factory::EventFactory, test_json,
+};
 use ruma::{
     MilliSecondsSinceUnixEpoch, event_id,
     events::{AnySyncStateEvent, StateEventType, location::AssetType},
+    user_id,
 };
 use serde_json::json;
 use wiremock::{
@@ -247,4 +254,49 @@ async fn test_stop_sharing_live_location() {
     assert_eq!(content.asset.type_, AssetType::Self_);
 
     assert!(!content.live);
+}
+
+#[async_test]
+async fn test_stop_sharing_live_location_fails_if_not_live() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let current_time = MilliSecondsSinceUnixEpoch::now();
+    let f = EventFactory::new();
+
+    let beacon_info_event = f
+        .beacon_info(
+            Some("Live Share".to_owned()),
+            Duration::from_millis(3000),
+            false,
+            Some(current_time),
+        )
+        .event_id(event_id!("$15139375514XsgmR:localhost"))
+        .sender(user_id!("@example:localhost"))
+        .state_key(user_id!("@example:localhost"))
+        .into_raw_sync_state();
+
+    server
+        .mock_room_send_state()
+        .body_matches_partial_json(json!({
+            "description": "Live Share",
+            "live": false,
+            "timeout": 3000,
+            "org.matrix.msc3488.asset": { "type": "m.self" }
+        }))
+        .ok(event_id!("$h29iv0s8:example.com"))
+        .expect(0)
+        .mount()
+        .await;
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(*DEFAULT_TEST_ROOM_ID).add_state_event(beacon_info_event),
+        )
+        .await;
+
+    let room = client.get_room(*DEFAULT_TEST_ROOM_ID).unwrap();
+
+    assert!(matches!(room.stop_live_location_share().await, Err(BeaconError::NotLive)));
 }

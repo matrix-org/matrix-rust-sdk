@@ -106,13 +106,16 @@ pub enum Error {
     Unpickle,
 
     #[error("Redaction failed: {0}")]
-    Redaction(#[source] ruma::canonical_json::RedactionError),
+    Redaction(#[source] ruma::canonical_json::CanonicalJsonFieldError),
 
     #[error("An update keyed by unique ID touched more than one entry")]
     InconsistentUpdate,
 
     #[error("The store contains invalid data: {details}")]
     InvalidData { details: String },
+
+    #[error("The store is closed")]
+    StoreClosed,
 }
 
 macro_rules! impl_from {

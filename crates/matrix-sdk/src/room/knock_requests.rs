@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::slice;
+
 use js_int::UInt;
 use ruma::{EventId, OwnedEventId, OwnedMxcUri, OwnedUserId, RoomId};
 
@@ -56,7 +58,7 @@ impl KnockRequest {
     /// Marks the knock request as 'seen' so the client can ignore it in the
     /// future.
     pub async fn mark_as_seen(&self) -> Result<(), Error> {
-        self.room.mark_knock_requests_as_seen(&[self.member_info.user_id.to_owned()]).await?;
+        self.room.mark_knock_requests_as_seen(slice::from_ref(&self.member_info.user_id)).await?;
         Ok(())
     }
 

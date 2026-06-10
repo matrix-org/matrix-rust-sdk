@@ -21,6 +21,7 @@ use ruma::{
     OwnedRoomId, api::client::sync::sync_events::v5 as http, events::receipt::SyncReceiptEvent,
     serde::Raw,
 };
+use tokio::sync::MutexGuard;
 use tracing::{instrument, trace};
 
 use super::BaseClient;
@@ -28,7 +29,7 @@ use crate::{
     RequestedRequiredStates,
     error::Result,
     response_processors as processors,
-    store::ambiguity_map::AmbiguityCache,
+    store::{AvatarCache, ambiguity_map::AmbiguityCache},
     sync::{RoomUpdates, SyncResponse},
 };
 
@@ -45,6 +46,7 @@ impl BaseClient {
         &self,
         to_device: Option<&http::response::ToDevice>,
         e2ee: &http::response::E2EE,
+        state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<Option<Vec<ProcessedToDeviceEvent>>> {
         if to_device.is_none() && e2ee.is_empty() {
             return Ok(None);
@@ -75,6 +77,7 @@ impl BaseClient {
         processors::changes::save_and_apply(
             context,
             &self.state_store,
+            state_store_guard,
             &self.ignore_user_list_changes,
             None,
         )
@@ -94,6 +97,7 @@ impl BaseClient {
         &self,
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
+        state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<SyncResponse> {
         let http::Response { rooms, lists, extensions, .. } = response;
 
@@ -116,6 +120,7 @@ impl BaseClient {
 
         let state_store = self.state_store.clone();
         let mut ambiguity_cache = AmbiguityCache::new(state_store.inner.clone());
+        let mut avatar_cache = AvatarCache::new(state_store.inner.clone());
 
         let global_account_data_processor =
             processors::account_data::global(&extensions.account_data.global);
@@ -138,6 +143,7 @@ impl BaseClient {
                     room_id,
                     requested_required_states,
                     &mut ambiguity_cache,
+                    &mut avatar_cache,
                 ),
                 room_response,
                 &extensions.account_data.rooms,
@@ -204,6 +210,7 @@ impl BaseClient {
         processors::changes::save_and_apply(
             context,
             &self.state_store,
+            state_store_guard,
             &self.ignore_user_list_changes,
             None,
         )
@@ -221,7 +228,7 @@ impl BaseClient {
         .await;
 
         // Save the new display name updates if any.
-        processors::changes::save_only(context, &self.state_store).await?;
+        processors::changes::save_only(context, &self.state_store, state_store_guard).await?;
 
         Ok(SyncResponse {
             rooms: room_updates,
@@ -239,6 +246,7 @@ impl BaseClient {
         &self,
         room_id: &OwnedRoomId,
         response: &http::Response,
+        state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<Option<Raw<SyncReceiptEvent>>> {
         let mut context = processors::Context::default();
 
@@ -261,7 +269,7 @@ impl BaseClient {
 
         // Save the new `RoomInfo` if updated.
         if save_context {
-            processors::changes::save_only(context, &self.state_store).await?;
+            processors::changes::save_only(context, &self.state_store, state_store_guard).await?;
         }
 
         Ok(receipt_ephemeral_event)
@@ -298,8 +306,8 @@ mod tests {
 
     use super::http;
     use crate::{
-        BaseClient, EncryptionState, RequestedRequiredStates, RoomInfoNotableUpdate, RoomState,
-        SessionMeta,
+        BaseClient, DmRoomDefinition, EncryptionState, RequestedRequiredStates,
+        RoomInfoNotableUpdate, RoomState, SessionMeta,
         client::ThreadingSupport,
         room::{RoomHero, RoomInfoNotableUpdateReasons},
         store::{RoomLoadSettings, StoreConfig},
@@ -318,7 +326,11 @@ mod tests {
         let response = response_with_room(room_id, room);
 
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .unwrap();
 
@@ -359,7 +371,11 @@ mod tests {
         let response = response_with_room(room_id, room);
 
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .unwrap();
 
@@ -386,7 +402,11 @@ mod tests {
         );
 
         let sync_response = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -404,7 +424,11 @@ mod tests {
         let client = logged_in_base_client(None).await;
         let empty_response = http::Response::new("5".to_owned());
         client
-            .process_sliding_sync(&empty_response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &empty_response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
     }
@@ -421,7 +445,11 @@ mod tests {
         room.joined_count = Some(uint!(41));
         let response = response_with_room(room_id, room);
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -449,7 +477,11 @@ mod tests {
         room.name = Some("little room".to_owned());
         let response = response_with_room(room_id, room);
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -484,7 +516,11 @@ mod tests {
 
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -512,7 +548,11 @@ mod tests {
         room.name = Some("name from sliding sync response".to_owned());
         let response = response_with_room(room_id, room);
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -551,7 +591,11 @@ mod tests {
 
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -578,7 +622,11 @@ mod tests {
 
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -601,7 +649,11 @@ mod tests {
 
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -636,7 +688,11 @@ mod tests {
 
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -657,7 +713,11 @@ mod tests {
         set_room_joined(&mut room, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
@@ -667,7 +727,11 @@ mod tests {
         set_room_left(&mut room, user_id);
         let response = response_with_room(room_id, room);
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -694,7 +758,11 @@ mod tests {
             set_room_joined(&mut room, user_a_id);
             let response = response_with_room(room_id, room);
             client
-                .process_sliding_sync(&response, &RequestedRequiredStates::default())
+                .process_sliding_sync(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &client.state_store_lock().lock().await,
+                )
                 .await
                 .expect("Failed to process sync");
             assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
@@ -709,7 +777,11 @@ mod tests {
             ));
             let response = response_with_room(room_id, room);
             let sync_resp = client
-                .process_sliding_sync(&response, &RequestedRequiredStates::default())
+                .process_sliding_sync(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &client.state_store_lock().lock().await,
+                )
                 .await
                 .expect("Failed to process sync");
 
@@ -745,7 +817,11 @@ mod tests {
         set_room_joined(&mut room, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
         assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
@@ -755,7 +831,11 @@ mod tests {
         set_room_left_as_timeline_event(&mut room, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -777,7 +857,11 @@ mod tests {
         set_room_joined(&mut room, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
         // (sanity: state is join)
@@ -788,7 +872,11 @@ mod tests {
         set_room_left(&mut room, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
         // (sanity: state is left)
@@ -799,7 +887,11 @@ mod tests {
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -931,7 +1023,11 @@ mod tests {
         };
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -960,7 +1056,11 @@ mod tests {
         };
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -977,7 +1077,11 @@ mod tests {
         let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -999,7 +1103,11 @@ mod tests {
         };
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1019,7 +1127,11 @@ mod tests {
         let room = room_with_avatar(mxc_uri!("mxc://e.uk/med1"), user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1045,7 +1157,11 @@ mod tests {
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1091,7 +1207,11 @@ mod tests {
         set_room_knocked(&mut room, user_id);
         let response = response_with_room(room_id, room);
         let sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1135,7 +1255,11 @@ mod tests {
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1161,7 +1285,11 @@ mod tests {
         set_room_invited(&mut room, user_id, user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1184,7 +1312,11 @@ mod tests {
         room.name = Some("This came from the server".to_owned());
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1208,7 +1340,11 @@ mod tests {
         let room = room_with_name("Hello World", user_id);
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1245,7 +1381,8 @@ mod tests {
                 let store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
                 state_store = store.state_store.clone();
 
-                let client = BaseClient::new(store, ThreadingSupport::Disabled);
+                let client =
+                    BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
                 client
                     .activate(
                         session_meta.clone(),
@@ -1264,7 +1401,11 @@ mod tests {
             let room = room_with_name("Hello World", user_id);
             let response = response_with_room(room_id, room);
             client
-                .process_sliding_sync(&response, &RequestedRequiredStates::default())
+                .process_sliding_sync(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &client.state_store_lock().lock().await,
+                )
                 .await
                 .expect("Failed to process sync");
 
@@ -1276,7 +1417,8 @@ mod tests {
             let client = {
                 let mut store = StoreConfig::new(CrossProcessLockConfig::SingleProcess);
                 store.state_store = state_store;
-                let client = BaseClient::new(store, ThreadingSupport::Disabled);
+                let client =
+                    BaseClient::new(store, ThreadingSupport::Disabled, DmRoomDefinition::default());
                 client
                     .activate(
                         session_meta,
@@ -1317,7 +1459,11 @@ mod tests {
         ]);
         let response = response_with_room(room_id, room);
         let _sync_resp = client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1356,7 +1502,11 @@ mod tests {
         });
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1378,7 +1528,11 @@ mod tests {
             });
             let response = response_with_room(room_id, room);
             client
-                .process_sliding_sync(&response, &RequestedRequiredStates::default())
+                .process_sliding_sync(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &client.state_store_lock().lock().await,
+                )
                 .await
                 .expect("Failed to process sync");
 
@@ -1394,7 +1548,11 @@ mod tests {
             });
             let response = response_with_room(room_id, room);
             client
-                .process_sliding_sync(&response, &RequestedRequiredStates::default())
+                .process_sliding_sync(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &client.state_store_lock().lock().await,
+                )
                 .await
                 .expect("Failed to process sync");
 
@@ -1411,7 +1569,11 @@ mod tests {
             });
             let response = response_with_room(room_id, room);
             client
-                .process_sliding_sync(&response, &RequestedRequiredStates::default())
+                .process_sliding_sync(
+                    &response,
+                    &RequestedRequiredStates::default(),
+                    &client.state_store_lock().lock().await,
+                )
                 .await
                 .expect("Failed to process sync");
 
@@ -1434,7 +1596,11 @@ mod tests {
         });
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1462,7 +1628,11 @@ mod tests {
         });
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1488,7 +1658,11 @@ mod tests {
         let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1529,7 +1703,11 @@ mod tests {
         });
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1562,7 +1740,11 @@ mod tests {
         });
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1588,7 +1770,11 @@ mod tests {
         let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1629,7 +1815,11 @@ mod tests {
         response.extensions.account_data.rooms.insert(room_id.to_owned(), room_account_data_events);
 
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1644,7 +1834,11 @@ mod tests {
 
         // But getting it again won't trigger a new notable update…
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1673,7 +1867,11 @@ mod tests {
         ];
         response.extensions.account_data.rooms.insert(room_id.to_owned(), room_account_data_events);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1688,6 +1886,129 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_fully_read_marker_can_trigger_a_notable_update_reason() {
+        // Given a logged-in client,
+        let client = logged_in_base_client(None).await;
+        let mut room_info_notable_update_stream = client.room_info_notable_update_receiver();
+
+        // When I receive a sliding sync response containing a new room,
+        let room_id = room_id!("!r:e.uk");
+        let room = http::response::Room::new();
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Other notable updates are received, but not the ones we are interested by.
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::NONE), "{received_reasons:?}");
+            }
+        );
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::DISPLAY_NAME), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // When I receive a sliding sync response containing an `m.fully_read`
+        // account-data event,
+        let room_account_data_events = vec![
+            Raw::from_json_string(
+                json!({
+                    "type": "m.fully_read",
+                    "content": { "event_id": "$first" },
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ];
+        let mut response = response_with_room(room_id, http::response::Room::new());
+        response.extensions.account_data.rooms.insert(room_id.to_owned(), room_account_data_events);
+
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then a `FULLY_READ` notable update is received,
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::FULLY_READ), "{received_reasons:?}");
+            }
+        );
+
+        let room = client.get_room(room_id).expect("room should exist");
+        assert_eq!(room.fully_read_event_id().as_deref().map(|id| id.as_str()), Some("$first"),);
+
+        // But getting the same value again won't trigger a new notable update…
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(!received_reasons.contains(RoomInfoNotableUpdateReasons::FULLY_READ), "{received_reasons:?}");
+            }
+        );
+        assert!(room_info_notable_update_stream.is_empty());
+
+        // … Unless the event ID changes!
+        let room_account_data_events = vec![
+            Raw::from_json_string(
+                json!({
+                    "type": "m.fully_read",
+                    "content": { "event_id": "$second" },
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        ];
+        response.extensions.account_data.rooms.insert(room_id.to_owned(), room_account_data_events);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_matches!(
+            room_info_notable_update_stream.recv().await,
+            Ok(RoomInfoNotableUpdate { room_id: received_room_id, reasons: received_reasons }) => {
+                assert_eq!(received_room_id, room_id);
+                assert!(received_reasons.contains(RoomInfoNotableUpdateReasons::FULLY_READ), "{received_reasons:?}");
+            }
+        );
+        assert_eq!(room.fully_read_event_id().as_deref().map(|id| id.as_str()), Some("$second"),);
+        assert!(room_info_notable_update_stream.is_empty());
+    }
+
+    #[async_test]
     async fn test_unstable_unread_marker_is_ignored_after_stable() {
         // Given a logged-in client,
         let client = logged_in_base_client(None).await;
@@ -1698,7 +2019,11 @@ mod tests {
         let room = http::response::Room::new();
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1743,7 +2068,11 @@ mod tests {
             .insert(room_id.to_owned(), unstable_room_account_data_events.clone());
 
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1777,7 +2106,11 @@ mod tests {
             .rooms
             .insert(room_id.to_owned(), stable_room_account_data_events);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1799,7 +2132,11 @@ mod tests {
             .rooms
             .insert(room_id.to_owned(), unstable_room_account_data_events);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1834,7 +2171,11 @@ mod tests {
             .rooms
             .insert(room_id.to_owned(), stable_room_account_data_events);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1861,7 +2202,11 @@ mod tests {
         set_room_joined(&mut room_response, user_a_id);
         let response = response_with_room(room_id, room_response);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1880,7 +2225,11 @@ mod tests {
         ));
         let response = response_with_room(room_id, room_response);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1898,7 +2247,11 @@ mod tests {
         ));
         let response = response_with_room(room_id, room_response);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
         let pinned_event_ids = room.pinned_event_ids().unwrap();
@@ -1927,7 +2280,11 @@ mod tests {
             .global
             .push(make_global_account_data_event(DirectEventContent(direct_content)));
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -1939,7 +2296,11 @@ mod tests {
         set_room_joined(&mut room_response, user_b_id);
         let response = response_with_room(room_id_2, room_response);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -2003,7 +2364,11 @@ mod tests {
         }
 
         client
-            .process_sliding_sync(&response, &requested_required_states)
+            .process_sliding_sync(
+                &response,
+                &requested_required_states,
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -2057,7 +2422,11 @@ mod tests {
         }
 
         client
-            .process_sliding_sync(&response, &requested_required_states)
+            .process_sliding_sync(
+                &response,
+                &requested_required_states,
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
 
@@ -2124,7 +2493,11 @@ mod tests {
         let mut response = response_with_room(room_id, room);
         set_direct_with(&mut response, their_id.to_owned(), vec![room_id.to_owned()]);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
     }
@@ -2140,7 +2513,11 @@ mod tests {
         room.required_state.push(make_membership_event(user_id, new_state));
         let response = response_with_room(room_id, room);
         client
-            .process_sliding_sync(&response, &RequestedRequiredStates::default())
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
             .await
             .expect("Failed to process sync");
     }

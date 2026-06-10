@@ -20,7 +20,7 @@ use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{UserId, owned_user_id};
 
 use crate::{
-    BaseClient, SessionMeta,
+    BaseClient, DmRoomDefinition, SessionMeta,
     client::ThreadingSupport,
     store::{RoomLoadSettings, StoreConfig},
 };
@@ -33,6 +33,7 @@ pub(crate) async fn logged_in_base_client(user_id: Option<&UserId>) -> BaseClien
             "cross-process-store-locks-holder-name",
         )),
         ThreadingSupport::Disabled,
+        DmRoomDefinition::default(),
     );
     let user_id =
         user_id.map(|user_id| user_id.to_owned()).unwrap_or_else(|| owned_user_id!("@u:e.uk"));

@@ -49,10 +49,12 @@ pub struct NotificationRoomInfo {
     pub topic: Option<String>,
     pub join_rule: Option<JoinRule>,
     pub joined_members_count: u64,
+    pub active_service_members_count: u64,
     pub service_members: Vec<String>,
     pub is_encrypted: Option<bool>,
     pub is_direct: bool,
     pub is_space: bool,
+    pub is_dm: bool,
 }
 
 #[derive(uniffi::Record)]
@@ -108,9 +110,11 @@ impl NotificationItem {
                 join_rule: item.room_join_rule.map(TryInto::try_into).transpose().ok().flatten(),
                 joined_members_count: item.joined_members_count,
                 service_members: item.service_members,
+                active_service_members_count: item.active_service_members_count,
                 is_encrypted: item.is_room_encrypted,
                 is_direct: item.is_direct_message_room,
                 is_space: item.is_space,
+                is_dm: item.room_is_dm,
             },
             is_noisy: item.is_noisy,
             has_mention: item.has_mention,

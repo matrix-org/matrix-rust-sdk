@@ -38,11 +38,11 @@ get sent to such a room.
 
 We already mentioned that a message in a end-to-end encrypted world needs to
 be encrypted for each individual member, though that isn't completely
-correct. A message needs to be encrypted for each individual *end*. An *end*
+correct. A message needs to be encrypted for each individual _end_. An _end_
 in Matrix land is a client that communicates with the homeserver. The spec
-calls an *end* a Device, while other clients might call an *end* a Session.
+calls an _end_ a Device, while other clients might call an _end_ a Session.
 
-The matrix-sdk represents an *end* as a [`Device`] object. Each individual
+The matrix-sdk represents an _end_ as a [`Device`] object. Each individual
 message should be encrypted for each individual [`Device`] of each
 individual room member.
 
@@ -52,14 +52,14 @@ been introduced.
 
 ## Room keys
 
-Room keys remove the need to encrypt each message for each *end*.
-Instead a room key needs to be shared with each *end*, and after that a message
+Room keys remove the need to encrypt each message for each _end_.
+Instead a room key needs to be shared with each _end_, and after that a message
 can be encrypted in a single, O(1), step.
 
 A room key is backed by a [Megolm] session, which consists of two
 parts. The first part, the outbound group session, is used for encryption.
 This part never leaves your device. The second part is the inbound group
-session, which is shared with each *end*.
+session, which is shared with each _end_.
 
 ```text
             ┌────────────────────────┬───────────────────────┐
@@ -89,17 +89,17 @@ stores all room keys locally in an encrypted manner.
 Besides storing them as part of the SDK store, users can export room keys
 using the [`Encryption::export_room_keys`] method.
 
-# Verification
+## Verification
 
-One important aspect of end-to-end encryption is to check that the *end* you
+One important aspect of end-to-end encryption is to check that the _end_ you
 are communicating with is indeed the person you expect. This checking is
 done in Matrix via interactive verification. While interactively verifying,
 we'll need to exchange some critical piece of information over another
 communication channel. (Good ways to make this exchange would be in person or
 via a phone call.)
 
-Usually each *end* will need to verify every *end* it communicates with. An
-*end* is represented as a [`Device`] in the matrix-sdk. This gets rather
+Usually each _end_ will need to verify every _end_ it communicates with. An
+_end_ is represented as a [`Device`] in the matrix-sdk. This gets rather
 complicated quickly as is shown below, with Alice and Bob each having two
 devices. Each arrow represents who needs to verify whom for the
 communication between Alice and Bob to be considered secure.
@@ -153,7 +153,7 @@ To add interactive verification support to your client please see the
 [`Device::is_verified()`] method, which explains in more detail what
 it means for a [`Device`] to be verified.
 
-# Client setup
+## Client setup
 
 The matrix-sdk aims to provide encryption support transparently. If
 encryption is enabled and correctly set up, events that need to be encrypted
@@ -168,7 +168,7 @@ to work.
 2. To persist the encryption keys, you can use [`ClientBuilder::store_config`]
    or one of the `_store` methods on [`ClientBuilder`].
 
-## Restoring a client
+### Restoring a client
 
 Restoring a Client is relatively easy, but there are some things that need to be
 kept in mind before doing so.
@@ -186,7 +186,7 @@ After we log in, the client will upload the end-to-end encryption related
 [device keys] to the server. Those device keys cannot be replaced once they
 have been uploaded and tied to a device ID.
 
-### Using an access token
+#### Using an access token
 
 1. Log in with the password using [`MatrixAuth::login_username()`].
 2. Store the access token, preferably somewhere secure.
@@ -197,7 +197,7 @@ lives on a server. If you're skipping step one of this method, remember that
 you **can't** use an access token that already has some device keys tied to
 the device ID.
 
-### Using a password.
+#### Using a password
 
 1. Log in using [`MatrixAuth::login_username()`].
 2. Store the `device_id` that was returned in the login response from the
@@ -211,7 +211,7 @@ the device ID.
 with a different device ID (either `None` or a device ID of another client)
 is **not** supported using the default store.
 
-## Common pitfalls
+### Common pitfalls
 
 | Failure | Cause | Fix |
 | ------------------- | ----- | ----------- |
@@ -228,9 +228,6 @@ is **not** supported using the default store.
 [Restoring a Client]: #restoring-a-client
 [spec]: https://spec.matrix.org/unstable/client-server-api/#relationship-between-access-tokens-and-devices
 [device keys]: https://spec.matrix.org/unstable/client-server-api/#device-keys
-[`store`]: crate::store
-[`CryptoStore`]: matrix_sdk_base::crypto::store::CryptoStore
-[`StoreConfig`]: crate::config::StoreConfig
 [`ClientBuilder`]: crate::ClientBuilder
 [`ClientBuilder::store_config`]: crate::ClientBuilder::store_config
 [`MatrixAuth::login_username()`]: crate::authentication::matrix::MatrixAuth::login_username

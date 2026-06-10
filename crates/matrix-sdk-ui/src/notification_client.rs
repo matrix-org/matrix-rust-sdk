@@ -941,6 +941,7 @@ pub struct NotificationItem {
     pub joined_members_count: u64,
     /// Number of service members in the room.
     pub service_members: Vec<String>,
+    pub active_service_members_count: u64,
     /// Is the room a space?
     pub is_space: bool,
 
@@ -954,6 +955,9 @@ pub struct NotificationItem {
 
     /// The push actions for this notification (notify, sound, highlight, etc.).
     pub actions: Option<Vec<Action>>,
+
+    /// Whether the room this notification is from is a DM or not.
+    pub room_is_dm: bool,
 }
 
 impl NotificationItem {
@@ -1032,6 +1036,9 @@ impl NotificationItem {
             .map(ToString::to_string)
             .collect_vec();
 
+        let active_service_members_count =
+            room.update_active_service_members().await?.unwrap_or_default().len() as u64;
+
         let item = NotificationItem {
             event,
             raw_event,
@@ -1051,11 +1058,13 @@ impl NotificationItem {
                 .ok(),
             joined_members_count: room.joined_members_count(),
             service_members,
+            active_service_members_count,
             is_space: room.is_space(),
             is_noisy,
             has_mention,
             thread_id,
             actions: push_actions.map(|actions| actions.to_vec()),
+            room_is_dm: room.compute_is_dm().await?,
         };
 
         Ok(item)
