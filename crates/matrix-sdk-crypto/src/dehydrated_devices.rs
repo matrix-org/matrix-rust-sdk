@@ -115,13 +115,8 @@ impl DehydratedDevices {
             store.clone(),
         );
 
-        let store = Store::new(
-            account.static_data().clone(),
-            user_identity,
-            store,
-            verification_machine,
-            None,
-        );
+        let store =
+            Store::new(account.static_data().clone(), user_identity, store, verification_machine);
         store
             .save_pending_changes(crate::store::types::PendingChanges { account: Some(account) })
             .await?;

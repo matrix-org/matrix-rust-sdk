@@ -1181,7 +1181,6 @@ mod tests {
                     MemoryStore::new(),
                 )),
                 verification_machine,
-                None,
             ),
         ))
     }

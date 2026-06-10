@@ -1258,7 +1258,7 @@ pub(crate) mod testing {
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, device_id, MemoryStore::new()));
         let verification =
             VerificationMachine::new(static_account.clone(), identity.clone(), store.clone());
-        let store = Store::new(static_account, identity, store, verification, None);
+        let store = Store::new(static_account, identity, store, verification);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         IdentityManager::new(store)
     }

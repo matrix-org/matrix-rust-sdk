@@ -115,7 +115,7 @@ pub use crate::{
 };
 use crate::{
     types::{events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle},
-    x509::{X509Data, X509Signer, X509Verifier},
+    x509::{X509Signer, X509Verifier},
 };
 
 /// A wrapper for our CryptoStore trait object.
@@ -486,7 +486,14 @@ struct StoreInner {
     cache: Arc<RwLock<StoreCache>>,
 
     verification_machine: VerificationMachine,
-    x509_data: Option<X509Data>,
+
+    /// If we can verify peoples' identities via X.509 certificates, a handle to
+    /// the implementation.
+    x509_verifier: Option<X509Verifier>,
+
+    /// If we can sign our own identity via X.509 certificates, a handle to the
+    /// implementation.
+    x509_signer: Option<X509Signer>,
 
     /// Static account data that never changes (and thus can be loaded once and
     /// for all when creating the store).
@@ -542,13 +549,24 @@ pub enum SecretsBundleExportError {
 }
 
 impl Store {
-    /// Create a new Store.
+    /// Create a new Store. A thin wrapper for [`Store::new_with_x509`].
     pub(crate) fn new(
         account: StaticAccountData,
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
-        x509_data: Option<X509Data>,
+    ) -> Self {
+        Self::new_with_x509(account, identity, store, verification_machine, None, None)
+    }
+
+    /// Create a new Store, allowing specification of X.509 parameters.
+    pub(crate) fn new_with_x509(
+        account: StaticAccountData,
+        identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+        store: Arc<CryptoStoreWrapper>,
+        verification_machine: VerificationMachine,
+        x509_verifier: Option<X509Verifier>,
+        x509_signer: Option<X509Signer>,
     ) -> Self {
         Self {
             inner: Arc::new(StoreInner {
@@ -556,7 +574,8 @@ impl Store {
                 identity,
                 store: store.clone(),
                 verification_machine,
-                x509_data,
+                x509_verifier,
+                x509_signer,
                 cache: Arc::new(RwLock::new(StoreCache {
                     store,
                     tracked_users: Default::default(),
@@ -582,12 +601,16 @@ impl Store {
         &self.inner.static_account
     }
 
+    /// If we can sign our own identity via X.509 certificates, a handle to the
+    /// implementation.
     pub(crate) fn x509_signer(&self) -> Option<&X509Signer> {
-        self.inner.x509_data.as_ref().and_then(|data| data.x509_signer.as_ref())
+        self.inner.x509_signer.as_ref()
     }
 
+    /// If we can verify peoples' identities via X.509 certificates, a handle to
+    /// the implementation.
     pub(crate) fn x509_verifier(&self) -> Option<&X509Verifier> {
-        self.inner.x509_data.as_ref().and_then(|data| data.x509_verifier.as_ref())
+        self.inner.x509_verifier.as_ref()
     }
 
     pub(crate) async fn cache(&self) -> Result<StoreCacheGuard> {

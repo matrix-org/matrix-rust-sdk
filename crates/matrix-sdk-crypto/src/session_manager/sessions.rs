@@ -660,7 +660,7 @@ mod tests {
             store.clone(),
         );
 
-        let store = Store::new(account.static_data().clone(), identity, store, verification, None);
+        let store = Store::new(account.static_data().clone(), identity, store, verification);
         let device = DeviceData::from_account(&account);
         store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
         store

@@ -237,12 +237,18 @@ impl OlmMachine {
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store_wrapper.clone());
 
-        let store = Store::new(
+        let (x509_verifier, x509_signer) = match x509_data {
+            None => (None, None),
+            Some(data) => (data.x509_verifier, data.x509_signer),
+        };
+
+        let store = Store::new_with_x509(
             account,
             user_identity,
             store_wrapper,
             verification_machine.clone(),
-            x509_data,
+            x509_verifier,
+            x509_signer,
         );
 
         let identity_manager = IdentityManager::new(store.clone());

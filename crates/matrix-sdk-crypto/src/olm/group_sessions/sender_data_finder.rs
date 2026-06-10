@@ -866,7 +866,6 @@ mod tests {
             Arc::clone(&me.private_identity),
             store_wrapper,
             verification_machine,
-            None,
         )
     }
 
