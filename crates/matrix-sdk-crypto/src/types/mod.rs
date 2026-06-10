@@ -668,7 +668,7 @@ mod test {
     use similar_asserts::assert_eq;
 
     use super::*;
-    use crate::x509::{RustX509Sign, X509Sign};
+    use crate::x509::RustRawX509Signer;
 
     #[test]
     fn serialize_secrets_bundle() {
@@ -827,7 +827,7 @@ foobh78qDEn1mFVwUuW2kzOJsIlN3FQFSKK3upVdRmzXTvaJN4MKRjwmu6KYIpxA
     #[test]
     fn serialize_x509_signature() {
         // Given an X509Signature
-        let sign = RustX509Sign::new_from_pem_data(CERT_PEM, KEY_PEM);
+        let sign = RustRawX509Signer::new_from_pem_data(CERT_PEM, KEY_PEM);
         let (_id, signature) = sign.sign(&[]).unwrap();
 
         // When we serialize it
