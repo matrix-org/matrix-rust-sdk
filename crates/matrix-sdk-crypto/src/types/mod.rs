@@ -361,7 +361,7 @@ impl<'de> Deserialize<'de> for Signatures {
                                         .map_err(|_| InvalidSignature { source: s.to_owned() })
                                 } else {
                                     Err(InvalidSignature {
-                                        source: format!("non-string content: {}", s.to_string()),
+                                        source: format!("non-string content: {}", s),
                                     })
                                 }
                             }
@@ -372,7 +372,7 @@ impl<'de> Deserialize<'de> for Signatures {
                                     Ok(Signature::Other(s.to_owned()))
                                 } else {
                                     Err(InvalidSignature {
-                                        source: format!("non-string content: {}", s.to_string()),
+                                        source: format!("non-string content: {}", s),
                                     })
                                 }
                             }
@@ -381,7 +381,7 @@ impl<'de> Deserialize<'de> for Signatures {
                                     Ok(Signature::Other(s.to_owned()))
                                 } else {
                                     Err(InvalidSignature {
-                                        source: format!("non-string content: {}", s.to_string()),
+                                        source: format!("non-string content: {}", s),
                                     })
                                 }
                             }
