@@ -357,43 +357,6 @@ impl OlmMachine {
         Self { inner }
     }
 
-    /// Create a new OlmMachine with the given [`CryptoStore`].
-    ///
-    /// If the store already contains encryption keys for the given user/device
-    /// pair those will be re-used. Otherwise new ones will be created and
-    /// stored.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique id of the device that owns this machine.
-    ///
-    /// * `store` - A `CryptoStore` implementation that will be used to store
-    /// the encryption keys.
-    ///
-    /// * `custom_account` - A custom [`vodozemac::olm::Account`] to be used for
-    ///   the identity and one-time keys of this [`OlmMachine`]. If no account
-    ///   is provided, a new default one or one from the store will be used. If
-    ///   an account is provided and one already exists in the store for this
-    ///   [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
-    ///   useful if one wishes to create identity keys before knowing the
-    ///   user/device IDs, e.g., to use the identity key as the device ID.
-    ///
-    /// [`CryptoStore`]: crate::store::CryptoStore
-    pub async fn with_store(
-        user_id: &UserId,
-        device_id: &DeviceId,
-        store: impl IntoCryptoStore,
-        custom_account: Option<vodozemac::olm::Account>,
-    ) -> StoreResult<Self> {
-        OlmMachineBuilder::new(user_id, device_id)
-            .with_crypto_store(store)
-            .with_custom_account(custom_account)
-            .build()
-            .await
-    }
-
     #[instrument(skip(builder), fields(user_id, device_id, ed25519_key, curve25519_key))]
     pub(crate) async fn from_builder(builder: OlmMachineBuilder) -> StoreResult<Self> {
         let OlmMachineBuilder { user_id, device_id, store, custom_account } = builder;

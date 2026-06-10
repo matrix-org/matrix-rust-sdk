@@ -10,7 +10,7 @@ use std::{
 use js_int::UInt;
 use matrix_sdk_common::deserialized_responses::AlgorithmInfo;
 use matrix_sdk_crypto::{
-    CollectStrategy, DecryptionSettings, LocalTrust, OlmMachine as InnerMachine,
+    CollectStrategy, DecryptionSettings, LocalTrust, OlmMachine as InnerMachine, OlmMachineBuilder,
     UserIdentity as SdkUserIdentity,
     backups::{
         MegolmV1BackupKey as RustBackupKey, SignatureState,
@@ -214,12 +214,9 @@ impl OlmMachine {
 
         passphrase.zeroize();
 
-        let inner = runtime.block_on(InnerMachine::with_store(
-            &user_id,
-            device_id,
-            Arc::new(store),
-            None,
-        ))?;
+        let inner = runtime.block_on(
+            OlmMachineBuilder::new(&user_id, device_id).with_crypto_store(Arc::new(store)).build(),
+        )?;
 
         Ok(Arc::new(OlmMachine { inner: ManuallyDrop::new(inner), runtime }))
     }
