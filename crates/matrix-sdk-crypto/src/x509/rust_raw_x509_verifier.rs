@@ -28,6 +28,10 @@ use crate::{types::X509Signature, x509::x509_verify::RawX509Verifier};
 
 #[derive(Error, Debug)]
 pub enum RustX509VerifyError {
+    /// There was an error parsing the certificate
+    #[error("failed to parse certificate")]
+    ParseError(rustls::pki_types::pem::Error),
+
     /// There was an error building the verifier
     #[error("failed to build verifier {0}")]
     VerifierBuilderError(VerifierBuilderError),
@@ -52,7 +56,7 @@ impl RustRawX509Verifier {
         let mut root_store = RootCertStore::empty();
         for result in CertificateDer::pem_slice_iter(ca_certs_pem.as_bytes()) {
             root_store
-                .add(result.expect("Unable to parse certificate in root store"))
+                .add(result.map_err(RustX509VerifyError::ParseError)?)
                 .map_err(RustX509VerifyError::StoreError)?;
         }
         let verifier = WebPkiClientVerifier::builder(Arc::new(root_store))
@@ -87,7 +91,10 @@ impl RawX509Verifier for RustRawX509Verifier {
         }
 
         // Verify this is a signature of the master key
-        let provider = CryptoProvider::get_default().expect("unable to get default provider");
+        let Some(provider) = CryptoProvider::get_default() else {
+            tracing::error!("Unable to get default rustls crypto provider");
+            return false;
+        };
 
         let Some(alg) = provider
             .signature_verification_algorithms
