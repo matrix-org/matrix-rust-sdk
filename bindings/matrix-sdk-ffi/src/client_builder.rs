@@ -413,7 +413,10 @@ impl ClientBuilder {
                 &self,
                 message: &[u8],
             ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
-                let result = self.0.sign(message.to_vec()).expect("Signing failed");
+                let result = self
+                    .0
+                    .sign(message.to_vec())
+                    .map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
                 Ok((
                     DeviceKeyId::from_parts(
                         "io.element.x509".into(),

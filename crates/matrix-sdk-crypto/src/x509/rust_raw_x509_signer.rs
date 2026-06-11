@@ -101,7 +101,8 @@ impl RawX509Signer for RustRawX509Signer {
             .choose_scheme(&[signature_scheme])
             .ok_or(SignatureError::UnsupportedAlgorithm)?;
 
-        let signature = signer.sign(message).map_err(SignatureError::X509SigningError)?;
+        let signature =
+            signer.sign(message).map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
         Ok((
             self.device_id.clone(),
             X509Signature {
