@@ -169,8 +169,8 @@ pub struct ClientBuilder {
 
     threading_support: ThreadingSupport,
 
-    x509_sign: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Signer>>,
-    x509_verify: Option<Arc<dyn matrix_sdk_base::crypto::x509::RawX509Verifier>>,
+    x509_sign: Option<Arc<dyn X509Sign>>,
+    x509_verify: Option<Arc<dyn X509Verify>>,
 
     dm_room_definition: DmRoomDefinition,
 }
@@ -393,60 +393,15 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn with_x509_sign(self: Arc<Self>, x509_sign: Box<dyn X509Sign>) -> Arc<Self> {
+    pub fn with_x509_sign(self: Arc<Self>, x509_sign: Arc<dyn X509Sign>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-
-        // Wrap the provided X509Sign impl in a shim which converts the arguments and
-        // results. We do this here rather than in build(), because the provided
-        // x509_sign doesn't implement Clone, so we can't store it in
-        // ClientBuilder (which is Clone) without wrapping it in an Arc. Since
-        // we're making an Arc anyway, we may as well wrap it now rather than
-        // have two layers of Arcs later.
-        //
-        // TODO: AJB: if we took x509_sign as an Arc here, and changed the argument type
-        // of `X509Sign::sign` to `&[u8]` instead of `Vec` I think we could get
-        // rid of this shim.
-        #[derive(Debug)]
-        struct X509SignImpl(Box<dyn X509Sign>);
-        impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
-            fn sign(
-                &self,
-                message: &[u8],
-            ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
-                let result = self
-                    .0
-                    .sign(message.to_vec())
-                    .map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
-                Ok((
-                    DeviceKeyId::from_parts(
-                        "io.element.x509".into(),
-                        result.device_id.as_str().into(),
-                    ),
-                    result.signature.into(),
-                ))
-            }
-        }
-
-        builder.x509_sign = Some(Arc::new(X509SignImpl(x509_sign)));
+        builder.x509_sign = Some(x509_sign);
         Arc::new(builder)
     }
 
-    pub fn with_x509_verify(self: Arc<Self>, x509_verify: Box<dyn X509Verify>) -> Arc<Self> {
+    pub fn with_x509_verify(self: Arc<Self>, x509_verify: Arc<dyn X509Verify>) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-
-        // Wrap the provided X509Verify impl in a shim which converts the arguments and
-        // results. As per with_x509_sign, easier to do it here than in build().
-        #[derive(Debug)]
-        struct X509VerifyImpl(Box<dyn X509Verify>);
-        impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
-            fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
-                tracing::info!("X509VerifyImpl::verify");
-                let r = self.0.verify(message.to_vec(), sig.clone().into());
-                tracing::info!("X509VerifyImpl::verify: result {}", r);
-                r
-            }
-        }
-        builder.x509_verify = Some(Arc::new(X509VerifyImpl(x509_verify)));
+        builder.x509_verify = Some(x509_verify);
         Arc::new(builder)
     }
 
@@ -616,10 +571,46 @@ impl ClientBuilder {
             .with_threading_support(builder.threading_support);
 
         if let Some(x509_sign) = builder.x509_sign {
+            // Wrap the provided X509Sign impl in a shim which converts the arguments and
+            // results.
+            #[derive(Debug)]
+            struct X509SignImpl(Arc<dyn X509Sign>);
+            impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
+                fn sign(
+                    &self,
+                    message: &[u8],
+                ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
+                    let result = self
+                        .0
+                        .sign(message.to_vec())
+                        .map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
+                    Ok((
+                        DeviceKeyId::from_parts(
+                            "io.element.x509".into(),
+                            result.device_id.as_str().into(),
+                        ),
+                        result.signature.into(),
+                    ))
+                }
+            }
+
+            let x509_sign = Arc::new(X509SignImpl(x509_sign));
             inner_builder = inner_builder.with_x509_signer(Some(X509Signer::new(x509_sign)));
         }
 
         if let Some(x509_verify) = builder.x509_verify {
+            // Wrap the provided X509Verify impl in a shim which converts the arguments.
+            #[derive(Debug)]
+            struct X509VerifyImpl(Arc<dyn X509Verify>);
+            impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
+                fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
+                    tracing::info!("X509VerifyImpl::verify");
+                    let r = self.0.verify(message.to_vec(), sig.clone().into());
+                    tracing::info!("X509VerifyImpl::verify: result {}", r);
+                    r
+                }
+            }
+            let x509_verify = Arc::new(X509VerifyImpl(x509_verify));
             inner_builder = inner_builder.with_x509_verifier(Some(X509Verifier::new(x509_verify)));
         }
 

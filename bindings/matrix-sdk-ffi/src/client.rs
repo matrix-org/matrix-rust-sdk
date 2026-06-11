@@ -312,28 +312,30 @@ pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_notification(&self, notification: NotificationItem, room_id: String);
 }
 
-#[matrix_sdk_ffi_macros::export(callback_interface)]
+/// A foreign trait for low-level types which can sign messages using an
+/// X.509-certified key pair.
+#[matrix_sdk_ffi_macros::export(with_foreign)]
 pub trait X509Sign: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    ///
-    /// TODO: AJB: why is message a`Vec`? Can we make it a `&[u8]`?
     fn sign(&self, message: Vec<u8>) -> Result<X509SignatureAndKeyId, ClientError>;
 }
 
-#[matrix_sdk_ffi_macros::export(callback_interface)]
+/// A foreign trait for low-level types which can verify messages which were
+/// signed using an X.509-certified key pair.
+#[matrix_sdk_ffi_macros::export(with_foreign)]
 pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Check if the given signature is a valid X.509 signature for the given
     /// message.
     ///
     /// Also validates that the certificate used for the signature is issued via
     /// one of our trusted CAs.
-    ///
-    /// TODO: AJB: why is message a`Vec`? Can we make it a `&[u8]`?
     fn verify(&self, message: Vec<u8>, sig: X509Signature) -> bool;
 }
 
+/// Return type for [`X509Sign::sign`]. A device ID, a certificate chain, and an
+/// X.509 signature.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct X509SignatureAndKeyId {
     /// The device ID to use to identify the key used to sign the message.
