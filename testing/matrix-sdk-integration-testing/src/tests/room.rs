@@ -37,6 +37,52 @@ use tracing::{debug, error, warn};
 use crate::helpers::{TestClientBuilder, wait_for_room};
 
 #[tokio::test]
+async fn test_invite_decline_empty_room() -> Result<()> {
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(e) = bob.sync(Default::default()).await {
+                error!("bob sync error: {e}");
+            }
+        }
+    });
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let a = alice.clone();
+    spawn(async move {
+        let alice = a;
+        loop {
+            if let Err(e) = alice.sync(Default::default()).await {
+                error!("alice sync error: {e}");
+            }
+        }
+    });
+
+    let room_id = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    if let Some(room) = alice.get_room(&room_id) {
+        room.leave().await?;
+    }
+
+    if let Some(room) = bob.get_room(&room_id) {
+        room.leave().await?;
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_event_with_context() -> Result<()> {
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
