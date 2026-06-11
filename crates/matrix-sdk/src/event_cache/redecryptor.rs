@@ -1140,7 +1140,6 @@ mod tests {
         locks::Mutex,
         sleep::sleep,
         store::StoreConfig,
-        timeout::timeout,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -1786,120 +1785,5 @@ mod tests {
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
-    }
-
-    /// Regression test: the redecryptor must NOT hold the room state write
-    /// lock while calling replace_utds() on event-focused caches, otherwise
-    /// an ABBA deadlock occurs with concurrent event-focused cache pagination.
-    ///
-    /// Note that this situation is no longer possible because a refactoring
-    /// happened after the fix. Anyway, we kept the test because it was nice
-    /// with us.
-    #[async_test]
-    async fn test_redecryptor_no_deadlock_with_event_focused_cache_pagination() {
-        use crate::{
-            event_cache::EventFocusThreadMode,
-            test_utils::mocks::{RoomContextResponseTemplate, RoomMessagesResponseTemplate},
-        };
-
-        let room_id = room_id!("!test:localhost");
-        let f = EventFactory::new().room(room_id);
-        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
-
-        let (encrypted_event, room_key) = prepare_room(&server, &f, &alice, &bob, room_id).await;
-
-        let event_cache = bob.event_cache();
-        let (room_cache, _drop_handles) =
-            event_cache.room(room_id).await.expect("Bob should have an event cache for the room");
-
-        let (_initial_events, mut subscriber) = room_cache.subscribe().await.unwrap();
-
-        // Sync the encrypted event to Bob. Without the room key, it's a UTD.
-        server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_joined_room(
-                    JoinedRoomBuilder::new(room_id).add_timeline_event(encrypted_event),
-                );
-            })
-            .await;
-
-        // Consume the UTD update from the subscriber.
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                subscriber.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Append { values });
-        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
-
-        // Create an event-focused cache with a backward pagination gap.
-        let focused_event_id = event_id!("$focused");
-        let bob_user_id = bob.user_id().unwrap();
-
-        server
-            .mock_room_event_context()
-            .expect_any_access_token()
-            .ok(RoomContextResponseTemplate::new(
-                f.text_msg("focused msg")
-                    .sender(bob_user_id)
-                    .event_id(focused_event_id)
-                    .into_event(),
-            )
-            .start("back-token"))
-            .mock_once()
-            .mount()
-            .await;
-
-        let (event_focused_cache, _) = event_cache
-            .event_focused(room_id, focused_event_id, EventFocusThreadMode::Automatic, 20)
-            .await
-            .unwrap();
-
-        // Mock /messages with a long delay, simulating a slow network.
-        server
-            .mock_room_messages()
-            .expect_any_access_token()
-            .ok(RoomMessagesResponseTemplate::default().with_delay(Duration::from_secs(5)))
-            .mock_once()
-            .mount()
-            .await;
-
-        // Start backward pagination on the event-focused cache. This holds the cache
-        // write lock across the slow /messages network request.
-        let event_focused_cache_clone = event_focused_cache.clone();
-        let pagination_task = tokio::spawn(async move {
-            let _ = event_focused_cache_clone.paginate_backwards(20).await;
-        });
-
-        // Let the pagination task acquire the event-focused cache write lock.
-        sleep(Duration::from_millis(200)).await;
-
-        // Send the room key to Bob.
-        //
-        // The redecryptor background task will pick it up and decrypt the UTD.
-        server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_to_device_event(
-                    room_key
-                        .deserialize_as()
-                        .expect("We should be able to deserialize the room key"),
-                );
-            })
-            .await;
-
-        // Wait for the redecryptor to process the room key.
-        sleep(Duration::from_secs(1)).await;
-
-        // Subscribing requires a room state read lock (which would be awaited forever,
-        // before the fix; note that the fix is no longer relevant but the test has been
-        // kept in case of).
-        let (_events, _subscriber) = timeout(room_cache.subscribe(), Duration::from_millis(100))
-            .await
-            .expect("subscribing shouldn't timeout")
-            .expect("subscribing should succeed");
-
-        pagination_task.abort();
     }
 }
