@@ -28,13 +28,20 @@ use matrix_sdk::{
     ruma::events::room::MediaSource,
 };
 use matrix_sdk_crypto::olm::Curve25519PublicKey;
+use ruma::{
+    events::room::EncryptedFile,
+    serde::{Base64, base64::Standard},
+};
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+pub use crate::api::scan::MediaScanResponse;
 use crate::api::{
     DownloadAndScanMediaResponse,
+    scan::{encrypted::EncryptedMediaScanRequest, unencrypted::MediaScanRequest},
 };
 
 mod api;
@@ -109,6 +116,41 @@ impl ContentScanner {
             }
         }
     }
+
+    /// Scan a media source, returning a [`MediaScanResponse`] with the scan
+    /// result, or an error if something failed when trying to scan the media.
+    pub async fn scan(
+        &self,
+        client: &Client,
+        media_source: &MediaSource,
+    ) -> Result<MediaScanResponse, Error> {
+        match &media_source {
+            MediaSource::Encrypted(encrypted) => {
+                // Get the public server key if we don't have it yet.
+                let public_server_key = self.get_or_fetch_public_server_key(client).await;
+
+                Ok(client
+                    .send(EncryptedMediaScanRequest::new(
+                        self.scanner_url.clone(),
+                        public_server_key,
+                        *encrypted.clone(),
+                    ))
+                    .await?)
+            }
+            MediaSource::Plain(mxc) => {
+                let (server_name, media_id) =
+                    mxc.parts().map_err(|e| Error::Identifier(IdParseError::InvalidMxcUri(e)))?;
+                Ok(client
+                    .send(MediaScanRequest::new(
+                        self.scanner_url.clone(),
+                        server_name.to_string(),
+                        media_id.to_owned(),
+                    ))
+                    .await?)
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Serialize)]
 struct EncryptedBody {
@@ -229,7 +271,7 @@ mod tests {
         matchers::{header_exists, method, path, path_regex},
     };
 
-    use crate::ContentScanner;
+    use crate::{ContentScanner, ContentScannerError, ErrorReason};
 
     #[async_test]
     async fn test_fetch_public_key() {
@@ -379,5 +421,116 @@ mod tests {
             client_error.to_string(),
             "[403] {\"info\":\"File type: application/octet-stream not allowed\",\"reason\":\"MCS_MIME_TYPE_FORBIDDEN\"}"
         );
+    }
+
+    #[async_test]
+    async fn test_scan_media() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/media_proxy/unstable/scan/.+/.+"))
+            .and(header_exists("Authorization"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "clean": true,
+                "info": "All clear!"
+            })))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let media_source =
+            MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
+        let response = content_scanner.scan(&client, &media_source).await.expect("Get media");
+        assert!(response.clean);
+    }
+
+    #[async_test]
+    async fn test_scan_encrypted_media() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/_matrix/media_proxy/unstable/scan_encrypted"))
+            .and(header_exists("Authorization"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "clean": true,
+                "info": "All clear!"
+            })))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let file_info = EncryptedFileInfo::V2(V2EncryptedFileInfo::new(
+            Base64::parse("9lpOscZyMOZRCF3v867nPPo3WPNMZt9JXMsuYiWRszc".as_bytes()).expect("k"),
+            Base64::parse("czvdfKSjfLEAAAAAAAAAAA".as_bytes()).expect("iv"),
+        ));
+        let mut hashes = EncryptedFileHashes::new();
+        hashes.insert(EncryptedFileHash::Sha256(
+            Base64::parse("SBbJ3hINT2LgwXK8ev82enjnhubUy5UuKGDF3SezAhs".as_bytes()).expect("hash"),
+        ));
+        let media_source = MediaSource::Encrypted(Box::new(EncryptedFile::new(
+            owned_mxc_uri!(
+                "mxc://element.io/b50f38aa8ae820c75992370e4e944a045481e3932057062074730676224"
+            ),
+            file_info,
+            hashes,
+        )));
+        let response = content_scanner.scan(&client, &media_source).await.expect("Get media");
+        assert!(response.clean);
+    }
+
+    #[async_test]
+    async fn test_scan_media_unsupported() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/media_proxy/unstable/scan/.+/.+"))
+            .and(header_exists("Authorization"))
+            .respond_with(
+                // This always returns a 200 status code for scan results, even for failures
+                ResponseTemplate::new(200).set_body_json(json!({
+                    "clean": false,
+                    "info": "***VIRUS DETECTED***"
+                })),
+            )
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let media_source =
+            MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
+        let response = content_scanner.scan(&client, &media_source).await.expect("Get media");
+        assert!(response.clean.not());
+    }
+
+    #[test]
+    fn test_error_mapping() {
+        let error = HttpError::Api(Box::new(FromHttpResponseError::Server(
+            RumaApiError::MatrixError(ruma::api::error::Error::new(
+                StatusCode::FORBIDDEN,
+                ErrorBody::Json(json!({
+                    "info": "***VIRUS DETECTED***",
+                    "reason": "MCS_MEDIA_NOT_CLEAN"
+                })),
+            )),
+        )));
+        let api_error = error.as_client_api_error().expect("error as api error");
+        assert_eq!(
+            api_error.to_string(),
+            "[403] {\"info\":\"***VIRUS DETECTED***\",\"reason\":\"MCS_MEDIA_NOT_CLEAN\"}"
+        );
+        assert_matches!(&api_error.body, ErrorBody::Json(json_body));
+        let content_scanner_error =
+            ContentScannerError::deserialize(json_body).expect("deserialize");
+        assert_eq!(content_scanner_error.info, "***VIRUS DETECTED***");
+        assert_matches!(content_scanner_error.reason, ErrorReason::MCS_MEDIA_NOT_CLEAN);
     }
 }
