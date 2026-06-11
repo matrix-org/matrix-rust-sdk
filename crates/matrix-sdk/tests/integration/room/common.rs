@@ -655,18 +655,6 @@ async fn test_event() {
     let push_actions = timeline_event.push_actions().unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
-
-    // Requested event was saved to the cache
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
-
-    // So we can reload it without hitting the network.
-    let timeline_event = room.load_or_fetch_event(event_id, None).await.unwrap();
-    assert_let!(
-        AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTombstone(event)) =
-            timeline_event.raw().deserialize().unwrap()
-    );
-    assert_eq!(event.event_id(), event_id);
 }
 
 #[async_test]

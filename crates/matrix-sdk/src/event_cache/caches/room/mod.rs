@@ -298,22 +298,6 @@ impl RoomEventCache {
         self.inner.insert_sent_event_from_send_queue(event).await
     }
 
-    /// Save some events in the event cache, for further retrieval with
-    /// [`Self::event`].
-    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
-        match self.inner.state.write().await {
-            Ok(mut state_guard) => {
-                if let Err(err) = state_guard.save_events(events).await {
-                    warn!("couldn't save event in the event cache: {err}");
-                }
-            }
-
-            Err(err) => {
-                warn!("couldn't save event in the event cache: {err}");
-            }
-        }
-    }
-
     /// Return a nice debug string (a vector of lines) for the linked chunk of
     /// events for this room.
     pub async fn debug_string(&self) -> Vec<String> {
@@ -627,14 +611,18 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Save the original event.
-        room_event_cache.save_events([original_event]).await;
+        {
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
 
-        // Save the related event.
-        room_event_cache.save_events([related_event]).await;
+            // Save the original event.
+            state.save_events([original_event]).await.unwrap();
 
-        // Save the associated related event, which redacts the related event.
-        room_event_cache.save_events([associated_related_event]).await;
+            // Save the related event.
+            state.save_events([related_event]).await.unwrap();
+
+            // Save the associated related event, which redacts the related event.
+            state.save_events([associated_related_event]).await.unwrap();
+        }
 
         let filter = Some(vec![RelationType::Replacement]);
         let (event, related_events) = room_event_cache
@@ -694,14 +682,18 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Save the original event.
-        room_event_cache.save_events([original_event]).await;
+        {
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
 
-        // Save the related event.
-        room_event_cache.save_events([related_event]).await;
+            // Save the original event.
+            state.save_events([original_event]).await.unwrap();
 
-        // Save the associated related event, which redacts the related event.
-        room_event_cache.save_events([associated_related_event]).await;
+            // Save the related event.
+            state.save_events([related_event]).await.unwrap();
+
+            // Save the associated related event, which redacts the related event.
+            state.save_events([associated_related_event]).await.unwrap();
+        }
 
         let (event, related_events) = room_event_cache
             .find_event_with_relations(original_id, None)
@@ -737,22 +729,28 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Save the original event.
         let original_event_id = original_event.event_id().unwrap().to_owned();
-        room_event_cache.save_events([original_event]).await;
-
-        // Save an unrelated event to check it's not in the related events list.
-        let unrelated_id = event_id!("$2");
-        room_event_cache
-            .save_events([event_factory
-                .text_msg("An unrelated event")
-                .event_id(unrelated_id)
-                .into()])
-            .await;
-
-        // Save the related event.
         let related_id = related_event.event_id().unwrap().to_owned();
-        room_event_cache.save_events([related_event]).await;
+
+        {
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
+
+            // Save the original event.
+            state.save_events([original_event]).await.unwrap();
+
+            // Save an unrelated event to check it's not in the related events list.
+            let unrelated_id = event_id!("$2");
+            state
+                .save_events([event_factory
+                    .text_msg("An unrelated event")
+                    .event_id(unrelated_id)
+                    .into()])
+                .await
+                .unwrap();
+
+            // Save the related event.
+            state.save_events([related_event]).await.unwrap();
+        }
 
         let (event, related_events) = room_event_cache
             .find_event_with_relations(&original_event_id, None)

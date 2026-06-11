@@ -2715,28 +2715,6 @@ async fn test_relations_ordering() {
     assert_eq!(relations[0].event_id().unwrap(), edit2);
     assert_eq!(relations[1].event_id().unwrap(), edit3);
     assert_eq!(relations[2].event_id().unwrap(), edit4);
-
-    // If I save an additional event without storing it in the linked chunk, it will
-    // be present at the start of the relations list.
-    let edit5 = event_id!("$edit5");
-    let ev5 = f
-        .text_msg("* hallo Welt")
-        .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hallo Welt"))
-        .event_id(edit5)
-        .into_event();
-
-    server.mock_room_event().ok(ev5).mock_once().mount().await;
-
-    // This saves the event, but without a position.
-    room.event(edit5, None).await.unwrap();
-
-    let (_, relations) =
-        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
-    assert_eq!(relations.len(), 4);
-    assert_eq!(relations[0].event_id().unwrap(), edit5);
-    assert_eq!(relations[1].event_id().unwrap(), edit2);
-    assert_eq!(relations[2].event_id().unwrap(), edit3);
-    assert_eq!(relations[3].event_id().unwrap(), edit4);
 }
 
 #[async_test]

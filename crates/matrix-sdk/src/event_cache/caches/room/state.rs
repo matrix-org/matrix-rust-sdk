@@ -809,3 +809,41 @@ fn extract_read_receipt(
 
     receipt_event
 }
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_base::RoomState;
+    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use ruma::{event_id, room_id, user_id};
+
+    use crate::test_utils::logged_in_client;
+
+    #[async_test]
+    async fn test_save_event() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!galette:saucisse.bzh");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+        let event_id = event_id!("$1");
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        room_event_cache
+            .inner
+            .state
+            .write()
+            .await
+            .unwrap()
+            .save_events([f.text_msg("hey there").event_id(event_id).into()])
+            .await
+            .unwrap();
+
+        // Retrieving the event at the room-wide cache works.
+        assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
+    }
+}
