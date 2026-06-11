@@ -24,6 +24,7 @@ use matrix_sdk::{
     room::{calls::CallError, edit::EditError},
     send_queue::RoomSendQueueError,
 };
+use matrix_sdk_contentscanner::ContentScannerError;
 use matrix_sdk_ui::{encryption_sync_service, notification_client, spaces, sync_service, timeline};
 use ruma::{
     MilliSecondsSinceUnixEpoch,
@@ -39,6 +40,8 @@ pub enum ClientError {
     Generic { msg: String, details: Option<String> },
     #[error("api error {code}: {msg}")]
     MatrixApi { kind: ErrorKind, code: String, msg: String, details: Option<String> },
+    #[error("content scanner error {reason:?}: {info}")]
+    ContentScanner { reason: matrix_sdk_contentscanner::ErrorReason, info: String },
 }
 
 impl ClientError {
@@ -75,23 +78,39 @@ impl From<matrix_sdk::Error> for ClientError {
     fn from(e: matrix_sdk::Error) -> Self {
         match e {
             matrix_sdk::Error::Http(http_error) => {
-                if let Some(api_error) = http_error.as_client_api_error()
-                    && let ErrorBody::Standard(StandardErrorBody { kind, message, .. }) =
-                        &api_error.body
-                {
-                    let code = kind.errcode().to_string();
-                    let Ok(kind) = kind.to_owned().try_into() else {
-                        // We couldn't parse the API error, so we return a generic one instead
-                        return (*http_error).into();
-                    };
-                    return Self::MatrixApi {
-                        kind,
-                        code,
-                        msg: message.to_owned(),
-                        details: Some(format!("{api_error:?}")),
-                    };
+                if let Some(api_error) = http_error.as_client_api_error() {
+                    match &api_error.body {
+                        ErrorBody::Standard(StandardErrorBody { kind, message, .. }) => {
+                            let Ok(ffi_error_kind) = kind.clone().try_into() else {
+                                // We couldn't parse the API error, so we return a generic one
+                                // instead
+                                return (*http_error).into();
+                            };
+                            let code = kind.errcode().to_string();
+                            Self::MatrixApi {
+                                kind: ffi_error_kind,
+                                code,
+                                msg: message.to_owned(),
+                                details: Some(format!("{api_error:?}")),
+                            }
+                        }
+                        ErrorBody::Json(json) => {
+                            if let Ok(api_error) =
+                                serde_json::from_value::<ContentScannerError>(json.to_owned())
+                            {
+                                Self::ContentScanner {
+                                    reason: api_error.reason,
+                                    info: api_error.info,
+                                }
+                            } else {
+                                (*http_error).into()
+                            }
+                        }
+                        ErrorBody::NotJson { .. } => (*http_error).into(),
+                    }
+                } else {
+                    (*http_error).into()
                 }
-                (*http_error).into()
             }
             _ => Self::from_err(e),
         }
