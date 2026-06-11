@@ -926,7 +926,6 @@ mod tests {
             .await
             .unwrap();
 
-
         let binding = alice.backup_machine().backup_key.read().await;
         let machine_backup_key = binding.as_ref().unwrap();
 
