@@ -18,6 +18,7 @@ use api::{
     download::{
         unencrypted::DownloadAndScanMediaRequest,
     },
+    public_server_key::PublicServerKeyRequest,
 };
 use matrix_sdk::{
     BoxFuture, Client, Error, IdParseError,
@@ -26,6 +27,8 @@ use matrix_sdk::{
     media::{MediaFetcher, MediaRequestParameters},
     ruma::events::room::MediaSource,
 };
+use matrix_sdk_crypto::olm::Curve25519PublicKey;
+use tracing::trace;
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
@@ -47,6 +50,32 @@ impl ContentScanner {
     /// Instantiate a new [`ContentScanner`] using the `scanner_url`.
     pub fn new(scanner_url: impl Into<String>) -> Self {
         Self { scanner_url: scanner_url.into(), public_server_key: Arc::new(Mutex::new(None)) }
+    }
+
+    pub(crate) async fn fetch_public_server_key(&self, client: &Client) -> Result<String, Error> {
+        let response = client.send(PublicServerKeyRequest::new(self.scanner_url.clone())).await?;
+        Ok(response.public_key)
+    }
+
+    async fn get_or_fetch_public_server_key(&self, client: &Client) -> Option<Curve25519PublicKey> {
+        let public_server_key =
+            if let Some(public_server_key) = (*self.public_server_key.lock()).clone() {
+                trace!("Using cached public server key");
+                Some(public_server_key)
+            } else {
+                trace!("Using cached public server key");
+                let ret = self.fetch_public_server_key(client).await.ok();
+
+                if let Some(public_server_key) = &ret {
+                    trace!("Saved new public server key");
+                    let mut guard = self.public_server_key.lock();
+                    let _ = guard.insert(public_server_key.clone());
+                }
+
+                ret
+            };
+
+        public_server_key.and_then(|key| Curve25519PublicKey::from_base64(&key).ok())
     }
 
     pub(crate) async fn get_media(
@@ -95,4 +124,73 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Not;
+
+    use assert_matches2::assert_matches;
+    use matrix_sdk::{HttpError, RumaApiError, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk_test::async_test;
+    use ruma::{
+        api::{
+            MatrixVersion,
+            error::{ErrorBody, FromHttpResponseError},
+        },
+        events::room::{
+            EncryptedFile, EncryptedFileHash, EncryptedFileHashes, EncryptedFileInfo, MediaSource,
+            V2EncryptedFileInfo,
+        },
+        exports::{http::StatusCode, serde_json::json},
+        owned_mxc_uri,
+        serde::Base64,
+    };
+    use serde::Deserialize;
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{header_exists, method, path, path_regex},
+    };
+
+    use crate::ContentScanner;
+
+    #[async_test]
+    async fn test_fetch_public_key() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/_matrix/media_proxy/unstable/public_key"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "public_key": "1234567890"
+            })))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        content_scanner.fetch_public_server_key(&client).await.expect("Load public key");
+    }
+
+    #[async_test]
+    async fn test_get_media() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/media_proxy/unstable/download/.+/.+"))
+            .and(header_exists("Authorization"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            )
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let media_source =
+            MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
+        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+    }
 }
