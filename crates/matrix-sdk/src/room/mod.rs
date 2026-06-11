@@ -618,11 +618,6 @@ impl Room {
         )
         .await;
 
-        // Save the loaded events into the event cache, if it's set up.
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_events(chunk.clone()).await;
-        }
-
         Ok(Messages {
             start: http_response.start,
             end: http_response.end,
@@ -816,11 +811,6 @@ impl Room {
         let raw_event = self.client.send(request).with_request_config(request_config).await?.event;
         let push_ctx = self.push_context().await?;
         let event = self.try_decrypt_event(raw_event, push_ctx.as_ref()).await;
-
-        // Save the event into the event cache, if it's set up.
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_events([event.clone()]).await;
-        }
 
         Ok(event)
     }
@@ -4263,16 +4253,7 @@ impl Room {
         event_id: OwnedEventId,
         opts: RelationsOptions,
     ) -> Result<Relations> {
-        let relations = opts.send(self, event_id).await;
-
-        // Save any new related events to the cache.
-        if let Ok(Relations { chunk, .. }) = &relations
-            && let Ok((cache, _handles)) = self.event_cache().await
-        {
-            cache.save_events(chunk.clone()).await;
-        }
-
-        relations
+        opts.send(self, event_id).await
     }
 
     /// Subscribe to a given thread in this room.

@@ -867,27 +867,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_save_event() {
-        let client = logged_in_client(None).await;
-        let room_id = room_id!("!galette:saucisse.bzh");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
-        let event_id = event_id!("$1");
-
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        room_event_cache.save_events([f.text_msg("hey there").event_id(event_id).into()]).await;
-
-        // Retrieving the event at the room-wide cache works.
-        assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
-    }
-
-    #[async_test]
     async fn test_generic_update_when_loading_rooms() {
         // Create 2 rooms. One of them has data in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
