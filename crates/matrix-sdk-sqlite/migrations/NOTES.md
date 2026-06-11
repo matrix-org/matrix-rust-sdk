@@ -8,7 +8,7 @@ scripts, with the hope that future us won't replicate these errors.
    configuration to consider double-quotes to be string literals delimiters,
    this configuration can be disabled, and would create an error.
 
-   The following example is correct
+   The following example is correct:
 
    ```sql
    CREATE TABLE "foo";
