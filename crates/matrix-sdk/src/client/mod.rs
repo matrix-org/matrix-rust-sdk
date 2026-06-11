@@ -107,7 +107,7 @@ use crate::{
     http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
     live_locations_observer::BeaconInfoUpdate,
-    media::MediaError,
+    media::{MediaError, MediaFetcher},
     notification_settings::NotificationSettings,
     room::RoomMember,
     room_preview::RoomPreview,
@@ -409,6 +409,8 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) duplicate_key_upload_error_sender:
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
+
+    pub(crate) media_fetcher: Arc<dyn MediaFetcher>,
 }
 
 impl ClientInner {
@@ -436,6 +438,7 @@ impl ClientInner {
         cross_process_lock_config: CrossProcessLockConfig,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
+        media_fetcher: Arc<dyn MediaFetcher>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
@@ -479,6 +482,7 @@ impl ClientInner {
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
+            media_fetcher,
         };
 
         #[allow(clippy::let_and_return)]
@@ -797,7 +801,7 @@ impl Client {
 
     /// Get the media manager of the client.
     pub fn media(&self) -> Media {
-        Media::new(self.clone())
+        Media::new(self.clone(), self.inner.media_fetcher.clone())
     }
 
     /// Get the pusher manager of the client.
@@ -3256,6 +3260,7 @@ impl Client {
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
+                self.inner.media_fetcher.clone(),
             )
             .await,
         };
@@ -3596,7 +3601,7 @@ pub(crate) struct WeakClient {
 
 impl WeakClient {
     /// Construct a [`WeakClient`] from a `Arc<ClientInner>`.
-    pub fn from_inner(client: &Arc<ClientInner>) -> Self {
+    pub(crate) fn from_inner(client: &Arc<ClientInner>) -> Self {
         Self { client: Arc::downgrade(client) }
     }
 
