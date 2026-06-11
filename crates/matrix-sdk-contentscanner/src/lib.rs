@@ -14,16 +14,27 @@
 
 use std::sync::Arc;
 
-use matrix_sdk::locks::Mutex;
+use api::{
+    download::{
+        unencrypted::DownloadAndScanMediaRequest,
+    },
+};
 use matrix_sdk::{
     BoxFuture, Client, Error, IdParseError,
+    encryption::vodozemac::pk_encryption::Message,
     locks::Mutex,
     media::{MediaFetcher, MediaRequestParameters},
+    ruma::events::room::MediaSource,
 };
 
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 
+use crate::api::{
+    DownloadAndScanMediaResponse,
+};
+
+mod api;
 
 /// A helper component to download and scan media from a content scanner server.
 #[derive(Debug)]
@@ -36,6 +47,29 @@ impl ContentScanner {
     /// Instantiate a new [`ContentScanner`] using the `scanner_url`.
     pub fn new(scanner_url: impl Into<String>) -> Self {
         Self { scanner_url: scanner_url.into(), public_server_key: Arc::new(Mutex::new(None)) }
+    }
+
+    pub(crate) async fn get_media(
+        &self,
+        client: &Client,
+        media_source: &MediaSource,
+    ) -> Result<DownloadAndScanMediaResponse, Error> {
+        match &media_source {
+            MediaSource::Encrypted(_encrypted) => {
+                todo!("Let's start with unencrypted media first.")
+            }
+            MediaSource::Plain(mxc) => {
+                let (server_name, media_id) =
+                    mxc.parts().map_err(|e| Error::Identifier(IdParseError::InvalidMxcUri(e)))?;
+                Ok(client
+                    .send(DownloadAndScanMediaRequest::new(
+                        &self.scanner_url,
+                        server_name.as_str(),
+                        media_id,
+                    ))
+                    .await?)
+            }
+        }
     }
 
 /// A media fetcher that uses the content scanner to download and scan media.
@@ -53,11 +87,11 @@ impl ContentScannerMediaFetcher {
 impl MediaFetcher for ContentScannerMediaFetcher {
     fn fetch_media_content<'a>(
         &'a self,
-        _client: &'a Client,
-        _request: &'a MediaRequestParameters,
+        client: &'a Client,
+        request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
         Box::pin(async move {
-            todo!("Implement fetch_media_content")
+            Ok(self.content_scanner.get_media(client, &request.source).await?.content)
         })
     }
 }
