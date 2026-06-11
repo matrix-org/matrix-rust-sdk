@@ -85,8 +85,8 @@ use crate::{
     },
     session_manager::{GroupSessionManager, SessionManager},
     store::{
-        CryptoStoreWrapper, IntoCryptoStore, MemoryStore, Result as StoreResult, SecretImportError,
-        Store, StoreTransaction,
+        CryptoStoreWrapper, DynCryptoStore, IntoCryptoStore, MemoryStore, Result as StoreResult,
+        SecretImportError, Store, StoreTransaction,
         caches::StoreCache,
         types::{
             Changes, CrossSigningKeyExport, DeviceChanges, IdentityChanges, PendingChanges,
@@ -126,6 +126,103 @@ pub struct RawEncryptionResult {
     pub content: Raw<RoomEncryptedEventContent>,
     /// Information about the encryption that was performed.
     pub encryption_info: EncryptionInfo,
+}
+
+/// A builder object to help creating an [`OlmMachine`] instance.
+pub struct OlmMachineBuilder {
+    /// The unique id of the user that owns the machine to be built.
+    user_id: OwnedUserId,
+
+    /// The unique id of the device that owns the machine to be built.
+    device_id: OwnedDeviceId,
+
+    /// `CryptoStore` implementation. If not populated, a [`MemoryStore`] will
+    /// be created.
+    store: Option<Arc<DynCryptoStore>>,
+
+    /// Optional override for the vodozemac `Account` that will be used for this
+    /// OlmMachine.
+    custom_account: Option<vodozemac::olm::Account>,
+
+    /// Optional X509 verifier to be used for verifying people's identities.
+    x509_verifier: Option<X509Verifier>,
+
+    /// Optional X509 signer to be used for signing our own identity.
+    x509_signer: Option<X509Signer>,
+}
+
+impl OlmMachineBuilder {
+    /// Create a new `OlmMachineBuilder` which will create an [`OlmMachine`]
+    /// belonging to the given user id / device id.
+    pub fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
+        Self {
+            user_id: user_id.to_owned(),
+            device_id: device_id.to_owned(),
+            store: None,
+            custom_account: None,
+            x509_verifier: None,
+            x509_signer: None,
+        }
+    }
+
+    /// Set the [`CryptoStore`] implementation that will be used to store
+    /// the encryption keys.
+    ///
+    /// If this is not populated before [`OlmMachineBuilder::build`] is called,
+    /// a new [`MemoryStore`] will be created.
+    ///
+    /// [`CryptoStore`]: crate::store::CryptoStore
+    pub fn with_crypto_store(mut self, store: impl IntoCryptoStore) -> Self {
+        self.store = Some(store.into_crypto_store());
+        self
+    }
+
+    /// Set a custom [`vodozemac::olm::Account`] to be used for the identity and
+    /// one-time keys of this [`OlmMachine`]. If this is not set before
+    /// [`OlmMachineBuilder::build`] is called, a new default one or one
+    /// from the store will be used.
+    ///
+    /// If an account is provided and one already exists in the store for this
+    /// [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
+    /// useful if one wishes to create identity keys before knowing the
+    /// user/device IDs, e.g., to use the identity key as the device ID.
+    pub fn with_custom_account(mut self, custom_account: Option<vodozemac::olm::Account>) -> Self {
+        self.custom_account = custom_account;
+        self
+    }
+
+    /// Specify an [`X509Verifier`] which the `OlmMachine` should use to verify
+    /// people's identities.
+    pub fn with_x509_verifier(mut self, x509_verifier: Option<X509Verifier>) -> Self {
+        self.x509_verifier = x509_verifier;
+        self
+    }
+
+    /// Specify an [`X509Signer`] which the `OlmMachine` should use to sign
+    /// our own identity.
+    pub fn with_x509_signer(mut self, x509_signer: Option<X509Signer>) -> Self {
+        self.x509_signer = x509_signer;
+        self
+    }
+
+    /// Construct a new [`OlmMachine`] from this builder.
+    ///
+    /// If a store was given via [`OlmMachineBuilder::with_crypto_store`], and
+    /// the store already contains encryption keys for the given user/device
+    /// pair, those will be re-used. Otherwise new device keys will be created
+    /// and stored.
+    pub async fn build(self) -> Result<OlmMachine, CryptoStoreError> {
+        OlmMachine::from_builder(self).await
+    }
+}
+
+impl std::fmt::Debug for OlmMachineBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OlmMachineBuilder")
+            .field("user_id", &self.user_id)
+            .field("device_id", &self.device_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// State machine implementation of the Olm/Megolm encryption protocol used for
@@ -191,7 +288,8 @@ impl OlmMachine {
     ///
     /// * `device_id` - The unique id of the device that owns this machine.
     pub async fn new(user_id: &UserId, device_id: &DeviceId) -> Self {
-        OlmMachine::with_store(user_id, device_id, MemoryStore::new(), None, None)
+        OlmMachineBuilder::new(user_id, device_id)
+            .build()
             .await
             .expect("Reading and writing to the memory store always succeeds")
     }
@@ -297,39 +395,18 @@ impl OlmMachine {
         Self { inner }
     }
 
-    /// Create a new OlmMachine with the given [`CryptoStore`].
-    ///
-    /// If the store already contains encryption keys for the given user/device
-    /// pair those will be re-used. Otherwise new ones will be created and
-    /// stored.
-    ///
-    /// # Arguments
-    ///
-    /// * `user_id` - The unique id of the user that owns this machine.
-    ///
-    /// * `device_id` - The unique id of the device that owns this machine.
-    ///
-    /// * `store` - A `CryptoStore` implementation that will be used to store
-    /// the encryption keys.
-    ///
-    /// * `custom_account` - A custom [`vodozemac::olm::Account`] to be used for
-    ///   the identity and one-time keys of this [`OlmMachine`]. If no account
-    ///   is provided, a new default one or one from the store will be used. If
-    ///   an account is provided and one already exists in the store for this
-    ///   [`UserId`]/[`DeviceId`] combination, an error will be raised. This is
-    ///   useful if one wishes to create identity keys before knowing the
-    ///   user/device IDs, e.g., to use the identity key as the device ID.
-    ///
-    /// [`CryptoStore`]: crate::store::CryptoStore
-    #[instrument(skip(store, custom_account), fields(ed25519_key, curve25519_key))]
-    pub async fn with_store(
-        user_id: &UserId,
-        device_id: &DeviceId,
-        store: impl IntoCryptoStore,
-        custom_account: Option<vodozemac::olm::Account>,
-        x509_data: Option<X509Data>,
-    ) -> StoreResult<Self> {
-        let store = store.into_crypto_store();
+    #[instrument(skip(builder), fields(user_id, device_id, ed25519_key, curve25519_key))]
+    pub(crate) async fn from_builder(builder: OlmMachineBuilder) -> StoreResult<Self> {
+        let OlmMachineBuilder {
+            user_id,
+            device_id,
+            store,
+            custom_account,
+            x509_verifier,
+            x509_signer,
+        } = builder;
+
+        let store = store.unwrap_or_else(|| MemoryStore::new().into_crypto_store());
 
         let static_account = match store.load_account().await? {
             Some(account) => {
@@ -353,9 +430,9 @@ impl OlmMachine {
 
             None => {
                 let account = if let Some(account) = custom_account {
-                    Account::new_helper(account, user_id, device_id)
+                    Account::new_helper(account, &user_id, &device_id)
                 } else {
-                    Account::with_device_id(user_id, device_id)
+                    Account::with_device_id(&user_id, &device_id)
                 };
 
                 let static_account = account.static_data().clone();
@@ -395,7 +472,7 @@ impl OlmMachine {
             }
             None => {
                 debug!("Creating an empty cross signing identity stub");
-                PrivateCrossSigningIdentity::empty(user_id)
+                PrivateCrossSigningIdentity::empty(&user_id)
             }
         };
 
@@ -415,12 +492,7 @@ impl OlmMachine {
         });
 
         let identity = Arc::new(Mutex::new(identity));
-        let store = Arc::new(CryptoStoreWrapper::new(user_id, device_id, store));
-
-        let (x509_verifier, x509_signer) = match x509_data {
-            None => (None, None),
-            Some(data) => (data.x509_verifier, data.x509_signer),
-        };
+        let store = Arc::new(CryptoStoreWrapper::new(&user_id, &device_id, store));
 
         let (verification_machine, store, identity_manager) = Self::new_helper_prelude(
             store,
@@ -435,7 +507,7 @@ impl OlmMachine {
         Self::migration_post_verified_latch_support(&store, &identity_manager).await?;
 
         Ok(Self::new_helper(
-            device_id,
+            &device_id,
             store,
             verification_machine,
             identity_manager,

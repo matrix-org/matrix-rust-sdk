@@ -29,8 +29,8 @@ use matrix_sdk_crypto::x509::{X509Data, X509Signer, X509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
-    TrustRequirement, store::DynCryptoStore, store::types::RoomPendingKeyBundleDetails,
-    types::requests::ToDeviceRequest,
+    OlmMachineBuilder, TrustRequirement, store::DynCryptoStore,
+    store::types::RoomPendingKeyBundleDetails, types::requests::ToDeviceRequest,
 };
 #[cfg(doc)]
 use ruma::DeviceId;
@@ -401,22 +401,16 @@ impl BaseClient {
         // TODO RAV: move this elsewhere? Or maybe we already have it
         // let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-        let x509data = X509Data {
-            x509_signer: self.x509_signer.clone(),
-            x509_verifier: self.x509_verifier.clone(),
-        };
-
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
-        let olm_machine = OlmMachine::with_store(
-            &session_meta.user_id,
-            &session_meta.device_id,
-            self.crypto_store.clone(),
-            custom_account,
-            Some(x509data),
-        )
-        .await
-        .map_err(OlmError::from)?;
+        let olm_machine = OlmMachineBuilder::new(&session_meta.user_id, &session_meta.device_id)
+            .with_crypto_store(self.crypto_store.clone())
+            .with_custom_account(custom_account)
+            .with_x509_verifier(self.x509_verifier.clone())
+            .with_x509_signer(self.x509_signer.clone())
+            .build()
+            .await
+            .map_err(OlmError::from)?;
 
         *self.olm_machine.write().await = Some(olm_machine);
         Ok(())
