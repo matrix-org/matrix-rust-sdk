@@ -1165,7 +1165,6 @@ mod tests {
             "DEWRCMENGS".to_owned(),
             path,
             None,
-            None,
         )?;
 
         assert_eq!(

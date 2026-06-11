@@ -204,7 +204,6 @@ impl OlmMachine {
         device_id: String,
         path: String,
         mut passphrase: Option<String>,
-        _x509_keys: Option<String>,
     ) -> Result<Arc<Self>, CryptoStoreError> {
         let user_id = parse_user_id(&user_id)?;
         let device_id = device_id.as_str().into();
