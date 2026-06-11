@@ -642,12 +642,23 @@ mod timed_tests {
         assert_matches!(
             thread_stream.recv().await,
             Ok(TimelineVectorDiffs { diffs, .. }) => {
-                assert_eq!(diffs.len(), 1);
+                assert_eq!(diffs.len(), 2);
                 assert_matches!(&diffs[0], VectorDiff::Clear);
+                assert_matches!(&diffs[1], VectorDiff::Append { values } => {
+                    assert!(values.is_empty());
+                });
             }
         );
 
         // … same with a generic update.
+        // (update for the clearing of the room)
+        assert_matches!(
+            generic_stream.recv().await,
+            Ok(RoomEventCacheGenericUpdate { room_id: received_room_id }) => {
+                assert_eq!(received_room_id, room_id);
+            }
+        );
+        // (update for the clearing of the thread)
         assert_matches!(
             generic_stream.recv().await,
             Ok(RoomEventCacheGenericUpdate { room_id: received_room_id }) => {

@@ -801,10 +801,7 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{
-            super::{TimelineVectorDiffs, states::ReloadPreprocessing},
-            pagination::LoadMoreEventsBackwardsOutcome,
-        },
+        super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
     use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
@@ -1573,10 +1570,7 @@ mod timed_tests {
         room_event_cache
             .inner
             .state
-            .write()
-            .await
-            .unwrap()
-            .reload(ReloadPreprocessing::None)
+            .reload_no_preprocessing()
             .await
             .expect("shrinking should succeed");
 
