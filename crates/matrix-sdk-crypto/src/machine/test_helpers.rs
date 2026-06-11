@@ -39,7 +39,8 @@ use tokio::sync::Mutex;
 
 use crate::{
     Account, CollectStrategy, CrossSigningBootstrapRequests, DecryptionSettings, Device,
-    DeviceData, EncryptionSyncChanges, OlmMachine, OtherUserIdentityData, TrustRequirement,
+    DeviceData, EncryptionSyncChanges, OlmMachine, OlmMachineBuilder, OtherUserIdentityData,
+    TrustRequirement,
     olm::PrivateCrossSigningIdentity,
     store::{CryptoStoreWrapper, MemoryStore, types::Changes},
     types::{
@@ -123,7 +124,9 @@ pub async fn get_machine_pair_using_store(
 ) -> (OlmMachine, OlmMachine, OneTimeKeys) {
     let (bob, otk) = get_prepared_machine_test_helper(bob, use_fallback_key).await;
 
-    let alice = OlmMachine::with_store(alice, alice_device_id, alice_store, None)
+    let alice = OlmMachineBuilder::new(alice, alice_device_id)
+        .with_crypto_store(alice_store)
+        .build()
         .await
         .expect("Failed to create OlmMachine from supplied store");
 

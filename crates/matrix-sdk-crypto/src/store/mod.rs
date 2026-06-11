@@ -25,6 +25,7 @@
 //! # use std::sync::Arc;
 //! # use matrix_sdk_crypto::{
 //! #     OlmMachine,
+//! #     OlmMachineBuilder,
 //! #     store::MemoryStore,
 //! # };
 //! # use ruma::{device_id, user_id};
@@ -32,7 +33,9 @@
 //! # let device_id = device_id!("TEST");
 //! let store = Arc::new(MemoryStore::new());
 //!
-//! let machine = OlmMachine::with_store(user_id, device_id, store, None);
+//! let machine = OlmMachineBuilder::new(user_id, device_id)
+//!     .with_crypto_store(store)
+//!     .build();
 //! ```
 //!
 //! [`OlmMachine`]: /matrix_sdk_crypto/struct.OlmMachine.html

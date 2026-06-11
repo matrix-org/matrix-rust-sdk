@@ -28,8 +28,8 @@ use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
-    TrustRequirement, store::DynCryptoStore, store::types::RoomPendingKeyBundleDetails,
-    types::requests::ToDeviceRequest,
+    OlmMachineBuilder, TrustRequirement, store::DynCryptoStore,
+    store::types::RoomPendingKeyBundleDetails, types::requests::ToDeviceRequest,
 };
 #[cfg(doc)]
 use ruma::DeviceId;
@@ -379,14 +379,12 @@ impl BaseClient {
 
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
-        let olm_machine = OlmMachine::with_store(
-            &session_meta.user_id,
-            &session_meta.device_id,
-            self.crypto_store.clone(),
-            custom_account,
-        )
-        .await
-        .map_err(OlmError::from)?;
+        let olm_machine = OlmMachineBuilder::new(&session_meta.user_id, &session_meta.device_id)
+            .with_crypto_store(self.crypto_store.clone())
+            .with_custom_account(custom_account)
+            .build()
+            .await
+            .map_err(OlmError::from)?;
 
         *self.olm_machine.write().await = Some(olm_machine);
         Ok(())
