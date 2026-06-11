@@ -12,14 +12,14 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
+use std::pin::Pin;
+
+use futures_util::{Stream, StreamExt as _};
 use matrix_sdk::{
-    deserialized_responses::TimelineEvent,
-    message_search::{
-        GlobalSearchIterator as SdkGlobalSearchIterator,
-        RoomSearchIterator as SdkRoomSearchIterator, SearchError as SdkSearchError,
-    },
+    deserialized_responses::TimelineEvent, message_search::SearchError as SdkSearchError,
 };
 use matrix_sdk_ui::timeline::TimelineDetails;
+use ruma::OwnedRoomId;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -47,6 +47,13 @@ impl From<SdkSearchError> for SearchError {
     }
 }
 
+/// A boxed stream of the [`TimelineEvent`]s matching a single-room search.
+type RoomEventStream = Pin<Box<dyn Stream<Item = Result<TimelineEvent, SdkSearchError>> + Send>>;
+
+/// A boxed stream of the `(room_id, event)`s matching a global search.
+type GlobalEventStream =
+    Pin<Box<dyn Stream<Item = Result<(OwnedRoomId, TimelineEvent), SdkSearchError>> + Send>>;
+
 #[matrix_sdk_ffi_macros::export]
 impl Room {
     /// Search for messages in this room matching the given query, returning an
@@ -55,7 +62,8 @@ impl Room {
     pub fn search_messages(&self, query: String, num_results_per_batch: u32) -> RoomSearchIterator {
         RoomSearchIterator {
             sdk_room: (*self.inner).clone(),
-            inner: Mutex::new(self.inner.search_messages(query, num_results_per_batch as usize)),
+            stream: Mutex::new(Box::pin(self.inner.search_messages_events(query))),
+            num_results_per_batch: num_results_per_batch as usize,
         }
     }
 }
@@ -63,7 +71,8 @@ impl Room {
 #[derive(uniffi::Object)]
 pub struct RoomSearchIterator {
     sdk_room: matrix_sdk::room::Room,
-    inner: Mutex<SdkRoomSearchIterator>,
+    stream: Mutex<RoomEventStream>,
+    num_results_per_batch: usize,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -71,12 +80,22 @@ impl RoomSearchIterator {
     /// Return a list of events for the next batch of search results, or `None`
     /// if there are no more results.
     pub async fn next_events(&self) -> Result<Option<Vec<RoomSearchResult>>, SearchError> {
-        let Some(events) = self.inner.lock().await.next_events().await? else {
+        let mut stream = self.stream.lock().await;
+
+        let mut events = Vec::with_capacity(self.num_results_per_batch);
+        while events.len() < self.num_results_per_batch {
+            let Some(event) = stream.next().await else {
+                break;
+            };
+            events.push(event?);
+        }
+
+        if events.is_empty() {
             return Ok(None);
-        };
+        }
+        drop(stream);
 
         let mut results = Vec::with_capacity(events.len());
-
         for event in events {
             if let Some(result) = RoomSearchResult::from(&self.sdk_room, event).await {
                 results.push(result);
@@ -142,15 +161,19 @@ impl Client {
         num_results_per_batch: u32,
     ) -> Result<GlobalSearchIterator, ClientError> {
         let sdk_client = (*self.inner).clone();
-        let mut search = sdk_client.search_messages(query, num_results_per_batch as usize);
+        let mut builder = sdk_client.search_messages(query);
 
         match filter {
             SearchRoomFilter::Rooms => {}
-            SearchRoomFilter::Dms => search = search.only_dm_rooms().await?,
-            SearchRoomFilter::NonDms => search = search.no_dms().await?,
+            SearchRoomFilter::Dms => builder = builder.only_dm_rooms().await?,
+            SearchRoomFilter::NonDms => builder = builder.no_dms().await?,
         }
 
-        Ok(GlobalSearchIterator { sdk_client, inner: Mutex::new(search.build()) })
+        Ok(GlobalSearchIterator {
+            sdk_client,
+            stream: Mutex::new(Box::pin(builder.build_events())),
+            num_results_per_batch: num_results_per_batch as usize,
+        })
     }
 }
 
@@ -163,7 +186,8 @@ pub struct GlobalSearchResult {
 #[derive(uniffi::Object)]
 pub struct GlobalSearchIterator {
     sdk_client: matrix_sdk::Client,
-    inner: Mutex<SdkGlobalSearchIterator>,
+    stream: Mutex<GlobalEventStream>,
+    num_results_per_batch: usize,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -171,13 +195,23 @@ impl GlobalSearchIterator {
     /// Return a list of events for the next batch of search results, or `None`
     /// if there are no more results.
     pub async fn next_events(&self) -> Result<Option<Vec<GlobalSearchResult>>, SearchError> {
-        let Some(events) = self.inner.lock().await.next_events().await? else {
+        let mut stream = self.stream.lock().await;
+
+        let mut batch = Vec::with_capacity(self.num_results_per_batch);
+        while batch.len() < self.num_results_per_batch {
+            let Some(item) = stream.next().await else {
+                break;
+            };
+            batch.push(item?);
+        }
+
+        if batch.is_empty() {
             return Ok(None);
-        };
+        }
+        drop(stream);
 
-        let mut results = Vec::with_capacity(events.len());
-
-        for (room_id, event) in events {
+        let mut results = Vec::with_capacity(batch.len());
+        for (room_id, event) in batch {
             let Some(room) = self.sdk_client.get_room(&room_id) else {
                 continue;
             };
