@@ -25,7 +25,7 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
-use matrix_sdk_crypto::x509::{X509Data, X509Signer, X509Verifier};
+use matrix_sdk_crypto::x509::{X509Signer, X509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
