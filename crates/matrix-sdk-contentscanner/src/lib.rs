@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use api::{
     download::{
-        unencrypted::DownloadAndScanMediaRequest,
+        encrypted::DownloadAndScanEncryptedMediaRequest, unencrypted::DownloadAndScanMediaRequest,
     },
     public_server_key::PublicServerKeyRequest,
 };
@@ -84,8 +84,17 @@ impl ContentScanner {
         media_source: &MediaSource,
     ) -> Result<DownloadAndScanMediaResponse, Error> {
         match &media_source {
-            MediaSource::Encrypted(_encrypted) => {
-                todo!("Let's start with unencrypted media first.")
+            MediaSource::Encrypted(encrypted) => {
+                // Get the public server key if we don't have it yet.
+                let public_server_key = self.get_or_fetch_public_server_key(client).await;
+
+                Ok(client
+                    .send(DownloadAndScanEncryptedMediaRequest::new(
+                        self.scanner_url.clone(),
+                        public_server_key,
+                        *encrypted.clone(),
+                    ))
+                    .await?)
             }
             MediaSource::Plain(mxc) => {
                 let (server_name, media_id) =
@@ -100,6 +109,41 @@ impl ContentScanner {
             }
         }
     }
+
+#[derive(Debug, Clone, Serialize)]
+struct EncryptedBody {
+    ciphertext: String,
+    mac: String,
+    ephemeral: String,
+}
+
+impl From<Message> for EncryptedBody {
+    fn from(value: Message) -> Self {
+        Self {
+            ciphertext: Base64::<Standard>::new(value.ciphertext).to_string(),
+            mac: Base64::<Standard>::new(value.mac).to_string(),
+            ephemeral: value.ephemeral_key.to_base64(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct EncryptedFileRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<EncryptedFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encrypted_body: Option<EncryptedBody>,
+}
+
+impl EncryptedFileRequest {
+    pub(crate) fn from_file_info(file_info: EncryptedFile) -> Self {
+        Self { file: Some(file_info), encrypted_body: None }
+    }
+
+    pub(crate) fn from_encrypted_body(encrypted_body: EncryptedBody) -> Self {
+        Self { file: None, encrypted_body: Some(encrypted_body) }
+    }
+}
 
 /// A media fetcher that uses the content scanner to download and scan media.
 pub struct ContentScannerMediaFetcher {
@@ -123,6 +167,40 @@ impl MediaFetcher for ContentScannerMediaFetcher {
             Ok(self.content_scanner.get_media(client, &request.source).await?.content)
         })
     }
+}
+
+/// A content scanner error.
+#[derive(Debug, Deserialize)]
+pub struct ContentScannerError {
+    pub info: String,
+    pub reason: ErrorReason,
+}
+
+/// The reason for the content scanner error.
+#[allow(non_camel_case_types)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[derive(Clone, Debug, Deserialize)]
+pub enum ErrorReason {
+    /// The JSON file is malformed.
+    MCS_MALFORMED_JSON,
+    /// The media could not be decrypted.
+    MCS_MEDIA_FAILED_TO_DECRYPT,
+    /// No access token was provided.
+    M_MISSING_TOKEN,
+    /// The access token provided is invalid.
+    M_UNKNOWN_TOKEN,
+    /// The media was not found.
+    M_NOT_FOUND,
+    /// The media has some potentially dangerous content.
+    MCS_MEDIA_NOT_CLEAN,
+    /// The media has been blocked by the server because of its mime type.
+    MCS_MIME_TYPE_FORBIDDEN,
+    /// The used public key is wrong.
+    MCS_BAD_DECRYPTION,
+    /// An unknown error occurred.
+    M_UNKNOWN,
+    /// The server failed to request media from the media repo.
+    MCS_MEDIA_REQUEST_FAILED,
 }
 
 #[cfg(test)]
@@ -192,5 +270,114 @@ mod tests {
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
         content_scanner.get_media(&client, &media_source).await.expect("Get media");
+    }
+
+    #[async_test]
+    async fn test_get_media_unsupported() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/media_proxy/unstable/download/.+/.+"))
+            .and(header_exists("Authorization"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                "reason": "MCS_MIME_TYPE_FORBIDDEN",
+                "info": "File type: application/octet-stream not allowed",
+            })))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let media_source =
+            MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/ckTaStcNnFXLzKApkBmgRDoC"));
+        let err =
+            content_scanner.get_media(&client, &media_source).await.expect_err("Get media error");
+        let client_error = err.as_client_api_error().expect("Get client error");
+        assert_eq!(client_error.status_code, StatusCode::FORBIDDEN);
+        assert_eq!(
+            client_error.to_string(),
+            "[403] {\"info\":\"File type: application/octet-stream not allowed\",\"reason\":\"MCS_MIME_TYPE_FORBIDDEN\"}"
+        );
+    }
+
+    #[async_test]
+    async fn test_get_encrypted_media() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/_matrix/media_proxy/unstable/download_encrypted"))
+            .and(header_exists("Authorization"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_bytes(vec![1, 2, 3, 4, 5, 6, 7, 8, 9]),
+            )
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let file_info = EncryptedFileInfo::V2(V2EncryptedFileInfo::new(
+            Base64::parse("9lpOscZyMOZRCF3v867nPPo3WPNMZt9JXMsuYiWRszc".as_bytes()).expect("k"),
+            Base64::parse("czvdfKSjfLEAAAAAAAAAAA".as_bytes()).expect("iv"),
+        ));
+        let mut hashes = EncryptedFileHashes::new();
+        hashes.insert(EncryptedFileHash::Sha256(
+            Base64::parse("SBbJ3hINT2LgwXK8ev82enjnhubUy5UuKGDF3SezAhs".as_bytes()).expect("hash"),
+        ));
+        let media_source = MediaSource::Encrypted(Box::new(EncryptedFile::new(
+            owned_mxc_uri!(
+                "mxc://element.io/b50f38aa8ae820c75992370e4e944a045481e3932057062074730676224"
+            ),
+            file_info,
+            hashes,
+        )));
+        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+    }
+
+    #[async_test]
+    async fn test_get_encrypted_media_unsupported() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/media_proxy/unstable/download_encrypted"))
+            .and(header_exists("Authorization"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(json!({
+                "reason": "MCS_MIME_TYPE_FORBIDDEN",
+                "info": "File type: application/octet-stream not allowed",
+            })))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let file_info = EncryptedFileInfo::V2(V2EncryptedFileInfo::new(
+            Base64::parse("tdHdCI5mc-g29IYfhYx2wkA5o-bILP9-nXY6Np1uSnM".as_bytes()).expect("k"),
+            Base64::parse("IBFdH65KqhoAAAAAAAAAAA".as_bytes()).expect("iv"),
+        ));
+        let mut hashes = EncryptedFileHashes::new();
+        hashes.insert(EncryptedFileHash::Sha256(
+            Base64::parse("HSkkamvMSvF3Q30HInorh0ccPrxjgu+wp1vyUOmov/8".as_bytes()).expect("hash"),
+        ));
+        let media_source = MediaSource::Encrypted(Box::new(EncryptedFile::new(
+            owned_mxc_uri!("mxc://matrix.org/WlfuejQQdpvWiWVpAGwfIKJL"),
+            file_info,
+            hashes,
+        )));
+        let err = content_scanner
+            .get_media(&client, &media_source)
+            .await
+            .expect_err("Invalid type error");
+        let client_error = err.as_client_api_error().expect("Invalid error");
+        assert_eq!(client_error.status_code, StatusCode::FORBIDDEN);
+        assert_eq!(
+            client_error.to_string(),
+            "[403] {\"info\":\"File type: application/octet-stream not allowed\",\"reason\":\"MCS_MIME_TYPE_FORBIDDEN\"}"
+        );
     }
 }

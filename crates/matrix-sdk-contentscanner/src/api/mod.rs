@@ -24,6 +24,8 @@ use ruma::{
 };
 use serde::Deserialize;
 
+use crate::EncryptedFileRequest;
+
 pub mod download;
 pub mod public_server_key;
 pub mod scan;
@@ -48,5 +50,27 @@ impl IncomingResponse for DownloadAndScanMediaResponse {
         } else {
             Err(FromHttpResponseError::Server(Self::EndpointError::from_http_response(response)))
         }
+    }
+}
+
+/// Creates an [`EncryptedFileRequest`] from [`EncryptedFile`], using the
+/// optionally provided public key if present.
+pub(crate) fn encrypted_file_request_from(
+    public_key: Option<Curve25519PublicKey>,
+    encrypted_file: &EncryptedFile,
+) -> Result<EncryptedFileRequest, IntoHttpError> {
+    if let Some(public_key) = public_key {
+        // Generate an encrypted request body.
+        let encryption =
+            PkEncryption::from_key(Curve25519PublicKey::from_bytes(*public_key.as_bytes()));
+
+        let body_to_encrypt = EncryptedFileRequest::from_file_info(encrypted_file.clone());
+        let json_body_to_encrypt = serde_json::to_string(&body_to_encrypt)?;
+        let pk_message = encryption
+            .encrypt(json_body_to_encrypt.as_bytes())
+            .map_err(|e| IntoHttpError::Authentication(e.into()))?;
+        Ok(EncryptedFileRequest::from_encrypted_body(pk_message.into()))
+    } else {
+        Ok(EncryptedFileRequest::from_file_info(encrypted_file.clone()))
     }
 }
