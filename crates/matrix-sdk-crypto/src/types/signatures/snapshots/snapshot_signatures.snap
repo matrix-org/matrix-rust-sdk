@@ -1,5 +1,5 @@
 ---
-source: crates/matrix-sdk-crypto/src/types/mod.rs
+source: crates/matrix-sdk-crypto/src/types/signatures/mod.rs
 expression: signatures
 ---
 {
