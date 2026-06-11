@@ -533,6 +533,13 @@ where
     pub async fn write(&self) -> Result<StateLockWriteGuard<'_, Selector::Item>> {
         self.state_lock.write().await?.try_map_into_cache_state(&self.cache_state_selector)
     }
+
+    /// Shortcut to reload (with no preprocessing) the state cache just for
+    /// test.
+    #[cfg(test)]
+    pub async fn reload_no_preprocessing(&self) -> Result<()> {
+        self.state_lock.write().await?.reload(ReloadPreprocessing::None).await
+    }
 }
 
 /// Kind of pre-processing to do when reloading a cache.

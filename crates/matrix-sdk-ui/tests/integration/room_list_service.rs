@@ -1948,7 +1948,10 @@ async fn test_room_sorting() -> Result<(), Error> {
         },
     };
 
-    // Assert rooms are moving.
+    // Assert rooms are moving because their recency (based on the latest event)
+    // have changed.
+
+    // `!r0` is moving.
     assert_entries_batch! {
         [stream]
         remove [ 3 ];
@@ -1956,26 +1959,7 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
-    // All rooms get new messages, so their entries will get updates because of read
-    // receipt updates.
-    //
-    // Starting with r0.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r0:bar.org" ];
-        end;
-    };
-
-    // Now we have:
-    //
-    // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
-    // | 0     | !r0     | 7       | Bbb  |
-    // | 1     | !r4     | 5       |      |
-    // | 2     | !r3     | 4       |      |
-    // | 3     | !r1     | 3       | Aaa  |
-    // | 4     | !r2     | 1       |      |
-
+    // `!r1` is moving.
     assert_entries_batch! {
         [stream]
         remove [ 3 ];
@@ -1983,23 +1967,15 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
-    // Read receipt update for r1.
+    // `!r2` is supposed to move, but meanwhile, `!r0` receives a read receipt
+    // update.
     assert_entries_batch! {
         [stream]
-        set [ 1 ] [ "!r1:bar.org" ];
+        set [ 0 ] [ "!r0:bar.org" ];
         end;
     };
 
-    // Now we have:
-    //
-    // | index | room ID | recency | name |
-    // |-------|---------|---------|------|
-    // | 0     | !r0     | 7       | Bbb  |
-    // | 1     | !r1     | 6       | Aaa  |
-    // | 2     | !r4     | 5       |      |
-    // | 3     | !r3     | 4       |      |
-    // | 4     | !r2     | 1       |      |
-
+    // `!r2` is moving.
     assert_entries_batch! {
         [stream]
         remove [ 4 ];
@@ -2007,7 +1983,14 @@ async fn test_room_sorting() -> Result<(), Error> {
         end;
     };
 
-    // Read receipt update for r2.
+    // `!r1` receives a read receipt update.
+    assert_entries_batch! {
+        [stream]
+        set [ 2 ] [ "!r1:bar.org" ];
+        end;
+    };
+
+    // `!r2` receives a read receipt update.
     assert_entries_batch! {
         [stream]
         set [ 0 ] [ "!r2:bar.org" ];
@@ -2076,6 +2059,7 @@ async fn test_room_sorting() -> Result<(), Error> {
         },
     };
 
+    // `!r6` is being inserted.
     assert_entries_batch! {
         [stream]
         insert [ 1 ] [ "!r6:bar.org" ];
@@ -2093,18 +2077,21 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r4     | 5       |      |
     // | 5     | !r3     | 4       |      |
 
-    // Rooms are individually updated.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r6:bar.org" ];
-        end;
-    };
+    // `!r6` receives an unknown reason update.
     assert_entries_batch! {
         [stream]
         set [ 1 ] [ "!r6:bar.org" ];
         end;
     };
 
+    // `!r6` receives a latest event update.
+    assert_entries_batch! {
+        [stream]
+        set [ 1 ] [ "!r6:bar.org" ];
+        end;
+    };
+
+    // `!r3` is moving.
     assert_entries_batch! {
         [stream]
         remove [ 5 ];
@@ -2123,17 +2110,21 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
 
-    // Rooms are individually updated.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r3:bar.org" ];
-        end;
-    };
+    // `!r6` receives a new name.
     assert_entries_batch! {
         [stream]
         set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
+
+    // `!r3` receives a read receipt update.
+    assert_entries_batch! {
+        [stream]
+        set [ 0 ] [ "!r3:bar.org" ];
+        end;
+    };
+
+    // `!r6` receives a read receipt update.
     assert_entries_batch! {
         [stream]
         set [ 2 ] [ "!r6:bar.org" ];
