@@ -33,14 +33,13 @@ use std::{
     },
 };
 
-use as_variant::as_variant;
 use matrix_sdk_common::deserialized_responses::PrivOwnedStr;
 use ruma::{
     DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, RoomId, UserId,
     serde::StringEnum,
 };
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, Ed25519Signature, KeyError};
+use vodozemac::{Curve25519PublicKey, Ed25519PublicKey, KeyError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 mod backup;
@@ -51,8 +50,9 @@ mod one_time_keys;
 pub mod qr_login;
 pub mod requests;
 pub mod room_history;
+mod signatures;
 
-pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*};
+pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*, signatures::*};
 use crate::store::types::BackupDecryptionKey;
 
 macro_rules! from_base64 {
@@ -161,25 +161,6 @@ impl BackupSecrets {
     }
 }
 
-/// Represents a potentially decoded signature (but *not* a validated one).
-///
-/// There are two important cases here:
-///
-/// 1. If the claimed algorithm is supported *and* the payload has an expected
-///    format, the signature will be represent by the enum variant corresponding
-///    to that algorithm. For example, decodable Ed25519 signatures are
-///    represented as `Ed25519(...)`.
-/// 2. If the claimed algorithm is unsupported, the signature is represented as
-///    `Other(...)`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Signature {
-    /// A Ed25519 digital signature.
-    Ed25519(Ed25519Signature),
-    /// A digital signature in an unsupported algorithm. The raw signature bytes
-    /// are represented as a base64-encoded string.
-    Other(String),
-}
-
 /// Represents a signature that could not be decoded.
 ///
 /// This will currently only hold invalid Ed25519 signatures.
@@ -188,27 +169,6 @@ pub struct InvalidSignature {
     /// The base64 encoded string that is claimed to contain a signature but
     /// could not be decoded.
     pub source: String,
-}
-
-impl Signature {
-    /// Get the Ed25519 signature, if this is one.
-    pub fn ed25519(&self) -> Option<Ed25519Signature> {
-        as_variant!(self, Self::Ed25519).copied()
-    }
-
-    /// Convert the signature to a base64 encoded string.
-    pub fn to_base64(&self) -> String {
-        match self {
-            Signature::Ed25519(s) => s.to_base64(),
-            Signature::Other(s) => s.to_owned(),
-        }
-    }
-}
-
-impl From<Ed25519Signature> for Signature {
-    fn from(signature: Ed25519Signature) -> Self {
-        Self::Ed25519(signature)
-    }
 }
 
 /// Signatures for a signed object.
