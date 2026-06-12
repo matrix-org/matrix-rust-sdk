@@ -700,9 +700,9 @@ impl EventCache {
     /// subscribed to the event cache are have received and are keeping cached.
     ///
     /// If components subscribed to the event cache are doing additional
-    /// caching, they'll need to listen to [RedecryptorReport]s and
+    /// caching, they'll need to listen to [`RedecryptorReport`]s and
     /// explicitly request redecryption attempts using
-    /// [EventCache::request_decryption].
+    /// [`EventCache::request_decryption`].
     async fn retry_in_memory_events(&self) {
         self.retry_decryption_for_in_memory_events().await;
         self.retry_update_encryption_info_for_in_memory_events().await;
