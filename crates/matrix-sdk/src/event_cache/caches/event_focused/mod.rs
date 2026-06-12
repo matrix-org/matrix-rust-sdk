@@ -598,11 +598,21 @@ impl EventFocusedCache {
         Ok(Self { inner: Arc::new(cache_state) })
     }
 
+    /// Read all current events.
+    ///
+    /// Use [`EventFocusedCache::subscribe`] to get all current events, plus a
+    /// subscriber.
+    pub async fn events(&self) -> Result<Vec<Event>> {
+        let state = self.inner.read().await?;
+
+        Ok(state.chunk.events().map(|(_position, item)| item.clone()).collect())
+    }
+
     /// Subscribe to updates from this event-focused timeline.
     pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let inner = self.inner.read().await?;
-        let events = inner.chunk.events().map(|(_position, item)| item.clone()).collect();
-        let recv = inner.update_sender.subscribe();
+        let state = self.inner.read().await?;
+        let events = state.chunk.events().map(|(_position, item)| item.clone()).collect();
+        let recv = state.update_sender.subscribe();
         Ok((events, recv))
     }
 
