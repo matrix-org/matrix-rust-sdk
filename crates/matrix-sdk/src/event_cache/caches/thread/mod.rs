@@ -228,7 +228,7 @@ impl ThreadEventCache {
         &self,
         event_id: &EventId,
     ) -> Result<Option<(super::EventLocation, Event)>> {
-        self.inner.state.write().await?.find_event(event_id).await
+        self.inner.state.read().await?.find_event(event_id).await
     }
 
     /// Try to find an event by ID in this thread, along with its related
