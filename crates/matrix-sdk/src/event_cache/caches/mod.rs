@@ -411,9 +411,22 @@ impl Caches {
     /// Events can be duplicated if present in different event caches.
     #[cfg(feature = "e2e-encryption")]
     pub async fn all_events(&self) -> Result<impl Iterator<Item = Event>> {
-        let events_from_room = self.room.events().await?;
+        // We have to fetch events from all the caches.
+        //
+        // The room cache contains all the room events + the thread events + the
+        // pinned-events.
+        let mut events = self.room.events().await?;
 
-        Ok(events_from_room.into_iter())
+        // The last cache is the events from the event-focused cache.
+        {
+            let event_focused = self.event_focused.read().await;
+
+            for event_focused in event_focused.values() {
+                events.extend(event_focused.events().await?);
+            }
+        }
+
+        Ok(events.into_iter())
     }
 }
 
