@@ -140,7 +140,7 @@ mod tests {
     };
 
     #[test]
-    fn can_verify() {
+    fn test_can_verify() {
         let x509_sign =
             RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
 

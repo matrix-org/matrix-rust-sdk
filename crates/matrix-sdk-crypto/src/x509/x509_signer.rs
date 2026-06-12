@@ -69,14 +69,14 @@ mod tests {
     };
 
     #[test]
-    fn can_sign() {
+    fn test_can_sign() {
         let x509_signer = {
             let rust_raw_x509_signer =
                 RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
             X509Signer::new(Arc::new(rust_raw_x509_signer))
         };
 
-        let user_id = user_id!("@alice:localhost").to_owned();
+        let user_id = user_id!("@vdh-x509test:sw1v.org").to_owned();
 
         let mut cross_signing_key = {
             let secret_key = Ed25519SecretKey::new();
