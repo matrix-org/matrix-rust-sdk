@@ -122,7 +122,7 @@ mod tests {
     use vodozemac::{Curve25519PublicKey, Ed25519Signature};
 
     use super::RoomKeyBackupInfo;
-    use crate::types::{MegolmV1AuthData, Signature, Signatures};
+    use crate::types::{MegolmV1AuthData, Signatures};
 
     #[test]
     fn serialization() {
@@ -160,15 +160,16 @@ mod tests {
 
     #[test]
     fn snapshot_room_key_backup_info() {
+        let mut signatures = Signatures::new();
+        signatures.add_signature(
+            owned_user_id!("@alice:localhost"),
+            KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "ABCDEFG".into()),
+            Ed25519Signature::from_slice(&[0u8; 64]).unwrap(),
+        );
+
         let info = RoomKeyBackupInfo::MegolmBackupV1Curve25519AesSha2(MegolmV1AuthData {
             public_key: Curve25519PublicKey::from_bytes([2u8; 32]),
-            signatures: Signatures(BTreeMap::from([(
-                owned_user_id!("@alice:localhost"),
-                BTreeMap::from([(
-                    KeyId::from_parts(DeviceKeyAlgorithm::Ed25519, "ABCDEFG".into()),
-                    Ok(Signature::from(Ed25519Signature::from_slice(&[0u8; 64]).unwrap())),
-                )]),
-            )])),
+            signatures,
             extra: BTreeMap::from([("foo".to_owned(), Value::from("bar"))]),
         });
 
