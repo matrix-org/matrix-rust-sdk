@@ -29,6 +29,7 @@ use matrix_sdk::{
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings, SignatureError},
     event_cache::EventCacheError,
+    media::MediaFetcher,
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
@@ -43,6 +44,7 @@ use matrix_sdk_base::{
         x509::{X509Signer, X509Verifier},
     },
 };
+use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
 use ruma::{
     DeviceKeyId, OwnedDeviceKeyId,
     api::error::{DeserializationError, FromHttpResponseError},
@@ -173,6 +175,8 @@ pub struct ClientBuilder {
     x509_verify: Option<Arc<dyn X509Verify>>,
 
     dm_room_definition: DmRoomDefinition,
+
+    media_fetcher: Option<Arc<dyn MediaFetcher>>,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -223,7 +227,14 @@ impl ClientBuilder {
             x509_verify: None,
 
             dm_room_definition: DmRoomDefinition::MatrixSpec,
+            media_fetcher: None,
         })
+    }
+
+    pub fn enable_content_scanner(self: Arc<Self>, scanner_url: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.media_fetcher = Some(Arc::new(ContentScannerMediaFetcher::new(scanner_url)));
+        Arc::new(builder)
     }
 
     pub fn dm_room_definition(self: Arc<Self>, dm_room_definition: DmRoomDefinition) -> Arc<Self> {
@@ -569,6 +580,10 @@ impl ClientBuilder {
         inner_builder = inner_builder
             .dm_room_definition(builder.dm_room_definition)
             .with_threading_support(builder.threading_support);
+
+        if let Some(media_fetcher) = builder.media_fetcher {
+            inner_builder = inner_builder.media_fetcher(media_fetcher.clone());
+        }
 
         if let Some(x509_sign) = builder.x509_sign {
             // Wrap the provided X509Sign impl in a shim which converts the arguments and

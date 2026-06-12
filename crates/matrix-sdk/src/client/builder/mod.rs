@@ -67,6 +67,7 @@ use crate::{
     config::RequestConfig,
     error::RumaApiError,
     http_client::HttpClient,
+    media::{DefaultMediaFetcher, MediaFetcher},
     send_queue::SendQueueData,
     sliding_sync::VersionBuilder as SlidingSyncVersionBuilder,
 };
@@ -136,6 +137,7 @@ pub struct ClientBuilder {
     x509_signer: Option<X509Signer>,
     x509_verifier: Option<X509Verifier>,
     dm_room_definition: DmRoomDefinition,
+    media_fetcher: Arc<dyn MediaFetcher>,
 }
 
 impl ClientBuilder {
@@ -175,7 +177,15 @@ impl ClientBuilder {
             x509_signer: None,
             x509_verifier: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
+            media_fetcher: Arc::new(DefaultMediaFetcher),
         }
+    }
+
+    /// Sets a [`MediaFetcher`] that will be used to get media from the media
+    /// server.
+    pub fn media_fetcher(mut self, media_fetcher: Arc<dyn MediaFetcher>) -> Self {
+        self.media_fetcher = media_fetcher.clone();
+        self
     }
 
     /// Sets the definition the [`Client`] will use to check if a room is a DM.
@@ -688,6 +698,7 @@ impl ClientBuilder {
             #[cfg(feature = "experimental-search")]
             search_index,
             thread_subscriptions_catchup,
+            self.media_fetcher.clone(),
         )
         .await;
 
