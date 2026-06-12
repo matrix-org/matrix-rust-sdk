@@ -130,7 +130,6 @@ use matrix_sdk_base::{
         types::events::room::encrypted::EncryptedEvent,
     },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
-    event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
     task_monitor::BackgroundTaskHandle,
     timer,
@@ -267,17 +266,13 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
-        let events = match self.inner.store.lock().await? {
-            // If the lock is clean, no problem.
-            // If the lock is dirty, it doesn't really matter as we are hitting the store
-            // directly, there is no in-memory state to manage, so all good. Do not mark the lock as
-            // non-dirty.
-            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
-                guard.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
-            }
-        };
+        let caches = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok(events.into_iter().filter_map(filter_timeline_event_to_utd).collect())
+        Ok(caches
+            .all_events_of_type(Some("m.room.encrypted"), Some(session_id))
+            .await?
+            .filter_map(filter_timeline_event_to_utd)
+            .collect())
     }
 
     /// Retrieve a set of events that we weren't able to decrypt from the memory
@@ -287,7 +282,7 @@ impl EventCache {
 
         for (room_id, caches) in self.inner.by_room.read().await.iter() {
             let room_utds: Vec<_> = caches
-                .all_events()
+                .all_in_memory_events()
                 .await
                 .into_iter()
                 .flatten()
@@ -305,17 +300,13 @@ impl EventCache {
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndEvent>, EventCacheError> {
-        let events = match self.inner.store.lock().await? {
-            // If the lock is clean, no problem.
-            // If the lock is dirty, it doesn't really matter as we are hitting the store
-            // directly, there is no in-memory state to manage, so all good. Do not mark the lock as
-            // non-dirty.
-            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
-                guard.get_room_events(room_id, None, Some(session_id)).await?
-            }
-        };
+        let caches = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok(events.into_iter().filter_map(filter_timeline_event_to_decrypted).collect())
+        Ok(caches
+            .all_events_of_type(None, Some(session_id))
+            .await?
+            .filter_map(filter_timeline_event_to_decrypted)
+            .collect())
     }
 
     async fn get_decrypted_events_from_memory(
@@ -325,7 +316,7 @@ impl EventCache {
 
         for (room_id, caches) in self.inner.by_room.read().await.iter() {
             let room_utds: Vec<_> = caches
-                .all_events()
+                .all_in_memory_events()
                 .await
                 .into_iter()
                 .flatten()

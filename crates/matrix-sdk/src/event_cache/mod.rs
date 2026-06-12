@@ -255,8 +255,7 @@ impl EventCache {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
                 config: StdRwLock::new(EventCacheConfig::default()),
-                state: StateLock::new(event_cache_store.clone()),
-                store: event_cache_store,
+                state: StateLock::new(event_cache_store),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
@@ -560,9 +559,6 @@ struct EventCacheInner {
 
     /// Global configuration for the event cache.
     config: StdRwLock<EventCacheConfig>,
-
-    /// Reference to the underlying store.
-    store: EventCacheStoreLock,
 
     /// Lock around the state of the Event Cache, containing all the cache
     /// states.
