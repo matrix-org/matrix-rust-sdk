@@ -816,17 +816,17 @@ impl Account {
     pub async fn bootstrap_cross_signing(
         &self,
         x509_signer: Option<&X509Signer>,
-    ) -> (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest) {
-        let identity = PrivateCrossSigningIdentity::for_account(self, x509_signer);
+    ) -> Result<
+        (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest),
+        SignatureError,
+    > {
+        let identity = PrivateCrossSigningIdentity::for_account(self, x509_signer)?;
 
-        let signature_request = identity
-            .sign_account(self.static_data())
-            .await
-            .expect("Can't sign own device with new cross signing keys");
+        let signature_request = identity.sign_account(self.static_data()).await?;
 
         let upload_request = identity.as_upload_request().await;
 
-        (identity, upload_request, signature_request)
+        Ok((identity, upload_request, signature_request))
     }
 
     /// Sign the given CrossSigning Key in place

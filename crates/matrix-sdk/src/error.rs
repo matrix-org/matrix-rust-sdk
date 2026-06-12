@@ -22,7 +22,8 @@ use http::StatusCode;
 use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
+    CrossSigningBootstrapError, CryptoStoreError, DecryptorError, KeyExportError, MegolmError,
+    OlmError, SignatureError,
 };
 use matrix_sdk_base::{
     Error as SdkBaseError, QueueWedgeError, RoomState, StoreError,
@@ -309,6 +310,11 @@ pub enum Error {
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
 
+    /// An error occurred during signing or verifying.
+    #[cfg(feature = "e2e-encryption")]
+    #[error(transparent)]
+    SignatureError(#[from] SignatureError),
+
     /// An error occurred in the state store.
     #[error(transparent)]
     StateStore(Box<StoreError>),
@@ -530,6 +536,16 @@ impl From<EventCacheError> for Error {
 impl From<QueueWedgeError> for Error {
     fn from(error: QueueWedgeError) -> Self {
         Error::SendQueueWedgeError(Box::new(error))
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl From<CrossSigningBootstrapError> for Error {
+    fn from(error: CrossSigningBootstrapError) -> Self {
+        match error {
+            CrossSigningBootstrapError::CryptoStore(e) => e.into(),
+            CrossSigningBootstrapError::Signature(e) => e.into(),
+        }
     }
 }
 

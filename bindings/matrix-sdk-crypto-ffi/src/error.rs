@@ -76,6 +76,14 @@ pub enum DecryptionError {
     Store { error: String },
 }
 
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum BootstrapCrossSigningError {
+    #[error(transparent)]
+    CryptoStore(CryptoStoreError),
+    #[error(transparent)]
+    Signature(SignatureError),
+}
+
 /// Error describing what went wrong when exporting a [`SecretsBundle`].
 ///
 /// The [`SecretsBundle`] can only be exported if we have all cross-signing
@@ -146,6 +154,16 @@ impl From<IdParseError> for DecryptionError {
 impl From<InnerStoreError> for DecryptionError {
     fn from(err: InnerStoreError) -> Self {
         Self::Store { error: err.to_string() }
+    }
+}
+
+impl From<matrix_sdk_crypto::CrossSigningBootstrapError> for BootstrapCrossSigningError {
+    fn from(err: matrix_sdk_crypto::CrossSigningBootstrapError) -> Self {
+        use matrix_sdk_crypto::CrossSigningBootstrapError as Error;
+        match err {
+            Error::CryptoStore(e) => Self::CryptoStore(e.into()),
+            Error::Signature(e) => Self::Signature(e.into()),
+        }
     }
 }
 

@@ -768,7 +768,7 @@ impl OlmMachine {
     pub async fn bootstrap_cross_signing(
         &self,
         reset: bool,
-    ) -> StoreResult<CrossSigningBootstrapRequests> {
+    ) -> Result<CrossSigningBootstrapRequests, CrossSigningBootstrapError> {
         // Don't hold the lock, otherwise we might deadlock in
         // `bootstrap_cross_signing()` on `account` if a sync task is already
         // running (which locks `account`), or we will deadlock
@@ -782,7 +782,7 @@ impl OlmMachine {
             let (identity, upload_signing_keys_req, upload_signatures_req) = {
                 let cache = self.inner.store.cache().await?;
                 let account = cache.account().await?;
-                account.bootstrap_cross_signing(self.inner.store.x509_signer()).await
+                account.bootstrap_cross_signing(self.inner.store.x509_signer()).await?
             };
 
             let public = identity.to_public_identity().await.expect(
@@ -3242,6 +3242,22 @@ pub struct CrossSigningBootstrapRequests {
     ///
     /// Should be sent last.
     pub upload_signatures_req: UploadSignaturesRequest,
+}
+
+/// An error that can occur during [`OlmMachine::bootstrap_cross_signing`]:
+///
+/// * because a failure with the store occurred, or
+///
+/// * because the new cross-signing identity could not be signed.
+#[derive(Debug, thiserror::Error)]
+pub enum CrossSigningBootstrapError {
+    /// A failure with the store occurred.
+    #[error(transparent)]
+    CryptoStore(#[from] CryptoStoreError),
+
+    /// The new cross-signing identity could not be signed
+    #[error(transparent)]
+    Signature(#[from] SignatureError),
 }
 
 /// Data contained from a sync response and that needs to be processed by the
