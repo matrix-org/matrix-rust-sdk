@@ -328,6 +328,14 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
         Ok(summary)
     }
 
+    /// See documentation of [`find_event`].
+    pub(super) async fn find_event(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Option<(EventLocation, Event)>> {
+        find_event(event_id, &self.room_id, &self.thread_linked_chunk, &self.store).await
+    }
+
     /// See documentation of [`find_event_with_relations`].
     pub async fn find_event_with_relations(
         &self,
