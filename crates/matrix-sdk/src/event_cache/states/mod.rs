@@ -97,7 +97,7 @@ impl StateLock {
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.
-    async fn read<'state>(&'state self) -> Result<StateLockReadGuard<'state, State>> {
+    pub(super) async fn read<'state>(&'state self) -> Result<StateLockReadGuard<'state, State>> {
         // Only one call at a time to `read` is allowed.
         //
         // Why? Because in case the cross-process lock over the store is dirty, we need

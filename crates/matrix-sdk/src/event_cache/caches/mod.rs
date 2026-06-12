@@ -406,11 +406,12 @@ impl Caches {
         Ok(())
     }
 
-    /// Get all events from all the event caches manged by this [`Caches`].
+    /// Get all in-memory events from all the event caches managed by this
+    /// [`Caches`].
     ///
     /// Events can be duplicated if present in different event caches.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn all_events(&self) -> Result<impl Iterator<Item = Event>> {
+    pub async fn all_in_memory_events(&self) -> Result<impl Iterator<Item = Event>> {
         // We have to fetch events from all the caches.
         //
         // The room cache contains all the room events + the thread events + the
@@ -423,6 +424,48 @@ impl Caches {
 
             for event_focused in event_focused.values() {
                 events.extend(event_focused.events().await?);
+            }
+        }
+
+        Ok(events.into_iter())
+    }
+
+    /// Get all encrypted events from all the event caches managed by this
+    /// [`Caches`].
+    ///
+    /// The `event_type` represents the type of the event to filter by.
+    /// The `session_id` represents the unique ID of the room key that was used
+    /// to encrypt the event
+    ///
+    /// Events can be duplicated if present in different event caches.
+    #[cfg(feature = "e2e-encryption")]
+    pub async fn all_events_of_type(
+        &self,
+        event_type: Option<&str>,
+        session_id: Option<&str>,
+    ) -> Result<impl Iterator<Item = Event>> {
+        // All caches store their events in the store except one. Let's start by looking
+        // inside the store.
+        let mut events = {
+            let state = self.internals.state.read().await?;
+
+            state.store.get_room_events(self.room.room_id(), event_type, session_id).await?
+        };
+
+        // The only cache to not store its events is the event-focused cache. Its events
+        // only live in memory.
+        {
+            let event_focused = self.event_focused.read().await;
+
+            for event_focused in event_focused.values() {
+                events.extend(
+                    event_focused
+                        .events()
+                        .await?
+                        .into_iter()
+                        .filter(|event| event_type == event.kind.event_type().as_deref())
+                        .filter(|event| session_id == event.kind.session_id()),
+                );
             }
         }
 
