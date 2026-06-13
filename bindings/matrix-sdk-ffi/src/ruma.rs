@@ -717,13 +717,11 @@ impl TryFrom<&ImageInfo> for BaseImageInfo {
             .map_err(|_| MediaInfoError::InvalidField)?;
         let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
             .map_err(|_| MediaInfoError::InvalidField)?;
-        let blurhash = value.blurhash.clone().ok_or(MediaInfoError::MissingField)?;
-
         Ok(BaseImageInfo {
             height: Some(height),
             width: Some(width),
             size: Some(size),
-            blurhash: Some(blurhash),
+            blurhash: value.blurhash.clone(),
             is_animated: value.is_animated,
         })
     }
