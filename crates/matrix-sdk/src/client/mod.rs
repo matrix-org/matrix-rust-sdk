@@ -418,7 +418,7 @@ pub(crate) struct ClientInner {
     pub(crate) duplicate_key_upload_error_sender:
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 
-    pub(crate) media_fetcher: Arc<dyn MediaFetcher>,
+    pub(crate) media_fetcher: RwLock<Arc<dyn MediaFetcher>>,
 }
 
 impl ClientInner {
@@ -492,7 +492,7 @@ impl ClientInner {
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
-            media_fetcher,
+            media_fetcher: RwLock::new(media_fetcher),
         };
 
         #[allow(clippy::let_and_return)]
@@ -512,6 +512,10 @@ impl ClientInner {
         let _ = join!(init_event_cache, init_thread_subscription_catchup);
 
         client
+    }
+
+    pub async fn set_media_fetcher(&self, media_fetcher: Arc<dyn MediaFetcher>) {
+        *self.media_fetcher.write().await = media_fetcher;
     }
 }
 
@@ -844,7 +848,7 @@ impl Client {
 
     /// Get the media manager of the client.
     pub fn media(&self) -> Media {
-        Media::new(self.clone(), self.inner.media_fetcher.clone())
+        Media::new(self.clone())
     }
 
     /// Get the pusher manager of the client.
@@ -3307,7 +3311,7 @@ impl Client {
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
-                self.inner.media_fetcher.clone(),
+                (*self.inner.media_fetcher.read().await).clone(),
             )
             .await,
         };
@@ -3608,6 +3612,12 @@ impl Client {
     /// a DM.
     pub fn dm_room_definition(&self) -> &DmRoomDefinition {
         &self.inner.base_client.dm_room_definition
+    }
+
+    /// Replaces the [`MediaFetcher`] used to download media from the media
+    /// server with the provided one.
+    pub async fn set_media_fetcher(&self, media_fetcher: Arc<dyn MediaFetcher>) {
+        self.inner.set_media_fetcher(media_fetcher).await;
     }
 }
 

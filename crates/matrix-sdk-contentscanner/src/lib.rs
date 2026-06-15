@@ -189,13 +189,17 @@ impl EncryptedFileRequest {
 
 /// A media fetcher that uses the content scanner to download and scan media.
 pub struct ContentScannerMediaFetcher {
-    pub content_scanner: ContentScanner,
+    pub content_scanner: Arc<ContentScanner>,
 }
 
 impl ContentScannerMediaFetcher {
     /// Instantiate a new [`MediaFetcher`] using the provided `scanner_url`.
     pub fn new(scanner_url: impl Into<String>) -> Self {
-        Self { content_scanner: ContentScanner::new(scanner_url.into()) }
+        Self { content_scanner: Arc::new(ContentScanner::new(scanner_url.into())) }
+    }
+
+    pub fn with_content_scanner(content_scanner: Arc<ContentScanner>) -> Self {
+        Self { content_scanner }
     }
 }
 
