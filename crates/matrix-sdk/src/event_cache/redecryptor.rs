@@ -366,7 +366,22 @@ impl EventCache {
             let mut new_events = Vec::with_capacity(events.len());
 
             for (event_id, decrypted, actions) in &events {
-                if let Some((location, mut target_event)) = state.find_event(event_id).await? {
+                if let Some((location, mut target_event)) = state.find_event(event_id).await?
+                    && (
+                        // There is a race between the multiple sources of updates. It's possible
+                        // that two sources trigger a decryption for the same event (for example,
+                        // the room key stream and the event cache updates). It is then likely that
+                        // the event has been already resolved. This race is fine, but we should
+                        // avoid to replace an event that has already been resolved as it is a
+                        // non-negligible operation.
+                        //
+                        // Note that a simple check like “event's kind is `UnableToDecrypt`” is not
+                        // enough. The event can already be decrypted but its encryption info can
+                        // change. So we must ensure they are also different.
+                        matches!(target_event.kind, TimelineEventKind::UnableToDecrypt { .. })
+                            || target_event.encryption_info() != Some(&decrypted.encryption_info)
+                    )
+                {
                     target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
 
                     if let Some(actions) = actions {
@@ -391,13 +406,17 @@ impl EventCache {
 
             state.post_process_new_events(new_events, receipt_event).await?;
 
-            room_cache.update_sender().send(
-                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: state.room_linked_chunk_mut().updates_as_vector_diffs(),
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
-            );
+            let updates_as_vector_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+
+            if !updates_as_vector_diffs.is_empty() {
+                room_cache.update_sender().send(
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs: updates_as_vector_diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+                );
+            }
         }
 
         // Resolve on the thread caches.
@@ -1736,10 +1755,9 @@ mod tests {
         info!("Stopping the delay");
         delayed_store.stop_delaying().await;
 
-        // Now that the first decryption attempt has failed since the sync with the
-        // event did not contain the room key, and the decryptor has received
-        // the room key but the event was not persisted in the cache as of yet,
-        // let's the event cache process the event.
+        // The first decryption attempt has failed because the first sync (the
+        // one with the event) did not contain the room key. The decryptor has
+        // later received the room key.
 
         // Alright, Bob has received an update from the cache.
         assert_let_timeout!(
@@ -1753,6 +1771,7 @@ mod tests {
         assert_matches!(&diffs[0], VectorDiff::Append { values });
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
+        // And the companion generic update.
         assert_let_timeout!(
             Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
         );
@@ -1771,6 +1790,7 @@ mod tests {
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
 
+        // And the companion generic update.
         assert_let_timeout!(
             Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
         );
