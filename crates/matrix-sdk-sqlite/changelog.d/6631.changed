@@ -1,1 +1,1 @@
-Only keep the latest gossip request for each secret, for consistency with indexeddb.
+Only keep the latest gossip request for each secret.
