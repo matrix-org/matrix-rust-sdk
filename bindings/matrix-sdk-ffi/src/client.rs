@@ -33,7 +33,10 @@ use matrix_sdk::{
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     executor::AbortOnDrop,
-    media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
+    media::{
+        DefaultMediaFetcher, MediaFormat, MediaRequestParameters, MediaRetentionPolicy,
+        MediaThumbnailSettings,
+    },
     ruma::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
@@ -114,7 +117,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::{RwLock, broadcast::error::RecvError};
 use tracing::{debug, error, warn};
 use url::Url;
 
@@ -128,6 +131,7 @@ use crate::{
         HomeserverLoginDetails, OAuthConfiguration, OAuthError, SsoError, SsoHandler,
     },
     client,
+    content_scanner::ContentScanner,
     encryption::Encryption,
     live_locations_observer::BeaconInfoUpdate,
     notification::{
@@ -374,6 +378,8 @@ pub struct Client {
     /// SQLite or IndexedDB).
     #[cfg_attr(not(feature = "sqlite"), allow(unused))]
     store_path: Option<PathBuf>,
+
+    content_scanner: RwLock<Option<Arc<ContentScanner>>>,
 }
 
 impl Client {
@@ -418,6 +424,7 @@ impl Client {
             utd_hook_manager: OnceLock::new(),
             session_verification_controller,
             store_path,
+            content_scanner: Default::default(),
         };
 
         match store_mode {
@@ -2236,6 +2243,24 @@ impl Client {
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
         HomeserverCapabilities::new(self.inner.homeserver_capabilities())
+    }
+
+    /// Enables or disables the content scanner feature using the provided
+    /// [`ContentScanner`] instance.
+    pub async fn set_content_scanner(&self, content_scanner: Option<Arc<ContentScanner>>) {
+        let media_fetcher = if let Some(content_scanner) = &content_scanner {
+            content_scanner.media_fetcher()
+        } else {
+            Arc::new(DefaultMediaFetcher)
+        };
+        self.inner.set_media_fetcher(media_fetcher).await;
+
+        *self.content_scanner.write().await = content_scanner;
+    }
+
+    /// Returns the currently used [`ContentScanner`] instance, if any.
+    pub async fn content_scanner(&self) -> Option<Arc<ContentScanner>> {
+        self.content_scanner.read().await.clone()
     }
 }
 
