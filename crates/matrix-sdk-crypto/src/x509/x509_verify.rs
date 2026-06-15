@@ -120,20 +120,19 @@ fn get_email_address_from_certificate_subject(certificate: &CertificateDer<'_>) 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::sync::Arc;
 
-    use rcgen::{CertificateParams, KeyPair, generate_simple_self_signed};
+    use rcgen::generate_simple_self_signed;
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
     use vodozemac::Ed25519SecretKey;
-    use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 
     use super::*;
     use crate::{
         types::{CrossSigningKey, SigningKeys},
         x509::{
             X509Signer, rust_raw_x509_signer::RustRawX509Signer,
-            rust_raw_x509_verifier::RustRawX509Verifier,
+            rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
         },
     };
 
@@ -245,34 +244,5 @@ mod tests {
 
         // Verifying should fail since it was signed using an incorrect user ID
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
-    }
-
-    /// Create a certificate that contains the supplied email address in its
-    /// Subject Distinguished Name
-    ///
-    /// Note: https://www.rfc-editor.org/rfc/rfc5280.html#section-4.1.2.6 says:
-    ///
-    /// > Legacy implementations exist where an electronic mail address is
-    /// > embedded in the subject distinguished name as an emailAddress
-    /// > attribute [RFC2985].
-    ///
-    /// So this is a legacy implementation. To be non-legacy it should, at a
-    /// minimum, include the email address in the Subject Alternative Name
-    /// as well as in Subject Distinguished Name.
-    fn cert_and_key_with_email(email: &str) -> (rcgen::Certificate, KeyPair) {
-        let mut cert_params = CertificateParams::default();
-        cert_params.use_authority_key_identifier_extension = true;
-        cert_params.distinguished_name.push(
-            rcgen::DnType::CustomDnType(OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect()),
-            email,
-        );
-
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
-
-        (
-            cert_params.self_signed(&signing_key).expect("Failed to generate certificate"),
-            signing_key,
-        )
     }
 }
