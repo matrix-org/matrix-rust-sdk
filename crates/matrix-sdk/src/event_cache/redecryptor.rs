@@ -261,7 +261,7 @@ impl EventCache {
     /// * `room_id` - The ID of the room where the events were sent to.
     /// * `session_id` - The unique ID of the room key that was used to encrypt
     ///   the event.
-    async fn get_utds(
+    async fn all_encrypted_events(
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
@@ -277,7 +277,7 @@ impl EventCache {
 
     /// Retrieve a set of events that we weren't able to decrypt from the memory
     /// of the event cache.
-    async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
+    async fn all_in_memory_encrypted_events(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
         let mut utds = BTreeMap::new();
 
         for (room_id, caches) in self.inner.by_room.read().await.iter() {
@@ -295,7 +295,7 @@ impl EventCache {
         utds
     }
 
-    async fn get_decrypted_events(
+    async fn all_decrypted_events(
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
@@ -309,9 +309,7 @@ impl EventCache {
             .collect())
     }
 
-    async fn get_decrypted_events_from_memory(
-        &self,
-    ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
+    async fn all_in_memory_decrypted_events(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
         let mut decrypted_events = BTreeMap::new();
 
         for (room_id, caches) in self.inner.by_room.read().await.iter() {
@@ -542,7 +540,7 @@ impl EventCache {
         session_id: SessionId<'_>,
     ) -> Result<(), EventCacheError> {
         // Get all the relevant UTDs.
-        let events = self.get_utds(room_id, session_id).await?;
+        let events = self.all_encrypted_events(room_id, session_id).await?;
         self.retry_decryption_for_events(room_id, events).await
     }
 
@@ -564,7 +562,7 @@ impl EventCache {
     }
 
     async fn retry_decryption_for_in_memory_events(&self) {
-        let utds = self.get_utds_from_memory().await;
+        let utds = self.all_in_memory_encrypted_events().await;
 
         for (room_id, utds) in utds.into_iter() {
             if let Err(e) = self.retry_decryption_for_events(&room_id, utds).await {
@@ -675,7 +673,7 @@ impl EventCache {
         };
 
         // Get all the relevant events.
-        let events = self.get_decrypted_events(room_id, session_id).await?;
+        let events = self.all_decrypted_events(room_id, session_id).await?;
 
         if events.is_empty() {
             trace!("No relevant events found.");
@@ -687,7 +685,7 @@ impl EventCache {
     }
 
     async fn retry_update_encryption_info_for_in_memory_events(&self) {
-        let decrypted_events = self.get_decrypted_events_from_memory().await;
+        let decrypted_events = self.all_in_memory_decrypted_events().await;
 
         for (room_id, events) in decrypted_events.into_iter() {
             let Some(room) = self.inner.client().ok().and_then(|c| c.get_room(&room_id)) else {
@@ -1531,6 +1529,7 @@ mod tests {
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         assert_let_timeout!(
@@ -1615,6 +1614,7 @@ mod tests {
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         assert_let_timeout!(
@@ -1769,6 +1769,7 @@ mod tests {
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         // And the companion generic update.
