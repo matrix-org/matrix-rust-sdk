@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 mod signature;
+mod x509_signature;
 
 use std::collections::{BTreeMap, btree_map::IntoIter};
 
@@ -22,7 +23,7 @@ use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserI
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
-pub use self::signature::Signature;
+pub use self::{signature::Signature, x509_signature::X509Signature};
 
 /// Represents a signature that could not be decoded.
 ///

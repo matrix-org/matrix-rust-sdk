@@ -48,12 +48,8 @@ pub mod qr_login;
 pub mod requests;
 pub mod room_history;
 mod signatures;
-mod x509_signature;
 
-pub use self::{
-    backup::*, cross_signing::*, device_keys::*, one_time_keys::*, signatures::*,
-    x509_signature::X509Signature,
-};
+pub use self::{backup::*, cross_signing::*, device_keys::*, one_time_keys::*, signatures::*};
 use crate::store::types::BackupDecryptionKey;
 
 macro_rules! from_base64 {
