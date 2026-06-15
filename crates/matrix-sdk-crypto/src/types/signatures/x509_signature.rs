@@ -160,7 +160,7 @@ foobh78qDEn1mFVwUuW2kzOJsIlN3FQFSKK3upVdRmzXTvaJN4MKRjwmu6KYIpxA
         let sig: X509Signature = serde_json::from_value(json.clone()).unwrap();
 
         // Then it contains the properties we supplied
-        assert_eq!(sig.signature_scheme, rustls::SignatureScheme::RSA_PSS_SHA512);
+        assert_eq!(sig.signature_scheme, SignatureScheme::RSA_PSS_SHA512);
         assert_eq!(sig.certificate_chain, CERT_PEM);
         assert_eq!(sig.signature, signature);
 
