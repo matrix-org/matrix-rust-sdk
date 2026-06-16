@@ -781,6 +781,40 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_private_identity_signed_by_x509() {
+        use crate::x509::{
+            X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
+            rust_raw_x509_verifier::RustRawX509Verifier,
+        };
+
+        let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
+        let (cert, signing_key) = crate::x509::tests::cert_and_key_with_email("example@localhost");
+
+        let cert_pem = cert.pem();
+        let key_pem = signing_key.serialize_pem();
+        let x509_signer = {
+            let rust_raw_x509_signer =
+                RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
+            X509Signer::new(Arc::new(rust_raw_x509_signer))
+        };
+
+        // When we pass in an X509Signer to for_account, ...
+        let identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
+        let master = identity.master_key.lock().await;
+        let master = master.as_ref().unwrap();
+
+        let public_key = master.public_key().as_ref();
+
+        // ... the resulting cross-signing identity should be signed with X.509
+        let x509_verifier = {
+            let rust_raw_x509_verifier = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
+            X509Verifier::new(Arc::new(rust_raw_x509_verifier))
+        };
+        assert!(x509_verifier.verify_signed_object(user_id(), public_key));
+    }
+
+    #[async_test]
     async fn test_sign_device() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let identity = PrivateCrossSigningIdentity::for_account(&account, None).unwrap();
