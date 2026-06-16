@@ -26,8 +26,11 @@ use super::{
 use crate::{
     timeline::{
         TimelineReadReceiptTracking,
-        controller::{InitFocusResult, spawn_crypto_tasks},
-        tasks::{room_event_cache_updates_task, room_send_queue_update_task},
+        controller::{ActiveCallInfo, InitFocusResult, spawn_crypto_tasks},
+        tasks::{
+            room_event_cache_updates_task, room_send_queue_update_task, rtc_membership_update_task,
+        },
+        traits::RoomDataProvider,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -171,6 +174,10 @@ impl TimelineBuilder {
             .ok()
             .unwrap_or_default();
 
+        let initial_info = room.clone_info();
+        let owned_user_id = room.own_user_id().to_owned();
+        let active_call = ActiveCallInfo::from_info(initial_info, owned_user_id);
+
         let controller = TimelineController::new(
             room.clone(),
             focus.clone(),
@@ -178,6 +185,7 @@ impl TimelineBuilder {
             unable_to_decrypt_hook,
             is_room_encrypted,
             settings,
+            active_call,
         );
 
         let InitFocusResult { focus_task, has_events } =
@@ -233,6 +241,24 @@ impl TimelineBuilder {
                 .abort_on_drop()
         };
 
+        let rtc_membership_listener_handle = {
+            let room_info_subscriber = room.subscribe_info();
+            room.client()
+                .task_monitor()
+                .spawn_infinite_task("timeline::rtc_membership_listener", {
+                    let span = info_span!(
+                        parent: Span::none(),
+                        "rtc_membership_handler",
+                        room_id = ?room.room_id(),
+                    );
+                    span.follows_from(Span::current());
+
+                    rtc_membership_update_task(room_info_subscriber, controller.clone())
+                        .instrument(span)
+                })
+                .abort_on_drop()
+        };
+
         let crypto_drop_handles = spawn_crypto_tasks(controller.clone()).await;
 
         let timeline = Timeline {
@@ -242,6 +268,7 @@ impl TimelineBuilder {
                 _crypto_drop_handles: crypto_drop_handles,
                 _room_update_join_handle: room_update_join_handle,
                 _local_echo_listener_handle: local_echo_listener_handle,
+                _rtc_membership_listener_handle: rtc_membership_listener_handle,
                 _focus_drop_handle: focus_task,
                 _event_cache_drop_handle: event_cache_drop,
             }),

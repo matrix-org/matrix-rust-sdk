@@ -60,7 +60,8 @@ use super::{
 };
 use crate::{
     timeline::{
-        TimelineUniqueId, controller::aggregations::PendingEdit, event_item::OtherMessageLike,
+        TimelineUniqueId, algorithms::rfind_event_item, controller::aggregations::PendingEdit,
+        event_item::OtherMessageLike,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -419,6 +420,7 @@ impl TimelineAction {
                 Self::add_item(TimelineItemContent::RtcNotification {
                     call_intent: c.call_intent,
                     declined_by: Vec::new(),
+                    active_call_info: None,
                 })
             }
 
@@ -797,7 +799,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         let sender = &self.ctx.sender;
 
         // Find the live start item by sender and matching content.
-        let target_event_id = super::algorithms::rfind_event_item(self.items, |item| {
+        let target_event_id = rfind_event_item(self.items, |item| {
             item.sender() == sender
                 && item.content().as_live_location_state().is_some_and(|s| s.matches_stop(&content))
         })
@@ -961,6 +963,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .map(|_| TimelineDetails::from_initial_value(self.ctx.forwarder_profile.clone()));
 
         let timestamp = self.ctx.timestamp;
+        let is_rtc_notification = matches!(content, TimelineItemContent::RtcNotification { .. });
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
@@ -1194,9 +1197,90 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
+        // Handle RTC notification active members population and cleanup
+        if is_rtc_notification {
+            self.apply_active_call_to_last_rtc_notification();
+        }
+
         // If we don't have a read marker item, look if we need to add one now.
         if !self.meta.has_up_to_date_read_marker_item {
             self.meta.update_read_marker(self.items);
+        }
+    }
+
+    /// Ensures that the last RtcNotification in the timeline has the current
+    /// active call info, and cleans up any previous notification that had
+    /// active members.
+    fn apply_active_call_to_last_rtc_notification(&mut self) {
+        let binding = self.items.clone();
+        let last_notification = rfind_event_item(&binding, |it| {
+            matches!(it.content(), TimelineItemContent::RtcNotification { .. })
+        });
+
+        if let Some((idx, last_notification)) = last_notification {
+            let last_notification_event_id = last_notification.event_id().map(ToOwned::to_owned);
+            // Is this the same than previously?
+            if let Some(prev_event_id) = &self.meta.active_rtc_notification_event_id {
+                if Some(prev_event_id) == last_notification_event_id.as_ref() {
+                    // then no changes, the newest rtc_notification event have not change
+                    return;
+                }
+
+                // They are different, clean the old event
+                // Find the previous notification item and clear its active_members
+                if let Some((idx, prev_item)) =
+                    rfind_event_item(self.items, |it: &EventTimelineItem| {
+                        it.event_id() == Some(prev_event_id)
+                    })
+                    && let TimelineItemContent::RtcNotification {
+                        call_intent,
+                        declined_by,
+                        active_call_info,
+                    } = prev_item.content()
+                {
+                    // Only clear if it has active members (not already empty)
+                    if active_call_info.is_some() {
+                        let new_content = TimelineItemContent::RtcNotification {
+                            call_intent: call_intent.clone(),
+                            declined_by: declined_by.clone(),
+                            active_call_info: None,
+                        };
+                        let new_event_item = prev_item.inner.with_content(new_content);
+                        let new_timeline_item =
+                            TimelineItem::new(new_event_item, prev_item.internal_id.clone());
+                        self.items.replace(idx, new_timeline_item);
+                    }
+                }
+            }
+
+            // Update the new last content if needed
+            if self.meta.active_call.is_some() {
+                let new_content = match last_notification.content() {
+                    TimelineItemContent::RtcNotification {
+                        call_intent,
+                        declined_by,
+                        active_call_info: _,
+                    } => TimelineItemContent::RtcNotification {
+                        call_intent: call_intent.clone(),
+                        declined_by: declined_by.clone(),
+                        active_call_info: self
+                            .meta
+                            .active_call
+                            .clone()
+                            .map(|c| c.with_start_time(Some(self.ctx.timestamp))),
+                    },
+                    _ => unreachable!("Should be a rtc notification"),
+                };
+
+                let updated_event_item = last_notification.inner.with_content(new_content);
+                let new_timeline_item =
+                    TimelineItem::new(updated_event_item, last_notification.internal_id.clone());
+                self.items.replace(idx, new_timeline_item);
+
+                // Update the active_rtc_notification_event_id so that this event gets any new
+                // updates of call membership
+                self.meta.active_rtc_notification_event_id = last_notification_event_id;
+            }
         }
     }
 

@@ -693,7 +693,14 @@ mod tests {
     }
 
     fn test_metadata() -> TimelineMetadata {
-        TimelineMetadata::new(owned_user_id!("@a:b.c"), RoomVersionRules::V11, None, None, false)
+        TimelineMetadata::new(
+            owned_user_id!("@a:b.c"),
+            RoomVersionRules::V11,
+            None,
+            None,
+            false,
+            None,
+        )
     }
 
     #[test]

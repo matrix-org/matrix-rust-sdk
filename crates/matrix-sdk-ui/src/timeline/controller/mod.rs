@@ -22,7 +22,7 @@ use as_variant::as_variant;
 use eyeball_im::{VectorDiff, VectorSubscriberStream};
 use eyeball_im_util::vector::{FilterMap, VectorObserverExt};
 use futures_core::Stream;
-use imbl::Vector;
+use imbl::{HashSet, Vector};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
@@ -37,7 +37,8 @@ use matrix_sdk::{
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId, UserId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
+    TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
@@ -98,6 +99,7 @@ mod state_transaction;
 
 pub(super) use aggregations::*;
 pub(super) use decryption_retry_task::{CryptoDropHandles, spawn_crypto_tasks};
+use matrix_sdk_base::{CallIntentConsensus, RoomInfo};
 
 /// Data associated to the current timeline focus.
 ///
@@ -340,6 +342,41 @@ pub(super) struct InitFocusResult {
     pub focus_task: Option<BackgroundTaskHandle>,
 }
 
+/// Holds the various info about the current call
+#[derive(Clone, Debug, PartialEq)]
+pub struct ActiveCallInfo {
+    /// The list of users in the call
+    pub active_members: HashSet<OwnedUserId>,
+    /// The consensus intent of the call, audio/video
+    pub call_intent: CallIntentConsensus,
+    /// True if the user (with any device) is currently in the call, meaning
+    /// they have joined and haven't left yet.
+    pub is_joined: bool,
+    /// The timestamp of when the call started, in milliseconds since the unix
+    /// epoch. Currently, this is the origin_server_ts of the rtc.notification
+    /// event.
+    pub call_started_ts_millis: Option<MilliSecondsSinceUnixEpoch>,
+}
+
+impl ActiveCallInfo {
+    pub(crate) fn from_info(room_info: RoomInfo, owned_user_id: OwnedUserId) -> Option<Self> {
+        if room_info.has_active_room_call() {
+            Some(ActiveCallInfo {
+                active_members: HashSet::from(room_info.active_room_call_participants()),
+                call_intent: room_info.active_room_call_consensus_intent(),
+                is_joined: room_info.active_room_call_participants().contains(&owned_user_id),
+                call_started_ts_millis: None,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn with_start_time(self, timestamp: Option<MilliSecondsSinceUnixEpoch>) -> Self {
+        Self { call_started_ts_millis: timestamp, ..self }
+    }
+}
+
 impl<P: RoomDataProvider> TimelineController<P> {
     pub(super) fn new(
         room_data_provider: P,
@@ -348,6 +385,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
         settings: TimelineSettings,
+        active_call: Option<ActiveCallInfo>,
     ) -> Self {
         let focus = match focus {
             TimelineFocus::Live { hide_threaded_events } => {
@@ -378,6 +416,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
+            active_call,
         )));
 
         Self { state, focus, room_data_provider, settings }
@@ -726,6 +765,64 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
     pub(super) async fn handle_fully_read_marker(&self, fully_read_event_id: OwnedEventId) {
         self.state.write().await.handle_fully_read_marker(fully_read_event_id);
+    }
+
+    pub(super) async fn handle_active_call_update(
+        &self,
+        maybe_active_call: Option<ActiveCallInfo>,
+    ) {
+        let mut state = self.state.write().await;
+        let mut txn = state.transaction();
+
+        // Store the current active call info in metadata for new RtcNotification items
+        txn.meta.active_call = maybe_active_call.clone();
+
+        if let Some(existing_event_id) = &txn.meta.active_rtc_notification_event_id {
+            println!("handling active call update, existing notif id {}", existing_event_id);
+            // Clean up the notification event
+            let last_notification = rfind_event_by_id(&txn.items, existing_event_id);
+            if let Some((last_idx, last_notification)) = last_notification {
+                println!(
+                    "found last notification event_id {:?} at index {}",
+                    last_notification.event_id(),
+                    last_idx
+                );
+                let updated_content = match last_notification.content() {
+                    TimelineItemContent::RtcNotification {
+                        call_intent,
+                        declined_by,
+                        active_call_info: _active_call_info,
+                    } => Some(TimelineItemContent::RtcNotification {
+                        call_intent: call_intent.to_owned(),
+                        declined_by: declined_by.clone(),
+                        active_call_info: maybe_active_call
+                            .clone()
+                            .map(|info| info.with_start_time(last_notification.timestamp.into())),
+                    }),
+                    _ => None,
+                };
+                if let Some(new_content) = updated_content {
+                    let new_event_item = last_notification.inner.with_content(new_content);
+                    let new_timeline_item =
+                        TimelineItem::new(new_event_item, last_notification.internal_id.clone());
+                    println!(
+                        "replacing last notification with new content at index {}, new item: {:?}",
+                        last_idx, new_timeline_item
+                    );
+                    txn.items.replace(last_idx, new_timeline_item);
+                }
+
+                if maybe_active_call.is_none() {
+                    // There is no active rtc_notification anymore
+                    txn.meta.active_rtc_notification_event_id = None;
+                }
+            } else {
+                println!("no last notification found");
+            }
+        }
+
+        println!("commit");
+        txn.commit();
     }
 
     pub(super) async fn handle_ephemeral_events(

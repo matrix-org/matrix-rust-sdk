@@ -39,7 +39,14 @@ use ruma::{
         StaticStateEventContent, StrippedStateEvent, SyncMessageLikeEvent, SyncStateEvent,
         beacon::BeaconEventContent,
         beacon_info::BeaconInfoEventContent,
-        call::{SessionDescription, invite::CallInviteEventContent},
+        call::{
+            SessionDescription,
+            invite::CallInviteEventContent,
+            member::{
+                ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
+                CallMemberEventContent, CallMemberStateKey, Focus, LivekitFocus,
+            },
+        },
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
         fully_read::FullyReadEventContent,
         ignored_user_list::IgnoredUserListEventContent,
@@ -95,6 +102,7 @@ use ruma::{
         tag::{TagEventContent, Tags},
         typing::TypingEventContent,
     },
+    owned_device_id,
     presence::PresenceState,
     push::Ruleset,
     room::RoomType,
@@ -1465,6 +1473,40 @@ impl EventFactory {
         notification_event_id: &EventId,
     ) -> EventBuilder<RtcDeclineEventContent> {
         self.event(RtcDeclineEventContent::new(notification_event_id))
+    }
+
+    // Creates a legacy rtc membership event (state event).
+    pub fn call_membership_legacy_state(
+        &self,
+        user_id: OwnedUserId,
+        device_id: String,
+    ) -> EventBuilder<CallMemberEventContent> {
+        let focus = Focus::Livekit(LivekitFocus::new(
+            "room2".to_owned(),
+            "https://livekit2.com".to_owned(),
+        ));
+        self.event(CallMemberEventContent::new(
+            Application::Call(CallApplicationContent::new(
+                "".to_owned(),
+                ruma::events::call::member::CallScope::Room,
+            )),
+            owned_device_id!(device_id.clone()),
+            ActiveFocus::Livekit(ActiveLivekitFocus::new()),
+            vec![focus],
+            Some(MilliSecondsSinceUnixEpoch::now()),
+            Some(Duration::from_secs(3600)),
+        ))
+        .state_key(CallMemberStateKey::new(user_id, device_id.into(), true).as_ref())
+    }
+
+    // Creates a legacy rtc membership event (state event).
+    pub fn call_membership_leave_legacy_state(
+        &self,
+        user_id: OwnedUserId,
+        device_id: String,
+    ) -> EventBuilder<CallMemberEventContent> {
+        self.event(CallMemberEventContent::new_empty(None))
+            .state_key(CallMemberStateKey::new(user_id, device_id.into(), true).as_ref())
     }
 
     /// Create a new `m.direct` global account data event.

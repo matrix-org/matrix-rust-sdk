@@ -66,6 +66,7 @@ mod polls;
 mod reactions;
 mod read_receipts;
 mod redaction;
+mod rtc;
 mod shields;
 mod virt;
 
@@ -118,6 +119,7 @@ impl TestTimelineBuilder {
             self.utd_hook,
             self.is_room_encrypted,
             self.settings.unwrap_or_default(),
+            None,
         );
         TestTimeline { controller, factory: EventFactory::new() }
     }

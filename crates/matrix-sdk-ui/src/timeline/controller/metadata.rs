@@ -33,8 +33,8 @@ use tracing::trace;
 
 use super::{
     super::{TimelineItem, TimelineItemKind, TimelineUniqueId, subscriber::skip::SkipCount},
-    Aggregation, AggregationKind, Aggregations, AllRemoteEvents, ObservableItemsTransaction,
-    PendingEdit, PendingEditKind,
+    ActiveCallInfo, Aggregation, AggregationKind, Aggregations, AllRemoteEvents,
+    ObservableItemsTransaction, PendingEdit, PendingEditKind,
     read_receipts::ReadReceipts,
 };
 use crate::{
@@ -125,6 +125,14 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// TODO: move this over to the event cache (see also #3058).
     pub(super) read_receipts: ReadReceipts,
+
+    /// The event ID of the active RTC notification item that should have
+    /// active_members populated
+    pub(crate) active_rtc_notification_event_id: Option<OwnedEventId>,
+
+    /// Current active call info for the room (used to update the last
+    /// RtcNotification event content)
+    pub(crate) active_call: Option<ActiveCallInfo>,
 }
 
 impl TimelineMetadata {
@@ -134,6 +142,7 @@ impl TimelineMetadata {
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
+        active_call: Option<ActiveCallInfo>,
     ) -> Self {
         Self {
             subscriber_skip_count: SkipCount::new(),
@@ -150,6 +159,8 @@ impl TimelineMetadata {
             unable_to_decrypt_hook,
             internal_id_prefix,
             is_room_encrypted,
+            active_rtc_notification_event_id: None,
+            active_call,
         }
     }
 
