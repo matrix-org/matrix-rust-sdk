@@ -642,6 +642,22 @@ impl SlidingSync {
             // It means that other responses can be generated and then handled later.
             drop(position_guard);
 
+            // Eagerly flush any verification responses the crypto machine produced while
+            // handling this response (e.g. an incoming in-room SAS `.key`
+            // auto-produces our `.key`/`.mac`), instead of leaving them for the
+            // next sync iteration's `send_outgoing_requests`. On the
+            // idle, no-rooms encryption connection that next iteration can be a full poll
+            // timeout (~30s) away, which otherwise adds ~30s of latency per SAS
+            // leg between two rust-SDK peers. Mirrors the eager-send path used
+            // for room keys. Best-effort.
+            #[cfg(feature = "e2e-encryption")]
+            if let Err(error) = this.inner.client.send_outgoing_verification_requests().await {
+                warn!(
+                    ?error,
+                    "Error while eagerly sending outgoing verification requests after a sync response"
+                );
+            }
+
             debug!("Done handling response");
 
             Ok(updates)

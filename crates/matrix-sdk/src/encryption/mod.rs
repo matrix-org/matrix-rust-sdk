@@ -870,6 +870,51 @@ impl Client {
 
         Ok(())
     }
+
+    /// Eagerly send *only* the outgoing verification requests the crypto
+    /// machine has queued (e.g. SAS `.key`/`.mac` responses), without
+    /// waiting for the next sync iteration to flush them via
+    /// [`Self::send_outgoing_requests`].
+    ///
+    /// Verification responses are produced as a side effect of handling a sync
+    /// response, but — unlike a normal message send, which shares its room key
+    /// inline via `send_to_device` — they are otherwise only drained by the
+    /// sliding-sync loop's periodic `send_outgoing_requests`. On the idle,
+    /// no-rooms encryption connection that loop sits in a full poll timeout
+    /// (~30s), so an in-room SAS between two rust-SDK peers stalls ~30s per
+    /// leg. Sending them here, right after the response that produced them,
+    /// brings verification in line with the eager-send path used for room
+    /// keys, while leaving unrelated crypto requests (key uploads/queries)
+    /// on the sync cadence.
+    ///
+    /// This is a latency optimization layered on top of the existing reliable
+    /// delivery, NOT a replacement for it:
+    /// `OlmMachine::outgoing_verification_requests()` *clones* the queued
+    /// requests (it does not drain them), and a request is only removed
+    /// from the queue by `mark_request_as_sent`, which
+    /// [`Self::send_outgoing_request`] calls *only on a successful send*. So if
+    /// an eager send here fails, the request stays queued and is retried by the
+    /// sliding-sync loop's regular `send_outgoing_requests` on the next
+    /// iteration — the same retry path every crypto request uses. Hence the
+    /// per-request failures are merely logged here, not propagated: the worst
+    /// case is simply falling back to the pre-existing (slower) delivery.
+    pub(crate) async fn send_outgoing_verification_requests(&self) -> Result<()> {
+        // Collect the requests and drop the `OlmMachine` guard before awaiting the
+        // sends.
+        let requests = {
+            let guard = self.olm_machine().await;
+            let Some(machine) = guard.as_ref() else { return Ok(()) };
+            machine.outgoing_verification_requests()
+        };
+
+        for request in requests {
+            if let Err(error) = self.send_outgoing_request(request).await {
+                warn!(?error, "Error while eagerly sending an outgoing verification request");
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(any(feature = "testing", test))]
