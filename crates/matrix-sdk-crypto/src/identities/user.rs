@@ -2049,14 +2049,102 @@ pub(crate) mod tests {
         );
     }
 
+    #[async_test]
+    async fn test_sign_own_identity_with_x509() {
+        use crate::{
+            store::{
+                Store,
+                types::{Changes, IdentityChanges, PendingChanges},
+            },
+            x509::{
+                X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
+                rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
+            },
+        };
+
+        let account =
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
+        let account_static_data = account.static_data().clone();
+        let private_identity = PrivateCrossSigningIdentity::for_account(&account, None).unwrap();
+
+        let crypto_store_wrapper =
+            CryptoStoreWrapper::new(account.user_id(), account.device_id(), MemoryStore::new());
+        crypto_store_wrapper
+            .save_pending_changes(PendingChanges { account: Some(account) })
+            .await
+            .unwrap();
+        let changes = Changes {
+            private_identity: Some(private_identity.clone()),
+            identities: IdentityChanges {
+                changed: vec![private_identity.to_public_identity().await.unwrap().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        crypto_store_wrapper.save_changes(changes).await.unwrap();
+
+        let crypto_store_wrapper = Arc::new(crypto_store_wrapper);
+        let private_identity = Arc::new(Mutex::new(private_identity));
+        let verification_machine = VerificationMachine::new(
+            account_static_data.clone(),
+            private_identity.clone(),
+            crypto_store_wrapper.clone(),
+        );
+
+        // We create a store with an X.509 signer
+        let (cert, signing_key) = cert_and_key_with_email("own_user@localhost");
+
+        let cert_pem = cert.pem();
+        let key_pem = signing_key.serialize_pem();
+
+        let x509_signer = {
+            let rust_raw_x509_signer =
+                RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
+            X509Signer::new(Arc::new(rust_raw_x509_signer))
+        };
+
+        let x509_verifier = {
+            let rust_raw_x509_verifier = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
+            X509Verifier::new(Arc::new(rust_raw_x509_verifier))
+        };
+
+        let store = Store::new_with_x509(
+            account_static_data.clone(),
+            private_identity.clone(),
+            crypto_store_wrapper.clone(),
+            verification_machine,
+            Some(x509_verifier.clone()),
+            Some(x509_signer),
+        );
+
+        // When we verify our own identity, the uploaded identity key should be
+        // signed using X.509.
+        let own_identity = store
+            .get_identity(user_id!("@own_user:localhost"))
+            .await
+            .unwrap()
+            .unwrap()
+            .own()
+            .unwrap();
+        let signature_upload_request = own_identity.verify().await.unwrap();
+        let (_, signed_key) = signature_upload_request
+            .signed_keys
+            .get(user_id!("@own_user:localhost"))
+            .unwrap()
+            .iter()
+            .next()
+            .unwrap();
+        let signed_key: CrossSigningKey = serde_json::from_str(signed_key.get()).unwrap();
+
+        assert!(x509_verifier.verify_signed_object(user_id!("@own_user:localhost"), &signed_key));
+    }
+
     /// Create an [`OtherUserIdentity`] for use in tests
     async fn other_user_identity() -> OtherUserIdentity {
-        use ruma::owned_device_id;
-
         let other_user_identity_data = get_other_identity();
 
         let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
 
         let verification_machine = get_verification_machine(&account);
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
