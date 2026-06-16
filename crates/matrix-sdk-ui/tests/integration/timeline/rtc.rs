@@ -12,8 +12,6 @@ use ruma::{
 };
 use tokio_stream::StreamExt;
 
-use crate::timeline::sliding_sync::timeline_event;
-
 #[async_test]
 async fn test_decline_call() {
     let server = MatrixMockServer::new().await;

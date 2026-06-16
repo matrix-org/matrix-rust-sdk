@@ -69,8 +69,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 internal_id_prefix,
                 unable_to_decrypt_hook,
                 is_room_encrypted,
-                active_call,
-            ),
+            )
+            .with_active_call_info(active_call),
             focus,
             _phantom: std::marker::PhantomData,
         }
