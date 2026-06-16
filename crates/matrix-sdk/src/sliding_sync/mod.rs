@@ -722,6 +722,16 @@ impl SlidingSync {
             // can be generated and then handled later.
             drop(position_guard);
 
+            // Handling the response can queue new E2EE requests (e.g. SAS
+            // verification replies). Send them now, as `Client::sync_once`
+            // does: the next request may long-poll for a while.
+            #[cfg(feature = "e2e-encryption")]
+            if this.is_e2ee_enabled()
+                && let Err(error) = this.inner.client.send_outgoing_requests().await
+            {
+                error!(?error, "Error while sending outgoing E2EE requests");
+            }
+
             debug!("Done handling response");
 
             Ok(updates)
@@ -2134,6 +2144,47 @@ mod tests {
 
             assert!(outgoing_requests.is_empty());
         }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_e2ee_requests_are_sent_after_handling_response() -> Result<()> {
+        let server = MockServer::start().await;
+
+        // The response reports no one-time keys left, so handling it queues a
+        // new `/keys/upload`.
+        Mock::given(SlidingSyncMatcher)
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "pos": "0",
+                "extensions": {
+                    "e2ee": { "device_one_time_keys_count": { "signed_curve25519": 0 } },
+                },
+            })))
+            .mount(&server)
+            .await;
+
+        // Once alongside the sync request, once after handling its response.
+        Mock::given(method("POST"))
+            .and(wiremock::matchers::path_regex("/keys/upload$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "one_time_key_counts": { "signed_curve25519": 50 },
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let client = logged_in_client(Some(server.uri())).await;
+        let sliding_sync = client
+            .sliding_sync("e2ee")?
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
+            .build()
+            .await?;
+
+        // A single iteration: the second upload must not wait for the next one.
+        sliding_sync.sync_once().await?;
+        server.verify().await;
 
         Ok(())
     }
