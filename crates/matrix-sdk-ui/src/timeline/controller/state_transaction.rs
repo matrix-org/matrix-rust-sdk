@@ -1194,11 +1194,12 @@ async fn get_forwarder_info<P: RoomDataProvider>(
 mod tests {
     use std::sync::Arc;
 
-    use matrix_sdk::Room;
+    use matrix_sdk::{Room, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk_test::async_test;
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId,
         events::receipt::{Receipt, ReceiptThread},
-        owned_event_id, owned_user_id,
+        owned_event_id, owned_user_id, room_id,
         room_version_rules::RoomVersionRules,
     };
 
@@ -1211,8 +1212,17 @@ mod tests {
         event_item::{EventTimelineItemKind, RemoteEventOrigin, RemoteEventTimelineItem},
     };
 
-    #[test]
-    fn detects_duplicate_read_receipts_in_same_receipt_thread() {
+    #[async_test]
+    async fn test_detects_duplicate_read_receipts_in_same_receipt_thread() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!r0");
+
+        let _ = server.sync_joined_room(&client, room_id).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
         // Given a timeline with clashing receipts
         let mut items = create_items_with_receipts(vec![
             (owned_user_id!("@user1:s.co"), create_receipt(ReceiptThread::Unthreaded)),
@@ -1222,7 +1232,10 @@ mod tests {
         // When we check for duplicates
         let user_id = owned_user_id!("@foo:s.co");
         let mut meta = TimelineMetadata::new(user_id, RoomVersionRules::V12, None, None, true);
-        let focus = TimelineFocusKind::PinnedEvents;
+        let focus = TimelineFocusKind::Live {
+            hide_threaded_events: false,
+            event_cache: event_cache.room(room_id).await.unwrap().0,
+        };
         let transaction: TimelineStateTransaction<'_, Room> =
             TimelineStateTransaction::new(&mut items, &mut meta, &focus);
 
@@ -1232,8 +1245,17 @@ mod tests {
         assert!(dups);
     }
 
-    #[test]
-    fn if_there_are_no_duplicate_receipts_we_report_no_duplicates() {
+    #[async_test]
+    async fn test_if_there_are_no_duplicate_receipts_we_report_no_duplicates() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!r0");
+
+        let _ = server.sync_joined_room(&client, room_id).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![
             (owned_user_id!("@user1:s.co"), create_receipt(ReceiptThread::Unthreaded)),
@@ -1243,7 +1265,10 @@ mod tests {
         // When we check for duplicates
         let user_id = owned_user_id!("@foo:s.co");
         let mut meta = TimelineMetadata::new(user_id, RoomVersionRules::V12, None, None, true);
-        let focus = TimelineFocusKind::PinnedEvents;
+        let focus = TimelineFocusKind::Live {
+            hide_threaded_events: false,
+            event_cache: event_cache.room(room_id).await.unwrap().0,
+        };
         let transaction: TimelineStateTransaction<'_, Room> =
             TimelineStateTransaction::new(&mut items, &mut meta, &focus);
 
@@ -1253,8 +1278,17 @@ mod tests {
         assert!(!dups);
     }
 
-    #[test]
-    fn if_there_are_receipts_for_different_receipt_threads_we_report_no_duplicates() {
+    #[async_test]
+    async fn test_if_there_are_receipts_for_different_receipt_threads_we_report_no_duplicates() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!r0");
+
+        let _ = server.sync_joined_room(&client, room_id).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
         // Given a timeline with receipts, but no clashes (users are different)
         let mut items = create_items_with_receipts(vec![
             (owned_user_id!("@user1:s.co"), create_receipt(ReceiptThread::Unthreaded)),
@@ -1267,7 +1301,10 @@ mod tests {
         // When we check for duplicates
         let user_id = owned_user_id!("@foo:s.co");
         let mut meta = TimelineMetadata::new(user_id, RoomVersionRules::V12, None, None, true);
-        let focus = TimelineFocusKind::PinnedEvents;
+        let focus = TimelineFocusKind::Live {
+            hide_threaded_events: false,
+            event_cache: event_cache.room(room_id).await.unwrap().0,
+        };
         let transaction: TimelineStateTransaction<'_, Room> =
             TimelineStateTransaction::new(&mut items, &mut meta, &focus);
 
