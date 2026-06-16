@@ -618,7 +618,8 @@ async fn test_event_filter_can_exclude_only_join_and_leave_membership_changes() 
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
