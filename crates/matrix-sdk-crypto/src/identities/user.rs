@@ -1484,9 +1484,13 @@ pub(crate) mod tests {
             },
         },
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{CryptoStoreWrapper, MemoryStore},
+        store::{CryptoStoreWrapper, MemoryStore, Store},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
+        x509::{
+            X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
+            rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
+        },
     };
 
     #[test]
@@ -2051,46 +2055,8 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_sign_own_identity_with_x509() {
-        use crate::{
-            store::{
-                Store,
-                types::{Changes, IdentityChanges, PendingChanges},
-            },
-            x509::{
-                X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
-                rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
-            },
-        };
-
         let account =
             Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
-        let account_static_data = account.static_data().clone();
-        let private_identity = PrivateCrossSigningIdentity::for_account(&account, None).unwrap();
-
-        let crypto_store_wrapper =
-            CryptoStoreWrapper::new(account.user_id(), account.device_id(), MemoryStore::new());
-        crypto_store_wrapper
-            .save_pending_changes(PendingChanges { account: Some(account) })
-            .await
-            .unwrap();
-        let changes = Changes {
-            private_identity: Some(private_identity.clone()),
-            identities: IdentityChanges {
-                changed: vec![private_identity.to_public_identity().await.unwrap().into()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        crypto_store_wrapper.save_changes(changes).await.unwrap();
-
-        let crypto_store_wrapper = Arc::new(crypto_store_wrapper);
-        let private_identity = Arc::new(Mutex::new(private_identity));
-        let verification_machine = VerificationMachine::new(
-            account_static_data.clone(),
-            private_identity.clone(),
-            crypto_store_wrapper.clone(),
-        );
-
         // We create a store with an X.509 signer
         let (cert, signing_key) = cert_and_key_with_email("own_user@localhost");
 
@@ -2108,14 +2074,7 @@ pub(crate) mod tests {
             X509Verifier::new(Arc::new(rust_raw_x509_verifier))
         };
 
-        let store = Store::new_with_x509(
-            account_static_data.clone(),
-            private_identity.clone(),
-            crypto_store_wrapper.clone(),
-            verification_machine,
-            Some(x509_verifier.clone()),
-            Some(x509_signer),
-        );
+        let store = create_store_with_x509(account, x509_verifier.clone(), x509_signer).await;
 
         // When we verify our own identity, the uploaded identity key should be
         // signed using X.509.
@@ -2173,6 +2132,54 @@ pub(crate) mod tests {
                 account.device_id(),
                 MemoryStore::new(),
             )),
+        )
+    }
+
+    /**
+     * Creates a crypto store, backed by a [`MemoryStore`], for the given
+     * account, with an X.509 verifier and signer.
+     */
+    async fn create_store_with_x509(
+        account: Account,
+        x509_verifier: X509Verifier,
+        x509_signer: X509Signer,
+    ) -> Store {
+        use crate::store::types::{Changes, IdentityChanges, PendingChanges};
+
+        let account_static_data = account.static_data().clone();
+        let private_identity = PrivateCrossSigningIdentity::for_account(&account, None).unwrap();
+
+        let crypto_store_wrapper =
+            CryptoStoreWrapper::new(account.user_id(), account.device_id(), MemoryStore::new());
+        crypto_store_wrapper
+            .save_pending_changes(PendingChanges { account: Some(account) })
+            .await
+            .unwrap();
+        let changes = Changes {
+            private_identity: Some(private_identity.clone()),
+            identities: IdentityChanges {
+                changed: vec![private_identity.to_public_identity().await.unwrap().into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        crypto_store_wrapper.save_changes(changes).await.unwrap();
+
+        let crypto_store_wrapper = Arc::new(crypto_store_wrapper);
+        let private_identity = Arc::new(Mutex::new(private_identity));
+        let verification_machine = VerificationMachine::new(
+            account_static_data.clone(),
+            private_identity.clone(),
+            crypto_store_wrapper.clone(),
+        );
+
+        Store::new_with_x509(
+            account_static_data.clone(),
+            private_identity.clone(),
+            crypto_store_wrapper.clone(),
+            verification_machine,
+            Some(x509_verifier),
+            Some(x509_signer),
         )
     }
 }
