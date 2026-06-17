@@ -345,7 +345,6 @@ pub(in crate::timeline) async fn rtc_membership_update_task(
         // RoomInfo fires for many reasons; only act when the participant
         // list actually changed.
         if active_call != prev_info {
-            println!("## rtc_membership_update_task {active_call:?}");
             prev_info = active_call.clone();
             timeline_controller.handle_active_call_update(active_call).await;
         }

@@ -778,15 +778,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
         txn.meta.active_call = maybe_active_call.clone();
 
         if let Some(existing_event_id) = &txn.meta.active_rtc_notification_event_id {
-            println!("handling active call update, existing notif id {}", existing_event_id);
             // Clean up the notification event
             let last_notification = rfind_event_by_id(&txn.items, existing_event_id);
             if let Some((last_idx, last_notification)) = last_notification {
-                println!(
-                    "found last notification event_id {:?} at index {}",
-                    last_notification.event_id(),
-                    last_idx
-                );
                 let updated_content = match last_notification.content() {
                     TimelineItemContent::RtcNotification {
                         call_intent,
@@ -805,10 +799,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     let new_event_item = last_notification.inner.with_content(new_content);
                     let new_timeline_item =
                         TimelineItem::new(new_event_item, last_notification.internal_id.clone());
-                    println!(
-                        "replacing last notification with new content at index {}, new item: {:?}",
-                        last_idx, new_timeline_item
-                    );
                     txn.items.replace(last_idx, new_timeline_item);
                 }
 
@@ -816,12 +806,9 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     // There is no active rtc_notification anymore
                     txn.meta.active_rtc_notification_event_id = None;
                 }
-            } else {
-                println!("no last notification found");
             }
         }
 
-        println!("commit");
         txn.commit();
     }
 
