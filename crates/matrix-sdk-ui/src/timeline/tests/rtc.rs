@@ -25,6 +25,8 @@ async fn test_rtc_members_update() {
 
     let f = &timeline.factory;
 
+    set_active_call_members(&timeline, &[BOB.to_owned()]).await;
+
     let notification_event = f
         .rtc_notification(NotificationType::Ring)
         .sender(*ALICE)
@@ -33,12 +35,12 @@ async fn test_rtc_members_update() {
 
     timeline.handle_live_event(notification_event).await;
 
-    let notification_item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
-
-    assert_matches!(
-        notification_item.content,
-        TimelineItemContent::RtcNotification { active_call_info: None, .. }
-    );
+    // This is two steps, first the item is added, then it is updated with the
+    // active members
+    assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let notification_item =
+        assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
+    assert_rtc_notification_active_members(notification_item, vec![BOB.to_owned()]);
 
     // Simulate two members joined the call
     set_active_call_members(&timeline, &[BOB.to_owned(), CAROL.to_owned()]).await;
@@ -68,6 +70,11 @@ async fn test_rtc_members_update_last_only() {
     let some_timestamp = SystemTime::now();
 
     // ===========
+    // ACT: Simulate active members in the call
+    // ===========
+    set_active_call_members(&timeline, &[BOB.to_owned()]).await;
+
+    // ===========
     // ACT: Insert a first notification event
     // ===========
     timeline
@@ -81,11 +88,6 @@ async fn test_rtc_members_update_last_only() {
         .await;
 
     assert_next_matches!(stream, VectorDiff::PushBack { .. });
-
-    // ===========
-    // ACT: Simulate active members in the call
-    // ===========
-    set_active_call_members(&timeline, &[BOB.to_owned()]).await;
 
     // ===========
     // ASSERT: The notification item should be updated with the active members
