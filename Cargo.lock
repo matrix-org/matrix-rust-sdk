@@ -8428,6 +8428,8 @@ dependencies = [
  "pkcs1",
  "rustls",
  "rustls-webpki",
+ "serde",
+ "serde_json",
  "vodozemac",
  "x509-cert",
  "x509-parser",

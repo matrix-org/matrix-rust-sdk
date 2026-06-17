@@ -13,6 +13,8 @@ x509-parser = "0.18.1"
 const-oid = "0.9.6"
 x509-cert = "0.2.5"
 pkcs1 = "0.7.5"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json.workspace = true
 
 [lints]
 workspace = true
