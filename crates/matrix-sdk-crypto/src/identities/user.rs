@@ -2098,6 +2098,68 @@ pub(crate) mod tests {
         assert!(x509_verifier.verify_signed_object(user_id!("@own_user:localhost"), &signed_key));
     }
 
+    #[async_test]
+    async fn test_verify_other_identity_with_x509() {
+        let (cert, signing_key) = cert_and_key_with_email("other_user@localhost");
+
+        let cert_pem = cert.pem();
+        let key_pem = signing_key.serialize_pem();
+
+        let x509_signer = {
+            let rust_raw_x509_signer =
+                RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
+            X509Signer::new(Arc::new(rust_raw_x509_signer))
+        };
+
+        let x509_verifier = {
+            let rust_raw_x509_verifier = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
+            X509Verifier::new(Arc::new(rust_raw_x509_verifier))
+        };
+
+        // Another user has an X.509-signed identity.
+        let other_user_identity_data = {
+            let account =
+                Account::with_device_id(user_id!("@other_user:localhost"), device_id!("DEV123"));
+
+            let private_identity =
+                PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
+
+            let own_identity = private_identity.to_public_identity().await.unwrap();
+
+            OtherUserIdentityData::new(
+                own_identity.master_key().clone(),
+                own_identity.self_signing_key().clone(),
+            )
+            .unwrap()
+        };
+
+        // The other user's identity should not be verified when we don't have
+        // an X.509 verifier.
+        let account =
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
+
+        let verification_machine = get_verification_machine(&account);
+        let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
+
+        let other_user_identity_no_x509 = OtherUserIdentity {
+            inner: other_user_identity_data.clone(),
+            own_identity: Some(own_identity_data.clone()),
+            verification_machine: verification_machine.clone(),
+            x509_verifier: None,
+        };
+        assert!(!other_user_identity_no_x509.is_verified());
+
+        // The other user's identity should be verified when we do have an X.509
+        // verifier.
+        let other_user_identity_with_x509 = OtherUserIdentity {
+            inner: other_user_identity_data,
+            own_identity: Some(own_identity_data),
+            verification_machine,
+            x509_verifier: Some(x509_verifier),
+        };
+        assert!(other_user_identity_with_x509.is_verified());
+    }
+
     /// Create an [`OtherUserIdentity`] for use in tests
     async fn other_user_identity() -> OtherUserIdentity {
         let other_user_identity_data = get_other_identity();
