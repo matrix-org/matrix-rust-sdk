@@ -769,6 +769,9 @@ async fn test_share_strategy_prevents_encryption() {
         .await
         .unwrap();
 
+    // Dan has cross-signing keys, but a device that is not cross-signed. When
+    // we try to send to the unsigned device, we should get an error under the
+    // `OnlyTrustedDevices` and `IdentityBasedStrategy` strategies.
     let keys_query = DataSet::dan_keys_query_response();
     let txn_id = TransactionId::new();
     machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
@@ -786,6 +789,51 @@ async fn test_share_strategy_prevents_encryption() {
         .unwrap()
         .unwrap()
         .encrypt_event_raw(custom_event_type, &custom_content, CollectStrategy::OnlyTrustedDevices)
+        .await;
+
+    assert_matches!(encryption_result, Err(OlmError::Withheld(WithheldCode::Unverified)));
+
+    let encryption_result = machine
+        .get_device(DataSet::dan_id(), DataSet::dan_unsigned_device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .encrypt_event_raw(
+            custom_event_type,
+            &custom_content,
+            CollectStrategy::IdentityBasedStrategy,
+        )
+        .await;
+
+    assert_matches!(encryption_result, Err(OlmError::Withheld(WithheldCode::Unverified)));
+
+    // Dave has no cross-signing keys. When we try to send to his device, we
+    // should get an error under the `OnlyTrustedDevices` and
+    // `IdentityBasedStrategy` strategies.
+    let keys_query = DataSet::dave_keys_query_response();
+    let txn_id = TransactionId::new();
+    machine.mark_request_as_sent(&txn_id, &keys_query).await.unwrap();
+
+    let encryption_result = machine
+        .get_device(DataSet::dave_id(), DataSet::dave_device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .encrypt_event_raw(custom_event_type, &custom_content, CollectStrategy::OnlyTrustedDevices)
+        .await;
+
+    assert_matches!(encryption_result, Err(OlmError::Withheld(WithheldCode::Unverified)));
+
+    let encryption_result = machine
+        .get_device(DataSet::dave_id(), DataSet::dave_device_id(), None)
+        .await
+        .unwrap()
+        .unwrap()
+        .encrypt_event_raw(
+            custom_event_type,
+            &custom_content,
+            CollectStrategy::IdentityBasedStrategy,
+        )
         .await;
 
     assert_matches!(encryption_result, Err(OlmError::Withheld(WithheldCode::Unverified)));
