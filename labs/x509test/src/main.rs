@@ -1,5 +1,15 @@
 use std::{ops::Deref, sync::Arc};
 
+use cms::{
+    cert::CertificateChoices,
+    content_info::{CmsVersion, ContentInfo},
+    signed_data::{
+        CertificateSet, EncapsulatedContentInfo, SignatureValue, SignedData, SignerIdentifier,
+        SignerInfo, SignerInfos,
+    },
+};
+use const_oid::db::rfc5911::ID_SIGNED_DATA;
+use pkcs1::RsaPssParams;
 use rustls::{
     RootCertStore, SignatureScheme,
     crypto::aws_lc_rs::default_provider,
@@ -8,6 +18,14 @@ use rustls::{
     sign::SigningKey,
 };
 use webpki::EndEntityCert;
+use x509_cert::{
+    der::{
+        self as der, AnyRef, Decode, Encode, EncodePem, Length, PemReader, Writer,
+        pem::{LineEnding, PemLabel},
+    },
+    ext::pkix::SubjectKeyIdentifier,
+    spki::{AlgorithmIdentifier, AlgorithmIdentifierRef},
+};
 
 // TODO: how to load from a PKCS12 bundle? cms::encrypted_data, I think
 const KEY_BUNDLE: &[u8] = include_bytes!("bundle.p12");
@@ -15,6 +33,14 @@ const KEY_BUNDLE: &[u8] = include_bytes!("bundle.p12");
 const CA_CERT: &[u8] = include_bytes!("cacert.pem");
 const CERT_BUNDLE_PEM: &[u8] = include_bytes!("cert.pem");
 const PRIVATE_KEY_PEM: &[u8] = include_bytes!("key.pem");
+
+/*
+openssl cms -sign -md sha512 -in ../../README.md -signer src/cert.pem -inkey src/key.pem \
+  -certfile src/cacert.pem -outform PEM -keyopt rsa_padding_mode:pss  > src/cms.pem
+
+openssl cms -verify -CAfile src/cacert.pem -inform PEM -in src/cms.pem -content ../../README.md
+*/
+const CMS_PEM: &[u8] = include_bytes!("cms.pem");
 
 /*
 
@@ -32,9 +58,138 @@ const PRIVATE_KEY_PEM: &[u8] = include_bytes!("key.pem");
  */
 
 fn main() {
+    // dump_cms_file(CMS_PEM);
     default_provider().install_default().expect("unable to install default provider");
     let sig = build_signature();
-    verify(sig);
+
+    let chain = x509_cert::Certificate::load_pem_chain(CERT_BUNDLE_PEM).unwrap();
+
+    let leaf_cert = &chain[0].tbs_certificate;
+    let (_critical, ski): (_, SubjectKeyIdentifier) = leaf_cert.get().unwrap().unwrap();
+
+    let signature_params = RsaPssParams {
+        hash: AlgorithmIdentifierRef {
+            oid: const_oid::db::rfc5912::ID_SHA_512,
+            parameters: Some(AnyRef::NULL),
+        },
+        mask_gen: AlgorithmIdentifier {
+            oid: const_oid::db::rfc5912::ID_MGF_1,
+            parameters: Some(AlgorithmIdentifierRef {
+                oid: const_oid::db::rfc5912::ID_SHA_512,
+                parameters: Some(AnyRef::NULL),
+            }),
+        },
+        salt_len: 64,
+        trailer_field: Default::default(),
+    };
+
+    let signer_info = SignerInfo {
+        // RFC 5652 § 5.3: version is the syntax version number.  If the SignerIdentifier is
+        // the CHOICE issuerAndSerialNumber, then the version MUST be 1. If
+        // the SignerIdentifier is subjectKeyIdentifier, then the version MUST be 3.
+        version: CmsVersion::V3,
+
+        sid: SignerIdentifier::SubjectKeyIdentifier(ski),
+        digest_alg: AlgorithmIdentifier {
+            oid: const_oid::db::rfc5912::ID_SHA_512,
+            parameters: None,
+        },
+        signed_attrs: None, // Not required if EncapsulatedContentInfo is id-data
+        signature_algorithm: AlgorithmIdentifier {
+            oid: const_oid::db::rfc5912::ID_RSASSA_PSS,
+            parameters: Some(der::Any::encode_from(&signature_params).unwrap()),
+        },
+        signature: SignatureValue::new(sig).unwrap(),
+        unsigned_attrs: None,
+    };
+
+    let certificates: Vec<_> = chain.into_iter().map(CertificateChoices::Certificate).collect();
+
+    let digest_algorithms =
+        vec![AlgorithmIdentifier { oid: const_oid::db::rfc5912::ID_SHA_512, parameters: None }];
+
+    let signed_data = SignedData {
+        // RFC 5652 § 5.1.  SignedData Type
+        // IF ((certificates is present) AND
+        //             (any certificates with a type of other are present)) OR
+        //             ((crls is present) AND
+        //             (any crls with a type of other are present))
+        //          THEN version MUST be 5
+        //          ELSE
+        //             IF (certificates is present) AND
+        //                (any version 2 attribute certificates are present)
+        //             THEN version MUST be 4
+        //             ELSE
+        //                IF ((certificates is present) AND
+        //                   (any version 1 attribute certificates are present)) OR
+        //                   (any SignerInfo structures are version 3) OR
+        //                   (encapContentInfo eContentType is other than id-data)
+        //                THEN version MUST be 3
+        //                ELSE version MUST be 1
+        //
+        // TL;DR: since our SignerInfo is v3, we need a v3 SignedData.
+        version: CmsVersion::V3,
+        digest_algorithms: digest_algorithms.try_into().unwrap(),
+        encap_content_info: EncapsulatedContentInfo {
+            econtent_type: const_oid::db::rfc5911::ID_DATA,
+            econtent: None,
+        },
+        certificates: Some(CertificateSet::try_from(certificates).unwrap()),
+        crls: None,
+        signer_infos: vec![signer_info].try_into().unwrap(),
+    };
+
+    let content_info = ContentInfo {
+        content_type: ID_SIGNED_DATA,
+        content: der::Any::encode_from(&signed_data).unwrap(),
+    };
+    let content_info = ContentInfoWrapper(content_info);
+    print!("{}", content_info.to_pem(LineEnding::CRLF).unwrap());
+
+    //content_info.to_pem();
+    // let mut pem_writer = PemWriter::new().unwrap();
+    // content_info.encode(&pem_writer)
+
+    //verify(sig);
+}
+
+fn debug_cms_file(pem: &[u8]) {
+    let mut pem_reader = PemReader::new(pem).unwrap();
+    let data = ContentInfo::decode(&mut pem_reader).unwrap();
+    dbg!(&data.content_type);
+
+    let data: SignedData = data.content.decode_as().expect("Could not parse SignedData");
+    // let data = SignedData::from_der(&data.content.value()).expect("Could not
+    // parse SignedData");
+    dbg!(data.version);
+    dbg!(data.digest_algorithms);
+    dbg!(data.encap_content_info);
+    dbg!(data.certificates);
+    dbg!(data.crls);
+
+    let signer_info = data.signer_infos.0.get(0).unwrap();
+    let signature_algorithm = &signer_info.signature_algorithm;
+    let params = signature_algorithm.parameters.as_ref().unwrap();
+    let params: RsaPssParams = params.decode_as().unwrap();
+    dbg!(params);
+    dbg!(data.signer_infos);
+}
+
+/// A wrapper for [`ContentInfo`] which implements [`PemLabel`] and can
+/// therefore be used with [`EncodePem`].
+struct ContentInfoWrapper(ContentInfo);
+
+impl PemLabel for ContentInfoWrapper {
+    const PEM_LABEL: &'static str = "CMS";
+}
+impl Encode for ContentInfoWrapper {
+    fn encoded_len(&self) -> der::Result<Length> {
+        self.0.encoded_len()
+    }
+
+    fn encode(&self, encoder: &mut impl Writer) -> der::Result<()> {
+        self.0.encode(encoder)
+    }
 }
 
 /// upload side
