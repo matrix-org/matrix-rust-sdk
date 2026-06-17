@@ -362,9 +362,10 @@ fn verify_content_info_pem(pem: &[u8]) {
         panic!("SignerInfo.signed_attrs should be None");
     }
 
-    if signer_info.signature_algorithm.oid != const_oid::db::rfc5912::ID_RSASSA_PSS {
-        panic!("SignerInfo.signature_algorithm.oid should be RSASSA_PSS");
-    }
+    signer_info
+        .signature_algorithm
+        .assert_algorithm_oid(const_oid::db::rfc5912::ID_RSASSA_PSS)
+        .expect("SignerInfo.signature_algorithm.oid should be RSASSA_PSS");
 
     let params = signer_info
         .signature_algorithm
@@ -376,9 +377,10 @@ fn verify_content_info_pem(pem: &[u8]) {
 
     check_sha512_algorithm_ref(params.hash);
 
-    if params.mask_gen.oid != const_oid::db::rfc5912::ID_MGF_1 {
-        panic!("RsaPssParams.mask_gen should be ID_MGF_1");
-    }
+    params
+        .mask_gen
+        .assert_algorithm_oid(const_oid::db::rfc5912::ID_MGF_1)
+        .expect("RsaPssParams.mask_gen should be ID_MGF_1");
 
     check_sha512_algorithm_ref(
         params.mask_gen.parameters.expect("mask_gen.parameters must be set"),
@@ -392,9 +394,10 @@ fn verify_content_info_pem(pem: &[u8]) {
 }
 
 fn check_sha512_algorithm_owned(hash_algorithm: &AlgorithmIdentifierOwned) {
-    if hash_algorithm.oid != const_oid::db::rfc5912::ID_SHA_512 {
-        panic!("hash.oid should be ID_SHA_512");
-    }
+    hash_algorithm
+        .assert_algorithm_oid(const_oid::db::rfc5912::ID_SHA_512)
+        .expect("hash.oid should be ID_SHA_512");
+
     match hash_algorithm.parameters {
         None => {}
         Some(_) => panic!("hash.parameters should be None"),
@@ -402,9 +405,10 @@ fn check_sha512_algorithm_owned(hash_algorithm: &AlgorithmIdentifierOwned) {
 }
 
 fn check_sha512_algorithm_ref(hash_algorithm: AlgorithmIdentifierRef<'_>) {
-    if hash_algorithm.oid != const_oid::db::rfc5912::ID_SHA_512 {
-        panic!("hash.oid should be ID_SHA_512");
-    }
+    hash_algorithm
+        .assert_algorithm_oid(const_oid::db::rfc5912::ID_SHA_512)
+        .expect("hash.oid should be ID_SHA_512");
+
     match hash_algorithm.parameters {
         None => {}
         Some(AnyRef::NULL) => {}
