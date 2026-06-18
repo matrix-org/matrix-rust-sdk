@@ -29,7 +29,7 @@ pub struct SlidingSyncBuilder {
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<http::request::Extensions>,
     room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
-    presence: PresenceState,
+    presence: Option<PresenceState>,
     poll_timeout: Duration,
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]
@@ -52,7 +52,7 @@ impl SlidingSyncBuilder {
                 lists: Vec::new(),
                 extensions: None,
                 room_subscriptions: BTreeMap::new(),
-                presence: PresenceState::Online,
+                presence: None,
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
                 #[cfg(feature = "e2e-encryption")]
@@ -92,10 +92,10 @@ impl SlidingSyncBuilder {
 
     /// Set the presence state that will be sent with sliding sync requests.
     ///
-    /// The default is [`PresenceState::Online`], matching the Matrix
-    /// Client-Server API default when `set_presence` is not specified.
+    /// If this is not set, sliding sync requests use the client-owned sync
+    /// presence value.
     pub fn set_presence(mut self, presence: PresenceState) -> Self {
-        self.presence = presence;
+        self.presence = Some(presence);
         self
     }
 

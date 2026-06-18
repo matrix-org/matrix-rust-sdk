@@ -33,7 +33,7 @@ use futures_core::stream::Stream;
 use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{Client, LEASE_DURATION_MS, SlidingSync, sleep::sleep};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
-use ruma::{api::client::sync::sync_events::v5 as http, assign, presence::PresenceState};
+use ruma::{api::client::sync::sync_events::v5 as http, assign};
 use tokio::sync::OwnedMutexGuard;
 use tracing::{debug, instrument, trace};
 
@@ -75,23 +75,12 @@ impl EncryptionSyncService {
         client: Client,
         poll_and_network_timeouts: Option<(Duration, Duration)>,
     ) -> Result<Self, Error> {
-        Self::new_with_presence(client, poll_and_network_timeouts, PresenceState::Online).await
-    }
-
-    /// Creates a new instance of an `EncryptionSyncService` with an explicit
-    /// presence state for the generated sliding sync requests.
-    pub async fn new_with_presence(
-        client: Client,
-        poll_and_network_timeouts: Option<(Duration, Duration)>,
-        presence: PresenceState,
-    ) -> Result<Self, Error> {
         // Make sure to use the same `conn_id` and caching store identifier, whichever
         // process is running this sliding sync. There must be at most one
         // sliding sync instance that enables the e2ee and to-device extensions.
         let mut builder = client
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
-            .set_presence(presence)
             //.share_pos() // TODO: This is racy, needs cross-process lock :')
             .with_to_device_extension(
                 assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
@@ -122,11 +111,6 @@ impl EncryptionSyncService {
         }
 
         Ok(Self { client, sliding_sync })
-    }
-
-    /// Set the presence state to send with future sliding sync requests.
-    pub fn set_presence(&self, presence: PresenceState) {
-        self.sliding_sync.set_presence(presence);
     }
 
     /// Runs an `EncryptionSyncService` loop for a fixed number of iterations.

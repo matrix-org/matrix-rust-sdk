@@ -208,16 +208,16 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 }
 
 #[async_test]
-async fn test_sync_service_presence_is_used_by_both_syncs() -> anyhow::Result<()> {
+async fn test_sync_service_client_sync_presence_is_used_by_both_syncs() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
+    client.set_sync_presence(PresenceState::Unavailable);
 
     let encryption_pos = Arc::new(Mutex::new(0));
     let room_pos = Arc::new(Mutex::new(0));
     let _guard = setup_mocking_sliding_sync_server(&server, encryption_pos, room_pos).await;
 
     let sync_service = SyncService::builder(client).build().await.unwrap();
-    sync_service.set_presence(PresenceState::Unavailable).await;
     sync_service.start().await;
 
     tokio::time::sleep(Duration::from_millis(150)).await;

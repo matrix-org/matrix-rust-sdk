@@ -2813,6 +2813,12 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
         self
     }
 
+    /// Expect the given `set_presence` value in the request.
+    pub fn set_presence(mut self, presence: impl Into<String>) -> Self {
+        self.mock = self.mock.and(query_param("set_presence", presence.into()));
+        self
+    }
+
     /// Mocks the sync endpoint, using the given function to generate the
     /// response.
     pub fn ok<F: FnOnce(&mut SyncResponseBuilder)>(self, func: F) -> MatrixMock<'a> {
