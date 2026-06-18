@@ -39,8 +39,6 @@ use ruma::{
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
 };
-#[cfg(target_os = "android")]
-use rustls::client::VerifierBuilderError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
@@ -89,11 +87,6 @@ pub enum HttpError {
     /// [`HttpError`] into an [`Arc`] to be able to clone it.
     #[error(transparent)]
     Cached(Arc<HttpError>),
-
-    /// Error creating the TLS verifier.
-    #[cfg(target_os = "android")]
-    #[error(transparent)]
-    VerifierBuilder(#[from] VerifierBuilderError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines

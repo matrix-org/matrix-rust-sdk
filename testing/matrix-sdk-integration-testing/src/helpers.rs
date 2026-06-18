@@ -94,6 +94,7 @@ impl TestClientBuilder {
         self
     }
 
+    #[allow(unused)]
     pub fn enable_threading_support(mut self, thread_support: ThreadingSupport) -> Self {
         self.threading_support = thread_support;
         self

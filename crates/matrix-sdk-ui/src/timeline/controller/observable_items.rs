@@ -1987,7 +1987,7 @@ impl AllRemoteEvents {
     }
 
     /// Shift to the left all timeline item indexes that are greater than
-    /// `removed_wtimeline_item_index`.
+    /// `removed_timeline_item_index`.
     fn decrement_all_timeline_item_index_after(&mut self, removed_timeline_item_index: usize) {
         // Traverse items from back to front because:
         // - if `new_timeline_item_index` is 0, we need to shift all items anyways, so

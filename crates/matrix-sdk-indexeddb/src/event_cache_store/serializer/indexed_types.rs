@@ -348,8 +348,8 @@ impl Indexed for Event {
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
-        let id = IndexedEventIdKey::encode((self.linked_chunk_id(), &event_id), serializer);
-        let room = IndexedEventRoomKey::encode((self.room_id(), &event_id), serializer);
+        let id = IndexedEventIdKey::encode((self.linked_chunk_id(), event_id), serializer);
+        let room = IndexedEventRoomKey::encode((self.room_id(), event_id), serializer);
         let position = self.position().map(|position| {
             IndexedEventPositionKey::encode((self.linked_chunk_id(), position), serializer)
         });

@@ -279,10 +279,10 @@ fn select_best_receipt(
     {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent receipt.
-            if latest_active == Some(&event_id) {
+            if latest_active == Some(event_id) {
                 // The latest active receipt is still the most recent receipt, so keep it.
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
-                receipt = Some(event_id.clone());
+                receipt = Some(event_id.to_owned());
             }
             // Try to find an implicit read receipt (i.e. an event sent by the current
             // user).
@@ -292,7 +292,7 @@ fn select_best_receipt(
                 && (!with_threading_support || extract_thread_root(event.raw()).is_none())
             {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
-                receipt = Some(event_id.clone());
+                receipt = Some(event_id.to_owned());
             }
         }
 
@@ -311,7 +311,7 @@ fn select_best_receipt(
             if *pending == event_id {
                 if receipt.is_none() {
                     trace!(pending = %event_id, "found a pending receipt; stopping search");
-                    receipt = Some(event_id.clone());
+                    receipt = Some(event_id.to_owned());
                 } else {
                     trace!(%event_id, "discarding a pending receipt that wasn't selected");
                 }

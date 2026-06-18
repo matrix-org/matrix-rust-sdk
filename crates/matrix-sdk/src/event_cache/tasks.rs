@@ -439,7 +439,7 @@ async fn handle_thread_subscriber_linked_chunk_update(
                 // Shouldn't happen.
                 continue;
             };
-            subscribe_up_to = Some(event_id);
+            subscribe_up_to = Some(event_id.to_owned());
             break;
         }
     }
@@ -492,7 +492,7 @@ pub(super) async fn search_indexing_task(
                     return;
                 };
 
-                let maybe_room_cache = client.event_cache().for_room(&room_id).await;
+                let maybe_room_cache = client.event_cache().room(&room_id).await;
                 let Ok((room_cache, _drop_handles)) = maybe_room_cache else {
                     warn!(for_room = %room_id, "Failed to get RoomEventCache: {maybe_room_cache:?}");
                     continue;

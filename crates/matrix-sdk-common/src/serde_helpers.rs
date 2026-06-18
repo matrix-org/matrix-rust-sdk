@@ -19,8 +19,10 @@ use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        MessageLikeEventType,
         relation::{BundledThread, RelationType},
     },
+    room_version_rules::RedactionRules,
     serde::Raw,
 };
 use serde::Deserialize;
@@ -70,23 +72,6 @@ pub fn extract_thread_root(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEve
     extract_thread_root_from_content(event.get_field("content").ok().flatten()?)
 }
 
-/// Try to extract the target of an edit event, from a raw timeline event, if
-/// provided.
-///
-/// The target event is the field located at
-/// `content`.`m.relates_to`.`event_id`, if the field at
-/// `content`.`m.relates_to`.`rel_type` is `m.replace`.
-///
-/// Returns `None` if we couldn't find it, or if there was an issue
-/// during deserialization.
-pub fn extract_edit_target(event: &Raw<AnySyncTimelineEvent>) -> Option<OwnedEventId> {
-    let relates_to = event.get_field::<SimplifiedContent>("content").ok().flatten()?.relates_to?;
-    match relates_to.rel_type {
-        RelationType::Replacement => relates_to.event_id,
-        _ => None,
-    }
-}
-
 /// Try to extract the type and target of a relation, from a raw timeline event,
 /// if provided.
 pub fn extract_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(RelationType, OwnedEventId)> {
@@ -99,6 +84,32 @@ pub fn extract_relation(event: &Raw<AnySyncTimelineEvent>) -> Option<(RelationTy
 struct Relations {
     #[serde(rename = "m.thread")]
     thread: Option<Box<BundledThread>>,
+}
+
+/// Try to extract the event ID of the event targeted by `event` if it is of
+/// type `m.room.redaction`.
+pub fn extract_redaction_target(
+    event: &Raw<AnySyncTimelineEvent>,
+    redaction_rules: &RedactionRules,
+) -> Option<OwnedEventId> {
+    // Check if it's a `m.room.redaction`.
+    let Ok(Some(MessageLikeEventType::RoomRedaction)) =
+        event.get_field::<MessageLikeEventType>("type")
+    else {
+        // Not the expected event. Early return.
+        return None;
+    };
+
+    // It is a `m.room.redaction`! We can deserialize it entirely.
+
+    let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(redaction))) =
+        event.deserialize()
+    else {
+        // Failed to deserialized. Early return.
+        return None;
+    };
+
+    redaction.redacts(redaction_rules).map(ToOwned::to_owned)
 }
 
 #[allow(missing_debug_implementations)]

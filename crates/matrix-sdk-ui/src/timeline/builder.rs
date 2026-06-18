@@ -162,9 +162,12 @@ impl TimelineBuilder {
         let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
-        room.client().event_cache().subscribe()?;
+        let client = room.client();
+        let event_cache = client.event_cache();
+        event_cache.subscribe()?;
 
-        let (room_event_cache, event_cache_drop) = room.event_cache().await?;
+        let room_id = room.room_id();
+        let (room_event_cache, event_cache_drop) = event_cache.room(room_id).await?;
         let (_, event_subscriber) = room_event_cache.subscribe().await?;
 
         let is_room_encrypted = room
@@ -180,16 +183,17 @@ impl TimelineBuilder {
 
         let controller = TimelineController::new(
             room.clone(),
-            focus.clone(),
+            &focus,
+            event_cache,
             internal_id_prefix.clone(),
             unable_to_decrypt_hook,
             is_room_encrypted,
             settings,
             active_call,
-        );
+        )
+        .await?;
 
-        let InitFocusResult { focus_task, has_events } =
-            controller.init_focus(&focus, &room_event_cache).await?;
+        let InitFocusResult { focus_task, has_events } = controller.init_focus().await?;
 
         let room_update_join_handle = room
             .client()
@@ -263,7 +267,6 @@ impl TimelineBuilder {
 
         let timeline = Timeline {
             controller,
-            event_cache: room_event_cache,
             drop_handle: Arc::new(TimelineDropHandle {
                 _crypto_drop_handles: crypto_drop_handles,
                 _room_update_join_handle: room_update_join_handle,

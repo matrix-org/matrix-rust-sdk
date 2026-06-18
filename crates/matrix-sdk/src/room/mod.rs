@@ -618,11 +618,6 @@ impl Room {
         )
         .await;
 
-        // Save the loaded events into the event cache, if it's set up.
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_events(chunk.clone()).await;
-        }
-
         Ok(Messages {
             start: http_response.start,
             end: http_response.end,
@@ -817,11 +812,6 @@ impl Room {
         let push_ctx = self.push_context().await?;
         let event = self.try_decrypt_event(raw_event, push_ctx.as_ref()).await;
 
-        // Save the event into the event cache, if it's set up.
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            cache.save_events([event.clone()]).await;
-        }
-
         Ok(event)
     }
 
@@ -1013,24 +1003,6 @@ impl Room {
                 response.events_after.into_iter().map(|ev| self.try_decrypt_event(ev, push_ctx)),
             ),
         );
-
-        // Save the loaded events into the event cache, if it's set up.
-        if let Ok((cache, _handles)) = self.event_cache().await {
-            let mut events_to_save: Vec<TimelineEvent> = Vec::new();
-            if let Some(event) = &target_event {
-                events_to_save.push(event.clone());
-            }
-
-            for event in &events_before {
-                events_to_save.push(event.clone());
-            }
-
-            for event in &events_after {
-                events_to_save.push(event.clone());
-            }
-
-            cache.save_events(events_to_save).await;
-        }
 
         Ok(EventWithContextResponse {
             event: target_event,
@@ -3918,7 +3890,7 @@ impl Room {
     pub async fn event_cache(
         &self,
     ) -> event_cache::Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
-        self.client.event_cache().for_room(self.room_id()).await
+        self.client.event_cache().room(self.room_id()).await
     }
 
     /// Get the beacon information event in the room for the `user_id`.
@@ -4281,16 +4253,7 @@ impl Room {
         event_id: OwnedEventId,
         opts: RelationsOptions,
     ) -> Result<Relations> {
-        let relations = opts.send(self, event_id).await;
-
-        // Save any new related events to the cache.
-        if let Ok(Relations { chunk, .. }) = &relations
-            && let Ok((cache, _handles)) = self.event_cache().await
-        {
-            cache.save_events(chunk.clone()).await;
-        }
-
-        relations
+        opts.send(self, event_id).await
     }
 
     /// Subscribe to a given thread in this room.

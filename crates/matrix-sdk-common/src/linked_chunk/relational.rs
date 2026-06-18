@@ -115,6 +115,7 @@ impl IndexableItem for TimelineEvent {
     fn id(&self) -> Self::ItemId {
         self.event_id()
             .expect("all events saved into a relational linked chunk must have a valid event id")
+            .to_owned()
     }
 }
 

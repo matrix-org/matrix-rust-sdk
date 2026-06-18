@@ -40,7 +40,7 @@ use crate::timeline::{
 
 #[async_test]
 async fn test_default_filter() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -101,7 +101,8 @@ async fn test_default_filter() {
 async fn test_filter_always_false() {
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings { event_filter: Arc::new(|_, _| false), ..Default::default() })
-        .build();
+        .build()
+        .await;
 
     let f = &timeline.factory;
     timeline.handle_live_event(f.text_msg("The first message").sender(&ALICE)).await;
@@ -123,7 +124,8 @@ async fn test_custom_filter() {
             event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -149,7 +151,8 @@ async fn test_custom_filter_for_custom_msglike_event() {
             event_filter: Arc::new(|ev, _| matches!(ev, AnySyncTimelineEvent::MessageLike(_))),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -170,7 +173,8 @@ async fn test_custom_filter_for_custom_msglike_event() {
 async fn test_hide_failed_to_parse() {
     let timeline = TestTimelineBuilder::new()
         .settings(TimelineSettings { add_failed_to_parse: false, ..Default::default() })
-        .build();
+        .build()
+        .await;
 
     // m.room.message events must have a msgtype and body in content, so this
     // event with an empty content object should fail to deserialize.
@@ -212,7 +216,8 @@ async fn test_event_filter_include_only_room_names() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add a non-encrypted message event
@@ -246,7 +251,8 @@ async fn test_event_filter_exclude_messages() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add a message event
@@ -281,7 +287,8 @@ async fn test_event_filter_include_only_membership_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -333,7 +340,8 @@ async fn test_event_filter_include_only_profile_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -388,7 +396,8 @@ async fn test_event_filter_include_only_messages_and_membership_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -443,7 +452,8 @@ async fn test_event_filter_exclude_membership_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -495,7 +505,8 @@ async fn test_event_filter_exclude_profile_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -551,7 +562,8 @@ async fn test_event_filter_exclude_messages_and_membership_changes() {
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
@@ -606,7 +618,8 @@ async fn test_event_filter_can_exclude_only_join_and_leave_membership_changes() 
             event_filter: Arc::new(move |event, _| event_filter.filter(event)),
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
     let f = &timeline.factory;
 
     // Add Alice's join event
