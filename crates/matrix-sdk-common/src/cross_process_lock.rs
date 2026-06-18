@@ -42,7 +42,7 @@ use std::{
     future::Future,
     sync::{
         Arc,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -61,6 +61,33 @@ use crate::{
 ///
 /// This is used to know if a lock has been dirtied.
 pub type CrossProcessLockGeneration = u64;
+
+/// Represent all the (anonymous) holders for a lock.
+#[derive(Clone, Debug)]
+struct Holders(Arc<()>);
+
+impl Holders {
+    fn new() -> Self {
+        Self(Arc::new(()))
+    }
+
+    /// Count the number of holders.
+    ///
+    /// # Safety
+    ///
+    /// This method by itself is safe, but using it correctly requires extra
+    /// care. Another thread can change the strong count at any time, including
+    /// potentially between calling this method and acting on the result.
+    fn count(&self) -> usize {
+        // We subtract 2 because:
+        // - the `Arc` has at least 1 pointer to the allocation.
+        // - the `CrossProcessLock` clones itself for its `renew_task` once the lock has
+        //   been acquired. If the lock isn't acquired, this method will return 0, if
+        //   the lock has been acquired at least once, it will return 3 (`Arc` +
+        //   `renew_task` + guard) - 2 = 1, which is correct.
+        Arc::strong_count(&self.0).saturating_sub(2)
+    }
+}
 
 /// A trait that represents any function which can be used to
 /// acquire the underlying lock of a [`CrossProcessLock`].
@@ -132,21 +159,29 @@ enum WaitingTime {
 ///
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub struct CrossProcessLockGuard {
-    /// A clone of [`CrossProcessLock::num_holders`].
-    num_holders: Arc<AtomicU32>,
+    /// A clone of [`CrossProcessLock::holders`].
+    ///
+    /// Every time [`Self`] is cloned, the number of holders increases.
+    /// Every time [`Self`] is dropped, the number of holders decreases.
+    holders: Holders,
 
     /// A clone of [`CrossProcessLock::is_dirty`].
     is_dirty: Arc<AtomicBool>,
 }
 
 impl CrossProcessLockGuard {
-    fn new(num_holders: &Arc<AtomicU32>, is_dirty: &Arc<AtomicBool>) -> Self {
-        num_holders.fetch_add(1, Ordering::SeqCst);
+    fn new(holders: &Holders, is_dirty: &Arc<AtomicBool>) -> Self {
+        Self { holders: holders.clone(), is_dirty: is_dirty.clone() }
+    }
 
-        Self { num_holders: num_holders.clone(), is_dirty: is_dirty.clone() }
+    /// Check whether the lock for this guard has been dropped.
+    pub fn lock_has_been_dropped(&self) -> bool {
+        // Note that this calculation is only valid in the context of a guard. The same
+        // calculation in the context of the lock would provide a different semantics.
+        self.holders.count() == 0
     }
 
     /// Determine whether the cross-process lock associated to this guard is
@@ -169,18 +204,6 @@ impl CrossProcessLockGuard {
     }
 }
 
-impl Clone for CrossProcessLockGuard {
-    fn clone(&self) -> Self {
-        Self::new(&self.num_holders, &self.is_dirty)
-    }
-}
-
-impl Drop for CrossProcessLockGuard {
-    fn drop(&mut self) {
-        self.num_holders.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
 /// A cross-process lock implementation.
 ///
 /// See the doc-comment of this module for more information.
@@ -196,14 +219,15 @@ where
     /// retry mechanism, plus guard and so on.
     locker: L,
 
-    /// Number of holders of the lock in this process.
+    /// All (anonymous) holders of the lock in this process.
     ///
-    /// If greater than 0, this means we've already obtained this lock, in this
-    /// process, and the store lock mustn't be touched.
+    /// If the number of holders is greater than 0, this means we've already
+    /// obtained this lock, in this process, and the store lock mustn't be
+    /// touched.
     ///
     /// When the number of holders is decreased to 0, then the lock must be
     /// released in the store.
-    num_holders: Arc<AtomicU32>,
+    holders: Holders,
 
     /// A mutex to control an attempt to take the lock, to avoid making it
     /// reentrant.
@@ -280,7 +304,7 @@ where
             lock_key,
             config,
             backoff: Arc::new(Mutex::new(WaitingTime::Some(INITIAL_BACKOFF_MS))),
-            num_holders: Arc::new(AtomicU32::new(0)),
+            holders: Holders::new(),
             locking_attempt: Arc::new(Mutex::new(())),
             renew_task: Default::default(),
             generation: Arc::new(AtomicU64::new(NO_CROSS_PROCESS_LOCK_GENERATION)),
@@ -313,7 +337,7 @@ where
     pub async fn try_lock_once(&self) -> AcquireCrossProcessLockResult<L::LockError> {
         // If it's not `MultiProcess`, this behaves as a no-op
         let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {
-            let guard = CrossProcessLockGuard::new(&self.num_holders, &self.is_dirty);
+            let guard = CrossProcessLockGuard::new(&self.holders, &self.is_dirty);
             return Ok(Ok(CrossProcessLockState::Clean(guard)));
         };
 
@@ -323,15 +347,15 @@ where
 
         // If another thread obtained the lock, make sure to only superficially increase
         // the number of holders, and carry on.
-        if self.num_holders.load(Ordering::SeqCst) > 0 {
-            // Note: between the above load and the fetch_add below, another thread may
-            // decrement `num_holders`. That's fine because that means the lock
-            // was taken by at least one thread, and after this call it will be
-            // taken by at least one thread.
+        if self.holders.count() > 0 {
+            // Note: between the above `count` and the `CrossProcessLockGuard::new` below,
+            // another thread may decrement `holders`. That's fine because that
+            // means the lock was taken by at least one thread, and after this
+            // call it will be taken by at least one thread.
             trace!("We already had the lock, incrementing holder count");
 
             return Ok(Ok(CrossProcessLockState::Clean(CrossProcessLockGuard::new(
-                &self.num_holders,
+                &self.holders,
                 &self.is_dirty,
             ))));
         }
@@ -370,7 +394,7 @@ where
 
         trace!("Obtained the lock, spawning the lease extension task.");
 
-        // This is the first time we've obtaind the lock. We're going to spawn the task
+        // This is the first time we've obtained the lock. We're going to spawn the task
         // that will renew the lease.
 
         // Clone data to be owned by the task.
@@ -400,15 +424,15 @@ where
                     //
                     // This is not racy, because:
                     // - the `locking_attempt` mutex makes sure we don't have unexpected
-                    // interactions with the non-atomic sequence above in `try_lock_once`
-                    // (check > 0, then add 1).
-                    // - other entities holding onto the `num_holders` atomic will only
-                    // decrease it over time.
+                    //   interactions with the non-atomic sequence above in `try_lock_once` (check >
+                    //   0, then add 1).
+                    // - other entities holding onto the `holders` atomic will only decrease it over
+                    //   time.
 
                     let _guard = this.locking_attempt.lock().await;
 
                     // If there are no more users, we can quit.
-                    if this.num_holders.load(Ordering::SeqCst) == 0 {
+                    if this.holders.count() == 0 {
                         trace!("exiting the lease extension loop");
 
                         // Cancel the lease with another 0ms lease.
@@ -425,14 +449,13 @@ where
 
                 match this.locker.try_lock(LEASE_DURATION_MS, &this.lock_key, &holder_name).await {
                     Ok(Some(_generation)) => {
-                        // It's impossible that the generation can be
-                        // different from the previous generation.
+                        // It's impossible that the generation can be different
+                        // from the previous generation.
                         //
                         // As long as the task runs, the lock is renewed, so
                         // the generation remains the same. If the lock is not
-                        // taken, it's because the lease has expired, which
-                        // is represented by the
-                        // `Ok(None)` value, and the task
+                        // taken, it's because the lease has expired, which is
+                        // represented by the `Ok(None)` value, and the task
                         // must stop.
                     }
 
@@ -453,7 +476,7 @@ where
             }
         }));
 
-        let guard = CrossProcessLockGuard::new(&self.num_holders, &self.is_dirty);
+        let guard = CrossProcessLockGuard::new(&self.holders, &self.is_dirty);
 
         Ok(Ok(if self.is_dirty() {
             CrossProcessLockState::Dirty(guard)
@@ -661,50 +684,23 @@ impl CrossProcessLockConfig {
 }
 
 #[cfg(test)]
-mod guard_tests {
-    use super::{Arc, AtomicBool, AtomicU32, CrossProcessLockGuard, Ordering};
-
-    #[test]
-    fn test_number_of_holders_follows_the_number_of_guards() {
-        let num_holders = Arc::new(AtomicU32::new(0));
-        let guard = CrossProcessLockGuard::new(&num_holders, &Arc::new(AtomicBool::new(false)));
-
-        assert_eq!(num_holders.load(Ordering::Relaxed), 1);
-        assert_eq!(guard.num_holders.load(Ordering::Relaxed), 1);
-
-        let guard_clone = guard.clone();
-
-        assert_eq!(num_holders.load(Ordering::Relaxed), 2);
-        assert_eq!(guard.num_holders.load(Ordering::Relaxed), 2);
-        assert_eq!(guard_clone.num_holders.load(Ordering::Relaxed), 2);
-
-        drop(guard_clone);
-
-        assert_eq!(num_holders.load(Ordering::Relaxed), 1);
-        assert_eq!(guard.num_holders.load(Ordering::Relaxed), 1);
-
-        drop(guard);
-
-        assert_eq!(num_holders.load(Ordering::Relaxed), 0);
-    }
-}
-
-#[cfg(test)]
 #[cfg(not(target_family = "wasm"))] // These tests require tokio::time, which is not implemented on wasm.
 mod tests {
     use std::{
         collections::HashMap,
         ops::Not,
-        sync::{Arc, RwLock, atomic},
+        sync::{Arc, RwLock},
     };
 
     use assert_matches::assert_matches;
+    use assert_matches2::assert_let;
     use matrix_sdk_test_macros::async_test;
     use tokio::{spawn, task::yield_now};
 
     use super::{
         CrossProcessLock, CrossProcessLockConfig, CrossProcessLockError,
-        CrossProcessLockGeneration, CrossProcessLockState, CrossProcessLockUnobtained, TryLock,
+        CrossProcessLockGeneration, CrossProcessLockGuard, CrossProcessLockState,
+        CrossProcessLockUnobtained, TryLock,
         memory_store_helper::{Lease, try_take_leased_lock},
     };
 
@@ -747,7 +743,7 @@ mod tests {
         }
     }
 
-    async fn release_lock(lock: CrossProcessLockState) {
+    async fn release_lock(lock: CrossProcessLockGuard) {
         drop(lock);
         yield_now().await;
     }
@@ -765,24 +761,37 @@ mod tests {
 
         // The lock plain works when used with a single holder.
         let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
-        assert_matches!(guard, CrossProcessLockState::Clean(_));
+        assert_let!(CrossProcessLockState::Clean(guard) = guard);
         assert!(lock.is_dirty().not());
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+        assert_eq!(lock.holders.count(), 1);
+        assert_eq!(guard.holders.count(), 1);
+
+        // Cloning the guard increases the number of holders.
+        let guard_clone = guard.clone();
+        assert_eq!(lock.holders.count(), 2);
+        assert_eq!(guard.holders.count(), 2);
+        assert_eq!(guard_clone.holders.count(), 2);
+
+        // Dropping a guard decreases the number of holders.
+        drop(guard_clone);
+        assert_eq!(lock.holders.count(), 1);
+        assert_eq!(guard.holders.count(), 1);
 
         // Releasing works.
         release_lock(guard).await;
         assert!(lock.is_dirty().not());
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
+        assert_eq!(lock.holders.count(), 0);
 
         // Spin locking on the same lock always works, assuming no concurrent access.
         let guard = lock.spin_lock(None).await?.expect("spin lock must be obtained successfully");
+        assert_let!(CrossProcessLockState::Clean(guard) = guard);
         assert!(lock.is_dirty().not());
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+        assert_eq!(lock.holders.count(), 1);
 
         // Releasing still works.
         release_lock(guard).await;
         assert!(lock.is_dirty().not());
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
+        assert_eq!(lock.holders.count(), 0);
 
         Ok(())
     }
@@ -798,12 +807,18 @@ mod tests {
 
         // When a lock is obtained…
         let guard = lock.try_lock_once().await?.expect("lock must be obtained successfully");
-        assert_matches!(guard, CrossProcessLockState::Clean(_));
+        assert_let!(CrossProcessLockState::Clean(guard) = guard);
         assert!(lock.is_dirty().not());
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+        assert_eq!(lock.holders.count(), 1);
+        assert_eq!(guard.holders.count(), 1);
 
-        // But then forgotten… (note: no need to release the guard)
+        assert!(guard.lock_has_been_dropped().not());
+
+        // But then forgotten… (note: no need to release the guard — the guard no longer
+        // makes sense and does nothing).
         drop(lock);
+        assert_eq!(guard.holders.count(), 0); // it's somehow true: there is no more _valid_ holders.
+        assert!(guard.lock_has_been_dropped());
 
         // And when rematerializing the lock with the same key/value…
         let lock = CrossProcessLock::new(
@@ -815,9 +830,10 @@ mod tests {
         // We still got it.
         let guard =
             lock.try_lock_once().await?.expect("lock (again) must be obtained successfully");
-        assert_matches!(guard, CrossProcessLockState::Clean(_));
+        assert_let!(CrossProcessLockState::Clean(guard) = guard);
         assert!(lock.is_dirty().not());
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+        assert_eq!(lock.holders.count(), 1);
+        assert_eq!(guard.holders.count(), 1);
 
         Ok(())
     }
@@ -831,21 +847,27 @@ mod tests {
             CrossProcessLockConfig::multi_process("first"),
         );
 
+        eprintln!("== {}", lock.holders.count());
+
         // Taking the lock twice…
         let guard1 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
-        assert_matches!(guard1, CrossProcessLockState::Clean(_));
-        let guard2 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
-        assert_matches!(guard2, CrossProcessLockState::Clean(_));
-        assert!(lock.is_dirty().not());
+        assert_let!(CrossProcessLockState::Clean(guard1) = guard1);
 
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 2);
+        let guard2 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
+        assert_let!(CrossProcessLockState::Clean(guard2) = guard2);
+
+        assert!(lock.is_dirty().not());
+        assert_eq!(lock.holders.count(), 2);
+        assert_eq!(guard1.holders.count(), 2);
+        assert_eq!(guard2.holders.count(), 2);
 
         // … means we can release it twice.
         release_lock(guard1).await;
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 1);
+        assert_eq!(lock.holders.count(), 1);
+        assert_eq!(guard2.holders.count(), 1);
 
         release_lock(guard2).await;
-        assert_eq!(lock.num_holders.load(atomic::Ordering::SeqCst), 0);
+        assert_eq!(lock.holders.count(), 0);
 
         assert!(lock.is_dirty().not());
 
@@ -868,8 +890,10 @@ mod tests {
 
         // `lock1` acquires the lock.
         let guard1 = lock1.try_lock_once().await?.expect("lock must be obtained successfully");
-        assert_matches!(guard1, CrossProcessLockState::Clean(_));
+        assert_let!(CrossProcessLockState::Clean(guard1) = guard1);
         assert!(lock1.is_dirty().not());
+        assert_eq!(lock1.holders.count(), 1);
+        assert_eq!(guard1.holders.count(), 1);
 
         // `lock2` cannot acquire the lock.
         let err = lock2.try_lock_once().await?.expect_err("lock must NOT be obtained");
@@ -882,6 +906,7 @@ mod tests {
         yield_now().await;
 
         drop(guard1);
+        assert_eq!(lock1.holders.count(), 0);
 
         // Once `lock1` is released, `lock2` managed to obtain it.
         let guard2 = task
@@ -889,7 +914,11 @@ mod tests {
             .expect("join handle is properly awaited")
             .expect("lock is successfully attempted")
             .expect("lock must be obtained successfully");
-        assert_matches!(guard2, CrossProcessLockState::Clean(_));
+        assert_let!(CrossProcessLockState::Clean(guard2) = guard2);
+
+        assert_eq!(lock1.holders.count(), 0);
+        assert_eq!(lock2.holders.count(), 1);
+        assert_eq!(guard2.holders.count(), 1);
 
         // `lock1` and `lock2` are both clean!
         assert!(lock1.is_dirty().not());
