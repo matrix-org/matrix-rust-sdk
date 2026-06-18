@@ -132,8 +132,16 @@ impl IndexeddbConnection {
 /// otherwise healthy connection.
 ///
 /// Building a transaction on a closed `IDBDatabase` raises a DOM
-/// `InvalidStateError`; that is the signal that the handle must be reopened
-/// before retrying.
+/// `InvalidStateError`; a connection that dies as the transaction is being set
+/// up can also surface as `TransactionInactiveError` or `AbortError`. Any of
+/// these means the handle must be reopened before retrying.
 pub fn is_connection_closed(error: &Error) -> bool {
-    matches!(error, Error::DomException(DomException::InvalidStateError(_)))
+    matches!(
+        error,
+        Error::DomException(
+            DomException::InvalidStateError(_)
+                | DomException::TransactionInactiveError(_)
+                | DomException::AbortError(_)
+        )
+    )
 }
