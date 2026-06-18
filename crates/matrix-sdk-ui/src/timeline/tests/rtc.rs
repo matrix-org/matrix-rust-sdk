@@ -204,6 +204,7 @@ async fn test_rtc_members_update_last_only() {
     assert_pending!(stream);
 }
 
+#[track_caller]
 fn assert_rtc_notification_active_members(
     item: EventTimelineItem,
     members: Vec<OwnedUserId>,
