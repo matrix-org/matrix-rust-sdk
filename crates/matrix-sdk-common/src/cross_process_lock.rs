@@ -52,7 +52,7 @@ use tracing::{debug, error, instrument, trace, warn};
 
 use crate::{
     SendOutsideWasm,
-    executor::{JoinHandle, spawn},
+    executor::{AbortOnDrop, spawn},
     sleep::sleep,
 };
 
@@ -234,7 +234,7 @@ where
     locking_attempt: Arc<Mutex<()>>,
 
     /// Current renew task spawned by `try_lock_once`.
-    renew_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    renew_task: Arc<Mutex<Option<AbortOnDrop<()>>>>,
 
     /// The key used in the key/value mapping for the lock entry.
     lock_key: String,
@@ -404,20 +404,14 @@ where
 
         // Cancel the previous task, if any. That's safe to do, because:
         // - either the task was done,
-        // - or it was still running, but taking a lock in the db has to be an atomic
-        //   operation running in a transaction.
-
-        if let Some(_prev) = renew_task.take() {
-            #[cfg(not(target_family = "wasm"))]
-            if !_prev.is_finished() {
-                trace!("aborting the previous renew task");
-                _prev.abort();
-            }
-        }
+        // - or it was still running, but taking a lock in the database has to be an
+        //   atomic operation running in a transaction.
+        drop(renew_task.take());
 
         // Restart a new one.
-        *renew_task = Some(spawn(async move {
+        *renew_task = Some(AbortOnDrop::new(spawn(async move {
             let CrossProcessLockConfig::MultiProcess { holder_name } = this.config else { return };
+
             loop {
                 {
                     // First, check if there are still users of this lock.
@@ -474,7 +468,7 @@ where
                     }
                 }
             }
-        }));
+        })));
 
         let guard = CrossProcessLockGuard::new(&self.holders, &self.is_dirty);
 
@@ -846,8 +840,6 @@ mod tests {
             "key".to_owned(),
             CrossProcessLockConfig::multi_process("first"),
         );
-
-        eprintln!("== {}", lock.holders.count());
 
         // Taking the lock twice…
         let guard1 = lock.try_lock_once().await?.expect("lock must be obtained successfully");
