@@ -23,7 +23,10 @@ use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserI
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
-pub use self::{signature::Signature, x509_signature::X509Signature};
+pub use self::{
+    signature::Signature,
+    x509_signature::{X509_SIGNATURE_ALGORITHM, X509Signature},
+};
 
 /// Represents a signature that could not be decoded.
 ///

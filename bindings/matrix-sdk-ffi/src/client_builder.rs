@@ -46,7 +46,7 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
 use ruma::{
-    DeviceKeyId, OwnedDeviceKeyId,
+    OwnedDeviceId,
     api::error::{DeserializationError, FromHttpResponseError},
 };
 use tracing::debug;
@@ -594,18 +594,12 @@ impl ClientBuilder {
                 fn sign(
                     &self,
                     message: &[u8],
-                ) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
+                ) -> Result<(OwnedDeviceId, X509Signature), SignatureError> {
                     let result = self
                         .0
                         .sign(message.to_vec())
                         .map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
-                    Ok((
-                        DeviceKeyId::from_parts(
-                            "io.element.x509".into(),
-                            result.device_id.as_str().into(),
-                        ),
-                        result.signature.into(),
-                    ))
+                    Ok((result.device_id.into(), result.signature.into()))
                 }
             }
 

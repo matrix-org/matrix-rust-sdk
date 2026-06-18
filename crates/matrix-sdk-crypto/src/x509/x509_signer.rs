@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use ruma::{OwnedDeviceKeyId, UserId, canonical_json::to_canonical_value};
+use ruma::{DeviceKeyId, OwnedDeviceId, UserId, canonical_json::to_canonical_value};
 
 use crate::{
     SignatureError,
     olm::utility::to_signable_json,
-    types::{CrossSigningKey, X509Signature},
+    types::{CrossSigningKey, X509_SIGNATURE_ALGORITHM, X509Signature},
 };
 
 /// Hold one of these if you want to sign cross-signing keys, and call
@@ -34,11 +34,11 @@ impl X509Signer {
     ) -> Result<(), SignatureError> {
         let json = to_signable_json(to_canonical_value(&cross_signing_key)?)?;
 
-        let (device_key_id, signature) = self.x509_sign.sign(json.as_bytes())?;
+        let (device_id, signature) = self.x509_sign.sign(json.as_bytes())?;
 
         cross_signing_key.signatures.add_signature(
             signing_user_id.to_owned(),
-            device_key_id,
+            DeviceKeyId::from_parts(X509_SIGNATURE_ALGORITHM.into(), &device_id),
             signature,
         );
 
@@ -52,7 +52,7 @@ pub trait RawX509Signer: std::fmt::Debug + Send + Sync {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError>;
+    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceId, X509Signature), SignatureError>;
 }
 
 #[cfg(test)]

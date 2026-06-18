@@ -17,6 +17,10 @@ limitations under the License.
 use rustls::SignatureScheme;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+/// Signature algorithm used to represent an X.509 signature. For use with
+/// `DeviceKeyAlgorithm::from`.
+pub const X509_SIGNATURE_ALGORITHM: &str = "io.element.x509";
+
 /// An X.509 signature and certificate chain
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct X509Signature {
