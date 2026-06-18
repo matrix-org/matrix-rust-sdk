@@ -19,7 +19,7 @@ use crate::timeline::{TimelineItemContent, controller::ActiveCallInfo};
 /// of the RtcNotification timeline item.
 #[tokio::test]
 async fn test_rtc_members_update() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     let mut stream = timeline.subscribe_events().await;
 
@@ -62,7 +62,7 @@ async fn test_rtc_members_update() {
 /// of the last notification event
 #[tokio::test]
 async fn test_rtc_members_update_last_only() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
