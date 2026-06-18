@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use ruma::{DeviceKeyId, OwnedDeviceKeyId};
+use ruma::OwnedDeviceId;
 use rustls::{
     SignatureScheme,
     crypto::aws_lc_rs,
@@ -35,8 +35,8 @@ pub struct RustRawX509Signer {
     /// certificate, followed by intermediate certificates.
     certificate_chain: String,
 
-    /// The key ID for signatures we generate.
-    device_id: OwnedDeviceKeyId,
+    /// The device ID for signatures we generate.
+    device_id: OwnedDeviceId,
 
     /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
@@ -76,8 +76,7 @@ impl RustRawX509Signer {
             .map_err(RustX509SignError::CertificateParseError)?;
         let last_cert_aki =
             get_authority_key_identifier(&last_cert).expect("no AKI found in last cert");
-        let device_id =
-            DeviceKeyId::from_parts("io.element.x509".into(), last_cert_aki.as_str().into());
+        let device_id = last_cert_aki.as_str().into();
 
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
             .map_err(RustX509SignError::PrivateKeyParseError)?;
@@ -94,7 +93,7 @@ impl RawX509Signer for RustRawX509Signer {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceKeyId, X509Signature), SignatureError> {
+    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceId, X509Signature), SignatureError> {
         let signature_scheme = SignatureScheme::RSA_PSS_SHA512;
         let signer = self
             .signing_key

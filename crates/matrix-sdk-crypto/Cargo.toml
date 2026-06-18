@@ -102,7 +102,7 @@ matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 proptest.workspace = true
 rmp-serde.workspace = true
-rcgen = "0.14.8"
+rcgen = { version = "0.14.8", features = ["aws_lc_rs"] }
 similar-asserts.workspace = true
 # required for async_test macro
 stream_assert.workspace = true
