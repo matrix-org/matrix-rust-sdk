@@ -17,11 +17,12 @@
 // type, at which point the line below can be removed.
 #![allow(dead_code)]
 
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
+    connection::IndexeddbConnection,
     event_cache_store::{
         IndexeddbEventCacheStore, error::IndexeddbEventCacheStoreError,
         migrations::open_and_upgrade_db,
@@ -78,8 +79,9 @@ impl IndexeddbEventCacheStoreBuilder {
     /// opened, builds the [`IndexeddbEventCacheStore`] with that database
     /// and the provided store cipher.
     pub async fn build(self) -> Result<IndexeddbEventCacheStore, IndexeddbEventCacheStoreError> {
+        let database = open_and_upgrade_db(&self.database_name).await?;
         Ok(IndexeddbEventCacheStore {
-            inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
+            connection: IndexeddbConnection::new(self.database_name, database),
             serializer: IndexedTypeSerializer::new(SafeEncodeSerializer::new(self.store_cipher)),
         })
     }

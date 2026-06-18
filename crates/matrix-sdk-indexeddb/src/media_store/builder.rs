@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use std::{rc::Rc, sync::Arc};
+use std::sync::Arc;
 
 use matrix_sdk_base::media::store::MediaService;
 use matrix_sdk_store_encryption::StoreCipher;
 
 use crate::{
+    connection::IndexeddbConnection,
     media_store::{
         IndexeddbMediaStore, error::IndexeddbMediaStoreError, migrations::open_and_upgrade_db,
     },
@@ -73,8 +74,9 @@ impl IndexeddbMediaStoreBuilder {
     /// opened, builds the [`IndexeddbMediaStore`] with that database
     /// and the provided store cipher.
     pub async fn build(self) -> Result<IndexeddbMediaStore, IndexeddbMediaStoreError> {
+        let database = open_and_upgrade_db(&self.database_name).await?;
         Ok(IndexeddbMediaStore {
-            inner: Rc::new(open_and_upgrade_db(&self.database_name).await?),
+            connection: IndexeddbConnection::new(self.database_name, database),
             serializer: IndexedTypeSerializer::new(SafeEncodeSerializer::new(self.store_cipher)),
             media_service: MediaService::new(),
         })

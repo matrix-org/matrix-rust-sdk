@@ -14,9 +14,8 @@
 
 #![cfg_attr(not(test), allow(unused))]
 
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::{collections::HashMap, time::Duration};
 
-use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
 use matrix_sdk_base::cross_process_lock::{
     CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
@@ -36,8 +35,9 @@ use tracing::{error, instrument, trace};
 use web_sys::IdbTransactionMode;
 
 use crate::{
+    connection::IndexeddbConnection,
     event_cache_store::{
-        migrations::current::keys,
+        migrations::{current::keys, open_and_upgrade_db},
         transaction::IndexeddbEventCacheStoreTransaction,
         types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
     },
@@ -64,8 +64,9 @@ pub use error::IndexeddbEventCacheStoreError;
 /// [1]: matrix_sdk_base::event_cache::store::EventCacheStore
 #[derive(Debug, Clone)]
 pub struct IndexeddbEventCacheStore {
-    // A handle to the IndexedDB database
-    inner: Rc<Database>,
+    // A reopenable handle to the IndexedDB database. See [`IndexeddbConnection`]
+    // for why the handle must be reopenable rather than a plain `Database`.
+    connection: IndexeddbConnection,
     // A serializer with functionality tailored to `IndexeddbEventCacheStore`
     serializer: IndexedTypeSerializer,
 }
@@ -77,22 +78,36 @@ impl IndexeddbEventCacheStore {
         IndexeddbEventCacheStoreBuilder::default()
     }
 
-    /// Initializes a new transaction on the underlying IndexedDB database and
-    /// returns a handle which can be used to combine database operations
-    /// into an atomic unit.
-    pub fn transaction<'a>(
-        &'a self,
+    /// Run `f` against a fresh transaction over `stores`, reopening the
+    /// connection and retrying once if the browser has closed it.
+    ///
+    /// Without this, a transient connection loss would permanently brick the
+    /// event cache: every read (timelines fail to load) and every write
+    /// (incoming events silently dropped) would keep failing until the app is
+    /// restarted.
+    async fn with_transaction<R, F>(
+        &self,
         stores: &[&str],
         mode: IdbTransactionMode,
-    ) -> Result<IndexeddbEventCacheStoreTransaction<'a>, IndexeddbEventCacheStoreError> {
-        Ok(IndexeddbEventCacheStoreTransaction::new(
-            self.inner
-                .transaction(stores)
-                .with_mode(mode)
-                .build()
-                .map_err(TransactionError::from)?,
-            &self.serializer,
-        ))
+        f: F,
+    ) -> Result<R, IndexeddbEventCacheStoreError>
+    where
+        F: AsyncFnOnce(
+            IndexeddbEventCacheStoreTransaction<'_>,
+        ) -> Result<R, IndexeddbEventCacheStoreError>,
+    {
+        self.connection
+            .with_transaction(
+                stores,
+                mode,
+                |name| async move {
+                    open_and_upgrade_db(&name).await.map_err(IndexeddbEventCacheStoreError::from)
+                },
+                async |transaction| {
+                    f(IndexeddbEventCacheStoreTransaction::new(transaction, &self.serializer)).await
+                },
+            )
+            .await
     }
 }
 
@@ -108,54 +123,58 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         key: &str,
         holder: &str,
     ) -> Result<Option<CrossProcessLockGeneration>, IndexeddbEventCacheStoreError> {
-        let transaction =
-            self.transaction(&[Lease::OBJECT_STORE], IdbTransactionMode::Readwrite)?;
+        self.with_transaction(
+            &[Lease::OBJECT_STORE],
+            IdbTransactionMode::Readwrite,
+            async move |transaction| {
+                let now = Duration::from_millis(MilliSecondsSinceUnixEpoch::now().get().into());
+                let expiration = now + Duration::from_millis(lease_duration_ms.into());
 
-        let now = Duration::from_millis(MilliSecondsSinceUnixEpoch::now().get().into());
-        let expiration = now + Duration::from_millis(lease_duration_ms.into());
+                let lease = match transaction.get_lease_by_id(key).await? {
+                    Some(mut lease) => {
+                        if lease.holder == holder {
+                            // We had the lease before, extend it.
+                            lease.expiration = expiration;
 
-        let lease = match transaction.get_lease_by_id(key).await? {
-            Some(mut lease) => {
-                if lease.holder == holder {
-                    // We had the lease before, extend it.
-                    lease.expiration = expiration;
+                            Some(lease)
+                        } else {
+                            // We didn't have it.
+                            if lease.expiration < now {
+                                // Steal it!
+                                lease.holder = holder.to_owned();
+                                lease.expiration = expiration;
+                                lease.generation += 1;
 
-                    Some(lease)
-                } else {
-                    // We didn't have it.
-                    if lease.expiration < now {
-                        // Steal it!
-                        lease.holder = holder.to_owned();
-                        lease.expiration = expiration;
-                        lease.generation += 1;
+                                Some(lease)
+                            } else {
+                                // We tried our best.
+                                None
+                            }
+                        }
+                    }
+                    None => {
+                        let lease = Lease {
+                            key: key.to_owned(),
+                            holder: holder.to_owned(),
+                            expiration,
+                            generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
+                        };
 
                         Some(lease)
-                    } else {
-                        // We tried our best.
-                        None
                     }
-                }
-            }
-            None => {
-                let lease = Lease {
-                    key: key.to_owned(),
-                    holder: holder.to_owned(),
-                    expiration,
-                    generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
                 };
 
-                Some(lease)
-            }
-        };
+                Ok(if let Some(lease) = lease {
+                    transaction.put_lease(&lease).await?;
+                    transaction.commit().await?;
 
-        Ok(if let Some(lease) = lease {
-            transaction.put_lease(&lease).await?;
-            transaction.commit().await?;
-
-            Some(lease.generation)
-        } else {
-            None
-        })
+                    Some(lease.generation)
+                } else {
+                    None
+                })
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self, updates))]
@@ -166,13 +185,12 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(
+        self.with_transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
             IdbTransactionMode::Readwrite,
-        )?;
-
-        for update in updates {
-            match update {
+            async move |transaction| {
+                for update in updates {
+                    match update {
                 Update::NewItemsChunk { previous, new, next } => {
                     trace!(%linked_chunk_id, "Inserting new chunk (prev={previous:?}, new={new:?}, next={next:?})");
                     transaction
@@ -267,10 +285,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
                     transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
                 }
-            }
-        }
-        transaction.commit().await?;
-        Ok(())
+                    }
+                }
+                transaction.commit().await?;
+                Ok(())
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -280,22 +301,24 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ) -> Result<Vec<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
         let _ = timer!("method");
 
-        let transaction = self.transaction(
+        self.with_transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
             IdbTransactionMode::Readwrite,
-        )?;
-
-        let mut raw_chunks = Vec::new();
-        let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
-        for chunk in chunks {
-            if let Some(raw_chunk) = transaction
-                .load_chunk_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
-                .await?
-            {
-                raw_chunks.push(raw_chunk);
-            }
-        }
-        Ok(raw_chunks)
+            async move |transaction| {
+                let mut raw_chunks = Vec::new();
+                let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
+                for chunk in chunks {
+                    if let Some(raw_chunk) = transaction
+                        .load_chunk_by_id(linked_chunk_id, ChunkIdentifier::new(chunk.identifier))
+                        .await?
+                    {
+                        raw_chunks.push(raw_chunk);
+                    }
+                }
+                Ok(raw_chunks)
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -315,25 +338,27 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5382.
         let _ = timer!("method");
 
-        let transaction = self.transaction(
+        self.with_transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readwrite,
-        )?;
-
-        let mut raw_chunks = Vec::new();
-        let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
-        for chunk in chunks {
-            let chunk_id = ChunkIdentifier::new(chunk.identifier);
-            let num_items =
-                transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
-            raw_chunks.push(ChunkMetadata {
-                num_items,
-                previous: chunk.previous.map(ChunkIdentifier::new),
-                identifier: ChunkIdentifier::new(chunk.identifier),
-                next: chunk.next.map(ChunkIdentifier::new),
-            });
-        }
-        Ok(raw_chunks)
+            async move |transaction| {
+                let mut raw_chunks = Vec::new();
+                let chunks = transaction.get_chunks_by_linked_chunk_id(linked_chunk_id).await?;
+                for chunk in chunks {
+                    let chunk_id = ChunkIdentifier::new(chunk.identifier);
+                    let num_items =
+                        transaction.get_events_count_by_chunk(linked_chunk_id, chunk_id).await?;
+                    raw_chunks.push(ChunkMetadata {
+                        num_items,
+                        previous: chunk.previous.map(ChunkIdentifier::new),
+                        identifier: ChunkIdentifier::new(chunk.identifier),
+                        next: chunk.next.map(ChunkIdentifier::new),
+                    });
+                }
+                Ok(raw_chunks)
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -346,50 +371,54 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     > {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(
+        self.with_transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
-        )?;
-
-        if transaction.get_chunks_count_by_linked_chunk_id(linked_chunk_id).await? == 0 {
-            return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
-        }
-        // Now that we know we have some chunks in the room, we query IndexedDB
-        // for the last chunk in the room by getting the chunk which does not
-        // have a next chunk.
-        match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
-            Err(TransactionError::ItemIsNotUnique) => {
-                // If there are multiple chunks that do not have a next chunk, that
-                // means we have more than one last chunk, which means that we have
-                // more than one list in the room.
-                Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists)
-            }
-            Err(e) => {
-                // There was some error querying IndexedDB, but it is not necessarily
-                // a violation of our data constraints.
-                Err(e.into())
-            }
-            Ok(None) => {
-                // If there is no chunk without a next chunk, that means every chunk
-                // points to another chunk, which means that we have a cycle in our list.
-                Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
-            }
-            Ok(Some(last_chunk)) => {
-                let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
-                let last_raw_chunk = transaction
-                    .load_chunk_by_id(linked_chunk_id, last_chunk_identifier)
-                    .await?
-                    .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
-                let max_chunk_id = transaction
-                    .get_max_chunk_by_id(linked_chunk_id)
-                    .await?
-                    .map(|chunk| ChunkIdentifier::new(chunk.identifier))
-                    .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
-                let generator =
-                    ChunkIdentifierGenerator::new_from_previous_chunk_identifier(max_chunk_id);
-                Ok((Some(last_raw_chunk), generator))
-            }
-        }
+            async move |transaction| {
+                if transaction.get_chunks_count_by_linked_chunk_id(linked_chunk_id).await? == 0 {
+                    return Ok((None, ChunkIdentifierGenerator::new_from_scratch()));
+                }
+                // Now that we know we have some chunks in the room, we query IndexedDB
+                // for the last chunk in the room by getting the chunk which does not
+                // have a next chunk.
+                match transaction.get_chunk_by_next_chunk_id(linked_chunk_id, None).await {
+                    Err(TransactionError::ItemIsNotUnique) => {
+                        // If there are multiple chunks that do not have a next chunk, that
+                        // means we have more than one last chunk, which means that we have
+                        // more than one list in the room.
+                        Err(IndexeddbEventCacheStoreError::ChunksContainDisjointLists)
+                    }
+                    Err(e) => {
+                        // There was some error querying IndexedDB, but it is not necessarily
+                        // a violation of our data constraints.
+                        Err(e.into())
+                    }
+                    Ok(None) => {
+                        // If there is no chunk without a next chunk, that means every chunk
+                        // points to another chunk, which means that we have a cycle in our list.
+                        Err(IndexeddbEventCacheStoreError::ChunksContainCycle)
+                    }
+                    Ok(Some(last_chunk)) => {
+                        let last_chunk_identifier = ChunkIdentifier::new(last_chunk.identifier);
+                        let last_raw_chunk = transaction
+                            .load_chunk_by_id(linked_chunk_id, last_chunk_identifier)
+                            .await?
+                            .ok_or(IndexeddbEventCacheStoreError::UnableToLoadChunk)?;
+                        let max_chunk_id = transaction
+                            .get_max_chunk_by_id(linked_chunk_id)
+                            .await?
+                            .map(|chunk| ChunkIdentifier::new(chunk.identifier))
+                            .ok_or(IndexeddbEventCacheStoreError::NoMaxChunkId)?;
+                        let generator =
+                            ChunkIdentifierGenerator::new_from_previous_chunk_identifier(
+                                max_chunk_id,
+                            );
+                        Ok((Some(last_raw_chunk), generator))
+                    }
+                }
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -400,34 +429,40 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ) -> Result<Option<RawChunk<Event, Gap>>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(
+        self.with_transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readonly,
-        )?;
-        if let Some(chunk) =
-            transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await?
-            && let Some(previous_identifier) = chunk.previous
-        {
-            let previous_identifier = ChunkIdentifier::new(previous_identifier);
-            Ok(transaction.load_chunk_by_id(linked_chunk_id, previous_identifier).await?)
-        } else {
-            Ok(None)
-        }
+            async move |transaction| {
+                if let Some(chunk) =
+                    transaction.get_chunk_by_id(linked_chunk_id, before_chunk_identifier).await?
+                    && let Some(previous_identifier) = chunk.previous
+                {
+                    let previous_identifier = ChunkIdentifier::new(previous_identifier);
+                    Ok(transaction.load_chunk_by_id(linked_chunk_id, previous_identifier).await?)
+                } else {
+                    Ok(None)
+                }
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self))]
     async fn clear_all_events(&self) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(
+        self.with_transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
             IdbTransactionMode::Readwrite,
-        )?;
-        transaction.clear::<types::Chunk>().await?;
-        transaction.clear::<types::Event>().await?;
-        transaction.clear::<types::Gap>().await?;
-        transaction.commit().await?;
-        Ok(())
+            async move |transaction| {
+                transaction.clear::<types::Chunk>().await?;
+                transaction.clear::<types::Event>().await?;
+                transaction.clear::<types::Gap>().await?;
+                transaction.commit().await?;
+                Ok(())
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self, events))]
@@ -442,16 +477,22 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             return Ok(Vec::new());
         }
 
-        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
-        let mut duplicated = Vec::new();
-        for event_id in events {
-            if let Some(types::Event::InBand(event)) =
-                transaction.get_event_by_id(linked_chunk_id, &event_id).await?
-            {
-                duplicated.push((event_id, event.position.into()));
-            }
-        }
-        Ok(duplicated)
+        self.with_transaction(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readonly,
+            async move |transaction| {
+                let mut duplicated = Vec::new();
+                for event_id in events {
+                    if let Some(types::Event::InBand(event)) =
+                        transaction.get_event_by_id(linked_chunk_id, &event_id).await?
+                    {
+                        duplicated.push((event_id, event.position.into()));
+                    }
+                }
+                Ok(duplicated)
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self, event_id))]
@@ -462,12 +503,18 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ) -> Result<Option<Event>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
-        transaction
-            .get_events_by_room(room_id, event_id)
-            .await
-            .map(|mut events| events.pop().map(Into::into))
-            .map_err(Into::into)
+        self.with_transaction(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readonly,
+            async move |transaction| {
+                transaction
+                    .get_events_by_room(room_id, event_id)
+                    .await
+                    .map(|mut events| events.pop().map(Into::into))
+                    .map_err(Into::into)
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self, event_id, filters))]
@@ -479,62 +526,70 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     ) -> Result<Vec<(Event, Option<Position>)>, IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
-        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
-
-        let mut related_events = HashMap::<OwnedEventId, types::Event>::new();
-        match filters {
-            Some(relation_types) if !relation_types.is_empty() => {
-                for relation_type in relation_types {
-                    let relation = (event_id, relation_type);
-                    let events = transaction.get_events_by_relation(room_id, relation).await?;
-                    for event in events {
-                        let Some(event_id) = event.event_id() else {
-                            return Err(IndexeddbEventCacheStoreError::EventWithoutId);
-                        };
-                        match event.linked_chunk_id() {
-                            LinkedChunkId::Room(_) => {
-                                // Prioritize events that come from a room linked chunk
-                                related_events.insert(event_id.to_owned(), event);
+        self.with_transaction(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readonly,
+            async move |transaction| {
+                let mut related_events = HashMap::<OwnedEventId, types::Event>::new();
+                match filters {
+                    Some(relation_types) if !relation_types.is_empty() => {
+                        for relation_type in relation_types {
+                            let relation = (event_id, relation_type);
+                            let events =
+                                transaction.get_events_by_relation(room_id, relation).await?;
+                            for event in events {
+                                let Some(event_id) = event.event_id() else {
+                                    return Err(IndexeddbEventCacheStoreError::EventWithoutId);
+                                };
+                                match event.linked_chunk_id() {
+                                    LinkedChunkId::Room(_) => {
+                                        // Prioritize events that come from a room linked chunk
+                                        related_events.insert(event_id.to_owned(), event);
+                                    }
+                                    _ => {
+                                        // Remove position information from events that come
+                                        // from any other type of linked chunk
+                                        related_events
+                                            .entry(event_id.to_owned())
+                                            .or_insert_with(|| event.into_out_of_band_event());
+                                    }
+                                }
                             }
-                            _ => {
-                                // Remove position information from events that come
-                                // from any other type of linked chunk
-                                related_events
-                                    .entry(event_id.to_owned())
-                                    .or_insert_with(|| event.into_out_of_band_event());
+                        }
+                    }
+                    _ => {
+                        for event in
+                            transaction.get_events_by_related_event(room_id, event_id).await?
+                        {
+                            let Some(event_id) = event.event_id() else {
+                                return Err(IndexeddbEventCacheStoreError::EventWithoutId);
+                            };
+                            match event.linked_chunk_id() {
+                                LinkedChunkId::Room(_) => {
+                                    // Prioritize events that come from a room linked chunk
+                                    related_events.insert(event_id.to_owned(), event);
+                                }
+                                _ => {
+                                    // Remove position information from events that come
+                                    // from any other type of linked chunk
+                                    related_events
+                                        .entry(event_id.to_owned())
+                                        .or_insert_with(|| event.into_out_of_band_event());
+                                }
                             }
                         }
                     }
                 }
-            }
-            _ => {
-                for event in transaction.get_events_by_related_event(room_id, event_id).await? {
-                    let Some(event_id) = event.event_id() else {
-                        return Err(IndexeddbEventCacheStoreError::EventWithoutId);
-                    };
-                    match event.linked_chunk_id() {
-                        LinkedChunkId::Room(_) => {
-                            // Prioritize events that come from a room linked chunk
-                            related_events.insert(event_id.to_owned(), event);
-                        }
-                        _ => {
-                            // Remove position information from events that come
-                            // from any other type of linked chunk
-                            related_events
-                                .entry(event_id.to_owned())
-                                .or_insert_with(|| event.into_out_of_band_event());
-                        }
-                    }
-                }
-            }
-        }
-        Ok(related_events
-            .into_values()
-            .map(|event| {
-                let position = event.position().map(Into::into);
-                (event.into(), position)
-            })
-            .collect())
+                Ok(related_events
+                    .into_values()
+                    .map(|event| {
+                        let position = event.position().map(Into::into);
+                        (event.into(), position)
+                    })
+                    .collect())
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self))]
@@ -549,29 +604,35 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         // TODO: Make this more efficient so we don't load all events and filter them
         // here. We should instead only load the relevant events.
 
-        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readonly)?;
-        transaction
-            .get_room_events(room_id)
-            .await
-            .map(|mut vec| {
-                vec.dedup_by(|a, b| {
-                    if let (Some(a), Some(b)) = (a.event_id(), b.event_id()) {
-                        a == b
-                    } else {
-                        false
-                    }
-                });
-                vec.into_iter()
-                    .map(Event::from)
-                    .filter(|e| {
-                        event_type.is_none_or(|event_type| {
-                            Some(event_type) == e.kind.event_type().as_deref()
-                        })
+        self.with_transaction(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readonly,
+            async move |transaction| {
+                transaction
+                    .get_room_events(room_id)
+                    .await
+                    .map(|mut vec| {
+                        vec.dedup_by(|a, b| {
+                            if let (Some(a), Some(b)) = (a.event_id(), b.event_id()) {
+                                a == b
+                            } else {
+                                false
+                            }
+                        });
+                        vec.into_iter()
+                            .map(Event::from)
+                            .filter(|e| {
+                                event_type.is_none_or(|event_type| {
+                                    Some(event_type) == e.kind.event_type().as_deref()
+                                })
+                            })
+                            .filter(|e| session_id.is_none_or(|s| Some(s) == e.kind.session_id()))
+                            .collect()
                     })
-                    .filter(|e| session_id.is_none_or(|s| Some(s) == e.kind.session_id()))
-                    .collect()
-            })
-            .map_err(Into::into)
+                    .map_err(Into::into)
+            },
+        )
+        .await
     }
 
     #[instrument(skip(self, event))]
@@ -586,26 +647,32 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             error!(%room_id, "Trying to save an event with no ID");
             return Ok(());
         };
-        let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
-
-        let mut events = transaction
-            .get_events_by_room(room_id, event_id)
-            .await?
-            .into_iter()
-            .map(|e| e.with_content(event.clone()))
-            .collect::<Vec<types::Event>>();
-        if events.is_empty() {
-            events.push(types::Event::OutOfBand(OutOfBandEvent {
-                linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
-                content: event,
-                position: (),
-            }));
-        }
-        for event in events {
-            transaction.put_event(&event).await?;
-        }
-        transaction.commit().await?;
-        Ok(())
+        let event_id = event_id.to_owned();
+        self.with_transaction(
+            &[keys::EVENTS],
+            IdbTransactionMode::Readwrite,
+            async move |transaction| {
+                let mut events = transaction
+                    .get_events_by_room(room_id, &event_id)
+                    .await?
+                    .into_iter()
+                    .map(|e| e.with_content(event.clone()))
+                    .collect::<Vec<types::Event>>();
+                if events.is_empty() {
+                    events.push(types::Event::OutOfBand(OutOfBandEvent {
+                        linked_chunk_id: LinkedChunkId::Room(room_id).to_owned(),
+                        content: event,
+                        position: (),
+                    }));
+                }
+                for event in events {
+                    transaction.put_event(&event).await?;
+                }
+                transaction.commit().await?;
+                Ok(())
+            },
+        )
+        .await
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {
@@ -621,6 +688,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     async fn reopen(&self) -> Result<(), Self::Error> {
+        self.connection
+            .reopen(|name| async move {
+                open_and_upgrade_db(&name).await.map_err(IndexeddbEventCacheStoreError::from)
+            })
+            .await?;
         Ok(())
     }
 }

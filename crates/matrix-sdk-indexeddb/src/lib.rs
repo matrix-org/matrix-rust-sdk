@@ -4,6 +4,7 @@
 use matrix_sdk_base::store::StoreError;
 use thiserror::Error;
 
+mod connection;
 #[cfg(feature = "e2e-encryption")]
 mod crypto_store;
 mod error;
