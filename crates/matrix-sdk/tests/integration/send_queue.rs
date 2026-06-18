@@ -1971,7 +1971,7 @@ async fn test_redaction() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), msg_event_id);
+    assert_eq!(values[0].event_id().unwrap(), msg_event_id);
 
     // ----------------------
     // Send a redaction for the event.
@@ -1999,7 +1999,7 @@ async fn test_redaction() {
     // The redaction event itself is added.
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), redaction_event_id);
+    assert_eq!(values[0].event_id().unwrap(), redaction_event_id);
     // The target event is now redacted.
     assert_let!(VectorDiff::Set { index: 1, value: redacted_event } = &up.diffs[1]);
     let ev = redacted_event.raw().deserialize().unwrap();
@@ -4043,7 +4043,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(up.diffs.len(), 1);
     assert_let!(VectorDiff::Append { values } = &up.diffs[0]);
     assert_eq!(values.len(), 1);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
 
     // Now, assume that a /sync response comes with only this message as part of the
     // response, and with a previous gap.
@@ -4065,7 +4065,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_eq!(update.diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &update.diffs[0]);
     assert_let!(VectorDiff::Append { values } = &update.diffs[1]);
-    assert_eq!(values[0].event_id().as_deref().unwrap(), event_id!("$msg_now"));
+    assert_eq!(values[0].event_id().unwrap(), event_id!("$msg_now"));
 
     // When paginating with this previous batch token, we should get new events from
     // this room.
@@ -4086,7 +4086,7 @@ async fn test_sending_event_still_saves_sync_gap() {
     assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = stream.recv());
     assert_eq!(update.diffs.len(), 1);
     assert_let!(VectorDiff::Insert { index: 0, value: event } = &update.diffs[0]);
-    assert_eq!(event.event_id().as_deref().unwrap(), event_id!("$past_msg"));
+    assert_eq!(event.event_id().unwrap(), event_id!("$past_msg"));
 
     assert!(stream.is_empty());
 }

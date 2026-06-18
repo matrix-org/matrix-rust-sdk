@@ -207,7 +207,7 @@ fn find_event_relations(c: &mut Criterion) {
         // Add the target event.
         let target_event = event_factory.text_msg("hello world").into_event();
         let target_event_id =
-            { &target_event.event_id().expect("generated event has an event ID") };
+            &target_event.event_id().expect("generated event has an event ID").to_owned();
         joined_room_update.timeline.events.push(target_event);
 
         // Add the numerous edits.
@@ -231,7 +231,7 @@ fn find_event_relations(c: &mut Criterion) {
         // Add other events, in the same room, related to other events.
         let other_target_event = event_factory.text_msg("hello world").into_event();
         let other_target_event_id =
-            other_target_event.event_id().expect("generated event has an event ID");
+            other_target_event.event_id().expect("generated event has an event ID").to_owned();
         joined_room_update.timeline.events.push(other_target_event);
 
         for _i in 0..NUM_OTHER_EVENTS {
@@ -326,7 +326,7 @@ fn find_event_relations(c: &mut Criterion) {
                                     .await
                                     .unwrap()
                                     .unwrap();
-                                assert_eq!(target.event_id().unwrap(), *target_event_id);
+                                assert_eq!(target.event_id().unwrap(), target_event_id);
                                 assert_eq!(relations.len(), num_related_events as usize);
                             },
                             criterion::BatchSize::PerIteration,

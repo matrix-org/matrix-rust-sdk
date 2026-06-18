@@ -50,7 +50,7 @@ use crate::timeline::{
 
 #[async_test]
 async fn test_initial_events() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -102,7 +102,8 @@ async fn test_replace_with_initial_events_and_read_marker() {
             track_read_receipts: TimelineReadReceiptTracking::AllEvents,
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
 
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_event();
@@ -131,7 +132,7 @@ async fn test_replace_with_initial_events_and_read_marker() {
 
 #[async_test]
 async fn test_sticker() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline
@@ -160,7 +161,7 @@ async fn test_sticker() {
 
 #[async_test]
 async fn test_room_member() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     // Bob invites Alice.
@@ -259,7 +260,7 @@ async fn test_room_member() {
 
 #[async_test]
 async fn test_other_state() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -287,7 +288,8 @@ async fn test_other_state() {
 
 #[async_test]
 async fn test_internal_id_prefix() {
-    let timeline = TestTimelineBuilder::new().internal_id_prefix("le_prefix_".to_owned()).build();
+    let timeline =
+        TestTimelineBuilder::new().internal_id_prefix("le_prefix_".to_owned()).build().await;
 
     let f = &timeline.factory;
     let ev_a = f.text_msg("A").sender(*ALICE).into_event();
@@ -323,7 +325,7 @@ async fn test_internal_id_prefix() {
 
 #[async_test]
 async fn test_internal_id_reuse() {
-    let timeline = TestTimelineBuilder::new().build();
+    let timeline = TestTimelineBuilder::new().build().await;
 
     let f = &timeline.factory;
     let ev_a = f.text_msg("A").sender(*ALICE).into_event();
@@ -393,7 +395,7 @@ async fn test_internal_id_reuse() {
 
 #[async_test]
 async fn test_sanitized() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -437,7 +439,7 @@ async fn test_sanitized() {
 
 #[async_test]
 async fn test_reply() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -497,7 +499,7 @@ async fn test_reply() {
 
 #[async_test]
 async fn test_thread() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -542,7 +544,8 @@ async fn test_replace_with_initial_events_when_batched() {
     let timeline = TestTimelineBuilder::new()
         .provider(TestRoomDataProvider::default())
         .settings(TimelineSettings::default())
-        .build();
+        .build()
+        .await;
 
     let f = &timeline.factory;
     let ev = f.text_msg("hey").sender(*ALICE).into_event();
