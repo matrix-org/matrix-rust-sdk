@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 use as_variant::as_variant;
+use ruma::DeviceKeyAlgorithm;
 use serde::{Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
-use crate::types::X509Signature;
+use crate::types::{InvalidSignature, X509Signature};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -45,17 +46,24 @@ impl Signature {
     pub fn ed25519(&self) -> Option<Ed25519Signature> {
         as_variant!(self, Self::Ed25519).copied()
     }
-}
 
-impl Serialize for Signature {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    /// Decode a signature from the Base64-encoded format used in Matrix
+    /// `signatures` maps.
+    pub fn from_base64(algorithm: DeviceKeyAlgorithm, s: String) -> Result<Self, InvalidSignature> {
+        match algorithm {
+            DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
+                .map(|s| s.into())
+                .map_err(|_| InvalidSignature { source: s }),
+            _ => Ok(Signature::Other(s)),
+        }
+    }
+
+    /// Convert the signature to a base64 encoded string.
+    pub fn to_base64(&self) -> String {
         match self {
-            Signature::Ed25519(s) => Serialize::serialize(&s.to_base64(), serializer),
-            Signature::X509(s) => Serialize::serialize(s, serializer),
-            Signature::Other(s) => Serialize::serialize(s, serializer),
+            Signature::Ed25519(s) => s.to_base64(),
+            Signature::Other(s) => s.to_owned(),
+            _ => todo!(),
         }
     }
 }

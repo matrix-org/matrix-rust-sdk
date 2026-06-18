@@ -19,7 +19,7 @@ mod x509_signature;
 
 use std::collections::{BTreeMap, btree_map::IntoIter};
 
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
+use ruma::{DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
@@ -113,10 +113,8 @@ impl<'de> Deserialize<'de> for Signatures {
     where
         D: Deserializer<'de>,
     {
-        let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, serde_json::Value>> =
+        let map: BTreeMap<OwnedUserId, BTreeMap<OwnedDeviceKeyId, String>> =
             Deserialize::deserialize(deserializer)?;
-
-        // TODO: AJB: migration from the old format (with String on the RHS) to this one
 
         let map = map
             .into_iter()
@@ -125,40 +123,7 @@ impl<'de> Deserialize<'de> for Signatures {
                     .into_iter()
                     .map(|(key_id, s)| {
                         let algorithm = key_id.algorithm();
-                        let signature = match algorithm {
-                            DeviceKeyAlgorithm::Ed25519 => {
-                                if let Some(s) = s.as_str() {
-                                    Ed25519Signature::from_base64(s)
-                                        .map(|s| s.into())
-                                        .map_err(|_| InvalidSignature { source: s.to_owned() })
-                                } else {
-                                    Err(InvalidSignature {
-                                        source: format!("non-string content: {}", s),
-                                    })
-                                }
-                            }
-                            DeviceKeyAlgorithm::_Custom(_) => {
-                                if let Ok(x509_signature) = serde_json::from_value(s.clone()) {
-                                    Ok(Signature::X509(x509_signature))
-                                } else if let Some(s) = s.as_str() {
-                                    Ok(Signature::Other(s.to_owned()))
-                                } else {
-                                    Err(InvalidSignature {
-                                        source: format!("non-string content: {}", s),
-                                    })
-                                }
-                            }
-                            _ => {
-                                if let Some(s) = s.as_str() {
-                                    Ok(Signature::Other(s.to_owned()))
-                                } else {
-                                    Err(InvalidSignature {
-                                        source: format!("non-string content: {}", s),
-                                    })
-                                }
-                            }
-                        };
-
+                        let signature = Signature::from_base64(algorithm, s);
                         Ok((key_id, signature))
                     })
                     .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -171,32 +136,12 @@ impl<'de> Deserialize<'de> for Signatures {
     }
 }
 
-enum SignatureOrInvalid<'a> {
-    Signature(&'a Signature),
-    InvalidSignature(&'a String),
-}
-
-impl Serialize for SignatureOrInvalid<'_> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            SignatureOrInvalid::Signature(s) => Serialize::serialize(s, serializer),
-            SignatureOrInvalid::InvalidSignature(i) => Serialize::serialize(i, serializer),
-        }
-    }
-}
-
 impl Serialize for Signatures {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let signatures: BTreeMap<
-            &OwnedUserId,
-            BTreeMap<&OwnedDeviceKeyId, SignatureOrInvalid<'_>>,
-        > = self
+        let signatures: BTreeMap<&OwnedUserId, BTreeMap<&OwnedDeviceKeyId, String>> = self
             .0
             .iter()
             .map(|(u, m)| {
@@ -207,8 +152,8 @@ impl Serialize for Signatures {
                             (
                                 d,
                                 match s {
-                                    Ok(s) => SignatureOrInvalid::Signature(s),
-                                    Err(i) => SignatureOrInvalid::InvalidSignature(&i.source),
+                                    Ok(s) => s.to_base64(),
+                                    Err(i) => i.source.to_owned(),
                                 },
                             )
                         })
@@ -224,7 +169,7 @@ impl Serialize for Signatures {
 #[cfg(test)]
 mod test {
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{device_id, owned_user_id};
+    use ruma::{DeviceKeyAlgorithm, device_id, owned_user_id};
 
     use super::*;
 
