@@ -36,7 +36,7 @@ use crate::timeline::{
 
 #[async_test]
 async fn test_remote_echo_full_trip() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     // Given a local event…
@@ -140,7 +140,7 @@ async fn test_remote_echo_full_trip() {
 
 #[async_test]
 async fn test_remote_echo_new_position() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
     let f = &timeline.factory;
 
@@ -192,7 +192,7 @@ async fn test_remote_echo_new_position() {
 
 #[async_test]
 async fn test_date_divider_removed_after_local_echo_disappeared() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
 
     let f = &timeline.factory;
 
@@ -244,7 +244,8 @@ async fn test_no_read_marker_with_local_echo() {
             track_read_receipts: TimelineReadReceiptTracking::AllEvents,
             ..Default::default()
         })
-        .build();
+        .build()
+        .await;
 
     let f = &timeline.factory;
 
@@ -297,7 +298,7 @@ async fn test_no_read_marker_with_local_echo() {
 
 #[async_test]
 async fn test_no_reuse_of_counters() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let now = MilliSecondsSinceUnixEpoch::now();

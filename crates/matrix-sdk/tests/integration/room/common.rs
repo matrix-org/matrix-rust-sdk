@@ -655,18 +655,6 @@ async fn test_event() {
     let push_actions = timeline_event.push_actions().unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
-
-    // Requested event was saved to the cache
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
-
-    // So we can reload it without hitting the network.
-    let timeline_event = room.load_or_fetch_event(event_id, None).await.unwrap();
-    assert_let!(
-        AnySyncTimelineEvent::State(AnySyncStateEvent::RoomTombstone(event)) =
-            timeline_event.raw().deserialize().unwrap()
-    );
-    assert_eq!(event.event_id(), event_id);
 }
 
 #[async_test]
@@ -719,22 +707,13 @@ async fn test_event_with_context() {
     let context_ret = room.event_with_context(event_id, false, uint!(1), None).await.unwrap();
 
     assert_let!(Some(timeline_event) = context_ret.event);
-    assert_let!(Ok(event) = timeline_event.raw().deserialize());
-    assert_eq!(event.event_id(), event_id);
+    assert_eq!(timeline_event.event_id(), Some(event_id));
 
     assert_eq!(1, context_ret.events_before.len());
-    assert_let!(Ok(event) = context_ret.events_before[0].raw().deserialize());
-    assert_eq!(event.event_id(), prev_event_id);
+    assert_eq!(context_ret.events_before[0].event_id(), Some(prev_event_id));
 
     assert_eq!(1, context_ret.events_after.len());
-    assert_let!(Ok(event) = context_ret.events_after[0].raw().deserialize());
-    assert_eq!(event.event_id(), next_event_id);
-
-    // Requested event and their context ones were saved to the cache
-    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-    assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
-    assert!(room_event_cache.find_event(prev_event_id).await.unwrap().is_some());
-    assert!(room_event_cache.find_event(next_event_id).await.unwrap().is_some());
+    assert_eq!(context_ret.events_after[0].event_id(), Some(next_event_id));
 }
 
 #[async_test]

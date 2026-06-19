@@ -270,6 +270,7 @@ type Result<A, E = IndexeddbCryptoStoreError> = std::result::Result<A, E>;
 enum PendingOperation {
     Put { key: JsValue, value: JsValue },
     Delete(JsValue),
+    DeleteByIndex { index: &'static str, key: JsValue },
 }
 
 /// A struct that represents all the operations that need to be done to the
@@ -295,6 +296,10 @@ impl PendingStoreChanges<'_> {
 
     fn delete(&mut self, key: JsValue) {
         self.operations.push(PendingOperation::Delete(key));
+    }
+
+    fn delete_by_index(&mut self, index: &'static str, key: JsValue) {
+        self.operations.push(PendingOperation::DeleteByIndex { index, key });
     }
 }
 
@@ -324,7 +329,7 @@ impl PendingIndexeddbChanges {
     }
 
     /// Applies all the pending operations to the store.
-    fn apply(self, tx: &Transaction<'_>) -> Result<()> {
+    async fn apply(self, tx: &Transaction<'_>) -> Result<()> {
         for (store, operations) in self.store_to_key_values {
             if operations.is_empty() {
                 continue;
@@ -337,6 +342,17 @@ impl PendingIndexeddbChanges {
                     }
                     PendingOperation::Delete(key) => {
                         object_store.delete(&key).build()?;
+                    }
+                    PendingOperation::DeleteByIndex { index, key } => {
+                        let range = KeyRange::Only(key);
+                        let ids = object_store
+                            .index(index)?
+                            .get_all_keys::<JsValue>()
+                            .with_query::<JsValue, _>(range)
+                            .await?;
+                        for id in ids {
+                            object_store.delete(id.unwrap()).await?;
+                        }
                     }
                 }
             }
@@ -686,6 +702,12 @@ impl IndexeddbCryptoStore {
             let mut gossip_requests = indexeddb_changes.get(keys::GOSSIP_REQUESTS);
 
             for gossip_request in key_requests {
+                // Remove any previous requests for the same secret.
+                let key_request_info =
+                    self.serializer.encode_key(keys::GOSSIP_REQUESTS, gossip_request.info.as_key());
+                gossip_requests
+                    .delete_by_index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX, key_request_info);
+
                 let key_request_id = self
                     .serializer
                     .encode_key(keys::GOSSIP_REQUESTS, gossip_request.request_id.as_str());
@@ -860,7 +882,7 @@ impl_crypto_store! {
 
         let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
 
-        indexeddb_changes.apply(&tx)?;
+        indexeddb_changes.apply(&tx).await?;
 
         tx.commit().await?;
 

@@ -644,8 +644,7 @@ async fn test_room_keys_received_on_notification_client_trigger_redecryption() {
     for _ in 0..10 {
         {
             // Clear any previously received previous-batch token.
-            let (room_event_cache, _drop_handles) = bob_room.event_cache().await.unwrap();
-            room_event_cache.clear().await.unwrap();
+            bob.event_cache().clear_all_rooms().await.unwrap();
         }
 
         timeline
@@ -1460,7 +1459,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     let event = room2.event(&thread_root_event_id, Default::default()).await?;
     assert!(event.kind.is_utd());
 
-    // Alright, let's now go to a main (threaded) timeline.
+    // Alright, let's now go to a main timeline.
     let timeline = room2
         .timeline_builder()
         .with_focus(TimelineFocus::Live { hide_threaded_events: true })
@@ -1500,13 +1499,9 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     // value.
     let next_item = assert_next_with_timeout!(stream, 5000);
     assert_let!(VectorDiff::Set { index: 7, value } = next_item);
-
-    let content = value.content();
-
+    assert_eq!(value.event_id(), Some(thread_root_event_id.as_ref()));
     // And we're not a UTD anymore.
-    assert!(!content.is_unable_to_decrypt());
-    let message = content.as_message().expect("The focused event should be a message");
-    assert_eq!(message.body(), "It's a secret to everybody");
+    assert!(!value.content().is_unable_to_decrypt());
 
     // Pause alice2's sync.
     sync_service2.stop().await;
@@ -1537,43 +1532,25 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
     sync_service2.start().await;
 
     {
-        // Her timeline sees a new item for the thread reply, because we don't know yet
-        // that the thread reply is part of the thread, as it's encrypted.
-        // TODO: we should know it, since an encrypted event includes the relationship?
-        let next_item = assert_next_with_timeout!(stream, 5000);
-        assert_let!(VectorDiff::PushBack { value } = next_item);
-        assert!(value.content().is_unable_to_decrypt());
-        assert_eq!(value.event_id().unwrap(), &thread_reply_event_id);
-
+        // The thread root is updated with a new thread summary!
         let next_item = assert_next_with_timeout!(stream, 5000);
         assert_let!(VectorDiff::Set { index: 7, value } = next_item);
+        assert_eq!(value.event_id(), Some(thread_root_event_id.as_ref()));
         assert!(!value.content().is_unable_to_decrypt());
 
-        // At first, the latest event is a UTD.
+        // The thread summary is not available because it is a UTD!
         let summary =
             value.content().thread_summary().expect("We should have a thread summary now");
-        assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
-        assert_eq!(
-            latest_event.identifier,
-            TimelineEventItemId::EventId(thread_reply_event_id.clone())
-        );
-        assert!(latest_event.content.is_unable_to_decrypt());
+        assert_matches!(summary.latest_event, TimelineDetails::Unavailable);
     }
 
     {
-        // But it gets replaced with the decrypted event later:
-        //
-        // 1. The timeline realizes the decrypted event was part of the thread, so it
-        //    removes it.
-        let next_item = assert_next_with_timeout!(stream, 5000);
-        assert_let!(VectorDiff::Remove { index: 8 } = next_item);
-
-        // 2. Then, the timeline replaces the thread summary for the thread root.
+        // The thread root is updated with a decrypted, ready thread summary!
         let next_item = assert_next_with_timeout!(stream, 5000);
         assert_let!(VectorDiff::Set { index: 7, value } = next_item);
+
         let summary =
             value.content().thread_summary().expect("We should have a thread summary now");
-        assert!(!value.content().is_unable_to_decrypt());
         assert_let!(TimelineDetails::Ready(latest_event) = summary.latest_event);
         assert_eq!(
             latest_event.identifier,

@@ -25,7 +25,7 @@ use std::{
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
-    deserialized_responses::AmbiguityChange,
+    deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::Event,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
@@ -34,29 +34,28 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-pub(super) use state::{LockedRoomEventCacheState, RoomEventCacheStateLockWriteGuard};
-pub use subscriber::RoomEventCacheSubscriber;
-use tokio::sync::{Notify, broadcast::Receiver, mpsc};
+use tokio::sync::{Notify, mpsc};
 use tracing::{instrument, trace, warn};
-pub use updates::{
-    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-    RoomEventCacheUpdateSender,
-};
 
+use self::pagination::RoomPagination;
+pub use self::{
+    state::RoomEventCacheState,
+    subscriber::RoomEventCacheSubscriber,
+    updates::{
+        RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
+        RoomEventCacheUpdateSender,
+    },
+};
 use super::{
-    super::{AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result, RoomPagination},
+    super::{
+        AutoShrinkChannelPayload, EventsOrigin, Result,
+        states::{CacheStateLock, StateLockWriteGuard, selectors::RoomStateSelector},
+    },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
-    thread::pagination::ThreadPagination,
+    pagination::SharedPaginationStatus,
 };
-use crate::{
-    client::WeakClient,
-    event_cache::{
-        EventFocusThreadMode,
-        caches::{event_focused::EventFocusedCache, pagination::SharedPaginationStatus},
-    },
-    room::WeakRoom,
-};
+use crate::room::WeakRoom;
 
 /// A subset of an event cache, for a room.
 ///
@@ -77,26 +76,39 @@ impl RoomEventCache {
     pub(super) fn new(
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
-        state: LockedRoomEventCacheState,
+        own_user_id: OwnedUserId,
+        state: CacheStateLock<RoomStateSelector>,
         shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
-            inner: Arc::new(RoomEventCacheInner::new(
+            inner: Arc::new(RoomEventCacheInner {
                 room_id,
                 weak_room,
+                own_user_id,
                 state,
-                shared_pagination_status,
-                auto_shrink_sender,
                 update_sender,
-            )),
+                pagination_batch_token_notifier: Notify::new(),
+                auto_shrink_sender,
+                shared_pagination_status,
+            }),
         }
     }
 
     /// Get the room ID for this [`RoomEventCache`].
     pub fn room_id(&self) -> &RoomId {
         &self.inner.room_id
+    }
+
+    /// Get the owner of this [`RoomEventCache`].
+    pub(super) fn own_user_id(&self) -> &OwnedUserId {
+        &self.inner.own_user_id
+    }
+
+    /// Get the weak room of this [`RoomEventCache`].
+    pub(super) fn weak_room(&self) -> &WeakRoom {
+        &self.inner.weak_room
     }
 
     /// Read all current events.
@@ -134,121 +146,10 @@ impl RoomEventCache {
         Ok((events, subscriber))
     }
 
-    /// Subscribe to thread for a given root event, and get a (maybe empty)
-    /// initially known list of events for that thread.
-    pub async fn subscribe_to_thread(
-        &self,
-        thread_root: OwnedEventId,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let mut state = self.inner.state.write().await?;
-
-        state.subscribe_to_thread(thread_root).await
-    }
-
-    /// Subscribe to the pinned event cache for this room.
-    ///
-    /// This is a persisted view over the pinned events of a room.
-    ///
-    /// The pinned events will be initially reloaded from storage, and/or loaded
-    /// from a network request to fetch the latest pinned events and their
-    /// relations, to update it as needed. The list of pinned events will
-    /// also be kept up-to-date as new events are pinned, and new
-    /// related events show up from other sources.
-    pub async fn subscribe_to_pinned_events(
-        &self,
-    ) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
-        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
-        let state = self.inner.state.read().await?;
-
-        state.subscribe_to_pinned_events(room).await
-    }
-
-    /// Create or get an event-focused timeline cache for this room.
-    ///
-    /// This creates a timeline centered around a specific event (e.g., for
-    /// permalinks), in a given mode, supporting both forward and backward
-    /// pagination.
-    ///
-    /// If the focused event is part of a thread, the timeline will
-    /// automatically use thread-specific pagination.
-    ///
-    /// If the thread mode is defined to [`EventFocusThreadMode::ForceThread`],
-    /// the timeline will be focused on the thread root of the thread the
-    /// target event belongs to, or it will consider that the target event
-    /// itself is the thread root.
-    #[instrument(skip(self), fields(room_id = %self.inner.room_id, event_id = %event_id, thread_mode = ?thread_mode))]
-    pub async fn get_or_create_event_focused_cache(
-        &self,
-        event_id: OwnedEventId,
-        num_context_events: u16,
-        thread_mode: EventFocusThreadMode,
-    ) -> Result<EventFocusedCache> {
-        let room = self.inner.weak_room.get().ok_or(EventCacheError::ClientDropped)?;
-        let guard = self.inner.state.read().await?;
-
-        // Check if we already have a cache for this event.
-        if let Some(cache) = guard.get_event_focused_cache(event_id.clone(), thread_mode) {
-            trace!("the cache was already created, returning it");
-            return Ok(cache);
-        }
-
-        // Create a new cache.
-        let linked_chunk_update_sender = guard.state.linked_chunk_update_sender.clone();
-
-        // Make sure to drop the guard before calling `start_from` below, as it may need
-        // to lock the room event cache's state again, when memoizing events
-        // received from the network response.
-        drop(guard);
-
-        let room_id = room.room_id().to_owned();
-        let weak_room = WeakRoom::new(WeakClient::from_client(&room.client()), room_id.clone());
-
-        trace!("creating a fresh event-focused cache");
-        let cache = EventFocusedCache::new(weak_room, event_id.clone(), linked_chunk_update_sender);
-
-        // Initialize the cache from the server.
-        cache.start_from(room, num_context_events, thread_mode).await?;
-
-        let mut guard = self.inner.state.write().await?;
-
-        // Check again if we already have a cache for this event, just in case there was
-        // a race with another caller during initialization.
-        if let Some(cache) = guard.get_event_focused_cache(event_id.clone(), thread_mode) {
-            trace!("another cache has been racily created, returning it");
-            return Ok(cache);
-        }
-
-        // Insert the cache in the map.
-        guard.insert_event_focused_cache(event_id, thread_mode, cache.clone());
-
-        Ok(cache)
-    }
-
-    /// Get an event-focused cache for this event and thread mode, if it exists.
-    ///
-    /// Otherwise, returns `None`.
-    ///
-    /// Use [`Self::get_or_create_event_focused_cache`] for ensuring such a
-    /// cache exists.
-    #[instrument(skip(self), fields(room_id = %self.inner.room_id))]
-    pub async fn get_event_focused_cache(
-        &self,
-        event_id: OwnedEventId,
-        thread_mode: EventFocusThreadMode,
-    ) -> Result<Option<EventFocusedCache>> {
-        Ok(self.inner.state.read().await?.get_event_focused_cache(event_id, thread_mode))
-    }
-
     /// Return a [`RoomPagination`] type useful for running back-pagination
     /// queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
         RoomPagination::new(self.inner.clone())
-    }
-
-    /// Return a [`ThreadPagination`] type useful for running back-pagination
-    /// queries in the `thread_id` thread.
-    pub async fn thread_pagination(&self, thread_id: OwnedEventId) -> Result<ThreadPagination> {
-        Ok(self.inner.state.write().await?.get_or_reload_thread(thread_id).pagination())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -304,7 +205,7 @@ impl RoomEventCache {
             .state
             .read()
             .await?
-            .find_event_with_relations(event_id, filter.clone())
+            .find_event_with_relations(event_id, filter)
             .await
             .ok()
             .flatten())
@@ -330,28 +231,8 @@ impl RoomEventCache {
         self.inner.state.read().await?.find_event_relations(event_id, filter.clone()).await
     }
 
-    /// Clear all the storage for this [`RoomEventCache`].
-    ///
-    /// This will get rid of all the events from the linked chunk and persisted
-    /// storage.
-    pub async fn clear(&self) -> Result<()> {
-        // Clear the linked chunk and persisted storage.
-        let updates_as_vector_diffs = self.inner.state.write().await?.reset().await?;
-
-        // Notify observers about the update.
-        self.inner.update_sender.send(
-            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                diffs: updates_as_vector_diffs,
-                origin: EventsOrigin::Cache,
-            }),
-            Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
-        );
-
-        Ok(())
-    }
-
     /// Return a reference to the state.
-    pub(in super::super) fn state(&self) -> &LockedRoomEventCacheState {
+    pub(in super::super) fn state(&self) -> &CacheStateLock<RoomStateSelector> {
         &self.inner.state
     }
 
@@ -381,6 +262,32 @@ impl RoomEventCache {
         Ok(())
     }
 
+    pub(in super::super) async fn update_thread_summary(
+        &self,
+        thread_id: &EventId,
+        new_thread_summary: Option<ThreadSummary>,
+    ) -> Result<()> {
+        let timeline_event_diffs = self
+            .inner
+            .state
+            .write()
+            .await?
+            .update_thread_summary(thread_id, new_thread_summary)
+            .await?;
+
+        if !timeline_event_diffs.is_empty() {
+            self.inner.update_sender.send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs: timeline_event_diffs,
+                    origin: EventsOrigin::Sync,
+                }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+            );
+        }
+
+        Ok(())
+    }
+
     /// Get a reference to the [`RoomEventCacheUpdateSender`].
     pub(in super::super) fn update_sender(&self) -> &RoomEventCacheUpdateSender {
         &self.inner.update_sender
@@ -389,22 +296,6 @@ impl RoomEventCache {
     /// Handle a single event from the `SendQueue`.
     pub(crate) async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
         self.inner.insert_sent_event_from_send_queue(event).await
-    }
-
-    /// Save some events in the event cache, for further retrieval with
-    /// [`Self::event`].
-    pub(crate) async fn save_events(&self, events: impl IntoIterator<Item = Event>) {
-        match self.inner.state.write().await {
-            Ok(mut state_guard) => {
-                if let Err(err) = state_guard.save_events(events).await {
-                    warn!("couldn't save event in the event cache: {err}");
-                }
-            }
-
-            Err(err) => {
-                warn!("couldn't save event in the event cache: {err}");
-            }
-        }
     }
 
     /// Return a nice debug string (a vector of lines) for the linked chunk of
@@ -426,15 +317,18 @@ pub(super) struct RoomEventCacheInner {
     /// The room id for this room.
     room_id: OwnedRoomId,
 
-    pub weak_room: WeakRoom,
+    weak_room: WeakRoom,
 
-    /// State for this room's event cache.
-    pub state: LockedRoomEventCacheState,
+    /// The user's own user id.
+    own_user_id: OwnedUserId,
+
+    /// State for this room's cache.
+    state: CacheStateLock<RoomStateSelector>,
 
     /// A notifier that we received a new pagination token.
-    pub pagination_batch_token_notifier: Notify,
+    pagination_batch_token_notifier: Notify,
 
-    pub shared_pagination_status: SharedObservable<SharedPaginationStatus>,
+    shared_pagination_status: SharedObservable<SharedPaginationStatus>,
 
     /// Sender to the auto-shrink channel.
     ///
@@ -447,27 +341,6 @@ pub(super) struct RoomEventCacheInner {
 }
 
 impl RoomEventCacheInner {
-    /// Creates a new cache for a room, and subscribes to room updates, so as
-    /// to handle new timeline events.
-    fn new(
-        room_id: OwnedRoomId,
-        weak_room: WeakRoom,
-        state: LockedRoomEventCacheState,
-        shared_pagination_status: SharedObservable<SharedPaginationStatus>,
-        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
-        update_sender: RoomEventCacheUpdateSender,
-    ) -> Self {
-        Self {
-            room_id,
-            weak_room,
-            state,
-            update_sender,
-            pagination_batch_token_notifier: Default::default(),
-            auto_shrink_sender,
-            shared_pagination_status,
-        }
-    }
-
     fn handle_account_data(&self, account_data: Vec<Raw<AnyRoomAccountDataEvent>>) {
         if account_data.is_empty() {
             return;
@@ -553,7 +426,7 @@ impl RoomEventCacheInner {
 
     async fn handle_timeline_inner(
         &self,
-        mut state: RoomEventCacheStateLockWriteGuard<'_>,
+        mut state: StateLockWriteGuard<'_, RoomEventCacheState>,
         timeline: Timeline,
         ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
         ambiguity_changes: BTreeMap<OwnedEventId, AmbiguityChange>,
@@ -568,7 +441,6 @@ impl RoomEventCacheInner {
             return Ok(());
         }
 
-        // Add all the events to the backend.
         trace!("adding new events");
 
         let (stored_prev_batch_token, timeline_event_diffs) =
@@ -608,14 +480,6 @@ impl RoomEventCacheInner {
 
         Ok(())
     }
-}
-
-#[derive(Clone, Copy)]
-pub(in super::super) enum PostProcessingOrigin {
-    Sync,
-    Backpagination,
-    #[cfg(feature = "e2e-encryption")]
-    Redecryption,
 }
 
 #[cfg(test)]
@@ -747,14 +611,18 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Save the original event.
-        room_event_cache.save_events([original_event]).await;
+        {
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
 
-        // Save the related event.
-        room_event_cache.save_events([related_event]).await;
+            // Save the original event.
+            state.save_events([original_event]).await.unwrap();
 
-        // Save the associated related event, which redacts the related event.
-        room_event_cache.save_events([associated_related_event]).await;
+            // Save the related event.
+            state.save_events([related_event]).await.unwrap();
+
+            // Save the associated related event, which redacts the related event.
+            state.save_events([associated_related_event]).await.unwrap();
+        }
 
         let filter = Some(vec![RelationType::Replacement]);
         let (event, related_events) = room_event_cache
@@ -814,14 +682,18 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Save the original event.
-        room_event_cache.save_events([original_event]).await;
+        {
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
 
-        // Save the related event.
-        room_event_cache.save_events([related_event]).await;
+            // Save the original event.
+            state.save_events([original_event]).await.unwrap();
 
-        // Save the associated related event, which redacts the related event.
-        room_event_cache.save_events([associated_related_event]).await;
+            // Save the related event.
+            state.save_events([related_event]).await.unwrap();
+
+            // Save the associated related event, which redacts the related event.
+            state.save_events([associated_related_event]).await.unwrap();
+        }
 
         let (event, related_events) = room_event_cache
             .find_event_with_relations(original_id, None)
@@ -857,22 +729,28 @@ mod tests {
 
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
 
-        // Save the original event.
-        let original_event_id = original_event.event_id().unwrap();
-        room_event_cache.save_events([original_event]).await;
+        let original_event_id = original_event.event_id().unwrap().to_owned();
+        let related_id = related_event.event_id().unwrap().to_owned();
 
-        // Save an unrelated event to check it's not in the related events list.
-        let unrelated_id = event_id!("$2");
-        room_event_cache
-            .save_events([event_factory
-                .text_msg("An unrelated event")
-                .event_id(unrelated_id)
-                .into()])
-            .await;
+        {
+            let mut state = room_event_cache.inner.state.write().await.unwrap();
 
-        // Save the related event.
-        let related_id = related_event.event_id().unwrap();
-        room_event_cache.save_events([related_event]).await;
+            // Save the original event.
+            state.save_events([original_event]).await.unwrap();
+
+            // Save an unrelated event to check it's not in the related events list.
+            let unrelated_id = event_id!("$2");
+            state
+                .save_events([event_factory
+                    .text_msg("An unrelated event")
+                    .event_id(unrelated_id)
+                    .into()])
+                .await
+                .unwrap();
+
+            // Save the related event.
+            state.save_events([related_event]).await.unwrap();
+        }
 
         let (event, related_events) = room_event_cache
             .find_event_with_relations(&original_event_id, None)
@@ -923,10 +801,7 @@ mod timed_tests {
     use tokio::task::yield_now;
 
     use super::{
-        super::{
-            super::TimelineVectorDiffs, lock::Reload as _,
-            pagination::LoadMoreEventsBackwardsOutcome,
-        },
+        super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
         RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
     use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
@@ -934,6 +809,7 @@ mod timed_tests {
     #[async_test]
     async fn test_write_to_storage() {
         let room_id = room_id!("!galette:saucisse.bzh");
+        let event_id_0 = event_id!("$ev0");
         let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
 
         let event_cache_store = Arc::new(MemoryStore::new());
@@ -963,7 +839,7 @@ mod timed_tests {
         let timeline = Timeline {
             limited: true,
             prev_batch: Some("raclette".to_owned()),
-            events: vec![f.text_msg("hey yo").sender(*ALICE).into_event()],
+            events: vec![f.text_msg("hey yo").event_id(event_id_0).into_event()],
         };
 
         room_event_cache
@@ -999,9 +875,7 @@ mod timed_tests {
         // Then we have the stored event.
         assert_matches!(chunks.next().unwrap().content(), ChunkContent::Items(events) => {
             assert_eq!(events.len(), 1);
-            let deserialized = events[0].raw().deserialize().unwrap();
-            assert_let!(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) = deserialized);
-            assert_eq!(msg.as_original().unwrap().content.body(), "hey yo");
+            assert_eq!(events[0].event_id(), Some(event_id_0));
         });
 
         // That's all, folks!
@@ -1110,8 +984,8 @@ mod timed_tests {
         let event_id1 = event_id!("$1");
         let event_id2 = event_id!("$2");
 
-        let ev1 = f.text_msg("hello world").sender(*ALICE).event_id(event_id1).into_event();
-        let ev2 = f.text_msg("how's it going").sender(*BOB).event_id(event_id2).into_event();
+        let ev1 = f.text_msg("hello world").event_id(event_id1).into_event();
+        let ev2 = f.text_msg("how's it going").event_id(event_id2).into_event();
 
         // Prefill the store with some data.
         event_cache_store
@@ -1180,7 +1054,7 @@ mod timed_tests {
         let (items, mut stream) = room_event_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
-        // The rooms knows about all cached events.
+        // The room knows about all cached events.
         {
             assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
             assert!(room_event_cache.find_event(event_id2).await.unwrap().is_some());
@@ -1220,15 +1094,17 @@ mod timed_tests {
         }
 
         // After clearing,…
-        room_event_cache.clear().await.unwrap();
+        event_cache.clear_all_rooms().await.unwrap();
 
         //… we get an update that the content has been cleared.
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 stream.recv()
         );
-        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs.len(), 2);
         assert_let!(VectorDiff::Clear = &diffs[0]);
+        assert_let!(VectorDiff::Append { values } = &diffs[1]);
+        assert!(values.is_empty());
 
         // … same with a generic update.
         assert_let_timeout!(
@@ -1237,15 +1113,14 @@ mod timed_tests {
         assert_eq!(received_room_id, room_id);
         assert!(generic_stream.is_empty());
 
-        // Events individually are not forgotten by the event cache, after clearing a
-        // room.
-        assert!(room_event_cache.find_event(event_id1).await.unwrap().is_some());
+        // Events are forgotten by the event cache, after clearing a room.
+        assert!(room_event_cache.find_event(event_id1).await.unwrap().is_none());
 
-        // But their presence in a linked chunk is forgotten.
+        // And their presence in a linked chunk is forgotten.
         let items = room_event_cache.events().await.unwrap();
         assert!(items.is_empty());
 
-        // The event cache store too.
+        // The event cache store is fully empty.
         let linked_chunk = from_all_chunks::<3, _, _>(
             event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
         )
@@ -1661,7 +1536,7 @@ mod timed_tests {
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events[0].event_id(), Some(evid2));
         assert!(stream.is_empty());
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1669,7 +1544,7 @@ mod timed_tests {
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id(), Some(evid1));
         assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store.
@@ -1679,7 +1554,7 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
-            assert_eq!(value.event_id().as_deref(), Some(evid1));
+            assert_eq!(value.event_id(), Some(evid1));
         });
 
         assert!(stream.is_empty());
@@ -1695,10 +1570,7 @@ mod timed_tests {
         room_event_cache
             .inner
             .state
-            .write()
-            .await
-            .unwrap()
-            .reload()
+            .reload_no_preprocessing()
             .await
             .expect("shrinking should succeed");
 
@@ -1711,7 +1583,7 @@ mod timed_tests {
         assert_matches!(&diffs[0], VectorDiff::Clear);
         assert_matches!(&diffs[1], VectorDiff::Append { values} => {
             assert_eq!(values.len(), 1);
-            assert_eq!(values[0].event_id().as_deref(), Some(evid2));
+            assert_eq!(values[0].event_id(), Some(evid2));
         });
 
         assert!(stream.is_empty());
@@ -1723,13 +1595,13 @@ mod timed_tests {
         // When reading the events, we do get only the last one.
         let events = room_event_cache.events().await.unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events[0].event_id(), Some(evid2));
 
         // But if we back-paginate, we don't need access to network to find out about
         // the previous event.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id(), Some(evid1));
         assert!(outcome.reached_start);
     }
 
@@ -1814,7 +1686,7 @@ mod timed_tests {
             let mut events = room_linked_chunk.events();
             let (pos, ev) = events.next().unwrap();
             assert_eq!(pos, Position::new(ChunkIdentifier::new(1), 0));
-            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(ev.event_id(), Some(evid3));
             assert_eq!(room_linked_chunk.event_order(pos), Some(2));
 
             // No other loaded events.
@@ -1861,11 +1733,11 @@ mod timed_tests {
             let mut events = room_linked_chunk.events();
 
             let (pos, ev) = events.next().unwrap();
-            assert_eq!(ev.event_id().as_deref(), Some(evid3));
+            assert_eq!(ev.event_id(), Some(evid3));
             assert_eq!(room_linked_chunk.event_order(pos), Some(2));
 
             let (pos, ev) = events.next().unwrap();
-            assert_eq!(ev.event_id().as_deref(), Some(evid4));
+            assert_eq!(ev.event_id(), Some(evid4));
             assert_eq!(room_linked_chunk.event_order(pos), Some(3));
 
             // No other loaded events.
@@ -1950,7 +1822,7 @@ mod timed_tests {
         // Sanity check: lazily loaded, so only includes one item at start.
         let (events1, mut stream1) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events1.len(), 1);
-        assert_eq!(events1[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events1[0].event_id(), Some(evid2));
         assert!(stream1.is_empty());
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
@@ -1958,7 +1830,7 @@ mod timed_tests {
         // Force loading the full linked chunk by back-paginating.
         let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
-        assert_eq!(outcome.events[0].event_id().as_deref(), Some(evid1));
+        assert_eq!(outcome.events[0].event_id(), Some(evid1));
         assert!(outcome.reached_start);
 
         // We also get an update about the loading from the store. Ignore it, for this
@@ -1969,7 +1841,7 @@ mod timed_tests {
         );
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
-            assert_eq!(value.event_id().as_deref(), Some(evid1));
+            assert_eq!(value.event_id(), Some(evid1));
         });
 
         assert!(stream1.is_empty());
@@ -1985,8 +1857,8 @@ mod timed_tests {
         // the second subscribers sees them all.
         let (events2, stream2) = room_event_cache.subscribe().await.unwrap();
         assert_eq!(events2.len(), 2);
-        assert_eq!(events2[0].event_id().as_deref(), Some(evid1));
-        assert_eq!(events2[1].event_id().as_deref(), Some(evid2));
+        assert_eq!(events2[0].event_id(), Some(evid1));
+        assert_eq!(events2[1].event_id(), Some(evid2));
         assert!(stream2.is_empty());
 
         // Drop the first stream, and wait a bit.
@@ -2011,7 +1883,7 @@ mod timed_tests {
         // Getting the events will only give us the latest chunk.
         let events3 = room_event_cache.events().await.unwrap();
         assert_eq!(events3.len(), 1);
-        assert_eq!(events3[0].event_id().as_deref(), Some(evid2));
+        assert_eq!(events3[0].event_id(), Some(evid2));
     }
 
     #[async_test]
@@ -2083,7 +1955,7 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.sender().as_deref() == Some(*BOB)).then(|| event.event_id())
+                    (event.sender().as_deref() == Some(*BOB)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -2096,7 +1968,7 @@ mod timed_tests {
         assert_matches!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.sender().as_deref() == Some(*ALICE)).then(|| event.event_id())
+                    (event.sender().as_deref() == Some(*ALICE)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
             Ok(Some(event_id)) => {
@@ -2108,7 +1980,8 @@ mod timed_tests {
         assert!(
             room_event_cache
                 .rfind_map_event_in_memory_by(|event| {
-                    (event.sender().as_deref() == Some(user_id)).then(|| event.event_id())
+                    (event.sender().as_deref() == Some(user_id))
+                        .then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await
                 .unwrap()
@@ -2224,7 +2097,7 @@ mod timed_tests {
 
             // Initial updates contain `ev_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert_eq!(initial_updates[0].event_id(), Some(ev_id_1));
             assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
@@ -2244,7 +2117,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            assert_eq!(event.event_id(), Some(ev_id_0));
                         }
                     );
                 }
@@ -2264,7 +2137,7 @@ mod timed_tests {
 
             // Initial updates contain `ev_id_1` only.
             assert_eq!(initial_updates.len(), 1);
-            assert_eq!(initial_updates[0].event_id().as_deref(), Some(ev_id_1));
+            assert_eq!(initial_updates[0].event_id(), Some(ev_id_1));
             assert!(updates_stream.is_empty());
 
             // `ev_id_1` must be loaded in memory.
@@ -2284,7 +2157,7 @@ mod timed_tests {
                     assert_matches!(
                         &diffs[0],
                         VectorDiff::Insert { index: 0, value: event } => {
-                            assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                            assert_eq!(event.event_id(), Some(ev_id_0));
                         }
                     );
                 }
@@ -2322,7 +2195,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id(), Some(ev_id_1));
                             }
                         );
                     }
@@ -2342,7 +2215,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id(), Some(ev_id_0));
                             }
                         );
                     }
@@ -2373,7 +2246,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id(), Some(ev_id_1));
                             }
                         );
                     }
@@ -2393,7 +2266,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id(), Some(ev_id_0));
                             }
                         );
                     }
@@ -2427,7 +2300,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id(), Some(ev_id_1));
                             }
                         );
                     }
@@ -2454,7 +2327,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id(), Some(ev_id_0));
                             }
                         );
                     }
@@ -2483,7 +2356,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id(), Some(ev_id_1));
                             }
                         );
                     }
@@ -2510,7 +2383,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id(), Some(ev_id_0));
                             }
                         );
                     }
@@ -2539,7 +2412,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id(), Some(ev_id_1));
                             }
                         );
                     }
@@ -2563,7 +2436,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id(), Some(ev_id_0));
                             }
                         );
                     }
@@ -2589,7 +2462,7 @@ mod timed_tests {
                             &diffs[1],
                             VectorDiff::Append { values: events } => {
                                 assert_eq!(events.len(), 1);
-                                assert_eq!(events[0].event_id().as_deref(), Some(ev_id_1));
+                                assert_eq!(events[0].event_id(), Some(ev_id_1));
                             }
                         );
                     }
@@ -2613,7 +2486,7 @@ mod timed_tests {
                         assert_matches!(
                             &diffs[0],
                             VectorDiff::Insert { index: 0, value: event } => {
-                                assert_eq!(event.event_id().as_deref(), Some(ev_id_0));
+                                assert_eq!(event.event_id(), Some(ev_id_0));
                             }
                         );
                     }
@@ -2707,7 +2580,7 @@ mod timed_tests {
         event_cache.subscribe().unwrap();
 
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
-        let (room_event_cache, _drop_handles) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
         let (events, mut stream) = room_event_cache.subscribe().await.unwrap();
 
         assert!(events.is_empty());
@@ -2746,7 +2619,7 @@ mod timed_tests {
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {
         room_event_cache
             .rfind_map_event_in_memory_by(|event| {
-                (event.event_id().as_deref() == Some(event_id)).then_some(())
+                (event.event_id() == Some(event_id)).then_some(())
             })
             .await
             .unwrap()

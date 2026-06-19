@@ -35,7 +35,7 @@ use crate::timeline::{
 
 #[async_test]
 async fn test_redact_state_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
@@ -61,7 +61,7 @@ async fn test_redact_state_event() {
 
 #[async_test]
 async fn test_redact_replied_to_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
@@ -100,7 +100,7 @@ async fn test_redact_replied_to_event() {
 
 #[async_test]
 async fn test_redaction_before_event() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
@@ -136,7 +136,7 @@ async fn test_redaction_before_event() {
 
 #[async_test]
 async fn test_reaction_redaction() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
@@ -162,7 +162,7 @@ async fn test_reaction_redaction() {
 
 #[async_test]
 async fn test_reaction_redaction_timeline_filter() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;
@@ -207,7 +207,7 @@ async fn test_reaction_redaction_timeline_filter() {
 
 #[async_test]
 async fn test_local_and_remote_echo_of_redaction() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;

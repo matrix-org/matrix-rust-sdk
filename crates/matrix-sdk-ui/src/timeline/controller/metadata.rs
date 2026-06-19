@@ -23,8 +23,10 @@ use ruma::{
     EventId, OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        BundledMessageLikeRelations, poll::unstable_start::UnstablePollStartEventContent,
-        relation::Replacement, room::message::RelationWithoutReplacement,
+        BundledMessageLikeRelations,
+        poll::unstable_start::UnstablePollStartEventContent,
+        relation::Replacement,
+        room::{encrypted::Relation, message::RelationWithoutReplacement},
     },
     room_version_rules::RoomVersionRules,
     serde::Raw,
@@ -442,6 +444,26 @@ impl TimelineMetadata {
                         );
                     }
 
+                    self.mark_response(ctx.event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            AnyMessageLikeEventContent::RoomEncrypted(msg) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    msg.relates_to.clone().and_then(|rel| match rel {
+                        Relation::Reply(reply) => Some(RelationWithoutReplacement::Reply(reply)),
+                        Relation::Thread(thread) => {
+                            Some(RelationWithoutReplacement::Thread(thread))
+                        }
+                        _ => None,
+                    }),
+                    timeline_items,
+                    is_thread_focus,
+                );
+
+                if let Some(ctx) = remote_ctx {
                     self.mark_response(ctx.event_id, in_reply_to.as_ref());
                 }
 

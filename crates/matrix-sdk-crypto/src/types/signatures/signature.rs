@@ -79,3 +79,45 @@ impl From<X509Signature> for Signature {
         Self::X509(signature)
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn roundtrip_ed25519_signature() {
+        const BASE64_SIG: &str = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ";
+
+        let parsed = Signature::from_base64(DeviceKeyAlgorithm::Ed25519, BASE64_SIG.to_owned())
+            .expect("Failed to parse");
+
+        let ed25519 = parsed.ed25519().expect("Not parsed as Ed25519");
+        assert_eq!(ed25519.to_base64(), BASE64_SIG);
+
+        let encoded = parsed.to_base64();
+        assert_eq!(encoded, BASE64_SIG)
+    }
+
+    #[test]
+    fn parse_invalid_ed25519_signature() {
+        const BASE64_SIG: &str = "XXXX";
+
+        let parsed = Signature::from_base64(DeviceKeyAlgorithm::Ed25519, BASE64_SIG.to_owned())
+            .expect_err("Expected an invalid signature");
+        assert_eq!(parsed.source, BASE64_SIG);
+    }
+
+    #[test]
+    fn roundtrip_other_signature() {
+        const TEXT: &str = "abcd";
+
+        let parsed = Signature::from_base64(DeviceKeyAlgorithm::from("foo"), TEXT.to_owned())
+            .expect("Failed to parse");
+
+        let other = as_variant!(&parsed, Signature::Other).expect("Not parsed as Other");
+        assert_eq!(other, TEXT);
+
+        let encoded = parsed.to_base64();
+        assert_eq!(encoded, TEXT)
+    }
+}

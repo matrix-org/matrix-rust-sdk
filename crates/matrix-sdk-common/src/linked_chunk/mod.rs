@@ -348,9 +348,10 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
     /// Drop all the chunks, leaving the chunk in an uninitialized state,
     /// because `Self::first` is a dangling pointer.
     ///
-    /// SAFETY: the caller is responsible of ensuring that this is the last use
-    /// of the linked chunk, or that first will be re-initialized before any
-    /// other use.
+    /// # Safety
+    ///
+    /// The caller is responsible of ensuring that this is the last use of the
+    /// linked chunk, or that first will be re-initialized before any other use.
     unsafe fn clear(&mut self) {
         // Loop over all chunks, from the last to the first chunk, and drop them.
         // Take the latest chunk.
@@ -1108,6 +1109,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             })
             .flatten()
             .skip(position.index()))
+    }
+
+    /// Return the first chunk.
+    pub fn first_chunk(&self) -> &Chunk<CAP, Item, Gap> {
+        self.links.first_chunk()
     }
 
     /// Get a mutable reference to the `LinkedChunk` updates, aka
