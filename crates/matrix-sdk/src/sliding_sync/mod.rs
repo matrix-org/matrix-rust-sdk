@@ -1028,7 +1028,7 @@ mod tests {
             assert_eq!(request.set_presence, PresenceState::Online);
         }
 
-        client.set_sync_presence(PresenceState::Unavailable);
+        client.set_presence(PresenceState::Unavailable, None, false).await?;
 
         {
             let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;
@@ -1036,7 +1036,7 @@ mod tests {
             assert_eq!(request.set_presence, PresenceState::Unavailable);
         }
 
-        client.set_sync_presence(PresenceState::Offline);
+        client.set_presence(PresenceState::Offline, None, false).await?;
 
         {
             let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;

@@ -689,18 +689,8 @@ impl Client {
         *lock = version;
     }
 
-    /// Set the default presence state to send with generated sync requests.
-    ///
-    /// This affects future sync requests that don't configure an explicit
-    /// per-request presence override. It doesn't affect requests that are
-    /// already in flight, and it doesn't send an immediate presence update to
-    /// the homeserver.
-    pub fn set_sync_presence(&self, presence: PresenceState) {
-        *self.inner.sync_presence.write().unwrap() = presence;
-    }
-
     /// Get the default presence state used by generated sync requests.
-    pub fn sync_presence(&self) -> PresenceState {
+    pub(crate) fn sync_presence(&self) -> PresenceState {
         self.inner.sync_presence.read().unwrap().clone()
     }
 
@@ -759,16 +749,24 @@ impl Client {
         self.auth_ctx().access_token()
     }
 
-    /// Send an immediate presence update for the current user.
+    /// Set the presence state for the current user.
     ///
-    /// This calls the Matrix presence endpoint directly. It is separate from
-    /// [`Self::set_sync_presence`], which only changes the presence value used
-    /// by future generated sync requests.
+    /// The presence state is stored as the default used by future generated
+    /// sync requests, regardless of `immediate`. If `immediate` is `true`, this
+    /// also calls the Matrix presence endpoint directly. `status_msg` is only
+    /// sent when `immediate` is `true`.
     pub async fn set_presence(
         &self,
         presence: PresenceState,
         status_msg: Option<String>,
+        immediate: bool,
     ) -> Result<()> {
+        *self.inner.sync_presence.write().unwrap() = presence.clone();
+
+        if !immediate {
+            return Ok(());
+        }
+
         let user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
         let mut request = set_presence_status::v3::Request::new(user_id, presence);
         request.status_msg = status_msg;
@@ -3743,13 +3741,19 @@ pub(crate) mod tests {
         assert_eq!(clone.sync_presence(), PresenceState::Online);
         assert_eq!(notification_client.sync_presence(), PresenceState::Online);
 
-        client.set_sync_presence(PresenceState::Unavailable);
+        client
+            .set_presence(PresenceState::Unavailable, None, false)
+            .await
+            .expect("presence should update");
 
         assert_eq!(client.sync_presence(), PresenceState::Unavailable);
         assert_eq!(clone.sync_presence(), PresenceState::Unavailable);
         assert_eq!(notification_client.sync_presence(), PresenceState::Unavailable);
 
-        notification_client.set_sync_presence(PresenceState::Offline);
+        notification_client
+            .set_presence(PresenceState::Offline, None, false)
+            .await
+            .expect("presence should update");
 
         assert_eq!(client.sync_presence(), PresenceState::Offline);
         assert_eq!(clone.sync_presence(), PresenceState::Offline);
@@ -3761,7 +3765,10 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
 
-        client.set_sync_presence(PresenceState::Unavailable);
+        client
+            .set_presence(PresenceState::Unavailable, None, false)
+            .await
+            .expect("presence should update");
 
         server.mock_sync().set_presence("unavailable").ok(|_| {}).expect(1).mount().await;
 
@@ -3797,9 +3804,11 @@ pub(crate) mod tests {
             .await;
 
         client
-            .set_presence(PresenceState::Unavailable, Some("Away".to_owned()))
+            .set_presence(PresenceState::Unavailable, Some("Away".to_owned()), true)
             .await
             .expect("presence update should succeed");
+
+        assert_eq!(client.sync_presence(), PresenceState::Unavailable);
     }
 
     #[async_test]
@@ -3807,9 +3816,21 @@ pub(crate) mod tests {
         let client = MockClientBuilder::new(None).unlogged().build().await;
 
         assert_matches!(
-            client.set_presence(PresenceState::Unavailable, None).await,
+            client.set_presence(PresenceState::Unavailable, None, true).await,
             Err(Error::AuthenticationRequired)
         );
+    }
+
+    #[async_test]
+    async fn test_set_presence_without_immediate_does_not_require_authentication() {
+        let client = MockClientBuilder::new(None).unlogged().build().await;
+
+        client
+            .set_presence(PresenceState::Unavailable, None, false)
+            .await
+            .expect("presence should update");
+
+        assert_eq!(client.sync_presence(), PresenceState::Unavailable);
     }
 
     #[async_test]

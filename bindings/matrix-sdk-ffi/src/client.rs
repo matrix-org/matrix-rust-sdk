@@ -1168,21 +1168,17 @@ impl Client {
         self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
     }
 
-    /// Set the default presence state used by future generated sync requests.
+    /// Set the presence state for the current user.
     ///
-    /// This does not send an immediate presence update to the homeserver.
-    pub fn set_sync_presence(&self, presence: PresenceState) {
-        self.inner.set_sync_presence(presence.into());
-    }
-
-    /// Get the default presence state used by generated sync requests.
-    pub fn sync_presence(&self) -> PresenceState {
-        self.inner.sync_presence().into()
-    }
-
-    /// Send an immediate presence update for the current user.
-    pub async fn set_presence(&self, presence: PresenceState) -> Result<(), ClientError> {
-        Ok(self.inner.set_presence(presence.into(), None).await?)
+    /// This updates the presence state used by future generated sync requests,
+    /// regardless of `immediate`. If `immediate` is `true`, it also sends an
+    /// immediate presence update to the homeserver.
+    pub async fn set_presence(
+        &self,
+        presence: PresenceState,
+        immediate: bool,
+    ) -> Result<(), ClientError> {
+        Ok(self.inner.set_presence(presence.into(), None, immediate).await?)
     }
 
     /// Sets the [ClientDelegate] which will inform about authentication errors.

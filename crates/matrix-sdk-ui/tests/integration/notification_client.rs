@@ -477,7 +477,7 @@ async fn test_notification_client_sliding_sync_uses_client_sync_presence() {
     let process_setup =
         NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
     let notification_client = NotificationClient::new(client.clone(), process_setup).await.unwrap();
-    client.set_sync_presence(PresenceState::Unavailable);
+    client.set_presence(PresenceState::Unavailable, None, false).await.unwrap();
     let mut result = notification_client
         .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
             room_id: room_id.to_owned(),
@@ -664,7 +664,7 @@ async fn test_notification_client_encryption_fallback_uses_client_sync_presence(
         NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
             .await
             .unwrap();
-    client.set_sync_presence(PresenceState::Unavailable);
+    client.set_presence(PresenceState::Unavailable, None, false).await.unwrap();
 
     let _ = notification_client
         .get_notifications_with_sliding_sync(&[NotificationItemsRequest {

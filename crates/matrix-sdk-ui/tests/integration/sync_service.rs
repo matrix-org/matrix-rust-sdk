@@ -211,7 +211,7 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
 async fn test_sync_service_client_sync_presence_is_used_by_both_syncs() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
-    client.set_sync_presence(PresenceState::Unavailable);
+    client.set_presence(PresenceState::Unavailable, None, false).await?;
 
     let encryption_pos = Arc::new(Mutex::new(0));
     let room_pos = Arc::new(Mutex::new(0));
