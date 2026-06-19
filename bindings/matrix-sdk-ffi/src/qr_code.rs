@@ -23,6 +23,7 @@ use matrix_sdk::authentication::oauth::{
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
+use tokio::sync::Notify;
 
 use crate::{
     authentication::OAuthConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
@@ -33,11 +34,14 @@ use crate::{
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
     oauth_configuration: OAuthConfiguration,
+    /// Request a the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then emit the `Cancelled` update.
+    cancel: Notify,
 }
 
 impl LoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth, oauth_configuration: OAuthConfiguration) -> Self {
-        Self { oauth, oauth_configuration }
+        Self { oauth, oauth_configuration, cancel: Notify::new() }
     }
 }
 
@@ -82,15 +86,25 @@ impl LoginWithQrCodeHandler {
 
         // We create this task, which will get cancelled once it's dropped, just in case
         // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+        let progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
             }
         }));
 
-        login.await?;
-
-        Ok(())
+        tokio::select! {
+            biased;
+            result = login => {
+                result?;
+                Ok(())
+            }
+            _ = self.cancel.notified() => {
+                // Stop forwarding progress to the foreign callback before tearing
+                // down the handler.
+                drop(progress_task);
+                Err(HumanQrLoginError::Cancelled)
+            }
+        }
     }
 
     /// This method allows you to log in by generating a QR code.
@@ -126,15 +140,31 @@ impl LoginWithQrCodeHandler {
 
         // We create this task, which will get cancelled once it's dropped, just in case
         // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+        let progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
             }
         }));
 
-        login.await?;
+        tokio::select! {
+            biased;
+            result = login => {
+                result?;
+                Ok(())
+            }
+            _ = self.cancel.notified() => {
+                // Stop forwarding progress to the foreign callback before tearing
+                // down the handler.
+                drop(progress_task);
+                Err(HumanQrLoginError::Cancelled)
+            }
+        }
+    }
 
-        Ok(())
+    /// Request a the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then return the `Cancelled` error.
+    pub fn abort(&self) {
+        self.cancel.notify_waiters();
     }
 }
 
@@ -142,11 +172,12 @@ impl LoginWithQrCodeHandler {
 #[derive(uniffi::Object)]
 pub struct GrantLoginWithQrCodeHandler {
     oauth: OAuth,
+    cancel: Notify,
 }
 
 impl GrantLoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth) -> Self {
-        Self { oauth }
+        Self { oauth, cancel: Notify::new() }
     }
 }
 
@@ -182,15 +213,25 @@ impl GrantLoginWithQrCodeHandler {
 
         // We create this task, which will get cancelled once it's dropped, just in case
         // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+        let progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
             }
         }));
 
-        grant.await?;
-
-        Ok(())
+        tokio::select! {
+            biased;
+            result = grant => {
+                result?;
+                Ok(())
+            }
+            _ = self.cancel.notified() => {
+                // Stop forwarding progress to the foreign callback before tearing
+                // down the handler.
+                drop(progress_task);
+                Err(HumanQrGrantLoginError::Cancelled)
+            }
+        }
     }
 
     /// This method allows you to grant login by generating a QR code.
@@ -220,15 +261,31 @@ impl GrantLoginWithQrCodeHandler {
 
         // We create this task, which will get cancelled once it's dropped, just in case
         // the progress stream doesn't end.
-        let _progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
+        let progress_task = TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(state) = progress.next().await {
                 progress_listener.on_update(state.into());
             }
         }));
 
-        grant.await?;
+        tokio::select! {
+            biased;
+            result = grant => {
+                result?;
+                Ok(())
+            }
+            _ = self.cancel.notified() => {
+                // Stop forwarding progress to the foreign callback before tearing
+                // down the handler.
+                drop(progress_task);
+                Err(HumanQrGrantLoginError::Cancelled)
+            }
+        }
+    }
 
-        Ok(())
+    /// Request a the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then return the `Cancelled` error.
+    pub fn abort(&self) {
+        self.cancel.notify_waiters();
     }
 }
 
