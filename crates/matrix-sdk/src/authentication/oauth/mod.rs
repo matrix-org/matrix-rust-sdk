@@ -411,7 +411,7 @@ impl OAuth {
         &'a self,
         registration_data: Option<&'a ClientRegistrationData>,
     ) -> LoginWithQrCodeBuilder<'a> {
-        LoginWithQrCodeBuilder { client: &self.client, registration_data }
+        LoginWithQrCodeBuilder::new(&self.client, registration_data)
     }
 
     /// Grant login to a new device using a QR code.
@@ -1419,6 +1419,11 @@ pub struct LoginWithQrCodeBuilder<'a> {
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> LoginWithQrCodeBuilder<'a> {
+    /// Create a new builder.
+    fn new(client: &'a Client, registration_data: Option<&'a ClientRegistrationData>) -> Self {
+        Self { client, registration_data }
+    }
+
     /// This method allows you to log in with a scanned QR code.
     ///
     /// The existing device needs to display the QR code which this device can
@@ -1501,7 +1506,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn scan(self, data: &'a QrCodeData) -> LoginWithQrCode<'a> {
+    pub fn scan(self, data: &QrCodeData) -> LoginWithQrCode {
         LoginWithQrCode::new(self.client, data, self.registration_data)
     }
 
@@ -1582,7 +1587,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// println!("Successfully logged in: {:?} {:?}", client.user_id(), client.device_id());
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn generate(self) -> LoginWithGeneratedQrCode<'a> {
+    pub fn generate(self) -> LoginWithGeneratedQrCode {
         LoginWithGeneratedQrCode::new(self.client, self.registration_data)
     }
 }
@@ -1695,7 +1700,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// println!("Successfully granted login");
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn scan(self, data: &'a QrCodeData) -> GrantLoginWithScannedQrCode<'a> {
+    pub fn scan(self, data: &QrCodeData) -> GrantLoginWithScannedQrCode {
         GrantLoginWithScannedQrCode::new(self.client, data, self.device_creation_timeout)
     }
 
@@ -1776,7 +1781,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// println!("Successfully granted login");
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn generate(self) -> GrantLoginWithGeneratedQrCode<'a> {
+    pub fn generate(self) -> GrantLoginWithGeneratedQrCode {
         GrantLoginWithGeneratedQrCode::new(self.client, self.device_creation_timeout)
     }
 }
