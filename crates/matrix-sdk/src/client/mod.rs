@@ -2826,8 +2826,8 @@ impl Client {
     ///     * [`full_state`] - To tell the server that we wish to receive all
     ///       state events, regardless of our configured [`token`].
     ///     * [`set_presence`] - To override the presence state sent with this
-    ///       sync request. If this is not set, the request uses
-    ///       [`Client::sync_presence`].
+    ///       sync request. If this is not set, the request uses the presence
+    ///       configured with [`Client::set_presence`].
     ///
     /// # Examples
     ///
