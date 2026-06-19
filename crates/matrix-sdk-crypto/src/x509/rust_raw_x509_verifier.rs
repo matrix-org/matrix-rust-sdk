@@ -41,14 +41,14 @@ pub enum RustX509VerifyError {
     StoreError(rustls::Error),
 }
 
+/// A Rust implementation of [`RawX509Verifier`]. This does the verification
+/// itself (using `rustls`) rather than delegating the work to some external
+/// system.
 #[derive(Debug, Clone)]
 pub struct RustRawX509Verifier {
     verifier: Arc<dyn ClientCertVerifier>,
 }
 
-/// A Rust implementation of [`RawX509Verifier`]. This does the verification
-/// itself (using `rustls`) rather than delegating the work to some external
-/// system.
 impl RustRawX509Verifier {
     /// Create a new `RustRawX509Verifier` from the supplied CA certificates
     /// PEM.
