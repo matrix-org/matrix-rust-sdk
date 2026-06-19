@@ -1464,9 +1464,11 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
+    use rcgen::{Certificate, CertificateParams, DnType, Issuer, KeyPair};
     use ruma::{TransactionId, device_id, user_id};
     use serde_json::{Value, json};
     use tokio::sync::Mutex;
+    use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 
     use super::{
         OtherUserIdentityDataSerializerV2, OwnUserIdentityData, OwnUserIdentityVerifiedState,
@@ -2100,64 +2102,112 @@ pub(crate) mod tests {
 
     #[async_test]
     async fn test_verify_other_identity_with_x509() {
-        let (cert, signing_key) = cert_and_key_with_email("other_user@localhost");
+        // Given that a CA exists
+        let (ca_cert, ca_signing_key) = ca_cert();
 
-        let cert_pem = cert.pem();
-        let key_pem = signing_key.serialize_pem();
+        // And Alice has an X.509-signed identity
+        let alice_identity_data = signed_other_identity(&ca_cert, &ca_signing_key).await;
 
-        let x509_signer = {
-            let rust_raw_x509_signer =
-                RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
-            X509Signer::new(Arc::new(rust_raw_x509_signer))
-        };
+        // (And Bob exists)
+        let bob_account = Account::with_device_id(user_id!("@bob:hs.co"), device_id!("DEV123"));
+        let bob_verification_machine = get_verification_machine(&bob_account);
 
-        let x509_verifier = {
-            let rust_raw_x509_verifier = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
-            X509Verifier::new(Arc::new(rust_raw_x509_verifier))
-        };
+        let bob_identity_data =
+            bob_verification_machine.get_own_user_identity_data().await.unwrap();
 
-        // Another user has an X.509-signed identity.
-        let other_user_identity_data = {
-            let account =
-                Account::with_device_id(user_id!("@other_user:localhost"), device_id!("DEV123"));
-
-            let private_identity =
-                PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
-
-            let own_identity = private_identity.to_public_identity().await.unwrap();
-
-            OtherUserIdentityData::new(
-                own_identity.master_key().clone(),
-                own_identity.self_signing_key().clone(),
-            )
-            .unwrap()
-        };
-
-        // The other user's identity should not be verified when we don't have
-        // an X.509 verifier.
-        let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
-
-        let verification_machine = get_verification_machine(&account);
-        let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
-
-        let other_user_identity_no_x509 = OtherUserIdentity {
-            inner: other_user_identity_data.clone(),
-            own_identity: Some(own_identity_data.clone()),
-            verification_machine: verification_machine.clone(),
+        // When Bob checks Alice's identity without using X.509
+        let mut bobs_view_of_alice = OtherUserIdentity {
+            inner: alice_identity_data.clone(),
+            own_identity: Some(bob_identity_data.clone()),
+            verification_machine: bob_verification_machine.clone(),
             x509_verifier: None,
         };
-        assert!(!other_user_identity_no_x509.is_verified());
 
-        // The other user's identity should be verified when we do have an X.509
-        // verifier.
-        let other_user_identity_with_x509 = OtherUserIdentity {
-            inner: other_user_identity_data,
-            own_identity: Some(own_identity_data),
-            verification_machine,
-            x509_verifier: Some(x509_verifier),
-        };
-        assert!(other_user_identity_with_x509.is_verified());
+        // Then Alice is not verified
+        assert!(!bobs_view_of_alice.is_verified());
+
+        // But when Bob checks Alice's identity with a proper X.509 verifier
+        bobs_view_of_alice.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&ca_cert.pem()).unwrap(),
+        )));
+
+        // Then Alice is verified
+        assert!(bobs_view_of_alice.is_verified());
+    }
+
+    /// Generate a key pair and cert, signed by the supplied certificate
+    /// authority, and return a new user's [`OtherUserIdentityData`] whose
+    /// master signing key is signed by them.
+    async fn signed_other_identity(
+        ca_cert: &Certificate,
+        ca_signing_key: &KeyPair,
+    ) -> OtherUserIdentityData {
+        let (cert, signing_key) =
+            cert_and_key_with_email_signed_by("alice@hs.co", &ca_cert, &ca_signing_key);
+
+        let x509_signer = X509Signer::new(Arc::new(
+            RustRawX509Signer::new_from_pem_data(&cert.pem(), &signing_key.serialize_pem())
+                .unwrap(),
+        ));
+
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("DEV123"));
+
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
+
+        let public_identity = private_identity.to_public_identity().await.unwrap();
+
+        OtherUserIdentityData::new(
+            public_identity.master_key().clone(),
+            public_identity.self_signing_key().clone(),
+        )
+        .unwrap()
+    }
+
+    /// Generate a little certificate authority i.e. a key pair and a
+    /// self-signed certificate.
+    fn ca_cert() -> (Certificate, KeyPair) {
+        let cert_params = cert_params("You Can Trust Us Certificate Authority");
+
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+
+        (cert, signing_key)
+    }
+
+    /// Generate a key pair and a certificate signed by the supplied certificate
+    /// authority.
+    fn cert_and_key_with_email_signed_by(
+        email: &str,
+        ca_cert: &Certificate,
+        ca_signing_key: &KeyPair,
+    ) -> (Certificate, KeyPair) {
+        let mut cert_params = cert_params(&format!("Cert for {email}"));
+        let email_address_oid = OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect();
+        cert_params.distinguished_name.push(DnType::CustomDnType(email_address_oid), email);
+
+        let issuer = Issuer::from_ca_cert_pem(&ca_cert.pem(), ca_signing_key)
+            .expect("Failed to create Issue from CA cert and key");
+
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        let cert =
+            cert_params.signed_by(&signing_key, &issuer).expect("Failed to generate certificate");
+
+        (cert, signing_key)
+    }
+
+    /// Create a CertificateParams (for creating a certificate) where the
+    /// distinguished name has the CommonName provided.
+    fn cert_params(common_name: &str) -> CertificateParams {
+        let mut cert_params = CertificateParams::default();
+        cert_params.distinguished_name.remove(DnType::CommonName);
+        cert_params.distinguished_name.push(DnType::CommonName, common_name);
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params
     }
 
     /// Create an [`OtherUserIdentity`] for use in tests
