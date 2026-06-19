@@ -692,9 +692,9 @@ impl Client {
     /// Set the default presence state to send with generated sync requests.
     ///
     /// This affects future sync requests that don't configure an explicit
-    /// per-request or per-instance presence override. It doesn't affect
-    /// requests that are already in flight, and it doesn't send an immediate
-    /// presence update to the homeserver.
+    /// per-request presence override. It doesn't affect requests that are
+    /// already in flight, and it doesn't send an immediate presence update to
+    /// the homeserver.
     pub fn set_sync_presence(&self, presence: PresenceState) {
         *self.inner.sync_presence.write().unwrap() = presence;
     }

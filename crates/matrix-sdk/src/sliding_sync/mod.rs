@@ -40,7 +40,6 @@ use ruma::{
     OwnedRoomId, RoomId,
     api::{client::sync::sync_events::v5 as http, error::ErrorKind},
     assign,
-    presence::PresenceState,
 };
 use tokio::{
     select,
@@ -114,9 +113,6 @@ pub(super) struct SlidingSyncInner {
     /// calls.
     extensions: http::request::Extensions,
 
-    /// Optional presence state override sent with sliding sync requests.
-    presence: StdRwLock<Option<PresenceState>>,
-
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
@@ -134,31 +130,6 @@ impl SlidingSync {
     /// Create a new [`SlidingSyncBuilder`].
     pub fn builder(id: String, client: Client) -> Result<SlidingSyncBuilder, Error> {
         SlidingSyncBuilder::new(id, client)
-    }
-
-    /// Set the presence state to send with future sliding sync requests.
-    ///
-    /// If this is not set, sliding sync requests use the client-owned sync
-    /// presence value.
-    pub fn set_presence(&self, presence: PresenceState) {
-        *self.inner.presence.write().unwrap() = Some(presence);
-    }
-
-    /// Clear the explicit presence override for future sliding sync requests.
-    ///
-    /// After calling this, generated sliding sync requests use the client-owned
-    /// sync presence value again.
-    pub fn clear_presence_override(&self) {
-        *self.inner.presence.write().unwrap() = None;
-    }
-
-    fn presence(&self) -> PresenceState {
-        self.inner
-            .presence
-            .read()
-            .unwrap()
-            .clone()
-            .unwrap_or_else(|| self.inner.client.sync_presence())
     }
 
     /// Add subscriptions to many rooms.
@@ -535,7 +506,7 @@ impl SlidingSync {
         let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             pos,
-            set_presence: self.presence(),
+            set_presence: self.inner.client.sync_presence(),
             timeout,
             lists: requests_lists,
         });
@@ -1047,7 +1018,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_sliding_sync_request_uses_configured_presence() -> Result<()> {
+    async fn test_sliding_sync_request_uses_client_sync_presence() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![]).await?;
         let client = sliding_sync.inner.client.clone();
 
@@ -1065,26 +1036,7 @@ mod tests {
             assert_eq!(request.set_presence, PresenceState::Unavailable);
         }
 
-        sliding_sync.set_presence(PresenceState::Offline);
-
-        {
-            let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;
-
-            assert_eq!(request.set_presence, PresenceState::Offline);
-        }
-
-        sliding_sync.clear_presence_override();
-
-        {
-            let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;
-
-            assert_eq!(request.set_presence, PresenceState::Unavailable);
-        }
-
-        let client = logged_in_client(None).await;
-        client.set_sync_presence(PresenceState::Unavailable);
-        let sliding_sync =
-            client.sliding_sync("presence")?.set_presence(PresenceState::Offline).build().await?;
+        client.set_sync_presence(PresenceState::Offline);
 
         {
             let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;

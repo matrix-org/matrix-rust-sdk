@@ -7,7 +7,7 @@ use std::{
 
 use cfg_if::cfg_if;
 use matrix_sdk_common::timer;
-use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http, presence::PresenceState};
+use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
 
 use super::{
@@ -29,7 +29,6 @@ pub struct SlidingSyncBuilder {
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<http::request::Extensions>,
     room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
-    presence: Option<PresenceState>,
     poll_timeout: Duration,
     network_timeout: Duration,
     #[cfg(feature = "e2e-encryption")]
@@ -52,7 +51,6 @@ impl SlidingSyncBuilder {
                 lists: Vec::new(),
                 extensions: None,
                 room_subscriptions: BTreeMap::new(),
-                presence: None,
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
                 #[cfg(feature = "e2e-encryption")]
@@ -88,15 +86,6 @@ impl SlidingSyncBuilder {
         list.set_cached_and_reload(&self.client, &self.storage_key).await?;
 
         Ok(self.add_list(list))
-    }
-
-    /// Set the presence state that will be sent with sliding sync requests.
-    ///
-    /// If this is not set, sliding sync requests use the client-owned sync
-    /// presence value.
-    pub fn set_presence(mut self, presence: PresenceState) -> Self {
-        self.presence = Some(presence);
-        self
     }
 
     /// Activate e2ee, to-device-message, account data, typing and receipt
@@ -301,7 +290,6 @@ impl SlidingSyncBuilder {
 
             room_subscriptions: StdRwLock::new(self.room_subscriptions),
             extensions: self.extensions.unwrap_or_default(),
-            presence: StdRwLock::new(self.presence),
 
             internal_channel: internal_channel_sender,
 
