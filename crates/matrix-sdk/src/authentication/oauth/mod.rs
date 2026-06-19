@@ -383,7 +383,7 @@ impl OAuth {
         &'a self,
         registration_data: Option<&'a ClientRegistrationData>,
     ) -> LoginWithQrCodeBuilder<'a> {
-        LoginWithQrCodeBuilder { client: &self.client, registration_data }
+        LoginWithQrCodeBuilder::new(&self.client, registration_data)
     }
 
     /// Grant login to a new device using a QR code.
@@ -1361,6 +1361,11 @@ pub struct LoginWithQrCodeBuilder<'a> {
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> LoginWithQrCodeBuilder<'a> {
+    /// Create a new builder.
+    fn new(client: &'a Client, registration_data: Option<&'a ClientRegistrationData>) -> Self {
+        Self { client, registration_data }
+    }
+
     /// This method allows you to log in with a scanned QR code.
     ///
     /// The existing device needs to display the QR code which this device can

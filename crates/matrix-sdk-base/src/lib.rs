@@ -21,6 +21,7 @@
 pub use matrix_sdk_common::*;
 use ruma::{OwnedDeviceId, OwnedUserId};
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 pub use crate::error::{Error, Result};
 
@@ -82,3 +83,18 @@ pub struct SessionMeta {
     /// The ID of the client device.
     pub device_id: OwnedDeviceId,
 }
+
+/// Extension trait for wrapping an [`IntoFuture`] with cooperative
+/// cancellation.
+pub trait CancellableIntoFutureExt: IntoFuture + Sized {
+    /// Wrap this future so that it completes when either the underlying future
+    /// completes or the supplied [`CancellationToken`] is cancelled.
+    ///
+    /// Returns `Some` with the output of the underlying future if it completes
+    /// first, or `None` if the cancellation token is cancelled first.
+    fn cancellable(self, token: CancellationToken) -> impl Future<Output = Option<Self::Output>> {
+        async move { token.run_until_cancelled(self.into_future()).await }
+    }
+}
+
+impl<T: IntoFuture> CancellableIntoFutureExt for T {}
