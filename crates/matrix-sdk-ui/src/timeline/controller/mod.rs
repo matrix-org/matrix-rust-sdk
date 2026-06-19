@@ -399,7 +399,6 @@ impl<P: RoomDataProvider> TimelineController<P> {
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
         settings: TimelineSettings,
-        active_call: Option<ActiveCallInfo>,
     ) -> Result<Self, Error> {
         let room_id = room_data_provider.room_id();
 
@@ -440,7 +439,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             internal_id_prefix,
             unable_to_decrypt_hook,
             is_room_encrypted,
-            active_call,
+            None,
         )));
 
         Ok(Self { state, focus, room_data_provider, settings })

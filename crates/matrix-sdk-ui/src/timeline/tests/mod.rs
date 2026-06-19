@@ -133,7 +133,6 @@ impl TestTimelineBuilder {
             self.utd_hook,
             self.is_room_encrypted,
             self.settings.unwrap_or_default(),
-            None,
         )
         .await
         .unwrap();

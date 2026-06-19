@@ -179,7 +179,6 @@ impl TimelineBuilder {
 
         let initial_info = room.clone_info();
         let owned_user_id = room.own_user_id().to_owned();
-        let active_call = ActiveCallInfo::from_info(initial_info, owned_user_id);
 
         let controller = TimelineController::new(
             room.clone(),
@@ -189,7 +188,6 @@ impl TimelineBuilder {
             unable_to_decrypt_hook,
             is_room_encrypted,
             settings,
-            active_call,
         )
         .await?;
 
@@ -245,6 +243,10 @@ impl TimelineBuilder {
                 .abort_on_drop()
         };
 
+        let initial_active_call_info = ActiveCallInfo::from_info(initial_info, owned_user_id);
+        if initial_active_call_info.is_some() {
+            controller.handle_active_call_update(initial_active_call_info).await;
+        }
         let rtc_membership_listener_handle = {
             let room_info_subscriber = room.subscribe_info();
             room.client()
