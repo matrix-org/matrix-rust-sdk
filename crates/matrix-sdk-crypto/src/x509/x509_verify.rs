@@ -1,6 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
 
-use ruma::UserId;
+use ruma::{MatrixUri, OwnedUserId, UserId, matrix_uri::MatrixId};
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tracing::info;
 use x509_parser::{asn1_rs::FromDer as _, certificate::X509Certificate, extensions::GeneralName};
@@ -81,20 +81,58 @@ impl X509Verifier {
             return false;
         };
 
-        let Some(certificate_email) = get_email_address_from_certificate(&end_cert) else {
-            tracing::warn!("Certificate subject does not contain an email address");
-            return false;
-        };
-
-        let mapped_email = map_user_id_to_email(user_id);
-        if certificate_email != mapped_email {
-            tracing::warn!(
-                "Certificate not valid for this user. Certificate email: {certificate_email}, mapped email: {mapped_email}, user_id: {user_id}",
-            );
+        if !cert_contains_user_id_or_equivalent_email(user_id, end_cert) {
+            tracing::warn!("Verifying certificate user ID or email failed");
             return false;
         }
 
         self.x509_verify.verify(message.as_bytes(), sig)
+    }
+}
+
+fn cert_contains_user_id_or_equivalent_email(
+    user_id: &UserId,
+    certificate: CertificateDer<'_>,
+) -> bool {
+    // Parse the certificate
+    let Ok((_, parsed_cert)) = X509Certificate::from_der(certificate.as_ref()) else {
+        tracing::warn!("Unable to parse certificate");
+        return false;
+    };
+
+    // Check for a user ID in its SAN
+    if let Some(certificate_user_id) = get_user_id_from_certificate(&parsed_cert) {
+        if certificate_user_id == user_id {
+            return true;
+        } else {
+            tracing::warn!(
+                "Certificate not valid for this user. \
+                Certificate user ID: {certificate_user_id}, \
+                User ID: {user_id}",
+            );
+            return false;
+        }
+    }
+
+    // Otherwise, as a fallback, check for an email address
+
+    tracing::info!("Certificate subject does not contain a user ID. Checking for email address");
+
+    let Some(certificate_email) = get_email_address_from_certificate(&parsed_cert) else {
+        tracing::warn!("Certificate subject does not contain an email address");
+        return false;
+    };
+
+    let expected_email = map_user_id_to_email(user_id);
+    if certificate_email == expected_email {
+        true
+    } else {
+        tracing::warn!(
+            "Certificate not valid for this user. \
+                Certificate email: {certificate_email}, \
+                Expected email: {expected_email}, User ID: {user_id}",
+        );
+        false
     }
 }
 
@@ -113,16 +151,40 @@ fn map_user_id_to_email(user_id: &UserId) -> String {
     format!("{}@{}", user_id.localpart(), user_id.server_name())
 }
 
-fn get_email_address_from_certificate(certificate: &CertificateDer<'_>) -> Option<String> {
-    // Parse the cert
-    let parsed_cert = X509Certificate::from_der(certificate.as_ref()).ok()?.1;
+/// Search this certificate's Subject Alternative Name for a URI that matches
+/// the format of a Matrix URI that contains a valid Matrix user ID.
+fn get_user_id_from_certificate(certificate: &X509Certificate<'_>) -> Option<OwnedUserId> {
+    // If we have no SAN or SAN is not understood here, we definitely can't find a
+    // user ID.
+    let Ok(Some(san)) = certificate.subject_alternative_name() else {
+        return None;
+    };
 
-    // Check for the (legacy) email address in the Subject Distinguished Name
-    if let Some(email) = parsed_cert.subject.iter_email().next() {
-        return email.as_str().ok().map(ToOwned::to_owned);
+    /// Check whether a SAN contains a valid Matrix user ID
+    fn matrix_user_uri(alt_name: &GeneralName<'_>) -> Option<OwnedUserId> {
+        // If it's a URI SAN type
+        if let GeneralName::URI(uri) = alt_name {
+            // And it parses as a `matrix:...` URI
+            if let Ok(matrix_uri) = MatrixUri::parse(uri) {
+                // And it's a user URI that produces a valid Matrix user ID
+                if let MatrixId::User(user_id) = matrix_uri.id() {
+                    // Then return it
+                    return Some(user_id.clone());
+                }
+            }
+        }
+
+        // Otherwise, we didn't find a user ID
+        None
     }
 
-    if let Ok(Some(san)) = parsed_cert.subject_alternative_name() {
+    // If any name looks right, return it - otherwise None
+    san.value.general_names.iter().find_map(matrix_user_uri)
+}
+
+fn get_email_address_from_certificate(certificate: &X509Certificate<'_>) -> Option<String> {
+    // Check for an email address in the Subject Alternative Name
+    if let Ok(Some(san)) = certificate.subject_alternative_name() {
         if let Some(email) =
             san.value.general_names.iter().find_map(|n| {
                 if let GeneralName::RFC822Name(email) = n { Some(email) } else { None }
@@ -132,6 +194,13 @@ fn get_email_address_from_certificate(certificate: &CertificateDer<'_>) -> Optio
         }
     }
 
+    // Otherwise, check for the (legacy) email address in the Subject
+    // Distinguished Name
+    if let Some(email) = certificate.subject.iter_email().next() {
+        return email.as_str().ok().map(ToOwned::to_owned);
+    }
+
+    // Otherwise, nothing was found
     None
 }
 
@@ -153,49 +222,83 @@ pub(crate) mod tests {
             tests::{
                 cert_and_key_with_email_in_subject_alternate_name,
                 cert_and_key_with_email_in_subject_distinguished_name,
+                cert_and_key_with_no_user_id, cert_and_key_with_user_id_in_subject_alternate_name,
             },
         },
     };
 
     #[test]
-    fn can_extract_email_address_from_a_cert_sdn() {
+    fn test_can_extract_email_address_from_a_cert_sdn() {
         // Given a certificate containing an email address in the Subject
         // Distinguished Name
         let (cert, _) =
             cert_and_key_with_email_in_subject_distinguished_name("myname@company.co.uk");
 
         // When we extract the email address it contains
-        let email = get_email_address_from_certificate(cert.der())
-            .expect("Failed to get email address from cert");
+        let email =
+            get_email_address_from_certificate(&X509Certificate::from_der(cert.der()).unwrap().1)
+                .expect("Failed to get email address from cert");
 
         // Then it matches what we put in
         assert_eq!(email, "myname@company.co.uk");
     }
 
     #[test]
-    fn can_extract_email_address_from_a_cert_san() {
+    fn test_can_extract_email_address_from_a_cert_san() {
         // Given a certificate containing an email address in the Subject
-        // Alternate Names
+        // Alternative Name
         let (cert, _) = cert_and_key_with_email_in_subject_alternate_name("myname@company.co.uk");
 
         // When we extract the email address it contains
-        let email = get_email_address_from_certificate(cert.der())
-            .expect("Failed to get email address from cert");
+        let email =
+            get_email_address_from_certificate(&X509Certificate::from_der(cert.der()).unwrap().1)
+                .expect("Failed to get email address from cert");
 
         // Then it matches what we put in
         assert_eq!(email, "myname@company.co.uk");
     }
 
     #[test]
-    fn extract_email_address_from_a_cert_that_does_not_contain_one_returns_none() {
+    fn test_can_extract_user_id_from_a_cert_san() {
+        // Given a certificate containing a user ID in the Subject Alternative
+        // Name
+        let (cert, _) =
+            cert_and_key_with_user_id_in_subject_alternate_name("@myname:company.co.uk");
+
+        // When we extract the user ID it contains
+        let user_id =
+            get_user_id_from_certificate(&X509Certificate::from_der(cert.der()).unwrap().1)
+                .expect("Failed to get email address from cert");
+
+        // Then it matches what we put in
+        assert_eq!(user_id, "@myname:company.co.uk");
+    }
+
+    #[test]
+    fn test_extract_email_address_from_a_cert_that_does_not_contain_one_returns_none() {
         // Given a certificate not containing an email address
         let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
 
         // When we attempt to extract the email address
-        let email = get_email_address_from_certificate(cert.cert.der());
+        let email = get_email_address_from_certificate(
+            &X509Certificate::from_der(cert.cert.der()).unwrap().1,
+        );
 
         // Then the answer is empty
         assert!(email.is_none());
+    }
+
+    #[test]
+    fn test_extract_user_id_from_a_cert_that_does_not_contain_one_returns_none() {
+        // Given a certificate not containing an email address
+        let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
+
+        // When we attempt to extract the email address
+        let user_id =
+            get_user_id_from_certificate(&X509Certificate::from_der(cert.cert.der()).unwrap().1);
+
+        // Then the answer is empty
+        assert!(user_id.is_none());
     }
 
     #[test]
@@ -222,10 +325,29 @@ pub(crate) mod tests {
 
     #[test]
     fn test_can_verify_cert_containing_email_in_san() {
-        // Given a cert containing the email address in the Subject Alternate
+        // Given a cert containing the email address in the Subject Alternative
         // Name
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_alternate_name("alice@localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it verifies correctly.
+        assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_can_verify_cert_containing_username_in_san() {
+        // Given a cert containing the Matrix user ID in the Subject Alternative
+        // Name
+        let (cert, signing_key) =
+            cert_and_key_with_user_id_in_subject_alternate_name("@alice:localhost");
 
         // When we sign a cross-signing key using it
         let (x509_signer, x509_verifier) = create_signer_and_verifier(cert, signing_key);
@@ -262,7 +384,7 @@ pub(crate) mod tests {
     #[test]
     fn test_verification_fails_if_san_email_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
-        // Alternate Name
+        // Alternative Name
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_alternate_name("bob@localhost");
 
@@ -276,6 +398,44 @@ pub(crate) mod tests {
 
         // Then it fails to verify because the supplied email address translates
         // to a different user ID.
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_verification_fails_if_cert_user_id_is_wrong() {
+        // Given a cert containing an incorrect email address in the Subject
+        // Alternative Name
+        let (cert, signing_key) =
+            cert_and_key_with_user_id_in_subject_alternate_name("@bob:localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it fails to verify because the supplied user ID does not match
+        // the signing user.
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_verification_fails_if_cert_user_id_is_missing() {
+        // Given a cert with no email or user ID at all
+        let (cert, signing_key) = cert_and_key_with_no_user_id();
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it fails to verify because there is no user ID to check against
+        // the user's ID.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 

@@ -28,6 +28,7 @@ pub use x509_verify::{RawX509Verifier, X509Verifier};
 #[cfg(test)]
 pub(crate) mod tests {
     use rcgen::{Certificate, CertificateParams, KeyPair, SanType};
+    use ruma::OwnedUserId;
     use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 
     /// Create a certificate that contains the supplied email address in its
@@ -55,10 +56,9 @@ pub(crate) mod tests {
         let signing_key =
             KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
-        (
-            cert_params.self_signed(&signing_key).expect("Failed to generate certificate"),
-            signing_key,
-        )
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+
+        (cert, signing_key)
     }
 
     /// Create a certificate that contains the supplied email address in its
@@ -75,9 +75,43 @@ pub(crate) mod tests {
         let signing_key =
             KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
-        (
-            cert_params.self_signed(&signing_key).expect("Failed to generate certificate"),
-            signing_key,
-        )
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+
+        (cert, signing_key)
+    }
+
+    /// Create a certificate that contains the supplied Matrix user ID as a URI
+    /// in its Subject Alternate Name
+    pub(crate) fn cert_and_key_with_user_id_in_subject_alternate_name(
+        user_id: &str,
+    ) -> (Certificate, KeyPair) {
+        let user_id_uri =
+            OwnedUserId::try_from(user_id).expect("Invalid user ID!").matrix_uri(false);
+
+        let mut cert_params = CertificateParams::default();
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params.subject_alt_names.push(SanType::URI(
+            user_id_uri.to_string().try_into().expect("Failed to convert user_id URI to Ia5String"),
+        ));
+
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+
+        (cert, signing_key)
+    }
+
+    /// Create a certificate that does not contain a user ID or email address
+    pub(crate) fn cert_and_key_with_no_user_id() -> (Certificate, KeyPair) {
+        let mut cert_params = CertificateParams::default();
+        cert_params.use_authority_key_identifier_extension = true;
+
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+
+        (cert, signing_key)
     }
 }
