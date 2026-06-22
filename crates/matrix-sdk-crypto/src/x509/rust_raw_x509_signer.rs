@@ -173,7 +173,7 @@ mod tests {
 
         let (key_id, sig) = x509_sign.sign(b"hello world").unwrap();
 
-        assert_eq!(key_id.as_str(), "io.element.x509:2F6Rmhfww1sT23VCfSE3mt8+lhE");
+        assert_eq!(key_id.as_str(), "2F6Rmhfww1sT23VCfSE3mt8+lhE");
         assert_eq!(sig.certificate_chain, TEST_CERT_CHAIN);
         assert_eq!(u16::from(sig.signature_scheme), 2054); // SignatureScheme::RSA_PSS_SHA512
         assert_eq!(sig.signature.len(), 342);
