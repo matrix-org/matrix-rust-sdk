@@ -203,35 +203,10 @@ pub(crate) mod tests {
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 
-        let cert_pem = cert.pem();
-        let key_pem = signing_key.serialize_pem();
-
-        let x509_signer = {
-            let rust_raw_x509_signer =
-                RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
-            X509Signer::new(Arc::new(rust_raw_x509_signer))
-        };
+        let (x509_signer, x509_verifier) = create_signer_and_verifier(cert, signing_key);
 
         let user_id = user_id!("@alice:localhost").to_owned();
-
-        let mut cross_signing_key = {
-            let secret_key = Ed25519SecretKey::new();
-            let public_key = secret_key.public_key();
-            let keys = SigningKeys::from([(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    public_key.to_base64().as_str().into(),
-                ),
-                public_key.into(),
-            )]);
-
-            CrossSigningKey::new(user_id.clone(), vec![KeyUsage::Master], keys, Default::default())
-        };
-
-        let x509_verifier = {
-            let rust_raw_x509_verifier = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
-            X509Verifier::new(Arc::new(rust_raw_x509_verifier))
-        };
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
 
         // We should not be able to verify an unsigned object.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
@@ -249,6 +224,35 @@ pub(crate) mod tests {
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("bob@localhost");
 
+        let (x509_signer, x509_verifier) = create_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Verifying should fail since it was signed using an incorrect user ID
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    fn create_cross_signing_key(user_id: &UserId) -> CrossSigningKey {
+        let secret_key = Ed25519SecretKey::new();
+        let public_key = secret_key.public_key();
+        let keys = SigningKeys::from([(
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                public_key.to_base64().as_str().into(),
+            ),
+            public_key.into(),
+        )]);
+
+        CrossSigningKey::new(user_id.to_owned(), vec![KeyUsage::Master], keys, Default::default())
+    }
+
+    fn create_signer_and_verifier(
+        cert: rcgen::Certificate,
+        signing_key: rcgen::KeyPair,
+    ) -> (X509Signer, X509Verifier) {
         let cert_pem = cert.pem();
         let key_pem = signing_key.serialize_pem();
 
@@ -258,30 +262,10 @@ pub(crate) mod tests {
             X509Signer::new(Arc::new(rust_raw_x509_signer))
         };
 
-        let user_id = user_id!("@alice:localhost").to_owned();
-
-        let mut cross_signing_key = {
-            let secret_key = Ed25519SecretKey::new();
-            let public_key = secret_key.public_key();
-            let keys = SigningKeys::from([(
-                DeviceKeyId::from_parts(
-                    DeviceKeyAlgorithm::Ed25519,
-                    public_key.to_base64().as_str().into(),
-                ),
-                public_key.into(),
-            )]);
-
-            CrossSigningKey::new(user_id.clone(), vec![KeyUsage::Master], keys, Default::default())
-        };
-
         let x509_verifier = {
             let rust_raw_x509_verifier = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
             X509Verifier::new(Arc::new(rust_raw_x509_verifier))
         };
-
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
-
-        // Verifying should fail since it was signed using an incorrect user ID
-        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+        (x509_signer, x509_verifier)
     }
 }
