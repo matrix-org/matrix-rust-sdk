@@ -1491,7 +1491,8 @@ pub(crate) mod tests {
         verification::VerificationMachine,
         x509::{
             X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
-            rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
+            rust_raw_x509_verifier::RustRawX509Verifier,
+            tests::cert_and_key_with_email_in_subject_distinguished_name,
         },
     };
 
@@ -2060,7 +2061,8 @@ pub(crate) mod tests {
         let account =
             Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
         // We create a store with an X.509 signer
-        let (cert, signing_key) = cert_and_key_with_email("own_user@localhost");
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("own_user@localhost");
 
         let cert_pem = cert.pem();
         let key_pem = signing_key.serialize_pem();

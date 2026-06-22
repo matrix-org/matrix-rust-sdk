@@ -27,7 +27,7 @@ pub use x509_verify::{RawX509Verifier, X509Verifier};
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use rcgen::{Certificate, CertificateParams, KeyPair};
+    use rcgen::{Certificate, CertificateParams, KeyPair, SanType};
     use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 
     /// Create a certificate that contains the supplied email address in its
@@ -42,13 +42,35 @@ pub(crate) mod tests {
     /// So this is a legacy implementation. To be non-legacy it should, at a
     /// minimum, include the email address in the Subject Alternative Name
     /// as well as in Subject Distinguished Name.
-    pub(crate) fn cert_and_key_with_email(email: &str) -> (Certificate, KeyPair) {
+    pub(crate) fn cert_and_key_with_email_in_subject_distinguished_name(
+        email: &str,
+    ) -> (Certificate, KeyPair) {
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
         cert_params.distinguished_name.push(
             rcgen::DnType::CustomDnType(OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect()),
             email,
         );
+
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        (
+            cert_params.self_signed(&signing_key).expect("Failed to generate certificate"),
+            signing_key,
+        )
+    }
+
+    /// Create a certificate that contains the supplied email address in its
+    /// Subject Alternate Name
+    pub(crate) fn cert_and_key_with_email_in_subject_alternate_name(
+        email: &str,
+    ) -> (Certificate, KeyPair) {
+        let mut cert_params = CertificateParams::default();
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params.subject_alt_names.push(SanType::Rfc822Name(
+            email.try_into().expect("Failed to convert email address to Ia5String"),
+        ));
 
         let signing_key =
             KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");

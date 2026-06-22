@@ -3,6 +3,7 @@ use std::{fmt::Debug, sync::Arc};
 use ruma::UserId;
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tracing::info;
+use x509_parser::{asn1_rs::FromDer as _, certificate::X509Certificate, extensions::GeneralName};
 
 use crate::{
     olm::SignedJsonObject,
@@ -80,7 +81,7 @@ impl X509Verifier {
             return false;
         };
 
-        let Some(certificate_email) = get_email_address_from_certificate_subject(&end_cert) else {
+        let Some(certificate_email) = get_email_address_from_certificate(&end_cert) else {
             tracing::warn!("Certificate subject does not contain an email address");
             return false;
         };
@@ -112,11 +113,26 @@ fn map_user_id_to_email(user_id: &UserId) -> String {
     format!("{}@{}", user_id.localpart(), user_id.server_name())
 }
 
-fn get_email_address_from_certificate_subject(certificate: &CertificateDer<'_>) -> Option<String> {
-    use x509_parser::prelude::*;
-    let (_, parsed_cert) = X509Certificate::from_der(certificate.as_ref()).ok()?;
-    let email = parsed_cert.subject.iter_email().next()?;
-    email.as_str().ok().map(ToOwned::to_owned)
+fn get_email_address_from_certificate(certificate: &CertificateDer<'_>) -> Option<String> {
+    // Parse the cert
+    let parsed_cert = X509Certificate::from_der(certificate.as_ref()).ok()?.1;
+
+    // Check for the (legacy) email address in the Subject Distinguished Name
+    if let Some(email) = parsed_cert.subject.iter_email().next() {
+        return email.as_str().ok().map(ToOwned::to_owned);
+    }
+
+    if let Ok(Some(san)) = parsed_cert.subject_alternative_name() {
+        if let Some(email) =
+            san.value.general_names.iter().find_map(|n| {
+                if let GeneralName::RFC822Name(email) = n { Some(email) } else { None }
+            })
+        {
+            return Some((*email).to_owned());
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -131,18 +147,39 @@ pub(crate) mod tests {
     use crate::{
         types::{CrossSigningKey, SigningKeys},
         x509::{
-            X509Signer, rust_raw_x509_signer::RustRawX509Signer,
-            rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
+            X509Signer,
+            rust_raw_x509_signer::RustRawX509Signer,
+            rust_raw_x509_verifier::RustRawX509Verifier,
+            tests::{
+                cert_and_key_with_email_in_subject_alternate_name,
+                cert_and_key_with_email_in_subject_distinguished_name,
+            },
         },
     };
 
     #[test]
-    fn can_extract_email_address_from_a_cert() {
-        // Given a certificate containing an email address
-        let (cert, _) = cert_and_key_with_email("myname@company.co.uk");
+    fn can_extract_email_address_from_a_cert_sdn() {
+        // Given a certificate containing an email address in the Subject Distinguished
+        // Name
+        let (cert, _) =
+            cert_and_key_with_email_in_subject_distinguished_name("myname@company.co.uk");
 
         // When we extract the email address it contains
-        let email = get_email_address_from_certificate_subject(cert.der())
+        let email = get_email_address_from_certificate(cert.der())
+            .expect("Failed to get email address from cert");
+
+        // Then it matches what we put in
+        assert_eq!(email, "myname@company.co.uk");
+    }
+
+    #[test]
+    fn can_extract_email_address_from_a_cert_san() {
+        // Given a certificate containing an email address in the Subject Alternate
+        // Names
+        let (cert, _) = cert_and_key_with_email_in_subject_alternate_name("myname@company.co.uk");
+
+        // When we extract the email address it contains
+        let email = get_email_address_from_certificate(cert.der())
             .expect("Failed to get email address from cert");
 
         // Then it matches what we put in
@@ -155,7 +192,7 @@ pub(crate) mod tests {
         let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
 
         // When we attempt to extract the email address
-        let email = get_email_address_from_certificate_subject(cert.cert.der());
+        let email = get_email_address_from_certificate(cert.cert.der());
 
         // Then the answer is empty
         assert!(email.is_none());
@@ -163,7 +200,8 @@ pub(crate) mod tests {
 
     #[test]
     fn test_can_verify() {
-        let (cert, signing_key) = cert_and_key_with_email("alice@localhost");
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 
         let cert_pem = cert.pem();
         let key_pem = signing_key.serialize_pem();
@@ -208,7 +246,8 @@ pub(crate) mod tests {
     fn test_verifying_checks_user_id() {
         // We create a certificate for a different user ID from the user doing
         // the signing.
-        let (cert, signing_key) = cert_and_key_with_email("bob@localhost");
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("bob@localhost");
 
         let cert_pem = cert.pem();
         let key_pem = signing_key.serialize_pem();
