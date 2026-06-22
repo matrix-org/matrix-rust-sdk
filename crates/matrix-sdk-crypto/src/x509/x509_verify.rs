@@ -199,7 +199,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_can_verify() {
+    fn test_can_verify_cert_containing_email_in_dn() {
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 
@@ -243,7 +243,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_verifying_checks_user_id() {
+    fn test_verification_fails_if_email_in_dn_is_wrong() {
         // We create a certificate for a different user ID from the user doing
         // the signing.
         let (cert, signing_key) =
