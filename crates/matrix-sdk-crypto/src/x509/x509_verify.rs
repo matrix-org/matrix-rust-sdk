@@ -4,10 +4,7 @@ use ruma::UserId;
 use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tracing::info;
 
-use crate::{
-    olm::SignedJsonObject,
-    types::{Signature, X509Signature},
-};
+use crate::{olm::SignedJsonObject, types::Signature, x509::raw_x509_signature::RawX509Signature};
 
 /// Hold one of these if you want to verify X.509 signatures, and call
 /// [`Self::verify_x509_signature`] to do it.
@@ -72,6 +69,20 @@ impl X509Verifier {
             return false;
         };
 
+        let sig: RawX509Signature = match sig.try_into() {
+            Ok(sig) => sig,
+            Err(e) => {
+                tracing::warn!(
+                    "X509: verify_x509_signature(): unable to parse X509 signature: {}",
+                    e
+                );
+                return false;
+            }
+        };
+
+        // TODO: rewrite these bits to use the rust-crypto stack instead of the rustls
+        // stack.
+
         // Before we pass over to the X.509 certificate verifier, check that the leaf
         // certificate is valid for the given user_id.
         let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
@@ -93,7 +104,7 @@ impl X509Verifier {
             return false;
         }
 
-        self.x509_verify.verify(message.as_bytes(), sig)
+        self.x509_verify.verify(message.as_bytes(), &sig)
     }
 }
 
@@ -104,7 +115,7 @@ pub trait RawX509Verifier: Debug + Send + Sync {
     ///
     /// Also validates that the certificate used for the signature is issued via
     /// one of our trusted CAs.
-    fn verify(&self, message: &[u8], sig: &X509Signature) -> bool;
+    fn verify(&self, message: &[u8], signature: &RawX509Signature) -> bool;
 }
 
 fn map_user_id_to_email(user_id: &UserId) -> String {

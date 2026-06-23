@@ -15,16 +15,18 @@
 use std::sync::Arc;
 
 use rustls::{
-    RootCertStore,
+    RootCertStore, SignatureScheme,
     crypto::CryptoProvider,
     pki_types::{CertificateDer, UnixTime, pem::PemObject},
     server::{VerifierBuilderError, WebPkiClientVerifier, danger::ClientCertVerifier},
 };
 use thiserror::Error;
-use vodozemac::base64_decode;
 use webpki::EndEntityCert;
 
-use crate::{types::X509Signature, x509::x509_verify::RawX509Verifier};
+use crate::x509::{
+    raw_x509_signature::{RawX509Signature, X509SignatureScheme},
+    x509_verify::RawX509Verifier,
+};
 
 #[derive(Error, Debug)]
 pub enum RustX509VerifyError {
@@ -69,7 +71,7 @@ impl RustRawX509Verifier {
 }
 
 impl RawX509Verifier for RustRawX509Verifier {
-    fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
+    fn verify(&self, message: &[u8], sig: &RawX509Signature) -> bool {
         let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
         let Some(Ok(end_cert)) = cert_iter.next() else {
             tracing::warn!("Missing or invalid first certificate");
@@ -96,12 +98,16 @@ impl RawX509Verifier for RustRawX509Verifier {
             return false;
         };
 
+        let rustls_signature_scheme = match sig.signature_scheme {
+            X509SignatureScheme::RsaPssSha512 => SignatureScheme::RSA_PSS_SHA512,
+        };
+
         let Some(alg) = provider
             .signature_verification_algorithms
             .mapping
             .iter()
             // Filter for entries with the right signature scheme
-            .filter(|item| item.0 == sig.signature_scheme)
+            .filter(|item| item.0 == rustls_signature_scheme)
             // Filter for entries with a non-empty list of algorithm implementations, and get the
             // first such implementation
             .filter_map(|item| item.1.first().map(|alg| *alg))
@@ -116,12 +122,7 @@ impl RawX509Verifier for RustRawX509Verifier {
             return false;
         };
 
-        // TODO: AJB: make it harder to forget to base64 encode/decode this?
-        let Ok(signature_bin) = base64_decode(&sig.signature) else {
-            tracing::warn!("Failed to base64-decode the signaturea");
-            return false;
-        };
-        let result = cert.verify_signature(alg, message, &signature_bin);
+        let result = cert.verify_signature(alg, message, sig.signature_bytes.as_slice());
 
         if let Err(e) = result {
             tracing::warn!("Signature verification failed: {e}");
@@ -149,7 +150,7 @@ mod tests {
         let x509_sign = RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
 
         // After we sign a text
-        let (_key_id, sig) = x509_sign.sign(b"hello world").unwrap();
+        let sig = x509_sign.sign(b"hello world").unwrap();
 
         let x509_verify = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
 
@@ -158,14 +159,6 @@ mod tests {
 
         // checking the signature on a different string should fail
         assert!(!x509_verify.verify(b"Hello World", &sig));
-
-        // checking the signature with an unknown algorithm should fail
-        let sig_with_unknown_alg = {
-            let mut sig = sig.clone();
-            sig.signature_scheme = 0.into();
-            sig
-        };
-        assert!(!x509_verify.verify(b"hello world", &sig_with_unknown_alg));
 
         // checking the signature with a bad certificate should fail
         let sig_with_bad_certificate_chain = {

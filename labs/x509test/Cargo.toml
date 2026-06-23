@@ -5,7 +5,7 @@ edition = "2024"
 rust-version.workspace = true
 
 [dependencies]
-cms = { version = "0.2.3", features = ["std"] }
+cms = { version = "0.2.3", features = ["std", "pem", "builder", "rsa"] }
 rustls = "^0.23.4"
 rustls-webpki = "^0.103.13"
 vodozemac = "0.10.0"
@@ -15,6 +15,8 @@ x509-cert = "0.2.5"
 pkcs1 = "0.7.5"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json.workspace = true
+rsa = "0.9.10"
+sha2 = { version = "0.10.9", features = ["oid"] }
 
 [lints]
 workspace = true

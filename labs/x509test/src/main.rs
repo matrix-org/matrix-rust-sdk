@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
 use cms::{
+    builder::SignerInfoBuilder,
     cert::CertificateChoices,
     content_info::{CmsVersion, ContentInfo},
     signed_data::{
@@ -8,8 +9,12 @@ use cms::{
         SignerInfo, SignerInfos,
     },
 };
-use const_oid::db::rfc5911::ID_SIGNED_DATA;
+use const_oid::{AssociatedOid, db::rfc5911::ID_SIGNED_DATA};
 use pkcs1::RsaPssParams;
+use rsa::{
+    pkcs8::spki::SignatureAlgorithmIdentifier, pss::get_default_pss_signature_algo_id,
+    signature::digest::Digest,
+};
 use rustls::{
     RootCertStore, SignatureScheme,
     crypto::aws_lc_rs::default_provider,
@@ -20,13 +25,17 @@ use rustls::{
 use serde::{Deserializer, Serializer};
 use webpki::EndEntityCert;
 use x509_cert::{
+    builder::Builder,
     der::{
         self as der, AnyRef, Decode, DecodePem, Encode, EncodePem, Length, PemReader, Reader,
         Writer,
         pem::{LineEnding, PemLabel},
     },
     ext::pkix::SubjectKeyIdentifier,
-    spki::{AlgorithmIdentifier, AlgorithmIdentifierOwned, AlgorithmIdentifierRef},
+    spki::{
+        AlgorithmIdentifier, AlgorithmIdentifierOwned, AlgorithmIdentifierRef,
+        DynSignatureAlgorithmIdentifier,
+    },
 };
 
 // TODO: how to load from a PKCS12 bundle? cms::encrypted_data, I think
@@ -99,6 +108,21 @@ fn build_content_info_pem(sig: Vec<u8>) -> String {
     let leaf_cert = &chain[0].tbs_certificate;
     let (_critical, ski): (_, SubjectKeyIdentifier) = leaf_cert.get().unwrap().unwrap();
 
+    /*    let digest = sha2::Sha512::default();
+        fn f<T: Digest + AssociatedOid>(t: &T) {};
+        f(&digest);
+
+        let key = rsa::pss::SigningKey::<sha2::Sha512>::new(1);
+        let _: &dyn DynSignatureAlgorithmIdentifier = &key;
+    */
+
+    /*
+    let signer_identifier = SignerIdentifier::SubjectKeyIdentifier(ski);
+    let b = SignerInfoBuilder::new(&key, signer_identifier.clone(), 2, 3, None).unwrap();
+    key.signature_algorithm_identifier();
+    b.build();
+    b.assemble();
+
     let signature_params = RsaPssParams {
         hash: AlgorithmIdentifierRef {
             oid: const_oid::db::rfc5912::ID_SHA_512,
@@ -115,6 +139,13 @@ fn build_content_info_pem(sig: Vec<u8>) -> String {
         trailer_field: Default::default(),
     };
 
+    let signature_algorithm = AlgorithmIdentifier {
+        oid: const_oid::db::rfc5912::ID_RSASSA_PSS,
+        parameters: Some(der::Any::encode_from(&signature_params).unwrap()),
+    };
+    */
+
+    let signature_algorithm = get_default_pss_signature_algo_id::<sha2::Sha512>().unwrap();
     let signer_info = SignerInfo {
         // RFC 5652 § 5.3: version is the syntax version number.  If the SignerIdentifier is
         // the CHOICE issuerAndSerialNumber, then the version MUST be 1. If
@@ -127,10 +158,7 @@ fn build_content_info_pem(sig: Vec<u8>) -> String {
             parameters: None,
         },
         signed_attrs: None, // Not required if EncapsulatedContentInfo is id-data
-        signature_algorithm: AlgorithmIdentifier {
-            oid: const_oid::db::rfc5912::ID_RSASSA_PSS,
-            parameters: Some(der::Any::encode_from(&signature_params).unwrap()),
-        },
+        signature_algorithm,
         signature: SignatureValue::new(sig).unwrap(),
         unsigned_attrs: None,
     };
@@ -207,7 +235,7 @@ fn debug_cms_file(pem: &[u8]) {
 struct X509Signature(ContentInfo);
 
 impl PemLabel for X509Signature {
-    const PEM_LABEL: &'static str = "CMS";
+    const PEM_LABEL: &str = "CMS";
 }
 impl Encode for X509Signature {
     fn encoded_len(&self) -> der::Result<Length> {
@@ -288,7 +316,7 @@ fn verify(sig: &[u8], certificate_chain_pem: &str) {
         .filter(|item| item.0 == SignatureScheme::RSA_PSS_SHA512)
         .filter_map(|item| item.1.get(0).map(|i| i.deref()))
         .next()
-        .expect("Unable to find RSA_PSS_SHA512 in provider");
+        .expect("Unable to find RsaPssSha512 in provider");
 
     let cert = EndEntityCert::try_from(&end_cert).expect("Unable to parse end entity cert");
     let subject = cert.subject();

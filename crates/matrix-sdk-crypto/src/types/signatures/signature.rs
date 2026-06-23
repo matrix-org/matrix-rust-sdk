@@ -15,10 +15,11 @@ limitations under the License.
 */
 use as_variant::as_variant;
 use ruma::DeviceKeyAlgorithm;
-use serde::{Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
-use crate::types::{InvalidSignature, X509Signature};
+use crate::types::{
+    InvalidSignature, X509_SIGNATURE_ALGORITHM, signatures::x509_signature::X509Signature,
+};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -54,6 +55,13 @@ impl Signature {
             DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
                 .map(|s| s.into())
                 .map_err(|_| InvalidSignature { source: s }),
+
+            DeviceKeyAlgorithm::_Custom(_) if algorithm == X509_SIGNATURE_ALGORITHM.into() => {
+                X509Signature::from_str(&s)
+                    .map(|s| s.into())
+                    .map_err(|_| InvalidSignature { source: s })
+            }
+
             _ => Ok(Signature::Other(s)),
         }
     }
@@ -62,8 +70,8 @@ impl Signature {
     pub fn to_base64(&self) -> String {
         match self {
             Signature::Ed25519(s) => s.to_base64(),
+            Signature::X509(s) => s.to_string(),
             Signature::Other(s) => s.to_owned(),
-            _ => todo!(),
         }
     }
 }

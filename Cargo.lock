@@ -907,10 +907,19 @@ version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7b77c319abfd5219629c45c34c89ba945ed3c5e49fcde9d16b6c3885f118a730"
 dependencies = [
+ "aes",
+ "cbc",
+ "cipher",
  "const-oid",
  "der",
+ "rsa",
+ "sha1",
+ "sha2",
+ "sha3",
+ "signature",
  "spki",
  "x509-cert",
+ "zeroize",
 ]
 
 [[package]]
@@ -3130,6 +3139,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "keccak"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb26cec98cce3a3d96cbb7bced3c4b16e3d13f27ec56dbd62cbc8f39cfb9d653"
+dependencies = [
+ "cpufeatures 0.2.12",
+]
+
+[[package]]
 name = "konst"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3592,6 +3610,7 @@ dependencies = [
  "bs58",
  "byteorder",
  "cfg-if",
+ "cms",
  "ctr",
  "eyeball",
  "futures-core",
@@ -3612,6 +3631,7 @@ dependencies = [
  "rand 0.10.1",
  "rcgen",
  "rmp-serde",
+ "rsa",
  "ruma",
  "rustls",
  "rustls-webpki",
@@ -6012,6 +6032,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77fd7028345d415a4034cf8777cd4f8ab1851274233b45f84e3d955502d93874"
+dependencies = [
+ "digest",
+ "keccak",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6993,9 +7023,9 @@ checksum = "bc7d623258602320d5c55d1bc22793b57daff0ec7efc270ea7d55ce1d5f5471c"
 
 [[package]]
 name = "typenum"
-version = "1.17.0"
+version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42ff0bf0c66b8238c6f3b578df37d0b7848e55df8577b3f74f92a69acceeb825"
+checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "typetag"
@@ -8392,6 +8422,8 @@ checksum = "1301e935010a701ae5f8655edc0ad17c44bad3ac5ce8c39185f75453b720ae94"
 dependencies = [
  "const-oid",
  "der",
+ "sha1",
+ "signature",
  "spki",
  "tls_codec",
 ]
@@ -8422,10 +8454,12 @@ dependencies = [
  "cms",
  "const-oid",
  "pkcs1",
+ "rsa",
  "rustls",
  "rustls-webpki",
  "serde",
  "serde_json",
+ "sha2",
  "vodozemac",
  "x509-cert",
  "x509-parser",

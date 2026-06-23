@@ -24,7 +24,13 @@ use rustls::{
 use thiserror::Error;
 use vodozemac::base64_encode;
 
-use crate::{SignatureError, types::X509Signature, x509::x509_signer::RawX509Signer};
+use crate::{
+    SignatureError,
+    x509::{
+        raw_x509_signature::{RawX509Signature, X509SignatureScheme},
+        x509_signer::RawX509Signer,
+    },
+};
 
 /// A Rust implementation of [`RawX509Signer`]. This does the signing
 /// itself (using `rustls`) rather than delegating the work to some external
@@ -36,6 +42,7 @@ pub struct RustRawX509Signer {
     certificate_chain: String,
 
     /// The device ID for signatures we generate.
+    /// TODO: remove
     device_id: OwnedDeviceId,
 
     /// The private signing key for this device.
@@ -93,23 +100,20 @@ impl RawX509Signer for RustRawX509Signer {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<(OwnedDeviceId, X509Signature), SignatureError> {
-        let signature_scheme = SignatureScheme::RSA_PSS_SHA512;
+    fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
         let signer = self
             .signing_key
-            .choose_scheme(&[signature_scheme])
+            .choose_scheme(&[SignatureScheme::RSA_PSS_SHA512])
             .ok_or(SignatureError::UnsupportedAlgorithm)?;
 
-        let signature =
+        let signature_bytes =
             signer.sign(message).map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
-        Ok((
-            self.device_id.clone(),
-            X509Signature {
-                certificate_chain: self.certificate_chain.clone(),
-                signature_scheme,
-                signature: base64_encode(signature),
-            },
-        ))
+
+        Ok(RawX509Signature {
+            signature_bytes,
+            certificate_chain: self.certificate_chain.clone(),
+            signature_scheme: X509SignatureScheme::RsaPssSha512,
+        })
     }
 }
 
@@ -146,6 +150,7 @@ mod tests {
 
     use crate::x509::{
         RawX509Signer,
+        raw_x509_signature::X509SignatureScheme,
         rust_raw_x509_signer::{RustRawX509Signer, get_authority_key_identifier},
     };
 
@@ -171,12 +176,11 @@ mod tests {
         let x509_sign =
             RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
 
-        let (key_id, sig) = x509_sign.sign(b"hello world").unwrap();
+        let sig = x509_sign.sign(b"hello world").unwrap();
 
-        assert_eq!(key_id.as_str(), "io.element.x509:2F6Rmhfww1sT23VCfSE3mt8+lhE");
         assert_eq!(sig.certificate_chain, TEST_CERT_CHAIN);
-        assert_eq!(u16::from(sig.signature_scheme), 2054); // SignatureScheme::RSA_PSS_SHA512
-        assert_eq!(sig.signature.len(), 342);
+        assert_eq!(sig.signature_scheme, X509SignatureScheme::RsaPssSha512);
+        assert_eq!(sig.signature_bytes.len(), 256);
     }
 
     /// A leaf and intermediate CA cert, generated with openssl
