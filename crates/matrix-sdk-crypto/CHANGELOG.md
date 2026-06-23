@@ -6,15 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
-No significant changes.
+### Fixed
+
+- Upgrade Ruma to 0.16.0, fixing a deserialization issue for
+  `m.key.verification.accept` events.
+  ([#6628](https://github.com/matrix-org/matrix-rust-sdk/pulls/6628))
 
 ## [0.17.0] - 2026-05-08
 
-### Bug fixes
+### Security fixes
 
 - Check the user ID in the `sender_device_keys` property of Olm-encrypted
 to-device events to prevent sender spoofing by homeserver owners.
 ([#6553](https://github.com/matrix-org/matrix-rust-sdk/pull/6553))
+
+  Resolves: [GHSA-wfq4-36m3-9g42](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-wfq4-36m3-9g42) / [CVE-2026-45056](https://www.cve.org/CVERecord?id=CVE-2026-45056).
 
 ### Features
 

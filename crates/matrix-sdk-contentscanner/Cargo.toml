@@ -1,0 +1,30 @@
+[package]
+authors = ["Jorge Martín Espinosa <jorgem@element.io>"]
+description = "Optional crate used to allow scanning the contents of media to prevent malware infections"
+name = "matrix-sdk-contentscanner"
+version = "0.18.0"
+edition = "2024"
+license = "Apache-2.0"
+rust-version.workspace = true
+
+[features]
+uniffi = ["dep:uniffi", "matrix-sdk/uniffi"]
+
+[dependencies]
+assert_matches2.workspace = true
+matrix-sdk = { workspace = true, features = ["testing", "e2e-encryption"] }
+matrix-sdk-crypto.workspace = true
+ruma = { workspace = true, features = ["client-api"] }
+serde.workspace = true
+tracing.workspace = true
+uniffi = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros"] }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+matrix-sdk-test.workspace = true
+wiremock.workspace = true
+
+[lints]
+workspace = true

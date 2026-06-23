@@ -155,7 +155,7 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
-    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
+    async fn clear_all_events(&self) -> Result<(), Self::Error> {
         self.inner.write().unwrap().events.clear();
         Ok(())
     }
@@ -179,7 +179,7 @@ impl EventCacheStore for MemoryStore {
             if let Some(known_event_id) = event.event_id() {
                 // This event is a duplicate!
                 if let Some(index) =
-                    events.iter().position(|new_event_id| &known_event_id == new_event_id)
+                    events.iter().position(|new_event_id| known_event_id == new_event_id)
                 {
                     duplicated_events.push((events.remove(index), position));
                 }
@@ -240,7 +240,8 @@ impl EventCacheStore for MemoryStore {
         for (linked_chunk_id, (event, position)) in related_events {
             let event_id = event
                 .event_id()
-                .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })?;
+                .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })?
+                .to_owned();
             match linked_chunk_id.as_ref() {
                 LinkedChunkId::Room(_) => {
                     // Prioritize events that come from a room linked chunk
@@ -275,9 +276,12 @@ impl EventCacheStore for MemoryStore {
             })
             .filter(|e| session_id.is_none_or(|s| Some(s) == e.kind.session_id()))
             .map(|e| {
-                e.event_id()
-                    .map(|id| (id, e))
-                    .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })
+                let id = e
+                    .event_id()
+                    .ok_or(Self::Error::InvalidData { details: String::from("missing event id") })?
+                    .to_owned();
+
+                Ok((id, e))
             })
             .collect::<Result<Vec<_>>>()?
             .into_iter()

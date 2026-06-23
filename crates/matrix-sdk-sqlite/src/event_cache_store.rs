@@ -1270,7 +1270,7 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
+    async fn clear_all_events(&self) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
         self.write()
@@ -2007,7 +2007,7 @@ mod encrypted_tests {
         // The event needs to be the edit event, otherwise something is wrong.
         let (found_event, _) = &results[0];
         assert_eq!(
-            found_event.event_id().as_deref(),
+            found_event.event_id(),
             Some(edit_id),
             "The single event we found should be the edit event"
         );

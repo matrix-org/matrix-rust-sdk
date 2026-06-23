@@ -107,7 +107,7 @@ use crate::{
     http_client::{HttpClient, SupportedAuthScheme, SupportedPathBuilder},
     latest_events::LatestEvents,
     live_locations_observer::BeaconInfoUpdate,
-    media::MediaError,
+    media::{MediaError, MediaFetcher},
     notification_settings::NotificationSettings,
     room::RoomMember,
     room_preview::RoomPreview,
@@ -409,6 +409,8 @@ pub(crate) struct ClientInner {
     #[cfg(feature = "e2e-encryption")]
     pub(crate) duplicate_key_upload_error_sender:
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
+
+    pub(crate) media_fetcher: Arc<dyn MediaFetcher>,
 }
 
 impl ClientInner {
@@ -436,6 +438,7 @@ impl ClientInner {
         cross_process_lock_config: CrossProcessLockConfig,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
+        media_fetcher: Arc<dyn MediaFetcher>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
@@ -479,6 +482,7 @@ impl ClientInner {
             task_monitor: TaskMonitor::new(),
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
+            media_fetcher,
         };
 
         #[allow(clippy::let_and_return)]
@@ -797,7 +801,7 @@ impl Client {
 
     /// Get the media manager of the client.
     pub fn media(&self) -> Media {
-        Media::new(self.clone())
+        Media::new(self.clone(), self.inner.media_fetcher.clone())
     }
 
     /// Get the pusher manager of the client.
@@ -1702,17 +1706,11 @@ impl Client {
         alias: &RoomOrAliasId,
         server_names: &[OwnedServerName],
     ) -> Result<Room> {
-        let pre_join_info = {
-            match alias.try_into() {
-                Ok(room_id) => self.prepare_join_room_by_id(room_id).await,
-                Err(_) => {
-                    // The id is a room alias. We assume (possibly incorrectly?) that we are not
-                    // responding to an invitation to the room, and therefore don't need to handle
-                    // things that happen as a result of invites.
-                    None
-                }
-            }
+        let room_id = match <&RoomId>::try_from(alias) {
+            Ok(room_id) => room_id,
+            Err(room_alias) => &self.resolve_room_alias(room_alias).await?.room_id,
         };
+        let pre_join_info = self.prepare_join_room_by_id(room_id).await;
         let request = assign!(join_room_by_id_or_alias::v3::Request::new(alias.to_owned()), {
             via: server_names.to_owned(),
         });
@@ -3262,6 +3260,7 @@ impl Client {
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
+                self.inner.media_fetcher.clone(),
             )
             .await,
         };
@@ -3602,7 +3601,7 @@ pub(crate) struct WeakClient {
 
 impl WeakClient {
     /// Construct a [`WeakClient`] from a `Arc<ClientInner>`.
-    pub fn from_inner(client: &Arc<ClientInner>) -> Self {
+    pub(crate) fn from_inner(client: &Arc<ClientInner>) -> Self {
         Self { client: Arc::downgrade(client) }
     }
 
@@ -4396,6 +4395,41 @@ pub(crate) mod tests {
             )
             .await;
         assert_matches!(ret, Ok(()));
+    }
+
+    #[async_test]
+    async fn test_join_room_by_id_or_alias() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let target_room_id = room_id!("!some_id:matrix.org");
+        let target_alias = room_alias_id!("#some_alias:matrix.org");
+
+        Mock::given(method("POST"))
+            .and(path_regex("^/_matrix/client/v3/join/.*$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "room_id": target_room_id
+            })))
+            .mount(server.server())
+            .await;
+
+        server
+            .mock_room_directory_resolve_alias()
+            .ok(target_room_id.as_str(), Vec::new())
+            .mount()
+            .await;
+
+        server.mock_room_join(target_room_id).ok().mount().await;
+
+        let ret = client.join_room_by_id_or_alias(target_alias.into(), &[]).await;
+        assert!(ret.is_ok());
+
+        let ret = client.join_room_by_id_or_alias(target_room_id.into(), &[]).await;
+        assert!(ret.is_ok());
     }
 
     #[async_test]

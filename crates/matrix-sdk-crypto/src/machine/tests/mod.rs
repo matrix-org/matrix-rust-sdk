@@ -59,7 +59,7 @@ use vodozemac::{
 use super::CrossSigningBootstrapRequests;
 use crate::{
     Account, DecryptionSettings, DeviceData, EncryptionSettings, LocalTrust, MegolmError, OlmError,
-    RoomEventDecryptionResult, TrustRequirement,
+    OlmMachineBuilder, RoomEventDecryptionResult, TrustRequirement,
     error::{EventError, OlmResult},
     machine::{
         EncryptionSyncChanges, OlmMachine,
@@ -1641,7 +1641,11 @@ async fn test_fix_incorrect_usage_of_backup_key_causing_decryption_errors() {
 
     // Create the machine using `with_store` and without a call to enable_backup_v1,
     // like regenerate_olm would do
-    let alice = OlmMachine::with_store(user_id(), alice_device_id(), store, None).await.unwrap();
+    let alice = OlmMachineBuilder::new(user_id(), alice_device_id())
+        .with_crypto_store(store)
+        .build()
+        .await
+        .unwrap();
 
     let exported_key = ExportedRoomKey::from_backed_up_room_key(
         owned_room_id!("!room:id"),
@@ -1677,8 +1681,12 @@ async fn test_olm_machine_with_custom_account() {
     let account = vodozemac::olm::Account::new();
     let curve_key = account.identity_keys().curve25519;
 
-    let alice =
-        OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account)).await.unwrap();
+    let alice = OlmMachineBuilder::new(user_id(), alice_device_id())
+        .with_crypto_store(store)
+        .with_custom_account(Some(account))
+        .build()
+        .await
+        .unwrap();
 
     assert_eq!(
         alice.identity_keys().curve25519,
@@ -2020,8 +2028,12 @@ async fn test_mark_all_tracked_users_as_dirty() {
         .await
         .unwrap();
 
-    let alice =
-        OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account)).await.unwrap();
+    let alice = OlmMachineBuilder::new(user_id(), alice_device_id())
+        .with_crypto_store(store)
+        .with_custom_account(Some(account))
+        .build()
+        .await
+        .unwrap();
 
     // All users are marked as not dirty.
     alice.store().load_tracked_users().await.unwrap().iter().for_each(|tracked_user| {
@@ -2050,8 +2062,12 @@ async fn test_verified_latch_migration() {
     let to_track_not_dirty = vec![(bob_id, false), (carol_id, false)];
     store.save_tracked_users(&to_track_not_dirty).await.unwrap();
 
-    let alice =
-        OlmMachine::with_store(user_id(), alice_device_id(), store, Some(account)).await.unwrap();
+    let alice = OlmMachineBuilder::new(user_id(), alice_device_id())
+        .with_crypto_store(store)
+        .with_custom_account(Some(account))
+        .build()
+        .await
+        .unwrap();
 
     let alice_store = alice.store();
 

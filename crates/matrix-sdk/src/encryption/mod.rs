@@ -112,6 +112,7 @@ pub mod secret_storage;
 pub(crate) mod tasks;
 pub mod verification;
 
+use matrix_sdk_base::crypto::OlmMachineBuilder;
 pub use matrix_sdk_base::crypto::{
     CrossSigningStatus, CryptoStoreError, DecryptorError, EventError, KeyExportError, LocalTrust,
     MediaEncryptionInfo, MegolmError, OlmError, RoomKeyImportResult, SessionCreationError,
@@ -177,7 +178,9 @@ pub async fn export_secrets_bundle_from_store(
         store.load_account().await.map_err(|e| BundleExportError::StoreError(e.into()))?;
 
     if let Some(account) = account {
-        let machine = OlmMachine::with_store(&account.user_id, &account.device_id, store, None)
+        let machine = OlmMachineBuilder::new(&account.user_id, &account.device_id)
+            .with_crypto_store(store)
+            .build()
             .await
             .map_err(BundleExportError::StoreError)?;
 

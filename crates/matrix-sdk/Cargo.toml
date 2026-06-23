@@ -194,12 +194,6 @@ wiremock.workspace = true
 [target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test.workspace = true
 
-[target.'cfg(target_os = "android")'.dependencies]
-rustls = "0.23.38"
-rustls-pki-types = "1.14.0"
-rustls-native-certs = "0.8.3"
-webpki-roots = "1.0.6"
-
 [[test]]
 name = "integration"
 required-features = ["testing"]

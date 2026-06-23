@@ -1,7 +1,7 @@
 use std::{ops::Deref, sync::Arc};
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use matrix_sdk_crypto::{EncryptionSettings, OlmMachine};
+use matrix_sdk_crypto::{EncryptionSettings, OlmMachine, OlmMachineBuilder};
 use matrix_sdk_sqlite::SqliteCryptoStore;
 use matrix_sdk_test::ruma_response_from_json;
 use ruma::{
@@ -73,7 +73,9 @@ pub fn keys_query(c: &mut Criterion) {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
     let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None))
+        .block_on(
+            OlmMachineBuilder::new(alice_id(), alice_device_id()).with_crypto_store(store).build(),
+        )
         .unwrap();
 
     group.bench_with_input(
@@ -145,12 +147,11 @@ pub fn keys_claiming(c: &mut Criterion) {
                     );
 
                     let machine = runtime
-                        .block_on(OlmMachine::with_store(
-                            alice_id(),
-                            alice_device_id(),
-                            store,
-                            None,
-                        ))
+                        .block_on(
+                            OlmMachineBuilder::new(alice_id(), alice_device_id())
+                                .with_crypto_store(store)
+                                .build(),
+                        )
                         .unwrap();
                     runtime
                         .block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response))
@@ -223,7 +224,9 @@ pub fn room_key_sharing(c: &mut Criterion) {
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
 
     let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None))
+        .block_on(
+            OlmMachineBuilder::new(alice_id(), alice_device_id()).with_crypto_store(store).build(),
+        )
         .unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &keys_query_response)).unwrap();
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();
@@ -288,7 +291,9 @@ pub fn devices_missing_sessions_collecting(c: &mut Criterion) {
     let store = Arc::new(runtime.block_on(SqliteCryptoStore::open(dir.path(), None)).unwrap());
 
     let machine = runtime
-        .block_on(OlmMachine::with_store(alice_id(), alice_device_id(), store, None))
+        .block_on(
+            OlmMachineBuilder::new(alice_id(), alice_device_id()).with_crypto_store(store).build(),
+        )
         .unwrap();
 
     runtime.block_on(machine.mark_request_as_sent(&txn_id, &response)).unwrap();

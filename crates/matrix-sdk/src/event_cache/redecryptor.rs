@@ -121,7 +121,7 @@ use std::{
 
 use as_variant::as_variant;
 use futures_core::Stream;
-use futures_util::{StreamExt, future::join_all, pin_mut};
+use futures_util::{StreamExt, future::try_join_all, pin_mut};
 #[cfg(doc)]
 use matrix_sdk_base::{BaseClient, crypto::OlmMachine};
 use matrix_sdk_base::{
@@ -130,7 +130,6 @@ use matrix_sdk_base::{
         types::events::room::encrypted::EncryptedEvent,
     },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
-    event_cache::store::EventCacheStoreLockState,
     locks::Mutex,
     task_monitor::BackgroundTaskHandle,
     timer,
@@ -156,8 +155,7 @@ use tracing::{info, instrument, trace, warn};
 use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, TimelineVectorDiffs,
-    caches::room::{PostProcessingOrigin, RoomEventCacheLinkedChunkUpdate},
+    RoomEventCacheUpdate, TimelineVectorDiffs, caches::room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
@@ -229,7 +227,7 @@ impl RedecryptorChannels {
 fn filter_timeline_event_to_utd(
     event: TimelineEvent,
 ) -> Option<(OwnedEventId, Raw<AnySyncTimelineEvent>)> {
-    let event_id = event.event_id();
+    let event_id = event.event_id().map(ToOwned::to_owned);
 
     // Only pick out events that are UTDs, get just the Raw event as this is what
     // the OlmMachine needs.
@@ -247,7 +245,7 @@ fn filter_timeline_event_to_utd(
 fn filter_timeline_event_to_decrypted(
     event: TimelineEvent,
 ) -> Option<(OwnedEventId, DecryptedRoomEvent)> {
-    let event_id = event.event_id();
+    let event_id = event.event_id().map(ToOwned::to_owned);
 
     let event = as_variant!(event.kind, TimelineEventKind::Decrypted(event) => event);
     // Zip the event ID and event together so we don't have to pick out the event ID
@@ -263,32 +261,28 @@ impl EventCache {
     /// * `room_id` - The ID of the room where the events were sent to.
     /// * `session_id` - The unique ID of the room key that was used to encrypt
     ///   the event.
-    async fn get_utds(
+    async fn all_encrypted_events(
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
-        let events = match self.inner.store.lock().await? {
-            // If the lock is clean, no problem.
-            // If the lock is dirty, it doesn't really matter as we are hitting the store
-            // directly, there is no in-memory state to manage, so all good. Do not mark the lock as
-            // non-dirty.
-            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
-                guard.get_room_events(room_id, Some("m.room.encrypted"), Some(session_id)).await?
-            }
-        };
+        let caches = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok(events.into_iter().filter_map(filter_timeline_event_to_utd).collect())
+        Ok(caches
+            .all_events_of_type(Some("m.room.encrypted"), Some(session_id))
+            .await?
+            .filter_map(filter_timeline_event_to_utd)
+            .collect())
     }
 
     /// Retrieve a set of events that we weren't able to decrypt from the memory
     /// of the event cache.
-    async fn get_utds_from_memory(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
+    async fn all_in_memory_encrypted_events(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndUtd>> {
         let mut utds = BTreeMap::new();
 
         for (room_id, caches) in self.inner.by_room.read().await.iter() {
             let room_utds: Vec<_> = caches
-                .all_events()
+                .all_in_memory_events()
                 .await
                 .into_iter()
                 .flatten()
@@ -301,32 +295,26 @@ impl EventCache {
         utds
     }
 
-    async fn get_decrypted_events(
+    async fn all_decrypted_events(
         &self,
         room_id: &RoomId,
         session_id: SessionId<'_>,
     ) -> Result<Vec<EventIdAndEvent>, EventCacheError> {
-        let events = match self.inner.store.lock().await? {
-            // If the lock is clean, no problem.
-            // If the lock is dirty, it doesn't really matter as we are hitting the store
-            // directly, there is no in-memory state to manage, so all good. Do not mark the lock as
-            // non-dirty.
-            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
-                guard.get_room_events(room_id, None, Some(session_id)).await?
-            }
-        };
+        let caches = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok(events.into_iter().filter_map(filter_timeline_event_to_decrypted).collect())
+        Ok(caches
+            .all_events_of_type(None, Some(session_id))
+            .await?
+            .filter_map(filter_timeline_event_to_decrypted)
+            .collect())
     }
 
-    async fn get_decrypted_events_from_memory(
-        &self,
-    ) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
+    async fn all_in_memory_decrypted_events(&self) -> BTreeMap<OwnedRoomId, Vec<EventIdAndEvent>> {
         let mut decrypted_events = BTreeMap::new();
 
         for (room_id, caches) in self.inner.by_room.read().await.iter() {
             let room_utds: Vec<_> = caches
-                .all_events()
+                .all_in_memory_events()
                 .await
                 .into_iter()
                 .flatten()
@@ -363,28 +351,35 @@ impl EventCache {
 
         timer!("Resolving UTDs");
 
-        // Get the cache for this particular room.
-        let (room_cache, _drop_handles) = self.for_room(room_id).await?;
-
         let event_ids: BTreeSet<_> =
             events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
 
-        // Phase 1: under the room state write lock, collect cache handles and
-        // perform all room-linked-chunk mutations. We deliberately do NOT call
-        // replace_utds() on event-focused/pinned caches here to avoid an ABBA deadlock:
-        // pagination holds an event-focused cache lock and then tries to acquire the
-        // room state lock (via `save_events`), while this method would hold the
-        // room state lock and try to acquire event-focused cache locks.
-        let (pinned_cache, ef_caches) = {
+        let all_caches = self.inner.all_caches_for_room(room_id).await?;
+
+        // Resolve on the room cache.
+        {
+            let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
 
-            let pinned_cache = state.pinned_event_cache().cloned();
-            let ef_caches: Vec<_> = state.event_focused_caches().cloned().collect();
-
-            // Consider the room linked chunk.
             let mut new_events = Vec::with_capacity(events.len());
+
             for (event_id, decrypted, actions) in &events {
-                if let Some((location, mut target_event)) = state.find_event(event_id).await? {
+                if let Some((location, mut target_event)) = state.find_event(event_id).await?
+                    && (
+                        // There is a race between the multiple sources of updates. It's possible
+                        // that two sources trigger a decryption for the same event (for example,
+                        // the room key stream and the event cache updates). It is then likely that
+                        // the event has been already resolved. This race is fine, but we should
+                        // avoid to replace an event that has already been resolved as it is a
+                        // non-negligible operation.
+                        //
+                        // Note that a simple check like “event's kind is `UnableToDecrypt`” is not
+                        // enough. The event can already be decrypted but its encryption info can
+                        // change. So we must ensure they are also different.
+                        matches!(target_event.kind, TimelineEventKind::UnableToDecrypt { .. })
+                            || target_event.encryption_info() != Some(&decrypted.encryption_info)
+                    )
+                {
                     target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
 
                     if let Some(actions) = actions {
@@ -407,38 +402,75 @@ impl EventCache {
             // unreads.
             let receipt_event = None;
 
-            state
-                .post_process_new_events(
-                    new_events,
-                    PostProcessingOrigin::Redecryption,
-                    receipt_event,
-                )
-                .await?;
+            state.post_process_new_events(new_events, receipt_event).await?;
 
-            room_cache.update_sender().send(
-                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: state.room_linked_chunk_mut().updates_as_vector_diffs(),
-                    origin: EventsOrigin::Cache,
-                }),
-                Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
-            );
+            let updates_as_vector_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
 
-            (pinned_cache, ef_caches)
-        };
-        // Room state write lock is dropped here.
-
-        // Phase 2: replace UTDs in pinned and event-focused caches WITHOUT
-        // holding the room state lock. These caches have their own internal
-        // locks and don't need the room state lock.
-        if let Some(pinned_cache) = pinned_cache {
-            pinned_cache.replace_utds(&events).await?;
+            if !updates_as_vector_diffs.is_empty() {
+                room_cache.update_sender().send(
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs: updates_as_vector_diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
+                );
+            }
         }
 
-        // TODO: This ain't great for performance; there shouldn't be that many
-        // event-focused caches alive at the same time, but they could
-        // accumulate over time. Consider keeping track of which linked chunk
-        // contain which event id, to avoid doing the linear searches here.
-        join_all(ef_caches.iter().map(|cache| cache.replace_utds(&events))).await;
+        // Resolve on the thread caches.
+        {
+            // TODO: This ain't great for performance; there shouldn't be
+            // that many thread caches alive at the same time, but they could
+            // accumulate over time. Consider keeping track of which linked
+            // chunk contains which event ID, to avoid doing the linear searches
+            // here.
+
+            // Replaces UTDs in each thread, and maybe update the thread summary.
+            for (thread_id, thread_cache) in try_join_all(
+                all_caches.threads.read().await.iter().map(|(thread_id, thread_cache)| async {
+                    Result::<_, EventCacheError>::Ok(
+                        // If at least one event has been replaced, return the `thread_id` and the
+                        // `thread_cache` to update the thread summary later.
+                        thread_cache
+                            .replace_utds(&events)
+                            .await?
+                            .then(|| (thread_id.clone(), thread_cache.clone())),
+                    )
+                }),
+            )
+            .await?
+            .into_iter()
+            // Filter out results that are `None`, i.e. a thread where no UTD has been replaced.
+            .flatten()
+            {
+                let new_thread_summary =
+                    thread_cache.state().read().await?.compute_thread_summary().await?;
+
+                all_caches.room.update_thread_summary(&thread_id, new_thread_summary).await?;
+            }
+        }
+
+        // Resolve on the pinned-events cache.
+        if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
+            pinned_events_cache.replace_utds(&events).await?;
+        }
+
+        // Resolve on the event-focused caches.
+        {
+            // TODO: This ain't great for performance; there shouldn't be that many
+            // event-focused caches alive at the same time, but they could
+            // accumulate over time. Consider keeping track of which linked chunk
+            // contains which event ID, to avoid doing the linear searches here.
+            try_join_all(
+                all_caches
+                    .event_focused
+                    .read()
+                    .await
+                    .values()
+                    .map(|event_focused_cache| event_focused_cache.replace_utds(&events)),
+            )
+            .await?;
+        }
 
         let report =
             RedecryptorReport::ResolvedUtds { room_id: room_id.to_owned(), events: event_ids };
@@ -508,7 +540,7 @@ impl EventCache {
         session_id: SessionId<'_>,
     ) -> Result<(), EventCacheError> {
         // Get all the relevant UTDs.
-        let events = self.get_utds(room_id, session_id).await?;
+        let events = self.all_encrypted_events(room_id, session_id).await?;
         self.retry_decryption_for_events(room_id, events).await
     }
 
@@ -530,7 +562,7 @@ impl EventCache {
     }
 
     async fn retry_decryption_for_in_memory_events(&self) {
-        let utds = self.get_utds_from_memory().await;
+        let utds = self.all_in_memory_encrypted_events().await;
 
         for (room_id, utds) in utds.into_iter() {
             if let Err(e) = self.retry_decryption_for_events(&room_id, utds).await {
@@ -641,7 +673,7 @@ impl EventCache {
         };
 
         // Get all the relevant events.
-        let events = self.get_decrypted_events(room_id, session_id).await?;
+        let events = self.all_decrypted_events(room_id, session_id).await?;
 
         if events.is_empty() {
             trace!("No relevant events found.");
@@ -653,7 +685,7 @@ impl EventCache {
     }
 
     async fn retry_update_encryption_info_for_in_memory_events(&self) {
-        let decrypted_events = self.get_decrypted_events_from_memory().await;
+        let decrypted_events = self.all_in_memory_decrypted_events().await;
 
         for (room_id, events) in decrypted_events.into_iter() {
             let Some(room) = self.inner.client().ok().and_then(|c| c.get_room(&room_id)) else {
@@ -676,9 +708,9 @@ impl EventCache {
     /// subscribed to the event cache are have received and are keeping cached.
     ///
     /// If components subscribed to the event cache are doing additional
-    /// caching, they'll need to listen to [RedecryptorReport]s and
+    /// caching, they'll need to listen to [`RedecryptorReport`]s and
     /// explicitly request redecryption attempts using
-    /// [EventCache::request_decryption].
+    /// [`EventCache::request_decryption`].
     async fn retry_in_memory_events(&self) {
         self.retry_decryption_for_in_memory_events().await;
         self.retry_update_encryption_info_for_in_memory_events().await;
@@ -1116,7 +1148,6 @@ mod tests {
         locks::Mutex,
         sleep::sleep,
         store::StoreConfig,
-        timeout::timeout,
     };
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
@@ -1249,8 +1280,8 @@ mod tests {
             self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
         }
 
-        async fn clear_all_linked_chunks(&self) -> Result<(), Self::Error> {
-            self.memory_store.clear_all_linked_chunks().await
+        async fn clear_all_events(&self) -> Result<(), Self::Error> {
+            self.memory_store.clear_all_events().await
         }
 
         async fn filter_duplicated_events(
@@ -1464,7 +1495,7 @@ mod tests {
 
         let event_cache = bob.event_cache();
         let (room_cache, _) = event_cache
-            .for_room(room_id)
+            .room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
@@ -1498,6 +1529,7 @@ mod tests {
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         assert_let_timeout!(
@@ -1554,7 +1586,7 @@ mod tests {
 
         let event_cache = bob.event_cache();
         let (room_cache, _) = event_cache
-            .for_room(room_id)
+            .room(room_id)
             .instrument(bob_span.clone())
             .await
             .expect("We should be able to get to the event cache for a specific room");
@@ -1582,6 +1614,7 @@ mod tests {
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         assert_let_timeout!(
@@ -1692,7 +1725,7 @@ mod tests {
 
         // Let's now see what Bob's event cache does.
         let (room_cache, _) = event_cache
-            .for_room(room_id)
+            .room(room_id)
             .await
             .expect("We should be able to get to the event cache for a specific room");
 
@@ -1722,10 +1755,9 @@ mod tests {
         info!("Stopping the delay");
         delayed_store.stop_delaying().await;
 
-        // Now that the first decryption attempt has failed since the sync with the
-        // event did not contain the room key, and the decryptor has received
-        // the room key but the event was not persisted in the cache as of yet,
-        // let's the event cache process the event.
+        // The first decryption attempt has failed because the first sync (the
+        // one with the event) did not contain the room key. The decryptor has
+        // later received the room key.
 
         // Alright, Bob has received an update from the cache.
         assert_let_timeout!(
@@ -1737,8 +1769,10 @@ mod tests {
         // receive the room key yet.
         assert_eq!(diffs.len(), 1);
         assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_eq!(values.len(), 1);
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
+        // And the companion generic update.
         assert_let_timeout!(
             Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
         );
@@ -1757,130 +1791,11 @@ mod tests {
         assert_eq!(*index, 0);
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
 
+        // And the companion generic update.
         assert_let_timeout!(
             Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
-    }
-
-    /// Regression test: the redecryptor must NOT hold the room state write
-    /// lock while calling replace_utds() on event-focused caches, otherwise
-    /// an ABBA deadlock occurs with concurrent event-focused cache pagination.
-    #[async_test]
-    async fn test_redecryptor_no_deadlock_with_event_focused_cache_pagination() {
-        use crate::{
-            event_cache::EventFocusThreadMode,
-            test_utils::mocks::{RoomContextResponseTemplate, RoomMessagesResponseTemplate},
-        };
-
-        let room_id = room_id!("!test:localhost");
-        let f = EventFactory::new().room(room_id);
-        let (alice, bob, server, _) = set_up_clients(room_id, true, false).await;
-
-        let (encrypted_event, room_key) = prepare_room(&server, &f, &alice, &bob, room_id).await;
-
-        let event_cache = bob.event_cache();
-        let (room_cache, _drop_handles) = event_cache
-            .for_room(room_id)
-            .await
-            .expect("Bob should have an event cache for the room");
-
-        let (_initial_events, mut subscriber) = room_cache.subscribe().await.unwrap();
-
-        // Sync the encrypted event to Bob. Without the room key, it's a UTD.
-        server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_joined_room(
-                    JoinedRoomBuilder::new(room_id).add_timeline_event(encrypted_event),
-                );
-            })
-            .await;
-
-        // Consume the UTD update from the subscriber.
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                subscriber.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-        assert_matches!(&diffs[0], VectorDiff::Append { values });
-        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
-
-        // Create an event-focused cache with a backward pagination gap.
-        let focused_event_id = event_id!("$focused");
-        let bob_user_id = bob.user_id().unwrap();
-
-        server
-            .mock_room_event_context()
-            .expect_any_access_token()
-            .ok(RoomContextResponseTemplate::new(
-                f.text_msg("focused msg")
-                    .sender(bob_user_id)
-                    .event_id(focused_event_id)
-                    .into_event(),
-            )
-            .start("back-token"))
-            .mock_once()
-            .mount()
-            .await;
-
-        let event_focused_cache = room_cache
-            .get_or_create_event_focused_cache(
-                focused_event_id.to_owned(),
-                20,
-                EventFocusThreadMode::Automatic,
-            )
-            .await
-            .unwrap();
-
-        // Mock /messages with a long delay, simulating a slow network.
-        server
-            .mock_room_messages()
-            .expect_any_access_token()
-            .ok(RoomMessagesResponseTemplate::default().with_delay(Duration::from_secs(5)))
-            .mock_once()
-            .mount()
-            .await;
-
-        // Start backward pagination on the event-focused cache. This holds the cache
-        // write lock across the slow /messages network request.
-        let event_focused_cache_clone = event_focused_cache.clone();
-        let pagination_task = tokio::spawn(async move {
-            let _ = event_focused_cache_clone.paginate_backwards(20).await;
-        });
-
-        // Let the pagination task acquire the event-focused cache write lock.
-        sleep(Duration::from_millis(200)).await;
-
-        // Send the room key to Bob.
-        //
-        // The redecryptor background task will pick it up and decrypt the UTD.
-        // Previously, on_resolved_utds would hold the room state write lock
-        // while calling replace_utds on event-focused caches, creating an ABBA
-        // deadlock with pagination (which holds event-focused lock and needs
-        // room state lock via save_events).
-        server
-            .mock_sync()
-            .ok_and_run(&bob, |builder| {
-                builder.add_to_device_event(
-                    room_key
-                        .deserialize_as()
-                        .expect("We should be able to deserialize the room key"),
-                );
-            })
-            .await;
-
-        // Wait for the redecryptor to process the room key.
-        sleep(Duration::from_secs(1)).await;
-
-        // Subscribing requires a room state read lock (which would be awaited forever,
-        // before the fix).
-        let (_events, _subscriber) = timeout(room_cache.subscribe(), Duration::from_millis(100))
-            .await
-            .expect("subscribing shouldn't timeout")
-            .expect("subscribing should succeed");
-
-        pagination_task.abort();
     }
 }

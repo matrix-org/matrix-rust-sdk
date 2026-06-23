@@ -85,7 +85,7 @@ impl Room {
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
         let mut search_index_guard = self.client.search_index().lock().await;
         search_index_guard.search(query, max_number_of_results, pagination_offset, self.room_id())
     }
@@ -159,7 +159,7 @@ impl RoomSearchIterator {
             Ok(None)
         } else {
             self.offset = Some(self.offset.unwrap_or(0) + result.len());
-            Ok(Some(result))
+            Ok(Some(result.into_iter().map(|(_, id)| id).collect()))
         }
     }
 
@@ -280,10 +280,9 @@ pub struct GlobalSearchIterator {
     /// until it's empty and the overall iteration is done.
     room_state: Vec<GlobalSearchRoomState>,
 
-    /// A buffer for the current batch of results across all rooms, so that we
-    /// can return results in a more interleaved way instead of exhausting
-    /// one room at a time.
-    current_batch: Vec<(OwnedRoomId, OwnedEventId)>,
+    /// A buffer for the current batch of results across all rooms, sorted by
+    /// score descending so results are returned in relevance order.
+    current_batch: Vec<(f32, OwnedRoomId, OwnedEventId)>,
 
     /// Number of results to return (at most) per batch when calling
     /// [`Self::next()`].
@@ -299,9 +298,14 @@ impl GlobalSearchIterator {
         }
 
         // If there was enough results from a previous room iteration, return them
-        // immediately.
+        // immediately (they're already sorted from the previous fill).
         if self.current_batch.len() >= self.num_results_per_batch {
-            return Ok(Some(self.current_batch.drain(0..self.num_results_per_batch).collect()));
+            return Ok(Some(
+                self.current_batch
+                    .drain(0..self.num_results_per_batch)
+                    .map(|(_, room_id, event_id)| (room_id, event_id))
+                    .collect(),
+            ));
         }
 
         let mut to_remove = HashSet::new();
@@ -322,11 +326,9 @@ impl GlobalSearchIterator {
                 room_state.offset = Some(room_state.offset.unwrap_or(0) + room_results.len());
 
                 // Append the search results to the current batch.
-                self.current_batch.extend(
-                    room_results
-                        .into_iter()
-                        .map(|event_id| (room_state.room.room_id().to_owned(), event_id)),
-                );
+                self.current_batch.extend(room_results.into_iter().map(|(score, event_id)| {
+                    (score, room_state.room.room_id().to_owned(), event_id)
+                }));
 
                 if self.current_batch.len() >= self.num_results_per_batch {
                     // We have enough events to return now.
@@ -341,8 +343,16 @@ impl GlobalSearchIterator {
         }
 
         if !self.current_batch.is_empty() {
+            // Sort by score descending so cross-room results are returned in relevance
+            // order.
+            self.current_batch.sort_unstable_by(|a, b| b.0.total_cmp(&a.0));
             let high = self.num_results_per_batch.min(self.current_batch.len());
-            Ok(Some(self.current_batch.drain(0..high).collect()))
+            Ok(Some(
+                self.current_batch
+                    .drain(0..high)
+                    .map(|(_, room_id, event_id)| (room_id, event_id))
+                    .collect(),
+            ))
         } else {
             debug_assert!(self.room_state.is_empty());
             Ok(None)
@@ -442,7 +452,7 @@ mod tests {
             let maybe_results = room_search.next_events().await.unwrap();
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
-            assert_eq!(results[0].event_id().as_deref().unwrap(), event_id,);
+            assert_eq!(results[0].event_id().unwrap(), event_id,);
 
             // And no more results after that.
             let maybe_results = room_search.next_events().await.unwrap();
@@ -531,16 +541,88 @@ mod tests {
             // Search results order is not guaranteed, so we check that both expected
             // results are present in the returned batch.
             assert!(results.iter().any(|(room_id, event)| {
-                room_id == room_id1 && event.event_id().as_deref() == Some(result_event_id1)
+                room_id == room_id1 && event.event_id() == Some(result_event_id1)
             }));
             assert!(results.iter().any(|(room_id, event)| {
-                room_id == room_id2 && event.event_id().as_deref() == Some(result_event_id2)
+                room_id == room_id2 && event.event_id() == Some(result_event_id2)
             }));
 
             // And no more results after that.
             let maybe_results = search.next_events().await.unwrap();
             assert!(maybe_results.is_none());
         }
+    }
+
+    #[async_test]
+    async fn test_global_message_search_score_ordering() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id1 = room_id!("!r1:localhost");
+        let room_id2 = room_id!("!r2:localhost");
+
+        let f = EventFactory::new().sender(user_id!("@user_id:localhost"));
+
+        // Both rooms get two documents of identical length (padded with filler so
+        // document-length normalization and the per-corpus IDF of "world" match across
+        // rooms). The score then depends only on how many times "world" appears.
+        //
+        // Term frequencies are 4, 3, 2, 1, split so the rooms alternate by rank:
+        // room1 holds the 4x and 2x events, room2 the 3x and 1x events. A correct
+        // cross-room sort therefore interleaves the rooms: r1, r2, r1, r2.
+        let r1_rank1 = event_id!("$r1_rank1:localhost"); // room1, "world" x4
+        let r2_rank2 = event_id!("$r2_rank2:localhost"); // room2, "world" x3
+        let r1_rank3 = event_id!("$r1_rank3:localhost"); // room1, "world" x2
+        let r2_rank4 = event_id!("$r2_rank4:localhost"); // room2, "world" x1
+
+        server
+            .mock_sync()
+            .ok_and_run(&client, |sync_builder| {
+                sync_builder
+                    .add_joined_room(
+                        JoinedRoomBuilder::new(room_id1)
+                            .add_timeline_event(
+                                f.text_msg("world world world world filler filler filler filler filler filler")
+                                    .room(room_id1)
+                                    .event_id(r1_rank1),
+                            )
+                            .add_timeline_event(
+                                f.text_msg("world world filler filler filler filler filler filler filler filler")
+                                    .room(room_id1)
+                                    .event_id(r1_rank3),
+                            ),
+                    )
+                    .add_joined_room(
+                        JoinedRoomBuilder::new(room_id2)
+                            .add_timeline_event(
+                                f.text_msg("world world world filler filler filler filler filler filler filler")
+                                    .room(room_id2)
+                                    .event_id(r2_rank2),
+                            )
+                            .add_timeline_event(
+                                f.text_msg("world filler filler filler filler filler filler filler filler filler")
+                                    .room(room_id2)
+                                    .event_id(r2_rank4),
+                            ),
+                    );
+            })
+            .await;
+
+        sleep(Duration::from_millis(200)).await;
+
+        let mut search = client.search_messages("world".to_owned(), 10).build();
+
+        let results = search.next().await.unwrap().unwrap();
+        assert_eq!(results.len(), 4);
+
+        // Results are interleaved across the two rooms strictly by score.
+        assert_eq!(results[0], (room_id1.to_owned(), r1_rank1.to_owned()));
+        assert_eq!(results[1], (room_id2.to_owned(), r2_rank2.to_owned()));
+        assert_eq!(results[2], (room_id1.to_owned(), r1_rank3.to_owned()));
+        assert_eq!(results[3], (room_id2.to_owned(), r2_rank4.to_owned()));
     }
 
     #[async_test]
@@ -613,7 +695,7 @@ mod tests {
             let results = maybe_results.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].0, room_id2);
-            assert_eq!(results[0].1.event_id().as_deref().unwrap(), result_event_id2);
+            assert_eq!(results[0].1.event_id().unwrap(), result_event_id2);
 
             // And no more results after that.
             let maybe_results = search.next().await.unwrap();

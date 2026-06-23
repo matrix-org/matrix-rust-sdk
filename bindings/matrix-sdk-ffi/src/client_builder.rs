@@ -19,7 +19,7 @@
 use std::{fs, path::PathBuf};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
-#[cfg(not(any(target_family = "wasm", target_os = "android")))]
+#[cfg(not(any(target_family = "wasm")))]
 use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
 use matrix_sdk::search_index::SearchIndexStoreKind;
@@ -29,6 +29,7 @@ use matrix_sdk::{
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
     encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
+    media::MediaFetcher,
     ruma::{ServerName, UserId},
     sliding_sync::{
         Error as MatrixSlidingSyncError, VersionBuilder as MatrixSlidingSyncVersionBuilder,
@@ -39,6 +40,7 @@ use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
 };
+use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
@@ -163,6 +165,8 @@ pub struct ClientBuilder {
     threading_support: ThreadingSupport,
 
     dm_room_definition: DmRoomDefinition,
+
+    media_fetcher: Option<Arc<dyn MediaFetcher>>,
 }
 
 /// The timeout applies to each read operation, and resets after a successful
@@ -209,7 +213,14 @@ impl ClientBuilder {
             #[cfg(feature = "experimental-search")]
             search_index_store: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
+            media_fetcher: None,
         })
+    }
+
+    pub fn enable_content_scanner(self: Arc<Self>, scanner_url: String) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.media_fetcher = Some(Arc::new(ContentScannerMediaFetcher::new(scanner_url)));
+        Arc::new(builder)
     }
 
     pub fn dm_room_definition(self: Arc<Self>, dm_room_definition: DmRoomDefinition) -> Arc<Self> {
@@ -446,34 +457,26 @@ impl ClientBuilder {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            #[cfg(target_os = "android")]
-            {
-                inner_builder =
-                    inner_builder.add_raw_root_certificates(builder.additional_root_certificates)
-            }
-            #[cfg(not(target_os = "android"))]
-            {
-                let mut certificates = Vec::new();
-                for certificate in builder.additional_root_certificates {
-                    // We don't really know what type of certificate we may get here, so let's try
-                    // first one type, then the other.
-                    match Certificate::from_der(&certificate) {
-                        Ok(cert) => {
-                            certificates.push(cert);
-                        }
-                        Err(der_error) => {
-                            let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
-                                ClientBuildError::Generic {
-                                    message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
-                                }
-                            })?;
-                            certificates.push(cert);
-                        }
+            let mut certificates = Vec::new();
+            for certificate in builder.additional_root_certificates {
+                // We don't really know what type of certificate we may get here, so let's try
+                // first one type, then the other.
+                match Certificate::from_der(&certificate) {
+                    Ok(cert) => {
+                        certificates.push(cert);
+                    }
+                    Err(der_error) => {
+                        let cert = Certificate::from_pem(&certificate).map_err(|pem_error| {
+                            ClientBuildError::Generic {
+                                message: format!("Failed to add a root certificate as DER ({der_error:?}) or PEM ({pem_error:?})"),
+                            }
+                        })?;
+                        certificates.push(cert);
                     }
                 }
-
-                inner_builder = inner_builder.add_root_certificates(certificates);
             }
+
+            inner_builder = inner_builder.add_root_certificates(certificates);
 
             if builder.disable_built_in_root_certificates {
                 inner_builder = inner_builder.disable_built_in_root_certificates();
@@ -543,6 +546,10 @@ impl ClientBuilder {
         inner_builder = inner_builder
             .dm_room_definition(builder.dm_room_definition)
             .with_threading_support(builder.threading_support);
+
+        if let Some(media_fetcher) = builder.media_fetcher {
+            inner_builder = inner_builder.media_fetcher(media_fetcher.clone());
+        }
 
         let sdk_client = inner_builder.build().await?;
 

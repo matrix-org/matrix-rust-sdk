@@ -168,13 +168,13 @@ impl<P: RoomDataProvider> TimelineState<P> {
 
         // TODO merge with other should_add, one way or another?
         let should_add_new_items = match &txn.focus {
-            TimelineFocusKind::Live { hide_threaded_events } => {
+            TimelineFocusKind::Live { hide_threaded_events, .. } => {
                 thread_root.is_none() || !hide_threaded_events
             }
             TimelineFocusKind::Thread { root_event_id, .. } => {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
-            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents => {
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
                 // Don't add new items to these timelines; aggregations are added independently
                 // of the `should_add_new_items` value.
                 false

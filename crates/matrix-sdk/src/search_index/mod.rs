@@ -157,7 +157,7 @@ impl SearchIndexGuard<'_> {
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
         room_id: &RoomId,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
         if !self.index_map.contains_key(room_id) {
             let index = self.create_index(room_id)?;
             self.index_map.insert(room_id.to_owned(), index);
@@ -360,7 +360,7 @@ mod tests {
         let response = room.search("this", 5, None).await.expect("search should have 1 result");
 
         assert_eq!(response.len(), 1, "unexpected numbers of responses: {response:?}");
-        assert_eq!(response[0], event_id, "event id doesn't match: {response:?}");
+        assert_eq!(response[0].1, event_id, "event id doesn't match: {response:?}");
     }
 
     #[cfg(feature = "experimental-search")]
@@ -432,7 +432,11 @@ mod tests {
         let results = room.search("message", 3, None).await.unwrap();
 
         assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
-        assert_eq!(results[0], edit2_id, "Search should return latest edit, got {:?}", results[0]);
+        assert_eq!(
+            results[0].1, edit2_id,
+            "Search should return latest edit, got {:?}",
+            results[0].1
+        );
 
         // Editing the original after it exists and there has been another edit should
         // delete the previous edits and add this one
@@ -441,6 +445,10 @@ mod tests {
         let results = room.search("message", 3, None).await.unwrap();
 
         assert_eq!(results.len(), 1, "Search should return 1 result, got {results:?}");
-        assert_eq!(results[0], edit3_id, "Search should return latest edit, got {:?}", results[0]);
+        assert_eq!(
+            results[0].1, edit3_id,
+            "Search should return latest edit, got {:?}",
+            results[0].1
+        );
     }
 }

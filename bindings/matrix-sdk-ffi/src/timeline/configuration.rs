@@ -16,7 +16,10 @@ use std::sync::Arc;
 
 use matrix_sdk_ui::timeline::{
     TimelineEventFocusThreadMode, TimelineReadReceiptTracking,
-    event_filter::{TimelineEventCondition, TimelineEventFilter as InnerTimelineEventFilter},
+    event_filter::{
+        MembershipChangeFilter, TimelineEventCondition,
+        TimelineEventFilter as InnerTimelineEventFilter,
+    },
 };
 use ruma::{
     EventId,
@@ -104,7 +107,7 @@ pub enum FilterTimelineEventCondition {
     EventType { event_type: FilterTimelineEventType },
     /// The event is an `m.room.member` event that represents a membership
     /// change (join, leave, etc.).
-    MembershipChange,
+    MembershipChange { filter: MembershipChangeFilter },
     /// The event is an `m.room.member` event that represents a profile
     /// change (displayname or avatar URL).
     ProfileChange,
@@ -116,7 +119,9 @@ impl From<FilterTimelineEventCondition> for TimelineEventCondition {
             FilterTimelineEventCondition::EventType { event_type } => {
                 Self::EventType(event_type.into())
             }
-            FilterTimelineEventCondition::MembershipChange => Self::MembershipChange,
+            FilterTimelineEventCondition::MembershipChange { filter } => {
+                Self::MembershipChange(filter)
+            }
             FilterTimelineEventCondition::ProfileChange => Self::ProfileChange,
         }
     }

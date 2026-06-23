@@ -90,7 +90,9 @@ pub use identities::{
     Device, DeviceData, LocalTrust, OtherUserIdentity, OtherUserIdentityData, OwnUserIdentity,
     OwnUserIdentityData, UserDevices, UserIdentity, UserIdentityData,
 };
-pub use machine::{CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine};
+pub use machine::{
+    CrossSigningBootstrapRequests, EncryptionSyncChanges, OlmMachine, OlmMachineBuilder,
+};
 use matrix_sdk_common::deserialized_responses::{DecryptedRoomEvent, UnableToDecryptInfo};
 #[cfg(feature = "qrcode")]
 pub use matrix_sdk_qrcode;

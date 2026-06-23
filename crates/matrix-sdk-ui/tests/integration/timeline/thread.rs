@@ -26,7 +26,7 @@ use matrix_sdk::{
 };
 use matrix_sdk_test::{ALICE, BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{
-    RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
+    EventSendState, RoomExt as _, TimelineBuilder, TimelineDetails, TimelineEventFocusThreadMode,
     TimelineEventItemId, TimelineFocus, VirtualTimelineItem,
 };
 use ruma::{
@@ -304,6 +304,8 @@ async fn test_extract_bundled_thread_summary() {
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
     assert!(value.is_date_divider());
+
+    assert_pending!(stream);
 }
 
 #[async_test]
@@ -513,7 +515,7 @@ async fn test_thread_msg_edit_reflects_in_summary() {
         .await;
 
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    // Thread root + new implicit read receipt + new thread summary + day divider.
+    // Thread root + new implicit read receipt + new thread summary + day divider.
     // TODO: could we optimize this, to have only a single timeline update?
     assert_eq!(timeline_updates.len(), 4);
 
@@ -536,8 +538,12 @@ async fn test_thread_msg_edit_reflects_in_summary() {
         // Now, with Bob's read receipt.
         assert_eq!(event_item.read_receipts().len(), 2);
 
+        // The day divider is added.
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+        assert!(value.is_date_divider());
+
         // Eventually the summary comes in.
-        assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
         let event_item = value.as_event().unwrap();
         assert_eq!(event_item.event_id().unwrap(), thread_event_id);
         // Now there is a summary!
@@ -549,10 +555,6 @@ async fn test_thread_msg_edit_reflects_in_summary() {
         );
         assert_eq!(latest_event.content.as_message().unwrap().body(), "threaded reply");
         assert_eq!(summary.num_replies, 1);
-
-        // And finally, the day divider.
-        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
-        assert!(value.is_date_divider());
     }
 
     // When I receive an edit to that event, via sync,
@@ -678,8 +680,12 @@ async fn test_thread_poll_edit_reflects_in_summary() {
     // Now, with Bob's read receipt.
     assert_eq!(event_item.read_receipts().len(), 2);
 
+    // The day divider is added.
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+    assert!(value.is_date_divider());
+
     // Eventually the summary comes in.
-    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[2]);
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id().unwrap(), thread_event_id);
     // Now there is a summary!
@@ -695,10 +701,6 @@ async fn test_thread_poll_edit_reflects_in_summary() {
     assert_eq!(poll_results.answers.len(), 4);
 
     assert_eq!(summary.num_replies, 1);
-
-    // And finally, the day divider.
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
-    assert!(value.is_date_divider());
 
     // That's all, folks!
     assert_pending!(stream);
@@ -780,12 +782,12 @@ async fn test_thread_filtering_for_sync() {
         assert_eq!(event_item.content().as_message().unwrap().body(), "Thread root");
         assert_matches!(event_item.content().thread_summary(), None);
 
-        // The item gets a thread summary.
-        assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
-        assert_matches!(value.as_event().unwrap().content().thread_summary(), Some(_));
-
-        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
         assert!(value.is_date_divider());
+
+        // The item gets a thread summary.
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
+        assert_matches!(value.as_event().unwrap().content().thread_summary(), Some(_));
 
         assert_pending!(filtered_timeline_stream);
     }
@@ -814,22 +816,20 @@ async fn test_thread_filtering_for_sync() {
             "Within thread"
         );
 
-        // The thread summary gets updated:
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+        assert!(value.is_date_divider());
 
         // The thread event is a reply (because of the reply fallback), and since its
         // replied-to timeline item has been updated, it also gets updated.
-        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[3]);
+        assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[4]);
         assert_eq!(
             value.as_event().unwrap().content().as_message().unwrap().body(),
             "Within thread"
         );
 
         // Then the thread summary is updated on the thread root.
-        assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[4]);
+        assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[5]);
         assert_matches!(value.as_event().unwrap().content().thread_summary(), Some(_));
-
-        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[5]);
-        assert!(value.is_date_divider());
 
         assert_pending!(timeline_stream);
     }
@@ -1021,6 +1021,7 @@ async fn test_thread_timeline_gets_local_echoes() {
     assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert!(event_item.is_local_echo());
+    assert_matches!(event_item.send_state(), Some(EventSendState::NotSentYet { .. }));
     assert!(event_item.event_id().is_none());
 
     // The thread information is properly filled.
@@ -1030,18 +1031,16 @@ async fn test_thread_timeline_gets_local_echoes() {
 
     // Then the local echo morphs into a sent local echo.
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 3);
+    assert_eq!(timeline_updates.len(), 1);
 
     // The local event is updated.
     assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
     let event_item = value.as_event().unwrap();
     assert_eq!(event_item.event_id(), Some(sent_event_id));
+    assert!(event_item.is_local_echo());
+    assert_let!(Some(EventSendState::Sent { event_id }) = event_item.send_state());
+    assert_eq!(event_id, sent_event_id);
     assert!(event_item.content().reactions().unwrap().is_empty());
-
-    // The local event is inserted in the Event Cache as a remote event.
-    assert_matches!(&timeline_updates[1], VectorDiff::Remove { index: 2 });
-    assert_let!(VectorDiff::PushBack { value: remote_event } = &timeline_updates[2]);
-    assert_eq!(remote_event.as_event().unwrap().event_id(), Some(sent_event_id));
 
     // Then nothing else.
     assert_pending!(stream);
@@ -1845,7 +1844,8 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
     let server = MatrixMockServer::new().await;
 
     let client = client_with_threading_support(&server).await;
-    client.event_cache().subscribe().unwrap();
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
 
     let room_id = room_id!("!a:b.c");
     let room = server.sync_joined_room(&client, room_id).await;
@@ -1905,14 +1905,9 @@ async fn test_permalink_doesnt_listen_to_thread_sync() {
         .mount()
         .await;
 
-    let (room_event_cache, _drop_guards) = room.event_cache().await.unwrap();
-    let outcome = room_event_cache
-        .thread_pagination(thread_root.to_owned())
-        .await
-        .unwrap()
-        .run_backwards_once(42)
-        .await
-        .unwrap();
+    let (thread_event_cache, _drop_guards) =
+        event_cache.thread(room_id, thread_root).await.unwrap();
+    let outcome = thread_event_cache.pagination().run_backwards_once(42).await.unwrap();
     assert!(outcome.reached_start.not());
 
     sleep(Duration::from_millis(100)).await;
@@ -1989,6 +1984,8 @@ async fn test_redacted_replied_to_is_updated() {
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[2]);
     assert!(value.is_date_divider());
 
+    assert_pending!(stream);
+
     // When the first reply is redacted,
     server
         .sync_room(
@@ -2000,12 +1997,17 @@ async fn test_redacted_replied_to_is_updated() {
 
     // The timeline sees the redaction as a removal,
     assert_let_timeout!(Some(timeline_updates) = stream.next());
-    assert_eq!(timeline_updates.len(), 2);
+    assert_eq!(timeline_updates.len(), 3);
 
-    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[0]);
+    // The first reply is being redacted by the `m.room.redaction` event the thread
+    // timeline receives.
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let ev1 = value.as_event().unwrap();
+    assert_eq!(ev1.event_id(), Some(first_reply));
 
-    // And then the replied-to update happens independently.
-    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[1]);
+    // The second reply is being updated because the event it replies to has been
+    // updated.
+    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[1]);
     let ev2 = value.as_event().unwrap();
     assert_eq!(ev2.event_id(), Some(second_reply));
     let msglike = ev2.content().as_msglike().unwrap();
@@ -2013,6 +2015,11 @@ async fn test_redacted_replied_to_is_updated() {
     assert_eq!(in_reply_to.event_id, first_reply);
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_redacted());
+
+    // Finally, the first reply is being removed.
+    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[2]);
+
+    assert_pending!(stream);
 }
 
 #[async_test]

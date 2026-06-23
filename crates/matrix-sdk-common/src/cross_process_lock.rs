@@ -132,7 +132,7 @@ enum WaitingTime {
 ///
 /// The lock will be automatically released a short period of time after all the
 /// guards have dropped.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 #[must_use = "If unused, the `CrossProcessLock` will unlock at the end of the lease"]
 pub struct CrossProcessLockGuard {
     /// A clone of [`CrossProcessLock::num_holders`].
@@ -143,8 +143,10 @@ pub struct CrossProcessLockGuard {
 }
 
 impl CrossProcessLockGuard {
-    fn new(num_holders: Arc<AtomicU32>, is_dirty: Arc<AtomicBool>) -> Self {
-        Self { num_holders, is_dirty }
+    fn new(num_holders: &Arc<AtomicU32>, is_dirty: &Arc<AtomicBool>) -> Self {
+        num_holders.fetch_add(1, Ordering::SeqCst);
+
+        Self { num_holders: num_holders.clone(), is_dirty: is_dirty.clone() }
     }
 
     /// Determine whether the cross-process lock associated to this guard is
@@ -164,6 +166,12 @@ impl CrossProcessLockGuard {
     /// marking that it has recovered.
     pub fn clear_dirty(&self) {
         self.is_dirty.store(false, Ordering::SeqCst);
+    }
+}
+
+impl Clone for CrossProcessLockGuard {
+    fn clone(&self) -> Self {
+        Self::new(&self.num_holders, &self.is_dirty)
     }
 }
 
@@ -272,7 +280,7 @@ where
             lock_key,
             config,
             backoff: Arc::new(Mutex::new(WaitingTime::Some(INITIAL_BACKOFF_MS))),
-            num_holders: Arc::new(0.into()),
+            num_holders: Arc::new(AtomicU32::new(0)),
             locking_attempt: Arc::new(Mutex::new(())),
             renew_task: Default::default(),
             generation: Arc::new(AtomicU64::new(NO_CROSS_PROCESS_LOCK_GENERATION)),
@@ -305,7 +313,7 @@ where
     pub async fn try_lock_once(&self) -> AcquireCrossProcessLockResult<L::LockError> {
         // If it's not `MultiProcess`, this behaves as a no-op
         let CrossProcessLockConfig::MultiProcess { holder_name } = &self.config else {
-            let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
+            let guard = CrossProcessLockGuard::new(&self.num_holders, &self.is_dirty);
             return Ok(Ok(CrossProcessLockState::Clean(guard)));
         };
 
@@ -322,11 +330,9 @@ where
             // taken by at least one thread.
             trace!("We already had the lock, incrementing holder count");
 
-            self.num_holders.fetch_add(1, Ordering::SeqCst);
-
             return Ok(Ok(CrossProcessLockState::Clean(CrossProcessLockGuard::new(
-                self.num_holders.clone(),
-                self.is_dirty.clone(),
+                &self.num_holders,
+                &self.is_dirty,
             ))));
         }
 
@@ -447,9 +453,7 @@ where
             }
         }));
 
-        self.num_holders.fetch_add(1, Ordering::SeqCst);
-
-        let guard = CrossProcessLockGuard::new(self.num_holders.clone(), self.is_dirty.clone());
+        let guard = CrossProcessLockGuard::new(&self.num_holders, &self.is_dirty);
 
         Ok(Ok(if self.is_dirty() {
             CrossProcessLockState::Dirty(guard)
@@ -653,6 +657,35 @@ impl CrossProcessLockConfig {
             Self::MultiProcess { holder_name } => Some(holder_name),
             Self::SingleProcess => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::{Arc, AtomicBool, AtomicU32, CrossProcessLockGuard, Ordering};
+
+    #[test]
+    fn test_number_of_holders_follows_the_number_of_guards() {
+        let num_holders = Arc::new(AtomicU32::new(0));
+        let guard = CrossProcessLockGuard::new(&num_holders, &Arc::new(AtomicBool::new(false)));
+
+        assert_eq!(num_holders.load(Ordering::Relaxed), 1);
+        assert_eq!(guard.num_holders.load(Ordering::Relaxed), 1);
+
+        let guard_clone = guard.clone();
+
+        assert_eq!(num_holders.load(Ordering::Relaxed), 2);
+        assert_eq!(guard.num_holders.load(Ordering::Relaxed), 2);
+        assert_eq!(guard_clone.num_holders.load(Ordering::Relaxed), 2);
+
+        drop(guard_clone);
+
+        assert_eq!(num_holders.load(Ordering::Relaxed), 1);
+        assert_eq!(guard.num_holders.load(Ordering::Relaxed), 1);
+
+        drop(guard);
+
+        assert_eq!(num_holders.load(Ordering::Relaxed), 0);
     }
 }
 

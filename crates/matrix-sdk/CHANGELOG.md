@@ -43,6 +43,13 @@ All notable changes to this project will be documented in this file.
 
 ## [0.17.0] - 2026-05-08
 
+### Security fixes
+
+- Reject invalid edits as candidates for the latest event.
+  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454), Moderate,
+  [CVE-2026-45057](https://www.cve.org/CVERecord?id=CVE-2026-45057),
+  [GHSA-h97m-27fx-42rx](https://github.com/matrix-org/matrix-rust-sdk/security/advisories/GHSA-h97m-27fx-42rx))
+
 ### Features
 
 - [**breaking**] `Room::is_dm` was renamed to `Room::compute_is_dm` to match its
@@ -219,8 +226,6 @@ All notable changes to this project will be documented in this file.
   ([#6519](https://github.com/matrix-org/matrix-rust-sdk/pull/6519))
 - Add a recursion limit attribute that raises it from the default value of 128
   to 256. ([#6489](https://github.com/matrix-org/matrix-rust-sdk/pull/6489))
-- Reject invalid edits as candidates for the latest event.
-  ([#6454](https://github.com/matrix-org/matrix-rust-sdk/pull/6454))
 - Fix an infinite loop when loading pinned events from the storage.
   ([#6453](https://github.com/matrix-org/matrix-rust-sdk/pull/6453))
 - `beacon_info` stop events (`live: false`,
@@ -273,14 +278,14 @@ All notable changes to this project will be documented in this file.
   encoded Curve25519 public key.
   ([#5940](https://github.com/matrix-org/matrix-rust-sdk/pull/5940))
 - Remove an unwrap in `SlidingSync::send_sync_request` when an asynchronous task
-  panics or is cancelled.
+  panics or is canceled.
   ([#6316](https://github.com/matrix-org/matrix-rust-sdk/pull/6316))
 
 ### Refactor
 
 - [**breaking**] Upgrade Ruma to 0.15.1.
   ([#6503](https://github.com/matrix-org/matrix-rust-sdk/pull/6503))
-- Revert back to to determining lock dirtiness in
+- Revert back to determining lock dirtiness in
   `Encryption::{spin_lock_store, try_lock_once_store}` through logic defined in
   `OlmMachine`, rather than `CrossProcessLock`.
   ([#6496](https://github.com/matrix-org/matrix-rust-sdk/pull/6496))
