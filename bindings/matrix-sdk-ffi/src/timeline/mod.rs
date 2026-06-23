@@ -676,7 +676,7 @@ impl Timeline {
             .into_iter()
             .map(|r| EditRevisionRecord {
                 content: r.content.into(),
-                timestamp: r.timestamp.0.into(),
+                timestamp: r.timestamp.map(|ts| ts.0.into()),
             })
             .collect())
     }
@@ -1087,7 +1087,7 @@ impl From<ruma::events::receipt::Receipt> for Receipt {
 #[derive(Clone, uniffi::Record)]
 pub struct EditRevisionRecord {
     content: TimelineItemContent,
-    timestamp: u64,
+    timestamp: Option<u64>,
 }
 
 #[derive(Clone, uniffi::Record)]

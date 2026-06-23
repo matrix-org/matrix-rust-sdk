@@ -43,7 +43,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnyTimelineEvent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::Annotation,
+        relation::{Annotation, RelationType},
     },
     room_id,
     room_version_rules::RoomVersionRules,
@@ -409,6 +409,14 @@ impl RoomDataProvider for TestRoomDataProvider {
     }
 
     async fn load_event<'a>(&'a self, _event_id: &'a EventId) -> matrix_sdk::Result<TimelineEvent> {
+        unimplemented!();
+    }
+
+    async fn load_or_fetch_event_with_relations<'a>(
+        &'a self,
+        _event_id: &'a EventId,
+        _filter: Option<Vec<RelationType>>,
+    ) -> matrix_sdk::Result<(TimelineEvent, Vec<TimelineEvent>)> {
         unimplemented!();
     }
 }

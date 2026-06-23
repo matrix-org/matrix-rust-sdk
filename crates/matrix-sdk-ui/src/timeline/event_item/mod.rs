@@ -133,7 +133,7 @@ pub struct EditRevision {
     /// The timeline item content after this revision.
     pub content: TimelineItemContent,
     /// The timestamp of the event that created this revision.
-    pub timestamp: MilliSecondsSinceUnixEpoch,
+    pub timestamp: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 /// A container for temporarily holding onto data that is going to be erased by
