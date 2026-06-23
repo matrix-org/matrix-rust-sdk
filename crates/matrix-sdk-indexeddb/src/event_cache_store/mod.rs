@@ -748,4 +748,86 @@ mod tests {
 
         indexeddb_event_cache_store_integration_tests!();
     }
+
+    /// Regression tests for the connection-reopen behaviour: when the browser
+    /// closes the underlying `IDBDatabase` out from under us, the store must
+    /// transparently reopen and keep working instead of bricking until restart.
+    mod reopen_on_closed_connection {
+        use indexed_db_futures::{Build, internals::SystemRepr, transaction::TransactionMode};
+        use matrix_sdk_base::event_cache::store::EventCacheStore;
+
+        use super::*;
+        use crate::event_cache_store::migrations::current::keys;
+
+        wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+        async fn get_event_cache_store() -> Result<IndexeddbEventCacheStore, EventCacheStoreError> {
+            let name = format!("test-event-cache-store-{}", Uuid::new_v4().as_hyphenated());
+            Ok(IndexeddbEventCacheStore::builder().database_name(name).build().await?)
+        }
+
+        /// Closing the live handle makes the next *raw* transaction build fail
+        /// with a DOM `InvalidStateError` — this is the exact failure mode the
+        /// fix recovers from. Asserting it here proves the simulation is real
+        /// and not a no-op.
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn raw_transaction_fails_after_browser_closes_connection() {
+            let store = get_event_cache_store().await.unwrap();
+
+            // Sanity: a transaction builds fine on the live connection.
+            let db = store.connection.database();
+            let _live = db
+                .transaction([keys::LEASES])
+                .with_mode(TransactionMode::Readwrite)
+                .build()
+                .expect("transaction builds on a live connection");
+
+            // Simulate the browser closing the connection.
+            db.as_sys().close();
+
+            // The same handle is now permanently unusable.
+            let err = db
+                .transaction([keys::LEASES])
+                .with_mode(TransactionMode::Readwrite)
+                .build()
+                .expect_err("transaction must fail on a closed connection");
+            assert!(
+                crate::connection::is_connection_closed(&err),
+                "expected a closed-connection DOM error, got: {err:?}"
+            );
+        }
+
+        /// With the fix, a store operation issued *after* the browser closed the
+        /// connection still succeeds: `with_transaction` detects the closed
+        /// handle, reopens, and retries. Without the fix this call errors and
+        /// every subsequent operation keeps failing.
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        async fn store_operation_recovers_after_browser_closes_connection() {
+            let store = get_event_cache_store().await.unwrap();
+
+            // Baseline: the lock is acquired on the healthy connection.
+            store
+                .try_take_leased_lock(0, "key", "alice")
+                .await
+                .expect("baseline lease on a live connection");
+
+            // The browser closes the connection out from under us.
+            store.connection.database().as_sys().close();
+
+            // This operation would fail without reopen-and-retry; it must now
+            // succeed (re-acquiring the lock the same holder already held).
+            let acquired = store
+                .try_take_leased_lock(0, "key", "alice")
+                .await
+                .expect("store must reopen the closed connection and recover");
+            assert!(acquired.is_some(), "expected to re-acquire the lease after reopen");
+
+            // Recovery is repeatable: close again and the store still works.
+            store.connection.database().as_sys().close();
+            store
+                .try_take_leased_lock(0, "key", "alice")
+                .await
+                .expect("store must recover from a second close");
+        }
+    }
 }
