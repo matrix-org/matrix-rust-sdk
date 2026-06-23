@@ -91,7 +91,6 @@ impl LoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            biased;
             result = login => {
                 result?;
                 Ok(())
@@ -145,7 +144,6 @@ impl LoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            biased;
             result = login => {
                 result?;
                 Ok(())
@@ -218,7 +216,6 @@ impl GrantLoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            biased;
             result = grant => {
                 result?;
                 Ok(())
@@ -266,7 +263,6 @@ impl GrantLoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            biased;
             result = grant => {
                 result?;
                 Ok(())
