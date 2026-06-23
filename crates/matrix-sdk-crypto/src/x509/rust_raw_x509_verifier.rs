@@ -43,14 +43,14 @@ pub enum RustX509VerifyError {
     StoreError(rustls::Error),
 }
 
+/// A Rust implementation of [`RawX509Verifier`]. This does the verification
+/// itself (using `rustls`) rather than delegating the work to some external
+/// system.
 #[derive(Debug, Clone)]
 pub struct RustRawX509Verifier {
     verifier: Arc<dyn ClientCertVerifier>,
 }
 
-/// A Rust implementation of [`RawX509Verifier`]. This does the verification
-/// itself (using `rustls`) rather than delegating the work to some external
-/// system.
 impl RustRawX509Verifier {
     /// Create a new `RustRawX509Verifier` from the supplied CA certificates
     /// PEM.
@@ -137,12 +137,14 @@ impl RawX509Verifier for RustRawX509Verifier {
 mod tests {
     use crate::x509::{
         RawX509Signer, RawX509Verifier, rust_raw_x509_signer::RustRawX509Signer,
-        rust_raw_x509_verifier::RustRawX509Verifier, tests::cert_and_key_with_email,
+        rust_raw_x509_verifier::RustRawX509Verifier,
+        tests::cert_and_key_with_email_in_subject_distinguished_name,
     };
 
     #[test]
     fn test_can_verify() {
-        let (cert, signing_key) = cert_and_key_with_email("alice@localhost");
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 
         let cert_pem = cert.pem();
         let key_pem = signing_key.serialize_pem();

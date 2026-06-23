@@ -788,7 +788,10 @@ mod tests {
         };
 
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let (cert, signing_key) = crate::x509::tests::cert_and_key_with_email("example@localhost");
+        let (cert, signing_key) =
+            crate::x509::tests::cert_and_key_with_email_in_subject_distinguished_name(
+                "example@localhost",
+            );
 
         let cert_pem = cert.pem();
         let key_pem = signing_key.serialize_pem();
