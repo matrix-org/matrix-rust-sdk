@@ -33,8 +33,7 @@ use tokio::{
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
 use super::{
-    AutoShrinkChannelPayload, EventCacheError, EventCacheInner, EventsOrigin,
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate, TimelineVectorDiffs,
+    AutoShrinkChannelPayload, EventCacheError, EventCacheInner, RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     client::WeakClient,
@@ -164,26 +163,18 @@ pub(super) async fn auto_shrink_linked_chunk_task(
         };
 
         match state.auto_shrink_if_no_subscribers().await {
-            Ok(diffs) => {
-                if let Some(diffs) = diffs {
-                    // Hey, fun stuff: we shrunk the linked chunk, so there shouldn't be any
-                    // subscribers, right? RIGHT? Especially because the state is guarded behind
-                    // a lock.
-                    //
-                    // However, better safe than sorry, and it's cheap to send an update here,
-                    // so let's do it!
-                    if !diffs.is_empty() {
-                        room.update_sender().send(
-                            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                                diffs,
-                                origin: EventsOrigin::Cache,
-                            }),
-                            None,
-                        );
-                    }
-                } else {
-                    debug!("auto-shrinking didn't happen");
-                }
+            Ok(_diffs) => {
+                // Two situations here:
+                //
+                // 1. No race, no subscribers have been registered, so it's safe
+                //    to do nothing,
+                // 2. A race, a subscriber has been created meanwhile, we **must
+                //    not** send the diff to it, otherwise it can create an
+                //    invalid state.
+                //
+                // Note that a race shouldn't be possible as we have acquired an
+                // exclusive access to the state, ensuring no subscriber can be
+                // created.
             }
 
             Err(err) => {
