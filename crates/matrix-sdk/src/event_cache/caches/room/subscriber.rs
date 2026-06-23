@@ -16,10 +16,7 @@
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Weak},
 };
 
 use ruma::OwnedRoomId;
@@ -27,6 +24,47 @@ use tokio::sync::{broadcast::Receiver, mpsc};
 use tracing::{trace, warn};
 
 use super::{AutoShrinkChannelPayload, RoomEventCacheUpdate};
+
+/// A structure that can generate handles for subscribers, and count them. See
+/// [`SubscriberHandle`] to learn more.
+#[derive(Default)]
+pub struct SubscribersHandle(Arc<()>);
+
+impl SubscribersHandle {
+    /// Count the number of subscribers.
+    ///
+    /// Similar to [`SubscriberHandle::count`].
+    pub fn count(&self) -> usize {
+        Arc::weak_count(&self.0)
+    }
+
+    /// Generate a handle for a subscriber.
+    pub fn new_subscriber_handle(&self) -> SubscriberHandle {
+        SubscriberHandle(Arc::downgrade(&self.0))
+    }
+}
+
+/// A handle for a subscriber.
+///
+/// A cache might need to track/count the number of subscribers. When the number
+/// of subscribers reach zero, it means no more code is listening to it. That's
+/// an opportunity to free some memory by shrinking the cache for example!
+/// Shrinking means forgetting about “old” events, keeping events from the last
+/// chunk for example.
+///
+/// Every time a subscriber is created,
+/// [`SubscribersHandle::new_subscriber_handle`] is called. The resulting value
+/// must be kept by the subscriber for its entire lifetime.
+pub struct SubscriberHandle(Weak<()>);
+
+impl SubscriberHandle {
+    /// Count the number of subscribers.
+    ///
+    /// Similar to [`SubscribersHandle::count`].
+    pub fn count(&self) -> usize {
+        Weak::weak_count(&self.0)
+    }
+}
 
 /// Thin wrapper for a room event cache subscriber, so as to trigger
 /// side-effects when all subscribers are gone.
@@ -50,8 +88,10 @@ pub struct RoomEventCacheSubscriber {
     /// Sender to the auto-shrink channel.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
 
-    /// Shared instance of the auto-shrinker.
-    subscriber_count: Arc<AtomicUsize>,
+    /// The subscribers handle shared by all subscribers.
+    ///
+    /// It comes from [`super::RoomEventCacheState::subscribers_handle`].
+    subscriber_handle: Option<SubscriberHandle>,
 }
 
 impl RoomEventCacheSubscriber {
@@ -60,21 +100,30 @@ impl RoomEventCacheSubscriber {
         recv: Receiver<RoomEventCacheUpdate>,
         room_id: OwnedRoomId,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
-        subscriber_count: Arc<AtomicUsize>,
+        subscribers_handle: &SubscribersHandle,
     ) -> Self {
-        Self { recv, room_id, auto_shrink_sender, subscriber_count }
+        Self {
+            recv,
+            room_id,
+            auto_shrink_sender,
+            subscriber_handle: Some(subscribers_handle.new_subscriber_handle()),
+        }
     }
 }
 
 impl Drop for RoomEventCacheSubscriber {
     fn drop(&mut self) {
-        let previous_subscriber_count = self.subscriber_count.fetch_sub(1, Ordering::SeqCst);
+        let number_of_subscribers = self
+            .subscriber_handle
+            // Ensure the handle is dropped before sending the message to the
+            // auto shrink task.
+            .take()
+            .expect("Unreachable: `subscriber_handle` must be `Some`")
+            .count();
 
-        trace!(
-            "dropping a room event cache subscriber; previous count: {previous_subscriber_count}"
-        );
+        trace!("dropping a room event cache subscriber; count: {number_of_subscribers}");
 
-        if previous_subscriber_count == 1 {
+        if number_of_subscribers == 1 {
             // We were the last instance of the subscriber; let the auto-shrinker know by
             // notifying it of our room id.
 
@@ -124,5 +173,48 @@ impl Deref for RoomEventCacheSubscriber {
 impl DerefMut for RoomEventCacheSubscriber {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.recv
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SubscribersHandle;
+
+    #[test]
+    fn test_subscribers_handle() {
+        let subscribers_handle = SubscribersHandle::default();
+
+        // No subscribers.
+        assert_eq!(subscribers_handle.count(), 0);
+
+        // Pretend a new subscriber exists!
+        let handle0 = subscribers_handle.new_subscriber_handle();
+        assert_eq!(subscribers_handle.count(), 1);
+        assert_eq!(handle0.count(), 1);
+
+        // Pretend another new subscriber exists!
+        let handle1 = subscribers_handle.new_subscriber_handle();
+        assert_eq!(subscribers_handle.count(), 2);
+        assert_eq!(handle0.count(), 2);
+        assert_eq!(handle1.count(), 2);
+
+        // A subscriber dies. RIP.
+        drop(handle0);
+        assert_eq!(subscribers_handle.count(), 1);
+        assert_eq!(handle1.count(), 1);
+
+        // Another subscriber dies. RIP.
+        drop(handle1);
+        assert_eq!(subscribers_handle.count(), 0);
+
+        // Create a new subscriber, for the last test.
+        let handle2 = subscribers_handle.new_subscriber_handle();
+
+        // We can even drop the `SubscribersHandle`!
+        drop(subscribers_handle);
+        assert_eq!(handle2.count(), 0);
+        // ZERO, yes, not 1.
+        // If the state containing the `SubscribersHandle` drops, there is no
+        // more update, and no auto-shrink, so it's fine to get a zero here.
     }
 }

@@ -118,8 +118,8 @@ pub(super) async fn ignore_user_list_update_task(
 /// The auto-shrink mechanism works this way:
 ///
 /// - Each time there's a new subscriber to a [`RoomEventCache`], it will
-///   increment the active number of subscribers to that room, aka
-///   `RoomEventCacheState::subscriber_count`.
+///   increment the active number of subscribers to that room, see
+///   `RoomEventCacheState::subscribers_handle`.
 /// - When that subscriber is dropped, it will decrement that count; and notify
 ///   the task below if it reached 0.
 /// - The task spawned here, owned by the [`EventCacheInner`], will listen to
