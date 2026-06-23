@@ -17,11 +17,7 @@ mod state;
 mod subscriber;
 mod updates;
 
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Arc, atomic::Ordering},
-};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
@@ -132,16 +128,16 @@ impl RoomEventCache {
         let events =
             state.room_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
-        let subscriber_count = state.subscriber_count();
-        let previous_subscriber_count = subscriber_count.fetch_add(1, Ordering::SeqCst);
-        trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
+        let subscribers_handle = state.subscribers_handle();
 
         let subscriber = RoomEventCacheSubscriber::new(
             self.inner.update_sender.new_room_receiver(),
             self.inner.room_id.clone(),
             self.inner.auto_shrink_sender.clone(),
-            subscriber_count.clone(),
+            subscribers_handle,
         );
+
+        trace!("added a room event cache subscriber; new count: {}", subscribers_handle.count());
 
         Ok((events, subscriber))
     }
@@ -1877,7 +1873,7 @@ mod timed_tests {
         {
             // Check the inner state: there's no more shared auto-shrinker.
             let state = room_event_cache.inner.state.read().await.unwrap();
-            assert_eq!(state.subscriber_count().load(std::sync::atomic::Ordering::SeqCst), 0);
+            assert_eq!(state.subscribers_handle().count(), 0);
         }
 
         // Getting the events will only give us the latest chunk.
