@@ -93,7 +93,7 @@ impl RawX509Signature {
             sid: SignerIdentifier::SubjectKeyIdentifier(leaf_ski),
             digest_alg: self.signature_scheme.get_digest_algorithm(),
             signed_attrs: None, // Not required if EncapsulatedContentInfo is id-data
-            signature_algorithm: self.signature_scheme.into(),
+            signature_algorithm: self.signature_scheme.get_signature_algorithm(),
             signature: SignatureValue::new(self.signature_bytes).unwrap(),
             unsigned_attrs: None,
         };
@@ -216,47 +216,59 @@ impl TryFrom<&X509Signature> for RawX509Signature {
             }
         };
 
-        check_sha512_algorithm_owned(&signer_info.digest_alg);
-
         if signer_info.signed_attrs.is_some() {
             panic!("SignerInfo.signed_attrs should be None");
         }
 
-        signer_info
-            .signature_algorithm
-            .assert_algorithm_oid(const_oid::db::rfc5912::ID_RSASSA_PSS)
-            .expect("SignerInfo.signature_algorithm.oid should be RSASSA_PSS");
-
-        let params = signer_info
-            .signature_algorithm
-            .parameters
-            .as_ref()
-            .expect("SignerInfo.signature_algorithm.params should be set");
-        let params: RsaPssParams<'_> = params
-            .decode_as()
-            .expect("Could not parse SignatureAlgorithm.parameters as RsaPssParams");
-
-        check_sha512_algorithm_ref(params.hash);
-
-        params
-            .mask_gen
-            .assert_algorithm_oid(const_oid::db::rfc5912::ID_MGF_1)
-            .expect("RsaPssParams.mask_gen should be ID_MGF_1");
-
-        check_sha512_algorithm_ref(
-            params.mask_gen.parameters.expect("mask_gen.parameters must be set"),
-        );
-
-        if params.salt_len != 64 {
-            panic!("salt_len should be 64");
-        }
+        let signature_scheme = map_signer_info_algorithms_to_signature_scheme(
+            &signer_info.digest_alg,
+            &signer_info.signature_algorithm,
+        )?;
 
         Ok(RawX509Signature {
             signature_bytes: signer_info.signature.into_bytes(),
             certificate_chain: cert_pems,
-            signature_scheme: X509SignatureScheme::RsaPssSha512,
+            signature_scheme,
         })
     }
+}
+
+/// Given the digest and signature algorithms from a `SignerInfo` structure, map
+/// them to one of our supported [`X509SignatureScheme`]s.
+fn map_signer_info_algorithms_to_signature_scheme(
+    digest_alg: &AlgorithmIdentifierOwned,
+    signature_algorithm: &AlgorithmIdentifierOwned,
+) -> Result<X509SignatureScheme, ParseRawX509SignatureError> {
+    // For now, we only support RsaPssSha512
+    signature_algorithm
+        .assert_algorithm_oid(const_oid::db::rfc5912::ID_RSASSA_PSS)
+        .expect("SignerInfo.signature_algorithm.oid should be RSASSA_PSS");
+
+    check_sha512_algorithm_owned(digest_alg);
+
+    let params = signature_algorithm
+        .parameters
+        .as_ref()
+        .expect("SignerInfo.signature_algorithm.params should be set");
+    let params: RsaPssParams<'_> =
+        params.decode_as().expect("Could not parse SignatureAlgorithm.parameters as RsaPssParams");
+
+    check_sha512_algorithm_ref(params.hash);
+
+    params
+        .mask_gen
+        .assert_algorithm_oid(const_oid::db::rfc5912::ID_MGF_1)
+        .expect("RsaPssParams.mask_gen should be ID_MGF_1");
+
+    check_sha512_algorithm_ref(
+        params.mask_gen.parameters.expect("mask_gen.parameters must be set"),
+    );
+
+    if params.salt_len != 64 {
+        panic!("salt_len should be 64");
+    }
+
+    Ok(X509SignatureScheme::RsaPssSha512)
 }
 
 fn check_sha512_algorithm_owned(hash_algorithm: &AlgorithmIdentifierOwned) {
@@ -314,14 +326,12 @@ impl X509SignatureScheme {
             },
         }
     }
-}
 
-impl Into<AlgorithmIdentifierOwned> for X509SignatureScheme {
     /// Build an X.509 `AlgorithmIdentifier` (as defined in [RFC 5280 §
     /// 4.1.1.2]) for this signature scheme.
     ///
     /// [RFC 5280 § 4.1.1.2]: https://tools.ietf.org/html/rfc5280#section-4.1.1.2
-    fn into(self) -> AlgorithmIdentifierOwned {
+    pub fn get_signature_algorithm(&self) -> AlgorithmIdentifierOwned {
         match self {
             X509SignatureScheme::RsaPssSha512 => {
                 // If you are interested in the details of all the fields in RsaPssParams,
