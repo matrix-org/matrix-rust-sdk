@@ -398,6 +398,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         if number_of_subscribers == 0 {
             // There is no more subscribers listening to this cache, we can shrink the state
             // to its last chunk to save memory.
+            //
+            // In theory, between the condition (`… == 0`) and this instruction, a new
+            // subscriber could be created, creating a race, except that this method takes a
+            // `&mut`, ensuring an exclusive access to the state, ensuring no other
+            // subscribers can be created.
             self.shrink_to_last_chunk().await?;
 
             Ok(Some(self.state.room_linked_chunk.updates_as_vector_diffs()))
