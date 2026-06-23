@@ -580,7 +580,7 @@ struct EventCacheInner {
     /// It's a `OnceLock` because its initialization is deferred to
     /// [`EventCache::subscribe`].
     ///
-    /// See doc comment of [`EventCache::auto_shrink_linked_chunk_task`].
+    /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
     auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
 
     /// A sender for room generic update.
