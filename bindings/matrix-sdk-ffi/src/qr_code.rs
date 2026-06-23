@@ -34,8 +34,6 @@ use crate::{
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
     oauth_configuration: OAuthConfiguration,
-    /// Request a the handler to abort cooperatively. This will make the handler
-    /// tear down its running task and then emit the `Cancelled` update.
     cancel: Notify,
 }
 
@@ -161,7 +159,7 @@ impl LoginWithQrCodeHandler {
         }
     }
 
-    /// Request a the handler to abort cooperatively. This will make the handler
+    /// Request the handler to abort cooperatively. This will make the handler
     /// tear down its running task and then return the `Cancelled` error.
     pub fn abort(&self) {
         self.cancel.notify_waiters();
@@ -282,7 +280,7 @@ impl GrantLoginWithQrCodeHandler {
         }
     }
 
-    /// Request a the handler to abort cooperatively. This will make the handler
+    /// Request the handler to abort cooperatively. This will make the handler
     /// tear down its running task and then return the `Cancelled` error.
     pub fn abort(&self) {
         self.cancel.notify_waiters();
