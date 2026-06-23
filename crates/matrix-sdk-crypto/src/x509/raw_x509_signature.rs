@@ -17,7 +17,7 @@ use cms::{
         CertificateChoices,
         x509::{
             Certificate, der,
-            der::{AnyRef, EncodePem, asn1::SetOfVec, pem::LineEnding},
+            der::{AnyRef, EncodePem, asn1::SetOfVec, pem::LineEnding, referenced::OwnedToRef},
             ext::pkix::{AuthorityKeyIdentifier, SubjectKeyIdentifier},
             spki::{AlgorithmIdentifierOwned, AlgorithmIdentifierRef},
         },
@@ -244,7 +244,7 @@ fn map_signer_info_algorithms_to_signature_scheme(
         .assert_algorithm_oid(const_oid::db::rfc5912::ID_RSASSA_PSS)
         .expect("SignerInfo.signature_algorithm.oid should be RSASSA_PSS");
 
-    check_sha512_algorithm_owned(digest_alg);
+    check_sha512_algorithm(digest_alg.owned_to_ref());
 
     let params = signature_algorithm
         .parameters
@@ -253,16 +253,14 @@ fn map_signer_info_algorithms_to_signature_scheme(
     let params: RsaPssParams<'_> =
         params.decode_as().expect("Could not parse SignatureAlgorithm.parameters as RsaPssParams");
 
-    check_sha512_algorithm_ref(params.hash);
+    check_sha512_algorithm(params.hash);
 
     params
         .mask_gen
         .assert_algorithm_oid(const_oid::db::rfc5912::ID_MGF_1)
         .expect("RsaPssParams.mask_gen should be ID_MGF_1");
 
-    check_sha512_algorithm_ref(
-        params.mask_gen.parameters.expect("mask_gen.parameters must be set"),
-    );
+    check_sha512_algorithm(params.mask_gen.parameters.expect("mask_gen.parameters must be set"));
 
     if params.salt_len != 64 {
         panic!("salt_len should be 64");
@@ -271,18 +269,8 @@ fn map_signer_info_algorithms_to_signature_scheme(
     Ok(X509SignatureScheme::RsaPssSha512)
 }
 
-fn check_sha512_algorithm_owned(hash_algorithm: &AlgorithmIdentifierOwned) {
-    hash_algorithm
-        .assert_algorithm_oid(const_oid::db::rfc5912::ID_SHA_512)
-        .expect("hash.oid should be ID_SHA_512");
-
-    match hash_algorithm.parameters {
-        None => {}
-        Some(_) => panic!("hash.parameters should be None"),
-    }
-}
-
-fn check_sha512_algorithm_ref(hash_algorithm: AlgorithmIdentifierRef<'_>) {
+/// Check that the given algorithm is SHA512.
+fn check_sha512_algorithm(hash_algorithm: AlgorithmIdentifierRef<'_>) {
     hash_algorithm
         .assert_algorithm_oid(const_oid::db::rfc5912::ID_SHA_512)
         .expect("hash.oid should be ID_SHA_512");
