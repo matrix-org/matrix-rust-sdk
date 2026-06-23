@@ -711,16 +711,22 @@ impl TryFrom<&ImageInfo> for BaseImageInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &ImageInfo) -> Result<Self, MediaInfoError> {
-        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
         Ok(BaseImageInfo {
-            height: Some(height),
-            width: Some(width),
-            size: Some(size),
+            height: value
+                .height
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            width: value
+                .width
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
             blurhash: value.blurhash.clone(),
             is_animated: value.is_animated,
         })
@@ -748,11 +754,15 @@ impl TryFrom<&AudioInfo> for BaseAudioInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &AudioInfo) -> Result<Self, MediaInfoError> {
-        let duration = value.duration.ok_or(MediaInfoError::MissingField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-
-        Ok(BaseAudioInfo { duration: Some(duration), size: Some(size), waveform: None })
+        Ok(BaseAudioInfo {
+            duration: value.duration,
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            waveform: None,
+        })
     }
 }
 
@@ -830,21 +840,24 @@ impl TryFrom<&VideoInfo> for BaseVideoInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &VideoInfo) -> Result<Self, MediaInfoError> {
-        let duration = value.duration.ok_or(MediaInfoError::MissingField)?;
-        let height = UInt::try_from(value.height.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let width = UInt::try_from(value.width.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-        let blurhash = value.blurhash.clone().ok_or(MediaInfoError::MissingField)?;
-
         Ok(BaseVideoInfo {
-            duration: Some(duration),
-            height: Some(height),
-            width: Some(width),
-            size: Some(size),
-            blurhash: Some(blurhash),
+            duration: value.duration,
+            height: value
+                .height
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            width: value
+                .width
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+            blurhash: value.blurhash.clone(),
         })
     }
 }
@@ -872,10 +885,13 @@ impl TryFrom<&FileInfo> for BaseFileInfo {
     type Error = MediaInfoError;
 
     fn try_from(value: &FileInfo) -> Result<Self, MediaInfoError> {
-        let size = UInt::try_from(value.size.ok_or(MediaInfoError::MissingField)?)
-            .map_err(|_| MediaInfoError::InvalidField)?;
-
-        Ok(BaseFileInfo { size: Some(size) })
+        Ok(BaseFileInfo {
+            size: value
+                .size
+                .map(UInt::try_from)
+                .transpose()
+                .map_err(|_| MediaInfoError::InvalidField)?,
+        })
     }
 }
 
