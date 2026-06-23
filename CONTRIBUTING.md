@@ -366,7 +366,7 @@ git rebase --signoff origin/main
 
 ## AI policy
 
-This policy is a copy of the [Forgejo's AI agreement][Forgejo].
+Let's define terminology before defining the policy.
 
 ### Terminology
 
@@ -408,5 +408,3 @@ with little to no human supervision.
 6. It is **not allowed** to use AI in an autonomous-looking way to contribute to
    the Matrix Rust SDK. This also applies when someone engages in _vibe coding_
    or uses so-called _agent mode_.
-
-[Forgejo]: https://codeberg.org/forgejo/governance/src/branch/main/AIAgreement.md
