@@ -22,13 +22,14 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId, room_version_rules::RoomVersionRules};
+use ruma::{OwnedEventId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
 
 use super::{
-    EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination, states,
+    AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result,
+    automatic_pagination::AutomaticPagination, states,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -85,7 +86,7 @@ impl Caches {
         room_id: &RoomId,
         generic_update_sender: Sender<room::RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
-        auto_shrink_sender: mpsc::Sender<OwnedRoomId>,
+        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         state: &states::StateLock,
         automatic_pagination: Option<AutomaticPagination>,
     ) -> Result<Self> {
