@@ -294,10 +294,13 @@ impl Timeline {
     /// This works regardless of the timeline's focus kind (live, thread,
     /// permalink, or pinned events).
     pub async fn edit_revisions(&self, event_id: &EventId) -> Result<Vec<EditRevision>, Error> {
-        let (original_event, edit_events) = self
+        let Ok((original_event, edit_events)) = self
             .controller
             .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
-            .await?;
+            .await
+        else {
+            return Ok(Vec::new());
+        };
 
         let room = self.room();
         let mut revisions = Vec::with_capacity(edit_events.len() + 1);
