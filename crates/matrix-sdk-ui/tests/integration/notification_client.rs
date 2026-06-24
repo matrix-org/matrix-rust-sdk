@@ -30,7 +30,10 @@ use wiremock::{
     matchers::{header, method, path},
 };
 
-use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests};
+use crate::sliding_sync::{
+    PartialSlidingSyncRequest, SlidingSyncMatcher, assert_sliding_sync_presence_for_conn_ids,
+    check_requests,
+};
 
 #[async_test]
 async fn test_notification_client_with_context() {
@@ -494,6 +497,7 @@ async fn test_notification_client_sliding_sync() {
         })],
     )
     .await;
+    assert_sliding_sync_presence_for_conn_ids(&server, None, &["notifications"]).await;
 
     let Some(Ok(item)) = result.remove(event_id) else {
         panic!("fetching notification for {event_id} failed");

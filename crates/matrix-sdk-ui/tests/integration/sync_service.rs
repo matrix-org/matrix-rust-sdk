@@ -21,11 +21,14 @@ use assert_matches::assert_matches;
 use matrix_sdk::{assert_next_matches_with_timeout, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::async_test;
 use matrix_sdk_ui::sync_service::{State, SyncService};
+use ruma::presence::PresenceState;
 use serde_json::json;
 use stream_assert::{assert_next_matches, assert_pending};
 use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplate};
 
-use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher};
+use crate::sliding_sync::{
+    PartialSlidingSyncRequest, SlidingSyncMatcher, assert_sliding_sync_presence_for_conn_ids,
+};
 
 /// Sets up a sliding sync server that use different `pos` values for the
 /// encrptyion and the room sync.
@@ -201,6 +204,49 @@ async fn test_sync_service_state() -> anyhow::Result<()> {
     );
 
     assert_pending!(state_stream);
+
+    Ok(())
+}
+
+#[async_test]
+async fn test_sync_service_client_sync_presence_is_used_by_both_syncs() -> anyhow::Result<()> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let encryption_pos = Arc::new(Mutex::new(0));
+    let room_pos = Arc::new(Mutex::new(0));
+    let _guard = setup_mocking_sliding_sync_server(&server, encryption_pos, room_pos).await;
+
+    let sync_service = SyncService::builder(client).build().await.unwrap();
+    sync_service.start().await;
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    sync_service.stop().await;
+
+    assert_sliding_sync_presence_for_conn_ids(&server, None, &["encryption", "room-list"]).await;
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.set_presence(PresenceState::Offline, None, false).await?;
+
+    let encryption_pos = Arc::new(Mutex::new(0));
+    let room_pos = Arc::new(Mutex::new(0));
+    let _guard = setup_mocking_sliding_sync_server(&server, encryption_pos, room_pos).await;
+
+    let sync_service = SyncService::builder(client).build().await.unwrap();
+    sync_service.start().await;
+
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    sync_service.stop().await;
+
+    assert_sliding_sync_presence_for_conn_ids(
+        &server,
+        Some("offline"),
+        &["encryption", "room-list"],
+    )
+    .await;
 
     Ok(())
 }

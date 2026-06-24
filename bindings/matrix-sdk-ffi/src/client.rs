@@ -141,7 +141,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, RoomAccountDataEvent,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -1173,6 +1173,20 @@ impl Client {
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<SlidingSyncVersion> {
         self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
+    }
+
+    /// Set the presence state for the current user.
+    ///
+    /// This updates the presence state used by future generated sync requests,
+    /// regardless of `immediate`. The initial default is `Unavailable`. If
+    /// `immediate` is `true`, it also sends an immediate presence update to the
+    /// homeserver.
+    pub async fn set_presence(
+        &self,
+        presence: PresenceState,
+        immediate: bool,
+    ) -> Result<(), ClientError> {
+        Ok(self.inner.set_presence(presence.into(), None, immediate).await?)
     }
 
     /// Sets the [ClientDelegate] which will inform about authentication errors.
