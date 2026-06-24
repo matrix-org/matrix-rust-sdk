@@ -19,9 +19,9 @@ use ruma::{
     EventId,
     events::{
         AnySyncMessageLikeEvent, AnySyncStateEvent, AnySyncTimelineEvent, AnyTimelineEvent,
-        MessageLikeEventContent as RumaMessageLikeEventContent, RedactContent,
-        RedactedStateEventContent, StaticStateEventContent, SyncMessageLikeEvent, SyncStateEvent,
-        TimelineEventType as RumaTimelineEventType,
+        MessageLikeEventContent as RumaMessageLikeEventContent, MessageLikeEventType,
+        RedactContent, RedactedStateEventContent, StateEventType, StaticStateEventContent,
+        SyncMessageLikeEvent, SyncStateEvent, TimelineEventType as RumaTimelineEventType,
         room::{
             encrypted,
             message::{MessageType as RumaMessageType, Relation},
@@ -90,7 +90,7 @@ impl From<AnyTimelineEvent> for TimelineEvent {
 /// The timeline event type.
 #[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
 #[uniffi::export(Eq, Hash)]
-pub enum TimelineEventType {
+pub enum FfiTimelineEventType {
     /// The event is a message-like one and should be displayed as such.
     MessageLike { value: MessageLikeEventType },
     /// The event is a state event, and may or may not be displayed in the
@@ -98,7 +98,7 @@ pub enum TimelineEventType {
     State { value: StateEventType },
 }
 
-impl From<RumaTimelineEventType> for TimelineEventType {
+impl From<RumaTimelineEventType> for FfiTimelineEventType {
     fn from(value: RumaTimelineEventType) -> Self {
         match value {
             RumaTimelineEventType::Audio => {
@@ -242,9 +242,7 @@ impl From<RumaTimelineEventType> for TimelineEventType {
             RumaTimelineEventType::RoomJoinRules => {
                 Self::State { value: StateEventType::RoomJoinRules }
             }
-            RumaTimelineEventType::RoomMember => {
-                Self::State { value: StateEventType::RoomMemberEvent }
-            }
+            RumaTimelineEventType::RoomMember => Self::State { value: StateEventType::RoomMember },
             RumaTimelineEventType::RoomLanguage => {
                 Self::State { value: StateEventType::RoomLanguage }
             }
@@ -278,9 +276,9 @@ impl From<RumaTimelineEventType> for TimelineEventType {
                 Self::State { value: StateEventType::MemberHints }
             }
             RumaTimelineEventType::_Custom(_) => {
-                Self::State { value: StateEventType::Custom { value: value.to_string() } }
+                Self::State { value: StateEventType::from(value.to_string()) }
             }
-            _ => Self::MessageLike { value: MessageLikeEventType::Other(value.to_string()) },
+            _ => Self::MessageLike { value: MessageLikeEventType::from(value.to_string()) },
         }
     }
 }
@@ -512,162 +510,6 @@ where
     let original_content =
         event.as_original().context("Failed to get original content")?.content.clone();
     Ok(original_content)
-}
-
-#[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
-pub enum StateEventType {
-    BeaconInfo,
-    CallMember,
-    MemberHints,
-    PolicyRuleRoom,
-    PolicyRuleServer,
-    PolicyRuleUser,
-    RoomAvatar,
-    RoomCanonicalAlias,
-    RoomCreate,
-    RoomEncryption,
-    RoomGuestAccess,
-    RoomHistoryVisibility,
-    RoomImagePack,
-    RoomJoinRules,
-    RoomMemberEvent,
-    RoomLanguage,
-    RoomName,
-    RoomPinnedEvents,
-    RoomPowerLevels,
-    RoomServerAcl,
-    RoomThirdPartyInvite,
-    RoomTombstone,
-    RoomTopic,
-    SpaceChild,
-    SpaceParent,
-    Custom { value: String },
-}
-
-impl From<StateEventType> for ruma::events::StateEventType {
-    fn from(val: StateEventType) -> Self {
-        match val {
-            StateEventType::BeaconInfo => Self::BeaconInfo,
-            StateEventType::CallMember => Self::CallMember,
-            StateEventType::MemberHints => Self::MemberHints,
-            StateEventType::PolicyRuleRoom => Self::PolicyRuleRoom,
-            StateEventType::PolicyRuleServer => Self::PolicyRuleServer,
-            StateEventType::PolicyRuleUser => Self::PolicyRuleUser,
-            StateEventType::RoomAvatar => Self::RoomAvatar,
-            StateEventType::RoomCanonicalAlias => Self::RoomCanonicalAlias,
-            StateEventType::RoomCreate => Self::RoomCreate,
-            StateEventType::RoomEncryption => Self::RoomEncryption,
-            StateEventType::RoomGuestAccess => Self::RoomGuestAccess,
-            StateEventType::RoomHistoryVisibility => Self::RoomHistoryVisibility,
-            StateEventType::RoomImagePack => Self::RoomImagePack,
-            StateEventType::RoomJoinRules => Self::RoomJoinRules,
-            StateEventType::RoomLanguage => Self::RoomLanguage,
-            StateEventType::RoomMemberEvent => Self::RoomMember,
-            StateEventType::RoomName => Self::RoomName,
-            StateEventType::RoomPinnedEvents => Self::RoomPinnedEvents,
-            StateEventType::RoomPowerLevels => Self::RoomPowerLevels,
-            StateEventType::RoomServerAcl => Self::RoomServerAcl,
-            StateEventType::RoomThirdPartyInvite => Self::RoomThirdPartyInvite,
-            StateEventType::RoomTombstone => Self::RoomTombstone,
-            StateEventType::RoomTopic => Self::RoomTopic,
-            StateEventType::SpaceChild => Self::SpaceChild,
-            StateEventType::SpaceParent => Self::SpaceParent,
-            StateEventType::Custom { value } => value.into(),
-        }
-    }
-}
-
-#[derive(Clone, uniffi::Enum, PartialEq, Eq, Hash)]
-pub enum MessageLikeEventType {
-    Audio,
-    Beacon,
-    CallAnswer,
-    CallCandidates,
-    CallHangup,
-    CallInvite,
-    CallNegotiate,
-    CallNotify,
-    CallReject,
-    CallSdpStreamMetadataChanged,
-    CallSelectAnswer,
-    Emote,
-    Encrypted,
-    File,
-    Image,
-    KeyVerificationAccept,
-    KeyVerificationCancel,
-    KeyVerificationDone,
-    KeyVerificationKey,
-    KeyVerificationMac,
-    KeyVerificationReady,
-    KeyVerificationStart,
-    Location,
-    Message,
-    PollEnd,
-    PollResponse,
-    PollStart,
-    Reaction,
-    RoomEncrypted,
-    RoomMessage,
-    RoomRedaction,
-    RtcDecline,
-    RtcNotification,
-    Sticker,
-    UnstablePollEnd,
-    UnstablePollResponse,
-    UnstablePollStart,
-    Video,
-    Voice,
-    Other(String),
-}
-
-impl From<MessageLikeEventType> for ruma::events::MessageLikeEventType {
-    fn from(val: MessageLikeEventType) -> Self {
-        match val {
-            MessageLikeEventType::Audio => Self::Audio,
-            MessageLikeEventType::File => Self::File,
-            MessageLikeEventType::Image => Self::Image,
-            MessageLikeEventType::Video => Self::Video,
-            MessageLikeEventType::Voice => Self::Voice,
-            MessageLikeEventType::Beacon => Self::Beacon,
-            MessageLikeEventType::CallAnswer => Self::CallAnswer,
-            MessageLikeEventType::CallCandidates => Self::CallCandidates,
-            MessageLikeEventType::CallInvite => Self::CallInvite,
-            MessageLikeEventType::CallHangup => Self::CallHangup,
-            MessageLikeEventType::CallNegotiate => Self::CallNegotiate,
-            MessageLikeEventType::CallNotify => Self::CallNotify,
-            MessageLikeEventType::CallReject => Self::CallReject,
-            MessageLikeEventType::CallSdpStreamMetadataChanged => {
-                Self::CallSdpStreamMetadataChanged
-            }
-            MessageLikeEventType::CallSelectAnswer => Self::CallSelectAnswer,
-            MessageLikeEventType::Emote => Self::Emote,
-            MessageLikeEventType::Encrypted => Self::Encrypted,
-            MessageLikeEventType::KeyVerificationReady => Self::KeyVerificationReady,
-            MessageLikeEventType::KeyVerificationStart => Self::KeyVerificationStart,
-            MessageLikeEventType::KeyVerificationCancel => Self::KeyVerificationCancel,
-            MessageLikeEventType::KeyVerificationAccept => Self::KeyVerificationAccept,
-            MessageLikeEventType::KeyVerificationKey => Self::KeyVerificationKey,
-            MessageLikeEventType::KeyVerificationMac => Self::KeyVerificationMac,
-            MessageLikeEventType::KeyVerificationDone => Self::KeyVerificationDone,
-            MessageLikeEventType::Location => Self::Location,
-            MessageLikeEventType::Message => Self::Message,
-            MessageLikeEventType::Reaction => Self::Reaction,
-            MessageLikeEventType::RoomEncrypted => Self::RoomEncrypted,
-            MessageLikeEventType::RoomMessage => Self::RoomMessage,
-            MessageLikeEventType::RoomRedaction => Self::RoomRedaction,
-            MessageLikeEventType::RtcDecline => Self::RtcDecline,
-            MessageLikeEventType::Sticker => Self::Sticker,
-            MessageLikeEventType::PollEnd => Self::PollEnd,
-            MessageLikeEventType::PollResponse => Self::PollResponse,
-            MessageLikeEventType::PollStart => Self::PollStart,
-            MessageLikeEventType::RtcNotification => Self::RtcNotification,
-            MessageLikeEventType::UnstablePollEnd => Self::UnstablePollEnd,
-            MessageLikeEventType::UnstablePollResponse => Self::UnstablePollResponse,
-            MessageLikeEventType::UnstablePollStart => Self::UnstablePollStart,
-            MessageLikeEventType::Other(msgtype) => Self::from(msgtype),
-        }
-    }
 }
 
 #[derive(Debug, PartialEq, Clone, uniffi::Enum)]

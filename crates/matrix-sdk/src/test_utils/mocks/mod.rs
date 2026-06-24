@@ -3010,7 +3010,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     /// event has been sent with the given event id.
     pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
-            let event_id = event.kind.event_id().expect("an event id is required");
+            let event_id = event.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the
             // regex so we need to escape it
             event_id.as_str().replace("$", "\\$")

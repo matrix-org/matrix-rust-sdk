@@ -177,6 +177,11 @@ impl EventLinkedChunk {
         self.chunks.chunk_identifier(predicate)
     }
 
+    /// Return the first chunk.
+    pub fn first_chunk(&self) -> &Chunk<DEFAULT_CHUNK_CAPACITY, Event, Gap> {
+        self.chunks.first_chunk()
+    }
+
     /// Iterate over the chunks, forward.
     ///
     /// The oldest chunk comes first.
@@ -465,7 +470,7 @@ impl EventLinkedChunk {
     #[cfg(feature = "e2e-encryption")]
     pub fn find_event(&self, event_id: &ruma::EventId) -> Option<(Position, Event)> {
         for (position, event) in self.revents() {
-            if event.event_id().as_deref() == Some(event_id) {
+            if event.event_id() == Some(event_id) {
                 return Some((position, event.clone()));
             }
         }
@@ -478,8 +483,10 @@ impl EventLinkedChunk {
     /// Returns true if at least one event has been replaced, false otherwise.
     #[cfg(feature = "e2e-encryption")]
     pub fn replace_utds(&mut self, events: &[ResolvedUtd]) -> bool {
-        let event_set =
-            self.events().filter_map(|(_pos, ev)| ev.event_id()).collect::<BTreeSet<_>>();
+        let event_set = self
+            .events()
+            .filter_map(|(_pos, ev)| ev.event_id().map(ToOwned::to_owned))
+            .collect::<BTreeSet<_>>();
 
         let mut replaced_some = false;
 
@@ -855,15 +862,15 @@ mod tests {
             &diffs[0],
             VectorDiff::Append { values } => {
                 assert_eq!(values.len(), 2);
-                assert_eq!(values[0].event_id(), Some(event_id_0));
-                assert_eq!(values[1].event_id(), Some(event_id_1));
+                assert_eq!(values[0].event_id(), Some(event_id_0.as_ref()));
+                assert_eq!(values[1].event_id(), Some(event_id_1.as_ref()));
             }
         );
         assert_matches!(
             &diffs[1],
             VectorDiff::Append { values } => {
                 assert_eq!(values.len(), 1);
-                assert_eq!(values[0].event_id(), Some(event_id_2));
+                assert_eq!(values[0].event_id(), Some(event_id_2.as_ref()));
             }
         );
 
@@ -881,7 +888,7 @@ mod tests {
             &diffs[1],
             VectorDiff::Append { values } => {
                 assert_eq!(values.len(), 1);
-                assert_eq!(values[0].event_id(), Some(event_id_3));
+                assert_eq!(values[0].event_id(), Some(event_id_3.as_ref()));
             }
         );
     }

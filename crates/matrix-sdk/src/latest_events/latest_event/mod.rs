@@ -16,6 +16,7 @@ mod builder;
 
 use std::ops::{Deref, DerefMut, Not};
 
+pub use builder::filter_timeline_event;
 use builder::{BufferOfValuesForLocalEvents, Builder};
 use eyeball::{AsyncLock, ObservableWriteGuard, SharedObservable, Subscriber};
 pub use matrix_sdk_base::latest_event::{
@@ -560,7 +561,7 @@ mod tests_latest_event {
             .await
             .unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let send_queue = client.send_queue();
         let room_send_queue = send_queue.for_room(room);
@@ -677,7 +678,7 @@ mod tests_latest_event {
             .await
             .unwrap();
 
-        let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
         let mut latest_event = LatestEvent::new(&weak_room, None);
 
@@ -688,7 +689,7 @@ mod tests_latest_event {
             assert_matches!(
                 latest_event.current_value.get().await,
                 LatestEventValue::Remote(remote) => {
-                    assert_eq!(remote.event_id().as_deref(), Some(event_id_1));
+                    assert_eq!(remote.event_id(), Some(event_id_1));
                 }
             );
         }
@@ -713,7 +714,7 @@ mod tests_latest_event {
                 latest_event.current_value.get().await,
                 LatestEventValue::Remote(remote) => {
                     // `$ev1` has been redacted, so `$ev0` is the new candidate!
-                    assert_eq!(remote.event_id().as_deref(), Some(event_id_0));
+                    assert_eq!(remote.event_id(), Some(event_id_0));
                 }
             );
         }
@@ -771,7 +772,7 @@ mod tests_latest_event {
                 .await
                 .unwrap();
 
-            let (room_event_cache, _) = event_cache.for_room(&room_id).await.unwrap();
+            let (room_event_cache, _) = event_cache.room(&room_id).await.unwrap();
 
             // Check there is no `LatestEventValue` for the moment.
             {

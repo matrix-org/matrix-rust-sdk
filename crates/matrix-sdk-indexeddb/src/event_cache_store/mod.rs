@@ -416,7 +416,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn clear_all_linked_chunks(&self) -> Result<(), IndexeddbEventCacheStoreError> {
+    async fn clear_all_events(&self) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
         let transaction = self.transaction(
@@ -494,13 +494,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                         match event.linked_chunk_id() {
                             LinkedChunkId::Room(_) => {
                                 // Prioritize events that come from a room linked chunk
-                                related_events.insert(event_id, event);
+                                related_events.insert(event_id.to_owned(), event);
                             }
                             _ => {
                                 // Remove position information from events that come
                                 // from any other type of linked chunk
                                 related_events
-                                    .entry(event_id)
+                                    .entry(event_id.to_owned())
                                     .or_insert_with(|| event.into_out_of_band_event());
                             }
                         }
@@ -515,13 +515,13 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                     match event.linked_chunk_id() {
                         LinkedChunkId::Room(_) => {
                             // Prioritize events that come from a room linked chunk
-                            related_events.insert(event_id, event);
+                            related_events.insert(event_id.to_owned(), event);
                         }
                         _ => {
                             // Remove position information from events that come
                             // from any other type of linked chunk
                             related_events
-                                .entry(event_id)
+                                .entry(event_id.to_owned())
                                 .or_insert_with(|| event.into_out_of_band_event());
                         }
                     }
@@ -589,7 +589,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let transaction = self.transaction(&[keys::EVENTS], IdbTransactionMode::Readwrite)?;
 
         let mut events = transaction
-            .get_events_by_room(room_id, &event_id)
+            .get_events_by_room(room_id, event_id)
             .await?
             .into_iter()
             .map(|e| e.with_content(event.clone()))

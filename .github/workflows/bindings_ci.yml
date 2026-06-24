@@ -38,7 +38,7 @@ jobs:
           persist-credentials: false
 
       - name: Install protoc
-        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
         with:
           tool: protoc@3.20.3
 
@@ -153,7 +153,7 @@ jobs:
 
       # install protoc in case we end up rebuilding opentelemetry-proto
       - name: Install protoc
-        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
         with:
           tool: protoc@3.20.3
 
@@ -194,7 +194,7 @@ jobs:
 
   complement-crypto:
     name: "Run Complement Crypto tests"
-    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@399a1deeab0d7e4fa9604cbe83b1df6058c40193 # main
+    uses: matrix-org/complement-crypto/.github/workflows/single_sdk_tests.yml@1b1f86348079608fbc5276fe77c54dd66638a622 # main
     with:
         use_rust_sdk: "." # use local checkout
         use_complement_crypto: "MATCHING_BRANCH"
@@ -212,7 +212,7 @@ jobs:
 
       # install protoc in case we end up rebuilding opentelemetry-proto
       - name: Install protoc
-        uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
+        uses: taiki-e/install-action@15449e3094499af05d8d964a1c884208e4b8b595 # v2.81.11
         with:
           tool: protoc@3.20.3
 

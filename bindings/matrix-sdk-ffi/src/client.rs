@@ -89,7 +89,7 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent, RoomAccountDataEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -141,7 +141,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, RoomAccountDataEventType,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -1023,6 +1023,13 @@ impl Client {
             }
             RoomAccountDataEventType::UnstableMarkedUnread => {
                 observe!(UnstableMarkedUnreadEventContent)
+            }
+            _ => {
+                // TODO: Support the remaining types
+                Err(ClientError::Generic {
+                    msg: "Unsupported room account data type".to_owned(),
+                    details: None,
+                })
             }
         }
     }
@@ -2019,7 +2026,7 @@ impl Client {
                 .map_err(Error::from)?;
 
             // Clear all the room chunks. It's important to *not* call
-            // `EventCacheStore::clear_all_linked_chunks` here, because there might be live
+            // `EventCacheStore::clear_all_events` here, because there might be live
             // observers of the linked chunks, and that would cause some very bad state
             // mismatch.
             self.inner.event_cache().clear_all_rooms().await?;

@@ -32,7 +32,7 @@ use super::TestTimeline;
 
 #[async_test]
 async fn test_live_redacted() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -58,7 +58,7 @@ async fn test_live_redacted() {
 
 #[async_test]
 async fn test_live_sanitized() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -103,7 +103,7 @@ async fn test_live_sanitized() {
 
 #[async_test]
 async fn test_aggregated_sanitized() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let original_event_id = event_id!("$original");
@@ -147,7 +147,7 @@ async fn test_aggregated_sanitized() {
 
 #[async_test]
 async fn test_edit_updates_encryption_info() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let event_factory = &timeline.factory;
 
     let room_id = room_id!("!room:id");
@@ -229,7 +229,7 @@ async fn test_edit_updates_encryption_info() {
 
 #[async_test]
 async fn test_relations_edit_overrides_pending_edit_msg() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -284,7 +284,7 @@ async fn test_relations_edit_overrides_pending_edit_msg() {
 
 #[async_test]
 async fn test_relations_edit_overrides_pending_edit_poll() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe().await;
 
     let f = &timeline.factory;
@@ -355,7 +355,7 @@ async fn test_relations_edit_overrides_pending_edit_poll() {
 
 #[async_test]
 async fn test_updated_reply_doesnt_lose_latest_edit() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     let f = &timeline.factory;

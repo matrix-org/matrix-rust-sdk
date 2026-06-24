@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     event_cache::store::extract_event_relation,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
-use ruma::{OwnedEventId, RoomId};
+use ruma::{EventId, OwnedEventId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire
@@ -101,8 +101,8 @@ impl Event {
         }
     }
 
-    /// The [`OwnedEventId`] of the underlying event.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    /// The [`EventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<&EventId> {
         match self {
             Event::InBand(e) => e.event_id(),
             Event::OutOfBand(e) => e.event_id(),
@@ -169,8 +169,8 @@ impl<P> GenericEvent<P> {
         self.linked_chunk_id.room_id()
     }
 
-    /// The [`OwnedEventId`] of the underlying event.
-    pub fn event_id(&self) -> Option<OwnedEventId> {
+    /// The [`EventId`] of the underlying event.
+    pub fn event_id(&self) -> Option<&EventId> {
         self.content.event_id()
     }
 

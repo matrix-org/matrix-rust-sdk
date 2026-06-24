@@ -35,7 +35,7 @@ use crate::timeline::{
 /// item with `is_live() == true` and no accumulated locations.
 #[async_test]
 async fn test_beacon_info_creates_timeline_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -64,7 +64,7 @@ async fn test_beacon_info_creates_timeline_item() {
 /// item (we check `live`, not `is_live()` which would return `false`).
 #[async_test]
 async fn test_beacon_info_with_expired_timeout_still_creates_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -91,7 +91,7 @@ async fn test_beacon_info_with_expired_timeout_still_creates_item() {
 /// `beacon_info` produces no timeline item (there is nothing to stop).
 #[async_test]
 async fn test_beacon_info_stopped_without_start_produces_no_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_stop:example.org");
 
@@ -109,7 +109,7 @@ async fn test_beacon_info_stopped_without_start_produces_no_item() {
 /// timeline item.
 #[async_test]
 async fn test_beacon_update_aggregates_onto_beacon_info() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -142,7 +142,7 @@ async fn test_beacon_update_aggregates_onto_beacon_info() {
 /// Multiple location updates accumulate in timestamp order.
 #[async_test]
 async fn test_multiple_beacon_updates_accumulate_in_order() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -181,7 +181,7 @@ async fn test_multiple_beacon_updates_accumulate_in_order() {
 /// state event, the aggregation is stashed and applied once the parent appears.
 #[async_test]
 async fn test_beacon_update_before_beacon_info_is_applied_when_parent_arrives() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id: OwnedEventId = owned_event_id!("$beacon:example.org");
 
@@ -216,7 +216,7 @@ async fn test_beacon_update_before_beacon_info_is_applied_when_parent_arrives() 
 /// `Beacon` timeline items.
 #[async_test]
 async fn test_multiple_users_sharing_produce_independent_items() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let alice_beacon_id = event_id!("$alice_beacon:example.org");
     let bob_beacon_id = event_id!("$bob_beacon:example.org");
@@ -292,7 +292,7 @@ async fn test_multiple_users_sharing_produce_independent_items() {
 /// it is silently aggregated (or stashed).
 #[async_test]
 async fn test_beacon_update_not_shown_standalone() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$some_beacon:example.org");
 
@@ -311,7 +311,7 @@ async fn test_beacon_update_not_shown_standalone() {
 /// in-place rather than creating a new timeline item.
 #[async_test]
 async fn test_beacon_stop_updates_existing_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let start_id = event_id!("$beacon_start:example.org");
     let stop_id = event_id!("$beacon_stop:example.org");
@@ -349,7 +349,7 @@ async fn test_beacon_stop_updates_existing_item() {
 /// existing item.
 #[async_test]
 async fn test_beacon_stop_preserves_locations() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let start_id = event_id!("$beacon_start:example.org");
     let stop_id = event_id!("$beacon_stop:example.org");
@@ -387,7 +387,7 @@ async fn test_beacon_stop_preserves_locations() {
 /// item should be non-live from the moment it first appears.
 #[async_test]
 async fn test_beacon_stop_before_start_is_applied_later() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let start_id = event_id!("$beacon_start:example.org");
     let stop_id = event_id!("$beacon_stop:example.org");
@@ -430,7 +430,7 @@ async fn test_beacon_stop_before_start_is_applied_later() {
 /// 3. User starts session B — the stashed stop should NOT apply
 #[async_test]
 async fn test_pending_beacon_stop_not_applied_to_different_session() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let old_stop_id = event_id!("$old_stop:example.org");
     let new_start_id = event_id!("$new_start:example.org");
@@ -486,7 +486,7 @@ async fn test_pending_beacon_stop_not_applied_to_different_session() {
 /// Duplicate beacon location updates (same timestamp) are de-duplicated.
 #[async_test]
 async fn test_duplicate_beacon_location_is_deduplicated() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -517,7 +517,7 @@ async fn test_duplicate_beacon_location_is_deduplicated() {
 /// A redacted `beacon_info` event produces a redacted item (not a Beacon item).
 #[async_test]
 async fn test_redacted_beacon_info_produces_redacted_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
 
     timeline
@@ -541,7 +541,7 @@ async fn test_redacted_beacon_info_produces_redacted_item() {
 /// via `reactions()`.
 #[async_test]
 async fn test_reaction_on_live_location_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -570,7 +570,7 @@ async fn test_reaction_on_live_location_item() {
 /// location item.
 #[async_test]
 async fn test_multiple_reactions_on_live_location_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -599,7 +599,7 @@ async fn test_multiple_reactions_on_live_location_item() {
 /// and applied once the beacon_info item is inserted.
 #[async_test]
 async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
@@ -627,7 +627,7 @@ async fn test_reaction_before_live_location_item_is_applied_when_parent_arrives(
 /// and is then confirmed by the remote echo from sync.
 #[async_test]
 async fn test_local_reaction_on_live_location_item() {
-    let timeline = TestTimeline::new();
+    let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;
     let beacon_id = event_id!("$beacon_info:example.org");
 
