@@ -14,15 +14,13 @@
 
 use std::sync::Arc;
 
-use ruma::OwnedDeviceId;
 use rustls::{
     SignatureScheme,
     crypto::aws_lc_rs,
-    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+    pki_types::{PrivateKeyDer, pem::PemObject},
     sign::SigningKey,
 };
 use thiserror::Error;
-use vodozemac::base64_encode;
 
 use crate::{
     SignatureError,
@@ -40,10 +38,6 @@ pub struct RustRawX509Signer {
     /// The PEM-encoded certificate chain, starting with the device's own
     /// certificate, followed by intermediate certificates.
     certificate_chain: String,
-
-    /// The device ID for signatures we generate.
-    /// TODO: remove
-    device_id: OwnedDeviceId,
 
     /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
@@ -76,15 +70,6 @@ impl RustRawX509Signer {
     ) -> Result<Self, RustX509SignError> {
         let provider = aws_lc_rs::default_provider();
 
-        let cert_iter = CertificateDer::pem_slice_iter(certificate_chain_pem.as_bytes());
-        let last_cert = cert_iter
-            .last()
-            .ok_or(RustX509SignError::CertificateNotFoundError)?
-            .map_err(RustX509SignError::CertificateParseError)?;
-        let last_cert_aki =
-            get_authority_key_identifier(&last_cert).expect("no AKI found in last cert");
-        let device_id = last_cert_aki.as_str().into();
-
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
             .map_err(RustX509SignError::PrivateKeyParseError)?;
         let signing_key: Arc<dyn SigningKey> = provider
@@ -92,7 +77,7 @@ impl RustRawX509Signer {
             .load_private_key(private_key)
             .map_err(RustX509SignError::PrivateKeyLoadError)?;
 
-        Ok(Self { certificate_chain: certificate_chain_pem.to_owned(), device_id, signing_key })
+        Ok(Self { certificate_chain: certificate_chain_pem.to_owned(), signing_key })
     }
 }
 
@@ -123,53 +108,12 @@ impl std::fmt::Debug for RustRawX509Signer {
     }
 }
 
-/// Extract the X509v3 Authority Key Identifier from a certificate, as a
-/// base64-encoded string.
-///
-/// TODO: add some error handling, rather than just returning None. All the
-/// certs we look at should have the AKI extension, so we should return an error
-/// if it isn't found.
-fn get_authority_key_identifier(cert: &CertificateDer<'_>) -> Option<String> {
-    use x509_parser::prelude::*;
-
-    let (_, parsed_cert) = X509Certificate::from_der(cert.as_ref()).ok()?;
-
-    parsed_cert
-        .get_extension_unique(&oid_registry::OID_X509_EXT_AUTHORITY_KEY_IDENTIFIER)
-        .ok()?
-        .and_then(|ext| match ext.parsed_extension() {
-            ParsedExtension::AuthorityKeyIdentifier(x) => x.key_identifier.as_ref(),
-            _ => None,
-        })
-        .map(|id| base64_encode(id.0))
-}
-
 #[cfg(test)]
 mod tests {
-    use rustls::pki_types::{CertificateDer, pem::PemObject};
-
     use crate::x509::{
-        RawX509Signer,
-        raw_x509_signature::X509SignatureScheme,
-        rust_raw_x509_signer::{RustRawX509Signer, get_authority_key_identifier},
+        RawX509Signer, raw_x509_signature::X509SignatureScheme,
+        rust_raw_x509_signer::RustRawX509Signer,
     };
-
-    #[test]
-    fn test_get_authority_key_identifier() {
-        // Given the DER-encoded intermediate certificate
-        let cert_iter = CertificateDer::pem_slice_iter(TEST_CERT_CHAIN.as_bytes());
-        let last_cert = cert_iter
-            .last()
-            .expect("unable to parse certificate chain")
-            .expect("no certificates found in chain");
-
-        // When we extract the AKI from it
-        let aki = get_authority_key_identifier(&last_cert);
-
-        // We should get the base64-encoding of
-        // D8:5E:91:9A:17:F0:C3:5B:13:DB:75:42:7D:21:37:9A:DF:3E:96:11
-        assert_eq!(aki.expect("no AKI found"), "2F6Rmhfww1sT23VCfSE3mt8+lhE");
-    }
 
     #[test]
     fn test_can_sign() {
