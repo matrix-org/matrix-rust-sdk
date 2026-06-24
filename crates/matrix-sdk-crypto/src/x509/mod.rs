@@ -28,7 +28,7 @@ pub use x509_verify::{RawX509Verifier, X509Verifier};
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use rcgen::{Certificate, CertificateParams, KeyPair, SanType};
+    use rcgen::{Certificate, CertificateParams, CustomExtension, KeyPair, PublicKeyData, SanType};
     use ruma::OwnedUserId;
     use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 
@@ -47,15 +47,16 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_email_in_subject_distinguished_name(
         email: &str,
     ) -> (Certificate, KeyPair) {
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
         cert_params.distinguished_name.push(
             rcgen::DnType::CustomDnType(OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect()),
             email,
         );
-
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
         let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
 
@@ -67,14 +68,15 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_email_in_subject_alternate_name(
         email: &str,
     ) -> (Certificate, KeyPair) {
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
         cert_params.subject_alt_names.push(SanType::Rfc822Name(
             email.try_into().expect("Failed to convert email address to Ia5String"),
         ));
-
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
         let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
 
@@ -86,17 +88,18 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_user_id_in_subject_alternate_name(
         user_id: &str,
     ) -> (Certificate, KeyPair) {
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
         let user_id_uri =
             OwnedUserId::try_from(user_id).expect("Invalid user ID!").matrix_uri(false);
 
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
         cert_params.subject_alt_names.push(SanType::URI(
             user_id_uri.to_string().try_into().expect("Failed to convert user_id URI to Ia5String"),
         ));
-
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
         let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
 
@@ -105,14 +108,38 @@ pub(crate) mod tests {
 
     /// Create a certificate that does not contain a user ID or email address
     pub(crate) fn cert_and_key_with_no_user_id() -> (Certificate, KeyPair) {
-        let mut cert_params = CertificateParams::default();
-        cert_params.use_authority_key_identifier_extension = true;
-
         let signing_key =
             KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        let mut cert_params = CertificateParams::default();
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
 
         let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
 
         (cert, signing_key)
+    }
+
+    /// Build an X.509 "SubjectKeyIdentifier" extension for a cert with the
+    /// given public key.
+    fn subject_key_identifier_extension(signing_key: &impl PublicKeyData) -> CustomExtension {
+        // Ref https://www.rfc-editor.org/info/rfc5280/#section-4.2.1.2
+
+        use sha2::{Digest, Sha256};
+
+        // The actual bytes in the SKI don't actually matter that much (and the RFC just
+        // makes a couple of suggestions): they just need to be a reasonably
+        // unique way of referring to the certificate with the right public key.
+        let spki = signing_key.subject_public_key_info();
+        let spki_hash = Sha256::digest(&spki);
+        let ski_bytes = &spki_hash.as_slice()[0..20];
+
+        // Hacky encoding of the bytes as a DER OCTET-STRING
+        let ski_der = [&[0x04, ski_bytes.len() as u8], ski_bytes].concat();
+
+        CustomExtension::from_oid_content(
+            &[2, 5, 29, 14], // subjectKeyIdentifier
+            ski_der,
+        )
     }
 }
