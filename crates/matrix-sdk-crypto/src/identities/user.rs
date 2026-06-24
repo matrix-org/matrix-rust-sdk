@@ -1490,9 +1490,13 @@ pub(crate) mod tests {
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
         x509::{
-            X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
+            X509Signer, X509Verifier,
+            rust_raw_x509_signer::RustRawX509Signer,
             rust_raw_x509_verifier::RustRawX509Verifier,
-            tests::cert_and_key_with_email_in_subject_distinguished_name,
+            tests::{
+                cert_and_key_with_email_in_subject_distinguished_name,
+                subject_key_identifier_extension,
+            },
         },
     };
 
@@ -2186,15 +2190,16 @@ pub(crate) mod tests {
         ca_cert: &Certificate,
         ca_signing_key: &KeyPair,
     ) -> (Certificate, KeyPair) {
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
         let mut cert_params = cert_params(&format!("Cert for {email}"));
         let email_address_oid = OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect();
         cert_params.distinguished_name.push(DnType::CustomDnType(email_address_oid), email);
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
 
         let issuer = Issuer::from_ca_cert_pem(&ca_cert.pem(), ca_signing_key)
             .expect("Failed to create Issue from CA cert and key");
-
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
         let cert =
             cert_params.signed_by(&signing_key, &issuer).expect("Failed to generate certificate");

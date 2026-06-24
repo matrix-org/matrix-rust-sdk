@@ -122,7 +122,9 @@ pub(crate) mod tests {
 
     /// Build an X.509 "SubjectKeyIdentifier" extension for a cert with the
     /// given public key.
-    fn subject_key_identifier_extension(signing_key: &impl PublicKeyData) -> CustomExtension {
+    pub(crate) fn subject_key_identifier_extension(
+        signing_key: &impl PublicKeyData,
+    ) -> CustomExtension {
         // Ref https://www.rfc-editor.org/info/rfc5280/#section-4.2.1.2
 
         use sha2::{Digest, Sha256};
