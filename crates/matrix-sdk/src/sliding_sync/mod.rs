@@ -308,6 +308,14 @@ impl SlidingSync {
                         .await?;
                 }
 
+                if self.is_profiles_enabled() {
+                    response_processor
+                        .handle_profiles(std::mem::take(
+                            &mut sliding_sync_response.extensions.profiles,
+                        ))
+                        .await?;
+                }
+
                 #[cfg(feature = "e2e-encryption")]
                 if self.is_e2ee_enabled() {
                     response_processor
@@ -664,6 +672,11 @@ impl SlidingSync {
     /// instance?
     fn is_thread_subscriptions_enabled(&self) -> bool {
         self.inner.extensions.thread_subscriptions.enabled == Some(true)
+    }
+
+    /// Is the profiles extension enabled for this sliding sync instance?
+    pub fn is_profiles_enabled(&self) -> bool {
+        self.inner.extensions.profiles.enabled == Some(true)
     }
 
     #[cfg(not(feature = "e2e-encryption"))]
