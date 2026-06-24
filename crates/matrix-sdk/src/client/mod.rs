@@ -2828,8 +2828,9 @@ impl Client {
     ///       state events, regardless of our configured [`token`].
     ///     * [`set_presence`] - To override the presence state sent with this
     ///       classic `/sync` request. If this is not set, the request uses the
-    ///       client-owned sync presence configured with [`Client::set_presence`],
-    ///       which defaults to [`PresenceState::Unavailable`].
+    ///       client-owned sync presence configured with
+    ///       [`Client::set_presence`], which defaults to
+    ///       [`PresenceState::Unavailable`].
     ///
     /// # Examples
     ///
