@@ -43,6 +43,7 @@ rand.workspace = true
 rcgen = { version = "0.14.8", features = ["aws_lc_rs", "x509-parser"] }
 reqwest.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 similar-asserts.workspace = true
 stream_assert.workspace = true
 tempfile.workspace = true

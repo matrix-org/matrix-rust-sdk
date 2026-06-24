@@ -6,7 +6,9 @@ use matrix_sdk_base::crypto::x509::{
 };
 use oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 use rand::RngExt as _;
-use rcgen::{Certificate, CertificateParams, DnType, Issuer, KeyPair};
+use rcgen::{
+    Certificate, CertificateParams, CustomExtension, DnType, Issuer, KeyPair, PublicKeyData,
+};
 use tracing::Instrument as _;
 
 use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
@@ -202,12 +204,13 @@ fn cert_and_key_with_email_signed_by(
     ca_cert: &Certificate,
     ca_signing_key: &KeyPair,
 ) -> (Certificate, KeyPair) {
+    let signing_key =
+        KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
     let mut cert_params = cert_params(&format!("A nice cert for {email}"));
     let email_address_oid = OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect();
     cert_params.distinguished_name.push(DnType::CustomDnType(email_address_oid), email);
-
-    let signing_key =
-        KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+    cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
 
     let issuer = Issuer::from_ca_cert_pem(&ca_cert.pem(), ca_signing_key)
         .expect("Failed to create an issuer for the CA");
@@ -235,4 +238,29 @@ fn username_and_email(prefix: &str) -> (String, String) {
     let email = format!("{username}@matrix-sdk.rs");
 
     (username, email)
+}
+
+/// Build an X.509 "SubjectKeyIdentifier" extension for a cert with the
+/// given public key.
+pub(crate) fn subject_key_identifier_extension(
+    signing_key: &impl PublicKeyData,
+) -> CustomExtension {
+    // Ref https://www.rfc-editor.org/info/rfc5280/#section-4.2.1.2
+
+    use sha2::{Digest, Sha256};
+
+    // The actual bytes in the SKI don't actually matter that much (and the RFC just
+    // makes a couple of suggestions): they just need to be a reasonably
+    // unique way of referring to the certificate with the right public key.
+    let spki = signing_key.subject_public_key_info();
+    let spki_hash = Sha256::digest(&spki);
+    let ski_bytes = &spki_hash.as_slice()[0..20];
+
+    // Hacky encoding of the bytes as a DER OCTET-STRING
+    let ski_der = [&[0x04, ski_bytes.len() as u8], ski_bytes].concat();
+
+    CustomExtension::from_oid_content(
+        &[2, 5, 29, 14], // subjectKeyIdentifier
+        ski_der,
+    )
 }

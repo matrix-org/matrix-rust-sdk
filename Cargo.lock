@@ -3805,6 +3805,7 @@ dependencies = [
  "rcgen",
  "reqwest",
  "serde_json",
+ "sha2",
  "similar-asserts",
  "stream_assert",
  "tempfile",
