@@ -753,7 +753,7 @@ impl Client {
     ///
     /// The presence state is stored as the default used by future generated
     /// sync requests, regardless of `immediate`. The initial default is
-    /// [`PresenceState::Unavailable`]. If `immediate` is `true`, this also
+    /// [`PresenceState::Online`]. If `immediate` is `true`, this also
     /// calls the Matrix presence endpoint directly. `status_msg` is only sent
     /// when `immediate` is `true`.
     pub async fn set_presence(
@@ -2830,7 +2830,7 @@ impl Client {
     ///       classic `/sync` request. If this is not set, the request uses the
     ///       client-owned sync presence configured with
     ///       [`Client::set_presence`], which defaults to
-    ///       [`PresenceState::Unavailable`].
+    ///       [`PresenceState::Online`].
     ///
     /// # Examples
     ///
@@ -3740,18 +3740,18 @@ pub(crate) mod tests {
         let notification_client =
             client.notification_client(CrossProcessLockConfig::SingleProcess).await.unwrap();
 
-        assert_eq!(client.sync_presence(), PresenceState::Unavailable);
-        assert_eq!(clone.sync_presence(), PresenceState::Unavailable);
-        assert_eq!(notification_client.sync_presence(), PresenceState::Unavailable);
-
-        client
-            .set_presence(PresenceState::Online, None, false)
-            .await
-            .expect("presence should update");
-
         assert_eq!(client.sync_presence(), PresenceState::Online);
         assert_eq!(clone.sync_presence(), PresenceState::Online);
         assert_eq!(notification_client.sync_presence(), PresenceState::Online);
+
+        client
+            .set_presence(PresenceState::Unavailable, None, false)
+            .await
+            .expect("presence should update");
+
+        assert_eq!(client.sync_presence(), PresenceState::Unavailable);
+        assert_eq!(clone.sync_presence(), PresenceState::Unavailable);
+        assert_eq!(notification_client.sync_presence(), PresenceState::Unavailable);
 
         notification_client
             .set_presence(PresenceState::Offline, None, false)
@@ -3771,7 +3771,7 @@ pub(crate) mod tests {
         {
             let _sync_guard = server
                 .mock_sync()
-                .set_presence("unavailable")
+                .set_presence_missing()
                 .ok(|_| {})
                 .expect(1)
                 .mount_as_scoped()

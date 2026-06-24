@@ -497,7 +497,7 @@ async fn test_notification_client_sliding_sync() {
         })],
     )
     .await;
-    assert_sliding_sync_presence_for_conn_ids(&server, "unavailable", &["notifications"]).await;
+    assert_sliding_sync_presence_for_conn_ids(&server, None, &["notifications"]).await;
 
     let Some(Ok(item)) = result.remove(event_id) else {
         panic!("fetching notification for {event_id} failed");

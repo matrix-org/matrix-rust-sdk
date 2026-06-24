@@ -174,7 +174,7 @@ async fn setup_mocking_sliding_sync_server(server: &MockServer) -> MockGuard {
 }
 
 #[async_test]
-async fn test_encryption_sync_default_sync_presence_is_unavailable() -> anyhow::Result<()> {
+async fn test_encryption_sync_default_sync_presence_is_online() -> anyhow::Result<()> {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
@@ -186,7 +186,7 @@ async fn test_encryption_sync_default_sync_presence_is_unavailable() -> anyhow::
 
     encryption_sync.run_fixed_iterations(1, sync_permit_guard).await?;
 
-    assert_sliding_sync_presence_for_conn_ids(&server, "unavailable", &["encryption"]).await;
+    assert_sliding_sync_presence_for_conn_ids(&server, None, &["encryption"]).await;
 
     Ok(())
 }

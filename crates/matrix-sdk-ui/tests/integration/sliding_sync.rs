@@ -172,7 +172,7 @@ macro_rules! sliding_sync_then_assert_request_and_fake_response {
 
 pub(crate) async fn assert_sliding_sync_presence_for_conn_ids(
     server: &MockServer,
-    expected_presence: &str,
+    expected_presence: Option<&str>,
     expected_conn_ids: &[&str],
 ) {
     let num_expected_conn_ids = expected_conn_ids.len();
@@ -203,7 +203,7 @@ pub(crate) async fn assert_sliding_sync_presence_for_conn_ids(
             .query_pairs()
             .find_map(|(key, value)| (key == "set_presence").then_some(value.into_owned()));
 
-        assert_eq!(set_presence.as_deref(), Some(expected_presence), "conn_id: {conn_id}");
+        assert_eq!(set_presence.as_deref(), expected_presence, "conn_id: {conn_id}");
     }
 
     assert_eq!(seen_conn_ids, expected_conn_ids);

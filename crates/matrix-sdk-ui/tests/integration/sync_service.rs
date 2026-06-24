@@ -224,8 +224,7 @@ async fn test_sync_service_client_sync_presence_is_used_by_both_syncs() -> anyho
 
     sync_service.stop().await;
 
-    assert_sliding_sync_presence_for_conn_ids(&server, "unavailable", &["encryption", "room-list"])
-        .await;
+    assert_sliding_sync_presence_for_conn_ids(&server, None, &["encryption", "room-list"]).await;
 
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -242,8 +241,12 @@ async fn test_sync_service_client_sync_presence_is_used_by_both_syncs() -> anyho
 
     sync_service.stop().await;
 
-    assert_sliding_sync_presence_for_conn_ids(&server, "offline", &["encryption", "room-list"])
-        .await;
+    assert_sliding_sync_presence_for_conn_ids(
+        &server,
+        Some("offline"),
+        &["encryption", "room-list"],
+    )
+    .await;
 
     Ok(())
 }

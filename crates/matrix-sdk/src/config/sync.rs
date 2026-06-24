@@ -186,15 +186,15 @@ impl SyncSettings {
     ///
     /// If this is not set, the request uses the client-owned sync presence
     /// value configured with [`Client::set_presence`]. The client default is
-    /// [`PresenceState::Unavailable`].
+    /// [`PresenceState::Online`].
     ///
     /// `PresenceState::Online` - The client is marked as being online. This is
-    /// the active preset.
+    /// the active preset and client default.
     ///
     /// `PresenceState::Offline` - The client is not marked as being online.
     ///
     /// `PresenceState::Unavailable` - The client is marked as being idle. This
-    /// is the default preset.
+    /// is the idle preset.
     ///
     /// Sliding Sync requests do not use this per-request setting; they read the
     /// client-owned sync presence value directly.
