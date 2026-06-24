@@ -99,7 +99,7 @@ pub use self::{
         ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
         DynStateStore, IncorrectMutexGuardError, IntoStateStore, SaveLockedStateStore, StateStore,
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, SupportedVersionsResponse,
-        ThreadSubscriptionCatchupToken, WellKnownResponse,
+        ThreadSubscriptionCatchupToken, WellKnownResponse, merge_profile,
     },
 };
 

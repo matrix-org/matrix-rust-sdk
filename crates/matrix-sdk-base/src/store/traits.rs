@@ -45,6 +45,7 @@ use ruma::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -518,6 +519,25 @@ pub trait StateStore: AsyncTraitDeps {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 
+    /// Saves or merges global user profile updates with existing profile
+    /// records.
+    ///
+    /// Following the MSC4262 update pattern, fields with explicit `null` values
+    /// indicates they should be removed, while fields not present are left
+    /// unchanged.
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error>;
+
+    /// Get a user's global profile from the store.
+    ///
+    /// Returns `None` if there was no stored global profile for the given user.
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -832,6 +852,20 @@ impl<T: StateStore> StateStore for &T {
         (*self).load_thread_subscription(room, thread_id).await
     }
 
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error> {
+        (*self).save_global_profile_updates(profiles).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        (*self).get_global_profile(user_id).await
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         (*self).close().await
     }
@@ -1138,6 +1172,20 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.deref().load_thread_subscription(room, thread_id).await
+    }
+
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error> {
+        self.deref().save_global_profile_updates(profiles).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.deref().get_global_profile(user_id).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1471,6 +1519,20 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.0.remove_thread_subscription(room, thread_id).await.map_err(Into::into)
+    }
+
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error> {
+        self.0.save_global_profile_updates(profiles).await.map_err(Into::into)
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.0.get_global_profile(user_id).await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1851,6 +1913,20 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         self.store.remove_thread_subscription(room, thread_id).await
     }
 
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error> {
+        self.store.save_global_profile_updates(profiles).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.store.get_global_profile(user_id).await
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         self.store.close().await
     }
@@ -2043,6 +2119,21 @@ where
     fn into_state_store(self) -> Arc<DynStateStore> {
         Arc::new(EraseStateStoreError(self))
     }
+}
+
+// TODO: Use Ruma once the PR is merged there instead of this local helper (https://github.com/ruma/ruma/pull/2518)
+/// Helper function to merge a profile update with an existing profile based on
+/// the MSC
+pub fn merge_profile(existing: UserProfile, update: UserProfile) -> UserProfile {
+    let mut map: BTreeMap<String, serde_json::Value> = existing.into_iter().collect();
+    for (key, value) in update {
+        if value.is_null() {
+            map.remove(&key);
+        } else {
+            map.insert(key, value);
+        }
+    }
+    UserProfile::from_iter(map)
 }
 
 /// Serialisable representation of get_supported_versions::Response.
