@@ -54,6 +54,7 @@ use ruma::{
             MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::Error};
@@ -161,6 +162,7 @@ mod keys {
 
     pub const ACCOUNT_DATA: &str = "account_data";
 
+    /// Room profiles.
     pub const PROFILES: &str = "profiles";
     pub const DISPLAY_NAMES: &str = "display_names";
     pub const USER_IDS: &str = "user_ids";
@@ -180,6 +182,8 @@ mod keys {
 
     pub const ROOM_USER_RECEIPTS: &str = "room_user_receipts";
     pub const ROOM_EVENT_RECEIPTS: &str = "room_event_receipts";
+
+    pub const GLOBAL_PROFILES: &str = "global_profiles";
 
     pub const CUSTOM: &str = "custom";
     pub const KV: &str = "kv";
@@ -201,6 +205,7 @@ mod keys {
         ROOM_SEND_QUEUE,
         THREAD_SUBSCRIPTIONS,
         DEPENDENT_SEND_QUEUE,
+        GLOBAL_PROFILES,
         CUSTOM,
         KV,
     ];
@@ -2049,6 +2054,51 @@ impl_state_store!({
         transaction.commit().await?;
 
         Ok(())
+    }
+
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<()> {
+        let transaction = self
+            .inner
+            .transaction(keys::GLOBAL_PROFILES)
+            .with_mode(TransactionMode::Readwrite)
+            .build()?;
+        let store = transaction.object_store(keys::GLOBAL_PROFILES)?;
+
+        for (user_id, profile_update) in profiles {
+            let key = self.encode_key(keys::GLOBAL_PROFILES, &user_id);
+            let existing: Option<UserProfile> =
+                store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()?;
+
+            let merged = if let Some(existing_profile) = existing {
+                matrix_sdk_base::store::merge_profile(existing_profile, profile_update)
+            } else {
+                // TODO: Confirm if this is actually necessary. Related:
+                // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
+                let map: BTreeMap<String, serde_json::Value> =
+                    profile_update.into_iter().filter(|(_, value)| !value.is_null()).collect();
+                UserProfile::from_iter(map)
+            };
+
+            store.put(&self.serialize_value(&merged)?).with_key(key).build()?;
+        }
+
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    async fn get_global_profile(&self, user_id: &UserId) -> Result<Option<UserProfile>> {
+        let transaction = self
+            .inner
+            .transaction(keys::GLOBAL_PROFILES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
+        let store = transaction.object_store(keys::GLOBAL_PROFILES)?;
+        let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+
+        store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()
     }
 
     #[allow(clippy::unused_async)]

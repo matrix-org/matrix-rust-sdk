@@ -34,6 +34,7 @@ use ruma::{
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         },
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use rusqlite::{OptionalExtension, Transaction};
@@ -485,6 +486,22 @@ impl SqliteStateStore {
         }
 
         if to == Some(15) {
+            return Ok(());
+        }
+
+        if from < 16 {
+            debug!("Upgrading database to version 16");
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/014_global_profiles.sql"
+                ))?;
+                txn.set_db_version(16)
+            })
+            .await?;
+        }
+
+        if to == Some(16) {
             return Ok(());
         }
 
@@ -2385,6 +2402,74 @@ impl StateStore for SqliteStateStore {
             .await?;
 
         Ok(())
+    }
+
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error> {
+        let this = self.clone();
+        self.write()
+            .await?
+            .with_transaction(move |txn| -> Result<()> {
+                let mut select_stmt = txn
+                    .prepare_cached("SELECT profile_data FROM global_profiles WHERE user_id = ?")?;
+                let mut insert_stmt = txn.prepare_cached(
+                    "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
+                )?;
+
+                for (user_id, profile_update) in profiles {
+                    let user_id_str = user_id.as_str();
+                    let existing_data: Option<Vec<u8>> =
+                        select_stmt.query_row([user_id_str], |row| row.get(0)).optional()?;
+
+                    let merged = if let Some(data) = existing_data {
+                        let existing_profile: UserProfile = this.deserialize_json(&data)?;
+                        matrix_sdk_base::store::merge_profile(existing_profile, profile_update)
+                    } else {
+                        // TODO: Confirm if this is actually necessary. Related:
+                        // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
+                        let map: BTreeMap<String, serde_json::Value> = profile_update
+                            .into_iter()
+                            .filter(|(_, value)| !value.is_null())
+                            .collect();
+                        UserProfile::from_iter(map)
+                    };
+
+                    let serialized = this.serialize_json(&merged)?;
+                    insert_stmt.execute((user_id_str, serialized))?;
+                }
+                Ok(())
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        let this = self.clone();
+        let user_id_str = user_id.as_str().to_owned();
+
+        let data: Option<Vec<u8>> = self
+            .read()
+            .await?
+            .query_row(
+                "SELECT profile_data FROM global_profiles WHERE user_id = ?",
+                (user_id_str,),
+                |row| row.get(0),
+            )
+            .await
+            .optional()?;
+
+        let Some(data) = data else {
+            return Ok(None);
+        };
+
+        let profile = this.deserialize_json(&data)?;
+        Ok(Some(profile))
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

@@ -33,6 +33,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
     },
+    profile::UserProfile,
     serde::Raw,
     time::Instant,
 };
@@ -93,6 +94,7 @@ struct MemoryStoreInner {
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
+    global_profiles: HashMap<OwnedUserId, UserProfile>,
     homeserver_capabilities: Option<TtlValue<Capabilities>>,
 }
 
@@ -1075,6 +1077,34 @@ impl StateStore for MemoryStore {
         }
 
         Ok(())
+    }
+
+    async fn save_global_profile_updates(
+        &self,
+        profiles: BTreeMap<OwnedUserId, UserProfile>,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        for (user_id, profile_update) in profiles {
+            let merged = if let Some(existing_profile) = inner.global_profiles.get(&user_id) {
+                super::traits::merge_profile(existing_profile.clone(), profile_update)
+            } else {
+                // TODO: Confirm if this is actually necessary. Related:
+                // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
+                let map: BTreeMap<String, serde_json::Value> =
+                    profile_update.into_iter().filter(|(_, value)| !value.is_null()).collect();
+                UserProfile::from_iter(map)
+            };
+            inner.global_profiles.insert(user_id, merged);
+        }
+        Ok(())
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(inner.global_profiles.get(user_id).cloned())
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

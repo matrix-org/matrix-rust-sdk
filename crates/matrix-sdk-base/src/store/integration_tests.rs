@@ -37,6 +37,7 @@ use ruma::{
     },
     mxc_uri, owned_event_id, owned_mxc_uri,
     presence::PresenceState,
+    profile::UserProfile,
     push::Ruleset,
     room_id,
     room_version_rules::AuthorizationRules,
@@ -119,6 +120,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_thread_subscriptions(&self) -> TestResult;
     /// Test thread subscriptions bulk upsert, including bumpstamp semantics.
     async fn test_thread_subscriptions_bulk_upsert(&self) -> TestResult;
+    /// Test global profiles bulk saving and merging.
+    async fn test_global_profiles_saving(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -2145,6 +2148,44 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         Ok(())
     }
+
+    async fn test_global_profiles_saving(&self) -> TestResult {
+        let user_id = user_id();
+
+        assert_matches!(self.get_global_profile(user_id).await, Ok(None));
+
+        let mut fields = BTreeMap::new();
+        fields.insert("displayname".to_owned(), json!("Alice"));
+        fields.insert("avatar_url".to_owned(), json!(null));
+        let update = UserProfile::from_iter(fields);
+
+        let mut profiles = BTreeMap::new();
+        profiles.insert(user_id.to_owned(), update);
+
+        self.save_global_profile_updates(profiles).await?;
+
+        let loaded = self.get_global_profile(user_id).await?.expect("Profile should be saved");
+        let loaded_map: BTreeMap<String, serde_json::Value> = loaded.into_iter().collect();
+        assert_eq!(loaded_map.get("displayname"), Some(&json!("Alice")));
+        assert!(!loaded_map.contains_key("avatar_url"));
+
+        let mut fields = BTreeMap::new();
+        fields.insert("displayname".to_owned(), json!(null));
+        fields.insert("avatar_url".to_owned(), json!("mxc://example.com/avatar"));
+        let update2 = UserProfile::from_iter(fields);
+
+        let mut profiles = BTreeMap::new();
+        profiles.insert(user_id.to_owned(), update2);
+
+        self.save_global_profile_updates(profiles).await?;
+
+        let loaded2 = self.get_global_profile(user_id).await?.expect("Profile should exist");
+        let loaded_map2: BTreeMap<String, serde_json::Value> = loaded2.into_iter().collect();
+        assert!(!loaded_map2.contains_key("displayname"));
+        assert_eq!(loaded_map2.get("avatar_url"), Some(&json!("mxc://example.com/avatar")));
+
+        Ok(())
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -2336,6 +2377,12 @@ macro_rules! statestore_integration_tests {
             async fn test_thread_subscriptions_bulk_upsert() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_thread_subscriptions_bulk_upsert().await
+            }
+
+            #[async_test]
+            async fn test_global_profiles_saving() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_global_profiles_saving().await
             }
         }
     };
