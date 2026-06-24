@@ -663,7 +663,7 @@ impl ClientBuilder {
             server,
             homeserver,
             sliding_sync_version,
-            Arc::new(StdRwLock::new(PresenceState::Online)),
+            Arc::new(StdRwLock::new(PresenceState::Unavailable)),
             http_client,
             base_client,
             supported_versions,

@@ -21,61 +21,19 @@ use ruma::{
     RoomVersionId,
     api::client::sync::sync_events::v5::{Response, response},
     assign, event_id,
-    events::{
-        Mentions, TimelineEventType,
-        room::{
-            encrypted::{
-                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
-            },
-            member::MembershipState,
-        },
-    },
-    mxc_uri, owned_device_id, owned_user_id,
-    presence::PresenceState,
-    room_id, uint, user_id,
+    events::{Mentions, TimelineEventType, room::member::MembershipState},
+    mxc_uri, owned_user_id, room_id, uint, user_id,
 };
 use serde_json::json;
 use wiremock::{
-    Match as _, Mock, Request, ResponseTemplate,
+    Mock, Request, ResponseTemplate,
     matchers::{header, method, path},
 };
 
-use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher, check_requests};
-
-async fn assert_sliding_sync_presence_for_conn_ids(
-    server: &MatrixMockServer,
-    expected_presence: &str,
-    expected_conn_ids: &[&str],
-) {
-    let expected_conn_ids =
-        expected_conn_ids.iter().map(|conn_id| (*conn_id).to_owned()).collect::<BTreeSet<_>>();
-    let mut seen_conn_ids = BTreeSet::new();
-
-    for request in &server.received_requests().await.expect("Request recording has been disabled") {
-        if !SlidingSyncMatcher.matches(request) {
-            continue;
-        }
-
-        let json_value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap();
-        let Some(conn_id) = json_value.get("conn_id").and_then(|obj| obj.as_str()) else {
-            continue;
-        };
-        if !expected_conn_ids.contains(conn_id) {
-            continue;
-        }
-
-        seen_conn_ids.insert(conn_id.to_owned());
-
-        let set_presence = request
-            .url
-            .query_pairs()
-            .find_map(|(key, value)| (key == "set_presence").then_some(value.into_owned()));
-
-        assert_eq!(set_presence.as_deref(), Some(expected_presence), "conn_id: {conn_id}");
-    }
-
-    assert_eq!(seen_conn_ids, expected_conn_ids);
-}
+use crate::sliding_sync::{
+    PartialSlidingSyncRequest, SlidingSyncMatcher, assert_sliding_sync_presence_for_conn_ids,
+    check_requests,
+};
 
 #[async_test]
 async fn test_notification_client_with_context() {
@@ -375,7 +333,7 @@ async fn test_unsubscribed_threads_get_notifications() {
 }
 
 #[async_test]
-async fn test_notification_client_sliding_sync_uses_client_sync_presence() {
+async fn test_notification_client_sliding_sync() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
@@ -476,8 +434,7 @@ async fn test_notification_client_sliding_sync_uses_client_sync_presence() {
     let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
     let process_setup =
         NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
-    let notification_client = NotificationClient::new(client.clone(), process_setup).await.unwrap();
-    client.set_presence(PresenceState::Unavailable, None, false).await.unwrap();
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
     let mut result = notification_client
         .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
             room_id: room_id.to_owned(),
@@ -563,122 +520,6 @@ async fn test_notification_client_sliding_sync_uses_client_sync_presence() {
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
-}
-
-#[async_test]
-async fn test_notification_client_encryption_fallback_uses_client_sync_presence() {
-    let room_id = room_id!("!a98sd12bjh:example.org");
-    let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
-
-    let event_id = event_id!("$example_event_id");
-    let sender = user_id!("@user:example.org");
-    let my_user_id = client.user_id().unwrap().to_owned();
-
-    let event_factory = EventFactory::new().room(room_id);
-    let own_member_event = event_factory
-        .member(&my_user_id)
-        .display_name("My self")
-        .membership(MembershipState::Join)
-        .into_raw_sync();
-    let sender_member_event =
-        event_factory.member(sender).membership(MembershipState::Join).into_raw_sync();
-    let power_levels_event =
-        event_factory.power_levels(&mut BTreeMap::new()).sender(sender).into_raw_sync();
-    let room_encryption_event = event_factory.room_encryption().sender(sender).into_raw_sync();
-    let encrypted_event = event_factory
-        .sender(sender)
-        .event(RoomEncryptedEventContent::new(
-            EncryptedEventScheme::MegolmV1AesSha2(
-                MegolmV1AesSha2ContentInit {
-                    ciphertext: String::from(
-                        "AwgAEpABhetEzzZzyYrxtEVUtlJnZtJcURBlQUQJ9irVeklCTs06LwgTMQj61PMUS4Vy\
-                           YOX+PD67+hhU40/8olOww+Ud0m2afjMjC3wFX+4fFfSkoWPVHEmRVucfcdSF1RSB4EmK\
-                           PIP4eo1X6x8kCIMewBvxl2sI9j4VNvDvAN7M3zkLJfFLOFHbBviI4FN7hSFHFeM739Zg\
-                           iwxEs3hIkUXEiAfrobzaMEM/zY7SDrTdyffZndgJo7CZOVhoV6vuaOhmAy4X2t4UnbuV\
-                           JGJjKfV57NAhp8W+9oT7ugwO",
-                    ),
-                    device_id: owned_device_id!("KIUVQQSDTM"),
-                    sender_key: String::from("LvryVyoCjdONdBCi2vvoSbI34yTOx7YrCFACUEKoXnc"),
-                    session_id: String::from("64H7XKokIx0ASkYDHZKlT5zd/Zccz/cQspPNdvnNULA"),
-                }
-                .into(),
-            ),
-            None,
-        ))
-        .event_id(event_id)
-        .into_raw_sync();
-
-    let notification_pos = Mutex::new(0);
-    let encryption_pos = Mutex::new(0);
-    Mock::given(SlidingSyncMatcher)
-        .respond_with(move |request: &Request| {
-            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
-
-            match partial_request.conn_id.as_deref() {
-                Some("notifications") => {
-                    let mut pos = notification_pos.lock().unwrap();
-                    *pos += 1;
-                    let pos_as_str = (*pos).to_string();
-
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "txn_id": partial_request.txn_id,
-                        "pos": pos_as_str,
-                        "rooms": {
-                            room_id: {
-                                "name": "The Maltese Falcon",
-                                "initial": true,
-                                "required_state": [
-                                    sender_member_event.clone(),
-                                    own_member_event.clone(),
-                                    power_levels_event.clone(),
-                                    room_encryption_event.clone(),
-                                ],
-                                "timeline": [
-                                    encrypted_event.clone(),
-                                ]
-                            }
-                        },
-                        "extensions": {
-                            "account_data": {}
-                        }
-                    }))
-                }
-                Some("encryption") => {
-                    let mut pos = encryption_pos.lock().unwrap();
-                    *pos += 1;
-                    let pos_as_str = (*pos).to_string();
-
-                    ResponseTemplate::new(200).set_body_json(json!({
-                        "txn_id": partial_request.txn_id,
-                        "pos": pos_as_str
-                    }))
-                }
-                other => panic!("unexpected conn id {other:?}"),
-            }
-        })
-        .mount(server.server())
-        .await;
-
-    let notification_client =
-        NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
-            .await
-            .unwrap();
-    client.set_presence(PresenceState::Unavailable, None, false).await.unwrap();
-
-    let _ = notification_client
-        .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
-            room_id: room_id.to_owned(),
-            event_ids: vec![event_id.to_owned()],
-        }])
-        .await;
-
-    assert_sliding_sync_presence_for_conn_ids(
-        &server,
-        "unavailable",
-        &["notifications", "encryption"],
-    )
-    .await;
 }
 
 #[async_test]

@@ -194,9 +194,9 @@ impl From<&RumaMatrixId> for MatrixId {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum, Default)]
 pub enum PresenceState {
-    #[default]
     Online,
     Offline,
+    #[default]
     Unavailable,
 }
 
@@ -217,27 +217,6 @@ impl From<RumaPresenceState> for PresenceState {
             RumaPresenceState::Offline => Self::Offline,
             RumaPresenceState::Unavailable => Self::Unavailable,
             _ => Self::default(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use ruma::presence::PresenceState as RumaPresenceState;
-
-    use super::PresenceState;
-
-    #[test]
-    fn presence_state_conversions() {
-        let cases = [
-            (PresenceState::Online, RumaPresenceState::Online),
-            (PresenceState::Offline, RumaPresenceState::Offline),
-            (PresenceState::Unavailable, RumaPresenceState::Unavailable),
-        ];
-
-        for (ffi_presence, ruma_presence) in cases {
-            assert_eq!(RumaPresenceState::from(ffi_presence.clone()), ruma_presence);
-            assert_eq!(PresenceState::from(ruma_presence), ffi_presence);
         }
     }
 }

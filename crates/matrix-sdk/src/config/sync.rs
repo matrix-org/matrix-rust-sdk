@@ -182,21 +182,28 @@ impl SyncSettings {
         self
     }
 
-    /// Set the presence state for this sync request.
+    /// Override the presence state for this classic `/sync` request.
     ///
-    /// If this is not set, sync requests use the client-owned sync presence
-    /// value. The client default is [`PresenceState::Online`].
+    /// If this is not set, the request uses the client-owned sync presence
+    /// value configured with [`Client::set_presence`]. The client default is
+    /// [`PresenceState::Unavailable`].
     ///
     /// `PresenceState::Online` - The client is marked as being online. This is
-    /// the default preset.
+    /// the active preset.
     ///
     /// `PresenceState::Offline` - The client is not marked as being online.
     ///
-    /// `PresenceState::Unavailable` - The client is marked as being idle.
+    /// `PresenceState::Unavailable` - The client is marked as being idle. This
+    /// is the default preset.
+    ///
+    /// Sliding Sync requests do not use this per-request setting; they read the
+    /// client-owned sync presence value directly.
     ///
     /// # Arguments
     /// * `set_presence` - The `PresenceState` that the server should set for
     ///   the client.
+    ///
+    /// [`Client::set_presence`]: crate::Client::set_presence
     #[must_use]
     pub fn set_presence(mut self, presence: PresenceState) -> Self {
         self.set_presence = Some(presence);

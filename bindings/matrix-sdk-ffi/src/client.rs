@@ -1171,8 +1171,9 @@ impl Client {
     /// Set the presence state for the current user.
     ///
     /// This updates the presence state used by future generated sync requests,
-    /// regardless of `immediate`. If `immediate` is `true`, it also sends an
-    /// immediate presence update to the homeserver.
+    /// regardless of `immediate`. The initial default is `Unavailable`. If
+    /// `immediate` is `true`, it also sends an immediate presence update to the
+    /// homeserver.
     pub async fn set_presence(
         &self,
         presence: PresenceState,
