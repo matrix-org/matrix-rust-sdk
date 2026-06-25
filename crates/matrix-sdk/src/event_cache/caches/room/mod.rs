@@ -48,7 +48,7 @@ use super::{
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
-    subscriber::RoomEventCacheSubscriber,
+    subscriber::Subscriber,
 };
 use crate::room::WeakRoom;
 
@@ -120,16 +120,16 @@ impl RoomEventCache {
     /// events.
     ///
     /// Use [`RoomEventCache::events`] to get all current events without the
-    /// subscriber. Creating, and especially dropping, a
-    /// [`RoomEventCacheSubscriber`] isn't free, as it triggers side-effects.
-    pub async fn subscribe(&self) -> Result<(Vec<Event>, RoomEventCacheSubscriber)> {
+    /// subscriber. Creating, and especially dropping, a [`Subscriber`] isn't
+    /// free, as it triggers side-effects.
+    pub async fn subscribe(&self) -> Result<(Vec<Event>, Subscriber<RoomEventCacheUpdate>)> {
         let state = self.inner.state.read().await?;
         let events =
             state.room_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
         let subscribers_handle = state.subscribers_handle();
 
-        let subscriber = RoomEventCacheSubscriber::new(
+        let subscriber = Subscriber::new(
             self.inner.update_sender.new_room_receiver(),
             self.inner.room_id.clone(),
             self.inner.auto_shrink_sender.clone(),

@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use matrix_sdk::{
     event_cache::{
         EventFocusThreadMode, EventFocusedCache, EventsOrigin, PinnedEventsCache, RoomEventCache,
-        RoomEventCacheSubscriber, RoomEventCacheUpdate, ThreadEventCache, TimelineVectorDiffs,
+        RoomEventCacheUpdate, Subscriber, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -187,7 +187,7 @@ pub(in crate::timeline) async fn thread_updates_task(
 pub(in crate::timeline) async fn room_event_cache_updates_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
-    mut room_event_cache_subscriber: RoomEventCacheSubscriber,
+    mut room_event_cache_subscriber: Subscriber<RoomEventCacheUpdate>,
     timeline_focus: TimelineFocus,
 ) {
     trace!("Spawned the event subscriber task.");

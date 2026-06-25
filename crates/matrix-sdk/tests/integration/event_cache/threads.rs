@@ -6,7 +6,7 @@ use imbl::Vector;
 use matrix_sdk::{
     Client, ThreadingSupport, assert_let_timeout,
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCacheSubscriber, RoomEventCacheUpdate, TimelineVectorDiffs},
+    event_cache::{RoomEventCacheUpdate, Subscriber, TimelineVectorDiffs},
     sleep::sleep,
     test_utils::{
         assert_event_matches_msg,
@@ -302,7 +302,7 @@ struct ThreadSubscriptionTestSetup {
     client: Client,
     factory: EventFactory,
     room_id: OwnedRoomId,
-    subscriber: RoomEventCacheSubscriber,
+    subscriber: Subscriber<RoomEventCacheUpdate>,
     /// 3 events: 1 non-mention, 1 mention, and another non-mention.
     events: Vec<Raw<AnySyncTimelineEvent>>,
     mention_event_id: OwnedEventId,
