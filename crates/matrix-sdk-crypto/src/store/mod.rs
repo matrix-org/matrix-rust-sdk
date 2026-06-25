@@ -112,12 +112,15 @@ pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 use self::caches::{SequenceNumber, StoreCache, StoreCacheGuard, UsersForKeyQuery};
-use crate::types::{
-    events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle,
-};
 pub use crate::{
     dehydrated_devices::DehydrationError,
     gossiping::{GossipRequest, SecretInfo},
+};
+use crate::{
+    dehydrated_devices::{
+        DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME, decode_dehydrated_device_pickle_key,
+    },
+    types::{events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle},
 };
 
 /// A wrapper for our CryptoStore trait object.
@@ -929,6 +932,15 @@ impl Store {
                     None
                 }
             }
+            // The dehydrated device pickle key (MSC3814), gossiped between a user's own verified
+            // devices (element-meta#2703). It is stored under a custom secret name, so
+            // it falls through to the catch-all arm and is matched on its string here.
+            name if name.as_str() == DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME => self
+                .inner
+                .store
+                .load_dehydrated_device_pickle_key()
+                .await?
+                .map(|key| key.to_base64()),
             name => {
                 warn!(secret = ?name, "Unknown secret was requested");
                 None
@@ -1135,6 +1147,24 @@ impl Store {
                 // server. We instead put the secret into a secret inbox where
                 // it will stay until it either gets overwritten
                 // or the user accepts the secret.
+            }
+            // The dehydrated device pickle key (MSC3814). Decode it and store it so a
+            // freshly-verified device can manage/rehydrate the dehydrated device
+            // without reading Secret Storage (element-meta#2703).
+            name if name.as_str() == DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME => {
+                match decode_dehydrated_device_pickle_key(&secret.event.content.secret) {
+                    Some(key) => {
+                        let changes = Changes {
+                            dehydrated_device_pickle_key: Some(key),
+                            ..Default::default()
+                        };
+                        self.save_changes(changes).await?;
+                        info!("Successfully imported the dehydrated device pickle key");
+                    }
+                    None => {
+                        warn!("Received an invalid dehydrated device pickle key, ignoring it");
+                    }
+                }
             }
             name => {
                 warn!(secret = ?name, "Tried to import an unknown secret");
@@ -2223,6 +2253,92 @@ mod tests {
         let pickle_key = DehydratedDeviceKey::from_slice(&too_big);
 
         assert!(pickle_key.is_err());
+    }
+
+    #[async_test]
+    async fn test_dehydrated_device_pickle_key_is_a_gossipable_secret() {
+        use ruma::{TransactionId, events::secret::request::SecretName};
+        use vodozemac::Ed25519Keypair;
+
+        use crate::{
+            dehydrated_devices::DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME,
+            gossiping::{GossipRequest, GossippedSecret},
+            store::types::Changes,
+            types::events::{
+                olm_v1::{DecryptedSecretSendEvent, OlmV1Keys},
+                secret_send::SecretSendContent,
+            },
+        };
+
+        // Build a gossiped secret carrying `secret` under the dehydration key's secret
+        // name. The sender/recipient identities are irrelevant to importing
+        // this secret, so they are arbitrary.
+        fn gossiped_dehydration_key(secret: String) -> GossippedSecret {
+            let secret_name = SecretName::from(DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME);
+            let request_id = TransactionId::new();
+            let user = user_id!("@alice:localhost").to_owned();
+            let ed25519 = Ed25519Keypair::new().public_key();
+            GossippedSecret {
+                secret_name: secret_name.clone(),
+                gossip_request: GossipRequest {
+                    request_recipient: user.clone(),
+                    request_id: request_id.clone(),
+                    info: secret_name.into(),
+                    sent_out: true,
+                },
+                event: DecryptedSecretSendEvent {
+                    sender: user.clone(),
+                    recipient: user,
+                    keys: OlmV1Keys { ed25519 },
+                    recipient_keys: OlmV1Keys { ed25519 },
+                    sender_device_keys: None,
+                    content: SecretSendContent::new(request_id, secret),
+                },
+            }
+        }
+
+        let alice = OlmMachine::new(user_id!("@alice:localhost"), device_id!("ALICE")).await;
+        let secret_name = SecretName::from(DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME);
+
+        // With no key stored, the secret cannot be exported.
+        assert!(alice.store().export_secret(&secret_name).await.unwrap().is_none());
+
+        // Once stored, it is exported as base64 so a requesting device can be given it.
+        let key = DehydratedDeviceKey::new();
+        alice
+            .store()
+            .save_changes(Changes {
+                dehydrated_device_pickle_key: Some(key.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            alice.store().export_secret(&secret_name).await.unwrap().as_deref(),
+            Some(key.to_base64().as_str()),
+        );
+
+        // A gossiped copy is imported straight into storage, not parked in the secret
+        // inbox.
+        let bob = OlmMachine::new(user_id!("@bob:localhost"), device_id!("BOB")).await;
+        assert!(bob.store().load_dehydrated_device_pickle_key().await.unwrap().is_none());
+        bob.store().import_secret(&gossiped_dehydration_key(key.to_base64())).await.unwrap();
+        assert_eq!(
+            bob.store().load_dehydrated_device_pickle_key().await.unwrap().map(|k| k.to_base64()),
+            Some(key.to_base64()),
+        );
+        assert!(
+            bob.store().get_secrets_from_inbox(&secret_name).await.unwrap().is_empty(),
+            "the dehydration key should be stored directly, not put in the secret inbox"
+        );
+
+        // An invalid payload is ignored rather than stored.
+        let eve = OlmMachine::new(user_id!("@eve:localhost"), device_id!("EVE")).await;
+        eve.store()
+            .import_secret(&gossiped_dehydration_key("not a valid key".to_owned()))
+            .await
+            .unwrap();
+        assert!(eve.store().load_dehydrated_device_pickle_key().await.unwrap().is_none());
     }
 
     #[async_test]
