@@ -75,9 +75,18 @@ async fn test_empty_room_decline_invite() -> Result<()> {
         room.leave().await?;
     }
 
-    if let Some(room) = bob.get_room(&room_id) {
-        room.leave().await?;
+    let mut bob_declined = false;
+    for i in 1..=5 {
+        if let Some(room) = bob.get_room(&room_id)
+            && matches!(room.state(), RoomState::Invited)
+        {
+            room.leave().await?;
+            bob_declined = true;
+            break;
+        }
+        sleep(Duration::from_millis(500 * i)).await;
     }
+    anyhow::ensure!(bob_declined, "bob couldn't find the invite after ~8 seconds");
 
     Ok(())
 }
