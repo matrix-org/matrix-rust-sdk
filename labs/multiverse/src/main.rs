@@ -749,13 +749,15 @@ impl App {
 
                                             let mut all_results = HashMap::new();
                                             while let Some(result) = search.next().await {
-                                                let Ok((room_id, event)) = result else {
+                                                let Ok(page) = result else {
                                                     continue;
                                                 };
-                                                all_results
-                                                    .entry(room_id)
-                                                    .or_insert_with(Vec::new)
-                                                    .push(event);
+                                                for (room_id, event) in page {
+                                                    all_results
+                                                        .entry(room_id)
+                                                        .or_insert_with(Vec::new)
+                                                        .push(event);
+                                                }
                                             }
 
                                             view.set_results(
@@ -774,7 +776,7 @@ impl App {
 
                                             let mut all_results = Vec::new();
                                             while let Some(result) = room_search.next().await {
-                                                all_results.push(result?);
+                                                all_results.extend(result?);
                                             }
                                             view.set_results(vec![(None, all_results)]);
                                         }

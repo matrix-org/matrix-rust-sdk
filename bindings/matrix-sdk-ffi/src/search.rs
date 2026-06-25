@@ -47,23 +47,23 @@ impl From<SdkSearchError> for SearchError {
     }
 }
 
-/// A boxed stream of the [`TimelineEvent`]s matching a single-room search.
-type RoomEventStream = Pin<Box<dyn Stream<Item = Result<TimelineEvent, SdkSearchError>> + Send>>;
+/// A boxed stream of pages of the [`TimelineEvent`]s matching a single-room
+/// search.
+type RoomEventStream =
+    Pin<Box<dyn Stream<Item = Result<Vec<TimelineEvent>, SdkSearchError>> + Send>>;
 
-/// A boxed stream of the `(room_id, event)`s matching a global search.
+/// A boxed stream of pages of the `(room_id, event)`s matching a global search.
 type GlobalEventStream =
-    Pin<Box<dyn Stream<Item = Result<(OwnedRoomId, TimelineEvent), SdkSearchError>> + Send>>;
+    Pin<Box<dyn Stream<Item = Result<Vec<(OwnedRoomId, TimelineEvent)>, SdkSearchError>> + Send>>;
 
 #[matrix_sdk_ffi_macros::export]
 impl Room {
     /// Search for messages in this room matching the given query, returning an
-    /// iterator over the results that yields `num_results_per_batch` results at
-    /// a time.
-    pub fn search_messages(&self, query: String, num_results_per_batch: u32) -> RoomSearchIterator {
+    /// iterator that yields one page of results at a time.
+    pub fn search_messages(&self, query: String) -> RoomSearchIterator {
         RoomSearchIterator {
             sdk_room: (*self.inner).clone(),
             stream: Mutex::new(Box::pin(self.inner.search_messages_events(query))),
-            num_results_per_batch: num_results_per_batch as usize,
         }
     }
 }
@@ -72,29 +72,18 @@ impl Room {
 pub struct RoomSearchIterator {
     sdk_room: matrix_sdk::room::Room,
     stream: Mutex<RoomEventStream>,
-    num_results_per_batch: usize,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl RoomSearchIterator {
-    /// Return a list of events for the next batch of search results, or `None`
-    /// if there are no more results.
+    /// Return the next page of search results, or `None` if there are no more
+    /// results.
     pub async fn next_events(&self) -> Result<Option<Vec<RoomSearchResult>>, SearchError> {
-        let mut stream = self.stream.lock().await;
-
-        let mut events = Vec::with_capacity(self.num_results_per_batch);
-        while events.len() < self.num_results_per_batch {
-            let Some(event) = stream.next().await else {
-                break;
-            };
-            events.push(event?);
-        }
-
-        if events.is_empty() {
+        let Some(events) = self.stream.lock().await.next().await else {
             return Ok(None);
-        }
-        drop(stream);
+        };
 
+        let events = events?;
         let mut results = Vec::with_capacity(events.len());
         for event in events {
             if let Some(result) = RoomSearchResult::from(&self.sdk_room, event).await {
@@ -158,7 +147,6 @@ impl Client {
         &self,
         query: String,
         filter: SearchRoomFilter,
-        num_results_per_batch: u32,
     ) -> Result<GlobalSearchIterator, ClientError> {
         let sdk_client = (*self.inner).clone();
         let mut builder = sdk_client.search_messages(query);
@@ -172,7 +160,6 @@ impl Client {
         Ok(GlobalSearchIterator {
             sdk_client,
             stream: Mutex::new(Box::pin(builder.build_events())),
-            num_results_per_batch: num_results_per_batch as usize,
         })
     }
 }
@@ -187,29 +174,18 @@ pub struct GlobalSearchResult {
 pub struct GlobalSearchIterator {
     sdk_client: matrix_sdk::Client,
     stream: Mutex<GlobalEventStream>,
-    num_results_per_batch: usize,
 }
 
 #[matrix_sdk_ffi_macros::export]
 impl GlobalSearchIterator {
-    /// Return a list of events for the next batch of search results, or `None`
-    /// if there are no more results.
+    /// Return the next page of search results, or `None` if there are no more
+    /// results.
     pub async fn next_events(&self) -> Result<Option<Vec<GlobalSearchResult>>, SearchError> {
-        let mut stream = self.stream.lock().await;
-
-        let mut batch = Vec::with_capacity(self.num_results_per_batch);
-        while batch.len() < self.num_results_per_batch {
-            let Some(item) = stream.next().await else {
-                break;
-            };
-            batch.push(item?);
-        }
-
-        if batch.is_empty() {
+        let Some(batch) = self.stream.lock().await.next().await else {
             return Ok(None);
-        }
-        drop(stream);
+        };
 
+        let batch = batch?;
         let mut results = Vec::with_capacity(batch.len());
         for (room_id, event) in batch {
             let Some(room) = self.sdk_client.get_room(&room_id) else {

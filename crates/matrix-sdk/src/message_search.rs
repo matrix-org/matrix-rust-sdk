@@ -15,10 +15,10 @@
 //! Messages search facilities and high-level helpers to perform searches across
 //! one or multiple rooms.
 //!
-//! These helpers expose the results as [`Stream`]s, lazily paginating through
-//! the underlying index as the stream is polled. Use the [`StreamExt`] and
-//! [`TryStreamExt`] combinators (`next`, `try_collect`, `take`, …) to consume
-//! them.
+//! These helpers expose the results as [`Stream`]s of pages, lazily fetching
+//! the next page from the underlying index as the stream is polled. Use the
+//! [`StreamExt`] and [`TryStreamExt`] combinators (`next`, `try_concat`,
+//! `take`, …) to consume them.
 //!
 //! [`StreamExt`]: futures_util::StreamExt
 //! [`TryStreamExt`]: futures_util::TryStreamExt
@@ -27,8 +27,9 @@
 //!
 //! ## Searching within a single room
 //!
-//! Use [`Room::search_messages`] to get a stream of `(score, event_id)` pairs,
-//! or [`Room::search_messages_events`] to load the full [`TimelineEvent`]s.
+//! Use [`Room::search_messages`] to get a stream of pages of `(score,
+//! event_id)` pairs, or [`Room::search_messages_events`] to load the full
+//! [`TimelineEvent`]s.
 //!
 //! ```no_run
 //! # use matrix_sdk::Room;
@@ -36,9 +37,10 @@
 //! # async fn example(room: Room) -> anyhow::Result<()> {
 //! let mut stream = Box::pin(room.search_messages("hello world".to_owned()));
 //!
-//! while let Some(result) = stream.next().await {
-//!     let (score, event_id) = result?;
-//!     println!("Found event {event_id} (score: {score})");
+//! while let Some(page) = stream.next().await {
+//!     for (score, event_id) in page? {
+//!         println!("Found event {event_id} (score: {score})");
+//!     }
 //! }
 //! # Ok(())
 //! # }
@@ -48,9 +50,10 @@
 //!
 //! Use [`Client::search_messages`] to create a [`GlobalSearchBuilder`].
 //! Optionally restrict the working set to DM rooms (or non-DM rooms) before
-//! calling [`GlobalSearchBuilder::build`] to get a stream of results, sorted by
-//! relevance score across all rooms. Use [`GlobalSearchBuilder::build_events`]
-//! to load full [`TimelineEvent`]s instead of plain event IDs.
+//! calling [`GlobalSearchBuilder::build`] to get a stream of pages of results,
+//! sorted by relevance score across all rooms. Use
+//! [`GlobalSearchBuilder::build_events`] to load full [`TimelineEvent`]s
+//! instead of plain event IDs.
 //!
 //! ```no_run
 //! # use matrix_sdk::Client;
@@ -65,12 +68,13 @@
 //!         .build_events(),
 //! );
 //!
-//! while let Some(result) = stream.next().await {
-//!     let (room_id, event) = result?;
-//!     println!(
-//!         "Found event in room {room_id} with timestamp: {:?}",
-//!         event.timestamp
-//!     );
+//! while let Some(page) = stream.next().await {
+//!     for (room_id, event) in page? {
+//!         println!(
+//!             "Found event in room {room_id} with timestamp: {:?}",
+//!             event.timestamp
+//!         );
+//!     }
 //! }
 //! # Ok(())
 //! # }
@@ -140,14 +144,12 @@ pub enum SearchError {
 
 impl Room {
     /// Search for messages in this room matching the given query, returning a
-    /// stream of `(score, event_id)` results sorted by descending relevance
-    /// score.
-    ///
-    /// The stream paginates through the index lazily as it is polled.
+    /// stream of pages of `(score, event_id)` results sorted by descending
+    /// relevance score.
     pub fn search_messages(
         &self,
         query: String,
-    ) -> impl Stream<Item = Result<(f32, OwnedEventId), IndexError>> + use<> {
+    ) -> impl Stream<Item = Result<Vec<(f32, OwnedEventId)>, IndexError>> + use<> {
         let room = self.clone();
 
         // TODO: use the client/server API search endpoint for public rooms, as those
@@ -160,27 +162,29 @@ impl Room {
                     break;
                 }
                 offset += page.len();
-                for result in page {
-                    yield result;
-                }
+                yield page;
             }
         }
     }
 
-    /// Same as [`Room::search_messages`], but yields the full
+    /// Same as [`Room::search_messages`], but yields pages of full
     /// [`TimelineEvent`]s instead of event IDs, by loading them from the store
     /// or from the network.
     pub fn search_messages_events(
         &self,
         query: String,
-    ) -> impl Stream<Item = Result<TimelineEvent, SearchError>> + use<> {
+    ) -> impl Stream<Item = Result<Vec<TimelineEvent>, SearchError>> + use<> {
         let room = self.clone();
 
         try_stream! {
-            let mut results = Box::pin(room.search_messages(query));
-            while let Some(result) = results.next().await {
-                let (_score, event_id) = result?;
-                yield room.load_or_fetch_event(&event_id, None).await?;
+            let mut pages = Box::pin(room.search_messages(query));
+            while let Some(page) = pages.next().await {
+                let page = page?;
+                let mut events = Vec::with_capacity(page.len());
+                for (_score, event_id) in page {
+                    events.push(room.load_or_fetch_event(&event_id, None).await?);
+                }
+                yield events;
             }
         }
     }
@@ -231,9 +235,11 @@ impl GlobalSearchBuilder {
     }
 
     /// Build a stream over the search results across all the rooms in the
-    /// working set, yielding `(room_id, score, event_id)` tuples sorted by
-    /// descending relevance score.
-    pub fn build(self) -> impl Stream<Item = Result<(OwnedRoomId, f32, OwnedEventId), IndexError>> {
+    /// working set, yielding pages of `(room_id, score, event_id)` tuples
+    /// sorted by descending relevance score.
+    pub fn build(
+        self,
+    ) -> impl Stream<Item = Result<Vec<(OwnedRoomId, f32, OwnedEventId)>, IndexError>> {
         let query = self.query;
         let rooms = self.room_set;
 
@@ -243,7 +249,7 @@ impl GlobalSearchBuilder {
             let mut cursors: Vec<RoomStreamCursor> = Vec::with_capacity(rooms.len());
             for room in rooms {
                 let room_id = room.room_id().to_owned();
-                let stream = Box::pin(room.search_messages(query.clone()));
+                let stream = Box::pin(Self::flatten_pages(room.search_messages(query.clone())));
                 cursors.push(RoomStreamCursor { room_id, stream, next_result: None });
             }
             for cursor in &mut cursors {
@@ -253,6 +259,7 @@ impl GlobalSearchBuilder {
                 };
             }
 
+            let mut page = Vec::with_capacity(SEARCH_RESULTS_PAGE_SIZE);
             loop {
                 // Pick the room whose next result has the highest relevance score.
                 let best = cursors
@@ -279,28 +286,54 @@ impl GlobalSearchBuilder {
                     None => None,
                 };
 
-                yield (room_id, score, event_id);
+                page.push((room_id, score, event_id));
+                if page.len() == SEARCH_RESULTS_PAGE_SIZE {
+                    yield std::mem::take(&mut page);
+                }
+            }
+
+            if !page.is_empty() {
+                yield page;
             }
         }
     }
 
-    /// Same as [`Self::build`], but yields the full [`TimelineEvent`]s instead
-    /// of event IDs, by loading them from the store or from the network.
+    /// Same as [`Self::build`], but yields pages of full [`TimelineEvent`]s
+    /// instead of event IDs, by loading them from the store or from the
+    /// network.
     pub fn build_events(
         self,
-    ) -> impl Stream<Item = Result<(OwnedRoomId, TimelineEvent), SearchError>> {
+    ) -> impl Stream<Item = Result<Vec<(OwnedRoomId, TimelineEvent)>, SearchError>> {
         let client = self.client.clone();
-        let results = self.build();
+        let pages = self.build();
 
         try_stream! {
-            let mut results = Box::pin(results);
-            while let Some(result) = results.next().await {
-                let (room_id, _score, event_id) = result?;
-                let Some(room) = client.get_room(&room_id) else {
-                    continue;
-                };
-                let event = room.load_or_fetch_event(&event_id, None).await?;
-                yield (room_id, event);
+            let mut pages = Box::pin(pages);
+            while let Some(page) = pages.next().await {
+                let page = page?;
+                let mut events = Vec::with_capacity(page.len());
+                for (room_id, _score, event_id) in page {
+                    let Some(room) = client.get_room(&room_id) else {
+                        continue;
+                    };
+                    events.push((room_id, room.load_or_fetch_event(&event_id, None).await?));
+                }
+                yield events;
+            }
+        }
+    }
+
+    /// Flatten a stream of result pages into a stream of individual results, so
+    /// the cross-room merge can compare results one at a time.
+    fn flatten_pages(
+        pages: impl Stream<Item = Result<Vec<(f32, OwnedEventId)>, IndexError>>,
+    ) -> impl Stream<Item = Result<(f32, OwnedEventId), IndexError>> {
+        try_stream! {
+            let mut pages = Box::pin(pages);
+            while let Some(page) = pages.next().await {
+                for result in page? {
+                    yield result;
+                }
             }
         }
     }
@@ -353,14 +386,14 @@ mod tests {
         // Searching for a missing keyword should succeed and yield nothing.
         {
             let results: Vec<(f32, OwnedEventId)> =
-                room.search_messages("search query".to_owned()).try_collect().await.unwrap();
+                room.search_messages("search query".to_owned()).try_concat().await.unwrap();
             assert!(results.is_empty());
         }
 
         // Search for an existing keyword, by event id.
         {
             let results: Vec<(f32, OwnedEventId)> =
-                room.search_messages("world".to_owned()).try_collect().await.unwrap();
+                room.search_messages("world".to_owned()).try_concat().await.unwrap();
             assert_eq!(results.len(), 1);
             assert_eq!(results[0].1, event_id);
         }
@@ -368,7 +401,7 @@ mod tests {
         // Search for an existing keyword, by events.
         {
             let events: Vec<_> =
-                room.search_messages_events("world".to_owned()).try_collect().await.unwrap();
+                room.search_messages_events("world".to_owned()).try_concat().await.unwrap();
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].event_id().unwrap(), event_id);
         }
@@ -415,7 +448,7 @@ mod tests {
             let results: Vec<(OwnedRoomId, f32, OwnedEventId)> = client
                 .search_messages("search query".to_owned())
                 .build()
-                .try_collect()
+                .try_concat()
                 .await
                 .unwrap();
             assert!(results.is_empty());
@@ -424,7 +457,7 @@ mod tests {
         // Search for an existing keyword, by event id.
         {
             let results: Vec<(OwnedRoomId, f32, OwnedEventId)> =
-                client.search_messages("world".to_owned()).build().try_collect().await.unwrap();
+                client.search_messages("world".to_owned()).build().try_concat().await.unwrap();
             assert_eq!(results.len(), 2);
             // Search results order is not guaranteed, so we check that both expected
             // results are present.
@@ -441,7 +474,7 @@ mod tests {
             let results: Vec<_> = client
                 .search_messages("world".to_owned())
                 .build_events()
-                .try_collect()
+                .try_concat()
                 .await
                 .unwrap();
             assert_eq!(results.len(), 2);
@@ -517,7 +550,7 @@ mod tests {
         sleep(Duration::from_millis(200)).await;
 
         let results: Vec<(OwnedRoomId, f32, OwnedEventId)> =
-            client.search_messages("world".to_owned()).build().try_collect().await.unwrap();
+            client.search_messages("world".to_owned()).build().try_concat().await.unwrap();
         assert_eq!(results.len(), 4);
 
         // Results are interleaved across the two rooms strictly by score.
@@ -577,7 +610,7 @@ mod tests {
                 .await
                 .unwrap()
                 .build()
-                .try_collect()
+                .try_concat()
                 .await
                 .unwrap();
 
@@ -596,7 +629,7 @@ mod tests {
                 .await
                 .unwrap()
                 .build_events()
-                .try_collect()
+                .try_concat()
                 .await
                 .unwrap();
 
