@@ -59,6 +59,7 @@ use matrix_sdk::{
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
 };
+use matrix_sdk_base::crypto::x509::RawX509Signature;
 use matrix_sdk_common::{
     SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
@@ -319,7 +320,7 @@ pub trait X509Sign: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Create a signature for the given message using our private key
     ///
     /// Returns (key ID, signature)
-    fn sign(&self, message: Vec<u8>) -> Result<X509SignatureAndKeyId, ClientError>;
+    fn sign(&self, message: Vec<u8>) -> Result<RawX509Signature, ClientError>;
 }
 
 /// A foreign trait for low-level types which can verify messages which were
@@ -331,21 +332,10 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     ///
     /// Also validates that the certificate used for the signature is issued via
     /// one of our trusted CAs.
-    fn verify(&self, message: Vec<u8>, sig: X509Signature) -> bool;
+    fn verify(&self, message: Vec<u8>, sig: RawX509Signature) -> bool;
 }
 
-/// Return type for [`X509Sign::sign`]. A device ID, a certificate chain, and an
-/// X.509 signature.
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
-pub struct X509SignatureAndKeyId {
-    /// The device ID to use to identify the key used to sign the message.
-    pub device_id: String,
-
-    /// The signature itself.
-    pub signature: X509Signature,
-}
-
-/// An X.509 signature and certificate chain
+/*/// An X.509 signature and certificate chain
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct X509Signature {
     /// The PEM-encoded certificate chain, starting with the device's own
@@ -381,7 +371,7 @@ impl From<matrix_sdk_base::crypto::types::X509Signature> for X509Signature {
             signature: value.signature,
         }
     }
-}
+}*/
 
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {

@@ -40,15 +40,11 @@ use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{
         CollectStrategy, DecryptionSettings, TrustRequirement,
-        types::X509Signature,
-        x509::{X509Signer, X509Verifier},
+        x509::{RawX509Signature, X509Signer, X509Verifier},
     },
 };
 use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
-use ruma::{
-    OwnedDeviceId,
-    api::error::{DeserializationError, FromHttpResponseError},
-};
+use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
 use super::client::{Client, X509Sign, X509Verify};
@@ -583,15 +579,10 @@ impl ClientBuilder {
             #[derive(Debug)]
             struct X509SignImpl(Arc<dyn X509Sign>);
             impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
-                fn sign(
-                    &self,
-                    message: &[u8],
-                ) -> Result<(OwnedDeviceId, X509Signature), SignatureError> {
-                    let result = self
-                        .0
+                fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
+                    self.0
                         .sign(message.to_vec())
-                        .map_err(|e| SignatureError::X509SigningError(e.to_string()))?;
-                    Ok((result.device_id.into(), result.signature.into()))
+                        .map_err(|e| SignatureError::X509SigningError(e.to_string()))
                 }
             }
 
@@ -604,11 +595,8 @@ impl ClientBuilder {
             #[derive(Debug)]
             struct X509VerifyImpl(Arc<dyn X509Verify>);
             impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
-                fn verify(&self, message: &[u8], sig: &X509Signature) -> bool {
-                    tracing::info!("X509VerifyImpl::verify");
-                    let r = self.0.verify(message.to_vec(), sig.clone().into());
-                    tracing::info!("X509VerifyImpl::verify: result {}", r);
-                    r
+                fn verify(&self, message: &[u8], sig: &RawX509Signature) -> bool {
+                    self.0.verify(message.to_vec(), sig.clone())
                 }
             }
             let x509_verify = Arc::new(X509VerifyImpl(x509_verify));

@@ -44,6 +44,7 @@ use crate::{
 /// [`RawX509Verifier`].
 ///
 /// A simplified representation of the data in the signature object.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Clone)]
 pub struct RawX509Signature {
     /// The raw bytes of the signature.
@@ -353,6 +354,7 @@ fn map_signer_info_algorithms_to_signature_scheme(
 ///
 /// This might be extended in future, but for now we only support
 /// RsaPssSha512.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum X509SignatureScheme {
     /// SHA-512 message digest, with RSASSA-PSS signature scheme (aka RSA-PSS),
