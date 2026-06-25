@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The [`RoomEventCacheSubscriber`] implementation.
+//! The [`Subscriber`] implementation.
 
 use std::{
     ops::{Deref, DerefMut},
     sync::{Arc, Weak},
 };
 
-use ruma::OwnedRoomId;
 use tokio::sync::{broadcast::Receiver, mpsc};
 use tracing::{trace, warn};
 
-use super::{super::AutoShrinkChannelPayload, room::RoomEventCacheUpdate};
+use super::super::AutoShrinkChannelPayload;
 
 /// A structure that can generate handles for subscribers, and count them. See
 /// [`SubscriberHandle`] to learn more.
@@ -66,52 +65,58 @@ impl SubscriberHandle {
     }
 }
 
-/// Thin wrapper for a room event cache subscriber, so as to trigger
-/// side-effects when all subscribers are gone.
+/// Thin wrapper for a cache subscriber, so as to trigger side-effects when all
+/// subscribers are gone.
 ///
-/// The current side-effect is: auto-shrinking the [`RoomEventCache`] when no
-/// more subscribers are active. This is an optimisation to reduce the number of
-/// data held in memory by a [`RoomEventCache`]: when no more subscribers are
-/// active, all data are reduced to the minimum.
+/// The current side-effect is: auto-shrinking the cache when no more
+/// subscribers are active. This is an optimisation to reduce the number of data
+/// held in memory by the cache: when no more subscribers are active, all data
+/// are reduced to the minimum.
 ///
 /// The side-effect takes effect on `Drop`.
-///
-/// [`RoomEventCache`]: super::RoomEventCache
 #[allow(missing_debug_implementations)]
-pub struct RoomEventCacheSubscriber {
+pub struct Subscriber<T> {
     /// Underlying receiver of the room event cache's updates.
-    recv: Receiver<RoomEventCacheUpdate>,
+    recv: Receiver<T>,
 
-    /// To which room are we listening?
-    room_id: OwnedRoomId,
+    /// The payload that is going to be sent to [`Self::auto_shrink_sender`].
+    ///
+    /// This is an `Option` to take/own the value in the `Drop` implementation
+    /// without cloning it.
+    auto_shrink_payload: Option<AutoShrinkChannelPayload>,
 
-    /// Sender to the auto-shrink channel.
+    /// The sender side of the auto-shrink channel.
     auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
 
     /// The subscribers handle shared by all subscribers.
     ///
-    /// It comes from [`super::RoomEventCacheState::subscribers_handle`].
+    /// This is used to detect when no more subscribers are active, and trigger
+    /// side-effect.
+    ///
+    /// This is an `Option` to take/own the value in the `Drop` implementation
+    /// without cloning it. Being able to own it helps to control when the value
+    /// is dropped.
     subscriber_handle: Option<SubscriberHandle>,
 }
 
-impl RoomEventCacheSubscriber {
-    /// Create a new [`RoomEventCacheSubscriber`].
+impl<T> Subscriber<T> {
+    /// Create a new [`Subscriber`].
     pub(super) fn new(
-        recv: Receiver<RoomEventCacheUpdate>,
-        room_id: OwnedRoomId,
+        recv: Receiver<T>,
+        auto_shrink_payload: AutoShrinkChannelPayload,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         subscribers_handle: &SubscribersHandle,
     ) -> Self {
         Self {
             recv,
-            room_id,
+            auto_shrink_payload: Some(auto_shrink_payload),
             auto_shrink_sender,
             subscriber_handle: Some(subscribers_handle.new_subscriber_handle()),
         }
     }
 }
 
-impl Drop for RoomEventCacheSubscriber {
+impl<T> Drop for Subscriber<T> {
     fn drop(&mut self) {
         let number_of_subscribers = self
             .subscriber_handle
@@ -125,18 +130,20 @@ impl Drop for RoomEventCacheSubscriber {
 
         if number_of_subscribers == 1 {
             // We were the last instance of the subscriber; let the auto-shrinker know by
-            // notifying it of our room id.
+            // notifying it.
 
-            let mut room_id = self.room_id.clone();
+            // Try to send without waiting for channel capacity, and restart in a loop if it
+            // failed (until a maximum number of attempts is reached, or the send was
+            // successful). The channel shouldn't be super busy in general, so this should
+            // resolve quickly enough.
 
-            // Try to send without waiting for channel capacity, and restart in a spin-loop
-            // if it failed (until a maximum number of attempts is reached, or
-            // the send was successful). The channel shouldn't be super busy in
-            // general, so this should resolve quickly enough.
-
+            let mut payload = self
+                .auto_shrink_payload
+                .take()
+                .expect("Unreachable: `auto_shrink_payload` must be `Some`");
             let mut num_attempts = 0;
 
-            while let Err(err) = self.auto_shrink_sender.try_send(room_id) {
+            while let Err(err) = self.auto_shrink_sender.try_send(payload) {
                 num_attempts += 1;
 
                 if num_attempts > 1024 {
@@ -150,8 +157,8 @@ impl Drop for RoomEventCacheSubscriber {
                 }
 
                 match err {
-                    mpsc::error::TrySendError::Full(stolen_room_id) => {
-                        room_id = stolen_room_id;
+                    mpsc::error::TrySendError::Full(stolen_payload) => {
+                        payload = stolen_payload;
                     }
                     mpsc::error::TrySendError::Closed(_) => return,
                 }
@@ -162,15 +169,15 @@ impl Drop for RoomEventCacheSubscriber {
     }
 }
 
-impl Deref for RoomEventCacheSubscriber {
-    type Target = Receiver<RoomEventCacheUpdate>;
+impl<T> Deref for Subscriber<T> {
+    type Target = Receiver<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.recv
     }
 }
 
-impl DerefMut for RoomEventCacheSubscriber {
+impl<T> DerefMut for Subscriber<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.recv
     }

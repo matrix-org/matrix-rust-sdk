@@ -78,6 +78,7 @@ pub use self::{
             RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
             pagination::RoomPagination,
         },
+        subscriber::Subscriber,
         thread::{ThreadEventCache, pagination::ThreadPagination},
     },
 };
@@ -469,9 +470,9 @@ impl EventCache {
 
     /// Subscribe to room _generic_ updates.
     ///
-    /// If one wants to listen what has changed in a specific room, the
-    /// [`RoomEventCache::subscribe`] is recommended. However, the
-    /// [`RoomEventCacheSubscriber`] type triggers side-effects.
+    /// If one wants to listen what has changed in a specific room for example,
+    /// the [`RoomEventCache::subscribe`] is recommended. However, the
+    /// [`Subscriber`] type triggers side-effects.
     ///
     /// If one wants to get a high-overview, generic, updates for rooms, and
     /// without side-effects, this method is recommended. Also, dropping the
