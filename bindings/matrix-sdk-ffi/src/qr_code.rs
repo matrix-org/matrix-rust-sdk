@@ -91,15 +91,17 @@ impl LoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            result = login => {
-                result?;
-                Ok(())
-            }
+            // Give priority to cancellation if both updates occur at the same time.
+            biased;
             _ = self.cancel.notified() => {
                 // Stop forwarding progress to the foreign callback before tearing
                 // down the handler.
                 drop(progress_task);
                 Err(HumanQrLoginError::Cancelled)
+            }
+            result = login => {
+                result?;
+                Ok(())
             }
         }
     }
@@ -144,15 +146,17 @@ impl LoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            result = login => {
-                result?;
-                Ok(())
-            }
+            // Give priority to cancellation if both updates occur at the same time.
+            biased;
             _ = self.cancel.notified() => {
                 // Stop forwarding progress to the foreign callback before tearing
                 // down the handler.
                 drop(progress_task);
                 Err(HumanQrLoginError::Cancelled)
+            }
+            result = login => {
+                result?;
+                Ok(())
             }
         }
     }
@@ -216,15 +220,17 @@ impl GrantLoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            result = grant => {
-                result?;
-                Ok(())
-            }
+            // Give priority to cancellation if both updates occur at the same time.
+            biased;
             _ = self.cancel.notified() => {
                 // Stop forwarding progress to the foreign callback before tearing
                 // down the handler.
                 drop(progress_task);
                 Err(HumanQrGrantLoginError::Cancelled)
+            }
+            result = grant => {
+                result?;
+                Ok(())
             }
         }
     }
@@ -263,15 +269,17 @@ impl GrantLoginWithQrCodeHandler {
         }));
 
         tokio::select! {
-            result = grant => {
-                result?;
-                Ok(())
-            }
+            // Give priority to cancellation if both updates occur at the same time.
+            biased;
             _ = self.cancel.notified() => {
                 // Stop forwarding progress to the foreign callback before tearing
                 // down the handler.
                 drop(progress_task);
                 Err(HumanQrGrantLoginError::Cancelled)
+            }
+            result = grant => {
+                result?;
+                Ok(())
             }
         }
     }
