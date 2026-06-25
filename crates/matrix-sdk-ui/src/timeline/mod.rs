@@ -296,24 +296,10 @@ impl Timeline {
     pub async fn edit_revisions(&self, event_id: &EventId) -> Result<Vec<EditRevision>, Error> {
         let Ok((original_event, edit_events)) = self
             .controller
-            .find_event_with_relations(event_id, Some(vec![RelationType::Replacement]))
-            .await
-        else {
-            return Ok(Vec::new());
-        };
-
-        let room = self.room();
-        let mut revisions = Vec::with_capacity(edit_events.len() + 1);
-
-        let original_ts = original_event.timestamp();
-        if let Some(content) = TimelineItemContent::from_event(room, original_event).await {
-            revisions.push(EditRevision { content, timestamp: original_ts });
-        }
-
-        for edit_event in edit_events {
-            let edit_ts = edit_event.timestamp();
-            if let Some(content) = TimelineItemContent::from_event(room, edit_event).await {
-                revisions.push(EditRevision { content, timestamp: edit_ts });
+        for event in iter::once(original_event).chain(edit_events) {
+            let timestamp = event.timestamp();
+            if let Some(content) = TimelineItemContent::from_event(room, event).await {
+                revisions.push(EditRevision { content, timestamp });
             }
         }
 
