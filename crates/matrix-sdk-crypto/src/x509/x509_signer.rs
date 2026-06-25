@@ -49,7 +49,13 @@ impl X509Signer {
     ) -> Result<(), SignatureError> {
         let json = to_signable_json(to_canonical_value(&cross_signing_key)?)?;
 
-        let (device_id, signature) = self.x509_sign.sign(json.as_bytes())?.into_x509_signature()?;
+        let (device_id, signature) =
+            self.x509_sign.sign(json.as_bytes())?.into_x509_signature().map_err(|e| {
+                SignatureError::X509SigningError(format!(
+                    "Error parsing response from RawX509Signer: {}",
+                    e
+                ))
+            })?;
 
         cross_signing_key.signatures.add_signature(
             signing_user_id.to_owned(),

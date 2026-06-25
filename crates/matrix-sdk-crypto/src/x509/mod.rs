@@ -15,12 +15,14 @@
 //! Types and traits for verification of users and devices using X.509 keys and
 //! certificates.
 
+mod errors;
 mod raw_x509_signature;
 pub(crate) mod rust_raw_x509_signer;
 pub(crate) mod rust_raw_x509_verifier;
 mod x509_signer;
 mod x509_verify;
 
+pub use raw_x509_signature::RawX509Signature;
 pub use rust_raw_x509_signer::RustRawX509Signer;
 pub use rust_raw_x509_verifier::RustRawX509Verifier;
 pub use x509_signer::{RawX509Signer, X509Signer};

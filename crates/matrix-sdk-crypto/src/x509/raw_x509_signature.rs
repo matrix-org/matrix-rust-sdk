@@ -17,25 +17,28 @@ use cms::{
         CertificateChoices,
         x509::{
             Certificate, der,
-            der::{AnyRef, EncodePem, asn1::SetOfVec, pem::LineEnding, referenced::OwnedToRef},
+            der::{EncodePem, asn1::SetOfVec, pem::LineEnding, referenced::OwnedToRef},
             ext::pkix::{AuthorityKeyIdentifier, SubjectKeyIdentifier},
-            spki::{AlgorithmIdentifierOwned, AlgorithmIdentifierRef},
+            spki::{AlgorithmIdentifierOwned, ObjectIdentifier},
         },
     },
     content_info::{CmsVersion, ContentInfo},
     signed_data::{
         EncapsulatedContentInfo, SignatureValue, SignedData, SignerIdentifier, SignerInfo,
+        SignerInfos,
     },
 };
 use rsa::pkcs1::RsaPssParams;
 use ruma::OwnedDeviceId;
 use sha2::digest::const_oid;
-use thiserror::Error;
 use vodozemac::base64_encode;
 
 #[cfg(doc)]
 use crate::x509::{RawX509Signer, RawX509Verifier};
-use crate::{SignatureError, types::X509Signature};
+use crate::{
+    types::X509Signature,
+    x509::errors::{IntoX509SignatureError, OidMismatch, RawX509SignatureParseError},
+};
 
 /// The object we receive from [`RawX509Signer`], and pass to
 /// [`RawX509Verifier`].
@@ -57,32 +60,38 @@ pub struct RawX509Signature {
 impl RawX509Signature {
     /// Convert this signing result into an [`X509Signature`] containing a CMS
     /// `SignedData` object.
-    pub fn into_x509_signature(self) -> Result<(OwnedDeviceId, X509Signature), SignatureError> {
+    pub fn into_x509_signature(
+        self,
+    ) -> Result<(OwnedDeviceId, X509Signature), IntoX509SignatureError> {
         let cert_chain = Certificate::load_pem_chain(self.certificate_chain.as_bytes())
-            .expect("unable to parse cert chain returned by RawX509Signer");
+            .map_err(IntoX509SignatureError::CertificateChainParseError)?;
 
-        if cert_chain.is_empty() {
-            panic!("Empty cert chain returned by RawX509Signer");
-        }
+        let (first_cert, last_cert) = match cert_chain.as_slice() {
+            [] => return Err(IntoX509SignatureError::EmptyCertChain),
+            [single] => (single, single),
+            [first, .., last] => (first, last),
+        };
 
         // The subject key identifier of the cert for the key that we signed with.
-        let leaf_ski = cert_chain[0]
+        let leaf_ski = first_cert
             .tbs_certificate
             .get::<SubjectKeyIdentifier>()
-            .expect("Error parsing extensions in leaf cert")
-            .expect("No SubjectKeyIdentifier in leaf cert")
+            .map_err(IntoX509SignatureError::LeafCertificateExtensionParseError)?
+            .ok_or(IntoX509SignatureError::LeafCertificateMissingSubjectKeyIdentifier)?
             .1;
 
         // The authority key identifier of the highest cert in the chain, which should
         // be the subject key identifier of the CA.
-        let authority_key_identifier = cert_chain
-            .last()
-            .unwrap()
+        let authority_key_identifier = last_cert
             .tbs_certificate
             .get::<AuthorityKeyIdentifier>()
-            .expect("Error parsing extensions in intermediate cert")
-            .expect("No AuthorityKeyIdentifier in intermediate cert")
+            .map_err(IntoX509SignatureError::LastCertificateExtensionParseError)?
+            .ok_or(IntoX509SignatureError::LastCertificateMissingAuthorityKeyIdentifier)?
             .1;
+
+        let authority_key_identifier_bytes = authority_key_identifier.key_identifier.ok_or(
+            IntoX509SignatureError::LastCertificateMissingKeyIdenitifierInAuthorityKeyIdentifier,
+        )?;
 
         let signer_info = SignerInfo {
             // RFC 5652 § 5.3: version is the syntax version number.  If the SignerIdentifier is
@@ -94,7 +103,10 @@ impl RawX509Signature {
             digest_alg: self.signature_scheme.get_digest_algorithm(),
             signed_attrs: None, // Not required if EncapsulatedContentInfo is id-data
             signature_algorithm: self.signature_scheme.get_signature_algorithm(),
-            signature: SignatureValue::new(self.signature_bytes).unwrap(),
+            signature: SignatureValue::new(self.signature_bytes).expect(
+                // This can only fail by failing to encode the length of the bytes as a usize
+                "Unable to encode signature bytes as SignatureValue",
+            ),
             unsigned_attrs: None,
         };
 
@@ -119,118 +131,171 @@ impl RawX509Signature {
             //
             // TL;DR: since our SignerInfo is v3, we need a v3 SignedData.
             version: CmsVersion::V3,
-            digest_algorithms: vec![signer_info.digest_alg.clone()].try_into().unwrap(),
+            digest_algorithms: vec![signer_info.digest_alg.clone()].into_set_of_vec(),
             encap_content_info: EncapsulatedContentInfo {
                 econtent_type: const_oid::db::rfc5911::ID_DATA,
                 econtent: None,
             },
             certificates: Some(
-                SetOfVec::from_iter(cert_chain.into_iter().map(CertificateChoices::Certificate))
-                    .unwrap()
+                cert_chain
+                    .into_iter()
+                    .map(CertificateChoices::Certificate)
+                    .collect::<Vec<_>>()
+                    .into_set_of_vec()
                     .into(),
             ),
             crls: None,
-            signer_infos: vec![signer_info].try_into().unwrap(),
+            signer_infos: SignerInfos(vec![signer_info].into_set_of_vec()),
         };
 
         let signature = X509Signature::new(ContentInfo {
             content_type: const_oid::db::rfc5911::ID_SIGNED_DATA,
-            content: der::Any::encode_from(&signed_data).unwrap(),
+            content: der::Any::encode_from(&signed_data)
+                .expect("Unable to encode SignedData as DER"),
         });
 
-        let device_id = OwnedDeviceId::from(base64_encode(
-            authority_key_identifier
-                .key_identifier
-                .expect("No key identifier in AuthorityKeyIdentifier"),
-        ));
+        let device_id = OwnedDeviceId::from(base64_encode(authority_key_identifier_bytes));
 
         Ok((device_id, signature))
     }
 }
 
-/// Error type for [`RawX509Signature::try_from`].
-#[derive(Debug, Error)]
-pub enum ParseRawX509SignatureError {
-    // TODO: populate
+/// Helper trait for building [`SetOfVec`] whilst suppressing the impossible
+/// error.
+trait IntoSetOfVec<T: der::DerOrd> {
+    fn into_set_of_vec(self) -> SetOfVec<T>;
+}
+
+impl<T: der::DerOrd> IntoSetOfVec<T> for Vec<T> {
+    fn into_set_of_vec(self) -> SetOfVec<T> {
+        // Building a SetOfVec has to calculate the lengths of each of the entries,
+        // which is theoretically fallible if the lengths cannot be represented as a
+        // `usize`.
+        //
+        // In practice, I can't see why it would fail.
+        self.try_into().expect("Unable to construct SetOfVec")
+    }
 }
 
 impl TryFrom<&X509Signature> for RawX509Signature {
-    type Error = ParseRawX509SignatureError;
+    type Error = RawX509SignatureParseError;
 
     fn try_from(value: &X509Signature) -> Result<Self, Self::Error> {
         let content_info = value.get_signature();
-        if content_info.content_type != const_oid::db::rfc5911::ID_SIGNED_DATA {
-            panic!("ContentInfo should be ID_SIGNED_DATA");
-        }
-        let data: SignedData =
-            content_info.content.decode_as().expect("Could not parse SignedData");
+
+        assert_oid_matches(&content_info.content_type, &const_oid::db::rfc5911::ID_SIGNED_DATA)
+            .map_err(RawX509SignatureParseError::UnexpectedContentInfoContentType)?;
+
+        let data: SignedData = content_info
+            .content
+            .decode_as()
+            .map_err(RawX509SignatureParseError::ContentInfoParseError)?;
+
+        data.try_into()
+    }
+}
+
+impl TryFrom<SignedData> for RawX509Signature {
+    type Error = RawX509SignatureParseError;
+
+    fn try_from(data: SignedData) -> Result<Self, Self::Error> {
         // TODO? check version?
         // TODO? check digest_algorithms?
-        if data.encap_content_info.econtent_type != const_oid::db::rfc5911::ID_DATA {
-            panic!("EncapsulatedContentInfo should be ID_DATA");
-        }
-        if data.encap_content_info.econtent.is_some() {
-            panic!("EncapsulatedContentInfo.content should be None");
-        }
+        let encapsulated_content_info = &data.encap_content_info;
+        check_encapsulated_content_info(encapsulated_content_info)?;
 
-        let certificates = data.certificates.expect("No certificates");
-        let leaf_cert = match certificates.0.get(0).expect("Expected at least one certificate") {
-            CertificateChoices::Certificate(c) => c,
-            CertificateChoices::Other(_) => {
-                panic!("CertificateChoices should be Certificate");
-            }
-        };
-        let leaf_ski: SubjectKeyIdentifier = leaf_cert.tbs_certificate.get().unwrap().unwrap().1;
-
-        let cert_pems = certificates
+        let certificates: Vec<_> = data
+            .certificates
+            .as_ref()
+            .ok_or(RawX509SignatureParseError::NoCertificateChainInSignedData)?
             .0
             .iter()
             .map(|cert| match cert {
-                CertificateChoices::Certificate(c) => c.to_pem(LineEnding::CRLF).unwrap(),
+                CertificateChoices::Certificate(c) => Ok(c),
                 CertificateChoices::Other(_) => {
-                    panic!("CertificateChoices should be Certificate");
+                    Err(RawX509SignatureParseError::NonX509CertificateInCertificateChain)
                 }
+            })
+            .collect::<Result<_, _>>()?;
+
+        let leaf_cert = certificates
+            .get(0)
+            .ok_or(RawX509SignatureParseError::EmptyCertificateChainInSignedData)?;
+        let leaf_ski = leaf_cert
+            .tbs_certificate
+            .get::<SubjectKeyIdentifier>()
+            .map_err(RawX509SignatureParseError::LeafCertificateExtensionParseError)?
+            .ok_or(RawX509SignatureParseError::LeafCertificateMissingSubjectKeyIdentifier)?
+            .1;
+
+        let cert_pems = certificates
+            .iter()
+            .map(|cert| {
+                cert.to_pem(LineEnding::CRLF).expect("Unable to format certificate chain as PEMs")
             })
             .collect::<Vec<_>>()
             .join("\r\n");
 
         if data.crls.is_some() {
-            panic!("CRLs should be None");
+            return Err(RawX509SignatureParseError::SignedDataContainsCrls);
         }
 
         let mut signer_infos = data.signer_infos.0.into_vec();
-        let signer_info = signer_infos.pop().expect("SignerInfos was empty");
+        let signer_info = signer_infos.pop().ok_or(RawX509SignatureParseError::EmptySignerInfos)?;
         if !signer_infos.is_empty() {
-            panic!("SignerInfos contained multiple entries");
+            return Err(RawX509SignatureParseError::MultipleSignerInfos);
         }
 
-        // TODO: check version?
-        match &signer_info.sid {
-            SignerIdentifier::IssuerAndSerialNumber(_) => {
-                panic!("SignerIdentifier should be SubjectKeyIdentifier")
-            }
-            SignerIdentifier::SubjectKeyIdentifier(ski) => {
-                if *ski != leaf_ski {
-                    panic!("SignerIdentifier should match SubjectKeyIdentifier of leaf certificate")
-                }
-            }
-        };
-
-        if signer_info.signed_attrs.is_some() {
-            panic!("SignerInfo.signed_attrs should be None");
-        }
-
-        let signature_scheme = map_signer_info_algorithms_to_signature_scheme(
-            &signer_info.digest_alg,
-            &signer_info.signature_algorithm,
-        )?;
-
-        Ok(RawX509Signature {
-            signature_bytes: signer_info.signature.into_bytes(),
-            certificate_chain: cert_pems,
-            signature_scheme,
-        })
+        let (signature_scheme, signature_bytes) = parse_signer_info(signer_info, &leaf_ski)?;
+        Ok(RawX509Signature { signature_bytes, certificate_chain: cert_pems, signature_scheme })
     }
+}
+
+fn check_encapsulated_content_info(
+    encapsulated_content_info: &EncapsulatedContentInfo,
+) -> Result<(), RawX509SignatureParseError> {
+    assert_oid_matches(&encapsulated_content_info.econtent_type, &const_oid::db::rfc5911::ID_DATA)
+        .map_err(RawX509SignatureParseError::UnexpectedEncapsulatedContentInfoContentType)?;
+    if encapsulated_content_info.econtent.is_some() {
+        return Err(RawX509SignatureParseError::EncapsulatedContentNotNull);
+    }
+    Ok(())
+}
+
+/// Verify the given [`SignerInfo`], checking its signer identifier matches
+/// the given `expected_ski`.
+///
+/// # Returns
+///
+/// - The signature scheme used for the signature.
+/// - The raw bytes of the signature.
+fn parse_signer_info(
+    signer_info: SignerInfo,
+    expected_ski: &SubjectKeyIdentifier,
+) -> Result<(X509SignatureScheme, Vec<u8>), RawX509SignatureParseError> {
+    // TODO: check version?
+    match &signer_info.sid {
+        SignerIdentifier::IssuerAndSerialNumber(_) => {
+            return Err(RawX509SignatureParseError::SignerIdentifierNotSubjectKeyIdentifier);
+        }
+        SignerIdentifier::SubjectKeyIdentifier(ski) => {
+            if *ski != *expected_ski {
+                return Err(RawX509SignatureParseError::SignerIdentifierMismatch);
+            }
+        }
+    };
+
+    if signer_info.signed_attrs.is_some() {
+        return Err(RawX509SignatureParseError::SignerInfoContainsSignedAttrs);
+    }
+
+    let signature_scheme = map_signer_info_algorithms_to_signature_scheme(
+        &signer_info.digest_alg,
+        &signer_info.signature_algorithm,
+    )?;
+
+    let signature_bytes = signer_info.signature.into_bytes();
+    Ok((signature_scheme, signature_bytes))
 }
 
 /// Given the digest and signature algorithms from a `SignerInfo` structure, map
@@ -238,48 +303,50 @@ impl TryFrom<&X509Signature> for RawX509Signature {
 fn map_signer_info_algorithms_to_signature_scheme(
     digest_alg: &AlgorithmIdentifierOwned,
     signature_algorithm: &AlgorithmIdentifierOwned,
-) -> Result<X509SignatureScheme, ParseRawX509SignatureError> {
+) -> Result<X509SignatureScheme, RawX509SignatureParseError> {
     // For now, we only support RsaPssSha512
-    signature_algorithm
-        .assert_algorithm_oid(const_oid::db::rfc5912::ID_RSASSA_PSS)
-        .expect("SignerInfo.signature_algorithm.oid should be RSASSA_PSS");
+    assert_oid_matches(&signature_algorithm.oid, &const_oid::db::rfc5912::ID_RSASSA_PSS)
+        .map_err(RawX509SignatureParseError::UnsupportedSignatureAlgorithm)?;
 
-    check_sha512_algorithm(digest_alg.owned_to_ref());
+    assert_oid_matches(&digest_alg.oid, &const_oid::db::rfc5912::ID_SHA_512)
+        .map_err(RawX509SignatureParseError::UnsupportedDigestAlgorithm)?;
 
-    let params = signature_algorithm
+    match &digest_alg.parameters {
+        None => {}
+        Some(x) if x.is_null() => {}
+        Some(_) => return Err(RawX509SignatureParseError::DigestAlgorithmParametersNotNull),
+    };
+
+    let signature_algorithm_params: RsaPssParams<'_> = signature_algorithm
         .parameters
         .as_ref()
-        .expect("SignerInfo.signature_algorithm.params should be set");
-    let params: RsaPssParams<'_> =
-        params.decode_as().expect("Could not parse SignatureAlgorithm.parameters as RsaPssParams");
+        .ok_or(RawX509SignatureParseError::SignatureAlgorithmParametersNotSet)?
+        .decode_as()
+        .map_err(RawX509SignatureParseError::SignatureAlgorithmParametersParseError)?;
 
-    check_sha512_algorithm(params.hash);
+    if signature_algorithm_params.hash != digest_alg.owned_to_ref() {
+        return Err(RawX509SignatureParseError::UnexpectedSignatureAlgorithmHash);
+    }
 
-    params
+    assert_oid_matches(&signature_algorithm_params.mask_gen.oid, &const_oid::db::rfc5912::ID_MGF_1)
+        .map_err(RawX509SignatureParseError::UnsupportedSignatureAlgorithmMaskGen)?;
+
+    let mask_gen_params = signature_algorithm_params
         .mask_gen
-        .assert_algorithm_oid(const_oid::db::rfc5912::ID_MGF_1)
-        .expect("RsaPssParams.mask_gen should be ID_MGF_1");
+        .parameters
+        .ok_or(RawX509SignatureParseError::SignatureAlgorithmMaskGenParametersNotSet)?;
 
-    check_sha512_algorithm(params.mask_gen.parameters.expect("mask_gen.parameters must be set"));
+    if mask_gen_params != digest_alg.owned_to_ref() {
+        return Err(RawX509SignatureParseError::UnexpectedSignatureAlgorithmHash);
+    }
 
-    if params.salt_len != 64 {
-        panic!("salt_len should be 64");
+    if signature_algorithm_params.salt_len != 64 {
+        return Err(RawX509SignatureParseError::UnsupportedSignatureAlgorithmSaltLen(
+            signature_algorithm_params.salt_len,
+        ));
     }
 
     Ok(X509SignatureScheme::RsaPssSha512)
-}
-
-/// Check that the given algorithm is SHA512.
-fn check_sha512_algorithm(hash_algorithm: AlgorithmIdentifierRef<'_>) {
-    hash_algorithm
-        .assert_algorithm_oid(const_oid::db::rfc5912::ID_SHA_512)
-        .expect("hash.oid should be ID_SHA_512");
-
-    match hash_algorithm.parameters {
-        None => {}
-        Some(AnyRef::NULL) => {}
-        Some(_) => panic!("hash.parameters should be None"),
-    }
 }
 
 /// The algorithm that was used to construct the signature.
@@ -329,5 +396,16 @@ impl X509SignatureScheme {
                     .expect("Unable to get AlgorithmIdentifier for RSA_PSS")
             }
         }
+    }
+}
+
+fn assert_oid_matches(
+    actual: &ObjectIdentifier,
+    expected: &ObjectIdentifier,
+) -> Result<(), OidMismatch> {
+    if *actual == *expected {
+        Ok(())
+    } else {
+        Err(OidMismatch { actual: actual.clone(), expected: expected.clone() })
     }
 }
