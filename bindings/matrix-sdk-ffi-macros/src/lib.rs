@@ -19,7 +19,7 @@ use syn::{ImplItem, Item, TraitItem};
 /// Attribute to specify the async runtime parameter for the `uniffi`
 /// export macros if there any `async fn`s in the input.
 #[proc_macro_attribute]
-pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
+pub fn export(attr: TokenStream, input: TokenStream) -> TokenStream {
     let has_async_fn = |item| {
         if let Item::Fn(fun) = &item {
             if fun.sig.asyncness.is_some() {
@@ -47,9 +47,9 @@ pub fn export(attr: TokenStream, item: TokenStream) -> TokenStream {
     };
 
     let attr2 = proc_macro2::TokenStream::from(attr);
-    let item2 = proc_macro2::TokenStream::from(item.clone());
+    let item2 = proc_macro2::TokenStream::from(input.clone());
 
-    let res = match syn::parse(item) {
+    let res = match syn::parse(input) {
         Ok(item) => match has_async_fn(item) {
             true => {
                 quote! {
