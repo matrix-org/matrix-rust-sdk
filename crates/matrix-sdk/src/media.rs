@@ -163,7 +163,7 @@ pub enum MediaError {
 }
 
 /// A generic trait for fetching media content.
-pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm {
+pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
     /// Fetches the media content for the given [`MediaRequestParameters`].
     /// Returns either a byte array or an [`crate::Error`].
     fn fetch_media_content<'a>(
@@ -171,12 +171,6 @@ pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm {
         client: &'a Client,
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
-}
-
-impl fmt::Debug for dyn MediaFetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("MediaFetcher")
-    }
 }
 
 impl Media {

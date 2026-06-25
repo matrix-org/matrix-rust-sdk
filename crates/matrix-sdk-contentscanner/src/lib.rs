@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
 
 use api::{
     download::{
@@ -212,6 +215,12 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         Box::pin(async move {
             Ok(self.content_scanner.get_media(client, &request.source).await?.content)
         })
+    }
+}
+
+impl Debug for ContentScannerMediaFetcher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ContentScannerMediaFetcher")
     }
 }
 

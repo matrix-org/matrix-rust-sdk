@@ -3470,4 +3470,39 @@ mod tests {
             .join()
             .expect("Client::drop panicked on a non-tokio thread");
     }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn test_set_content_scanner_sets_media_fetcher() {
+        let client = crate::client_builder::ClientBuilder::new()
+            .homeserver_url("https://example.com".to_owned())
+            .build()
+            .await
+            .expect("build client");
+
+        // No content scanner set, the media fetcher is the default one
+        assert!(client.content_scanner().await.is_none());
+        assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
+
+        // We set a content scanner instance
+        client
+            .set_content_scanner(Some(crate::content_scanner::ContentScanner::new(
+                "https://scanner_url.com".to_owned(),
+            )))
+            .await;
+
+        // Content scanner is present, media fetcher is now based on it
+        assert!(client.content_scanner().await.is_some());
+        assert_eq!(
+            format!("{:?}", client.inner.get_media_fetcher().await),
+            "ContentScannerMediaFetcher"
+        );
+
+        // We remove the content scanner
+        client.set_content_scanner(None).await;
+
+        // We're back to the initial state: no content scanner, default fetcher
+        assert!(client.content_scanner().await.is_none());
+        assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
+    }
 }
