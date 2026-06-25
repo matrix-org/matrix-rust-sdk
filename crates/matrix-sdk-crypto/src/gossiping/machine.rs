@@ -46,6 +46,9 @@ use vodozemac::Curve25519PublicKey;
 use super::{GossipRequest, GossippedSecret, RequestEvent, RequestInfo, SecretInfo, WaitQueue};
 use crate::{
     Device, MegolmError,
+    dehydrated_devices::{
+        DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME, decode_dehydrated_device_pickle_key,
+    },
     error::{EventError, OlmError, OlmResult},
     identities::IdentityManager,
     olm::{InboundGroupSession, Session},
@@ -383,6 +386,24 @@ impl GossipMachine {
             warn!(?sender, device_id = ?device.device_id(), "Received secret push from unverified device");
             return Ok(());
         }
+
+        // The dehydrated device pickle key (MSC3814) is imported directly rather than
+        // placed in the secret inbox: unlike the backup recovery key there's
+        // nothing for the user to decide, the key just needs to be stored so
+        // this device can manage the dehydrated device (element-meta#2753).
+        if event.content.name.as_str() == DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME {
+            match decode_dehydrated_device_pickle_key(&event.content.secret) {
+                Some(key) => {
+                    changes.dehydrated_device_pickle_key = Some(key);
+                    info!("Imported a gossiped dehydrated device pickle key");
+                }
+                None => {
+                    warn!("Received an invalid gossiped dehydrated device pickle key, ignoring it")
+                }
+            }
+            return Ok(());
+        }
+
         changes.secrets.push(event.content.clone().into());
         Ok(())
     }
@@ -2506,6 +2527,104 @@ mod tests {
             .expect("The broadcaster should have sent out the secret");
 
         assert_eq!(secret.secret.deref(), &decryption_key.to_base64())
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-push-secrets")]
+    async fn test_dehydrated_device_pickle_key_push_is_imported_directly() {
+        use futures_util::{FutureExt, pin_mut};
+        use serde_json::value::to_raw_value;
+        use tokio_stream::StreamExt;
+
+        use crate::{
+            EncryptionSyncChanges,
+            dehydrated_devices::DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME,
+            store::types::{Changes, DehydratedDeviceKey},
+        };
+
+        let (alice_machine, alice_device, bob_machine, bob_device, _decryption_key) =
+            set_up_secret_push().await;
+
+        // Alice has a dehydration key to share.
+        let dehydration_key = DehydratedDeviceKey::new();
+        alice_machine
+            .store()
+            .save_changes(Changes {
+                dehydrated_device_pickle_key: Some(dehydration_key.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Push it to Bob, whom Alice trusts.
+        bob_device.set_trust_state(LocalTrust::Verified);
+        alice_machine.store().save_device_data(&[bob_device.inner]).await.unwrap();
+        alice_machine
+            .inner
+            .key_request_machine
+            .push_secret_to_verified_devices(SecretName::from(
+                DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME,
+            ))
+            .await
+            .unwrap();
+        {
+            let alice_cache = alice_machine.store().cache().await.unwrap();
+            alice_machine
+                .inner
+                .key_request_machine
+                .collect_incoming_key_requests(&alice_cache)
+                .await
+                .unwrap();
+        }
+
+        let requests =
+            alice_machine.inner.key_request_machine.outgoing_to_device_requests().await.unwrap();
+        let request = requests.first().expect("Alice should have an outgoing to-device request");
+
+        // Bob trusts Alice, so he accepts the push.
+        alice_device.set_trust_state(LocalTrust::Verified);
+        bob_machine.store().save_device_data(&[alice_device.inner]).await.unwrap();
+        let event: EncryptedToDeviceEvent =
+            request_to_event(bob_machine.user_id(), alice_machine.user_id(), request);
+        let event = Raw::from_json(to_raw_value(&event).unwrap());
+
+        let stream = bob_machine.store().secrets_stream();
+        pin_mut!(stream);
+
+        let decryption_settings =
+            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+
+        assert!(bob_machine.store().load_dehydrated_device_pickle_key().await.unwrap().is_none());
+
+        bob_machine
+            .receive_sync_changes(
+                EncryptionSyncChanges {
+                    to_device_events: vec![event],
+                    changed_devices: &Default::default(),
+                    one_time_keys_counts: &Default::default(),
+                    unused_fallback_keys: None,
+                    next_batch_token: None,
+                },
+                &decryption_settings,
+            )
+            .await
+            .unwrap();
+
+        // The key is stored directly, and never delivered through the secret inbox
+        // stream.
+        assert_eq!(
+            bob_machine
+                .store()
+                .load_dehydrated_device_pickle_key()
+                .await
+                .unwrap()
+                .map(|k| k.to_base64()),
+            Some(dehydration_key.to_base64()),
+        );
+        assert!(
+            stream.next().now_or_never().flatten().is_none(),
+            "the dehydration key should not be delivered through the secret inbox"
+        );
     }
 
     #[async_test]
