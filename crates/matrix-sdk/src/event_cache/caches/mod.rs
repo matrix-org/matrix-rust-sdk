@@ -40,6 +40,7 @@ pub mod pagination;
 pub mod pinned_events;
 mod read_receipts;
 pub mod room;
+mod subscriber;
 pub mod thread;
 
 /// A type to hold all the caches for a given room.

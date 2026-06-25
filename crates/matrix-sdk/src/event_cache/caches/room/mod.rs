@@ -14,7 +14,6 @@
 
 pub mod pagination;
 mod state;
-mod subscriber;
 mod updates;
 
 use std::{collections::BTreeMap, fmt, sync::Arc};
@@ -36,7 +35,6 @@ use tracing::{instrument, trace, warn};
 use self::pagination::RoomPagination;
 pub use self::{
     state::RoomEventCacheState,
-    subscriber::RoomEventCacheSubscriber,
     updates::{
         RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
         RoomEventCacheUpdateSender,
@@ -50,6 +48,7 @@ use super::{
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
+    subscriber::RoomEventCacheSubscriber,
 };
 use crate::room::WeakRoom;
 

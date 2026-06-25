@@ -75,8 +75,8 @@ pub use self::{
         pagination::{BackPaginationOutcome, PaginationStatus},
         pinned_events::PinnedEventsCache,
         room::{
-            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
-            RoomEventCacheUpdate, pagination::RoomPagination,
+            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+            pagination::RoomPagination,
         },
         thread::{ThreadEventCache, pagination::ThreadPagination},
     },
