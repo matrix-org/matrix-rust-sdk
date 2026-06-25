@@ -23,7 +23,7 @@ use ruma::OwnedRoomId;
 use tokio::sync::{broadcast::Receiver, mpsc};
 use tracing::{trace, warn};
 
-use super::{AutoShrinkChannelPayload, RoomEventCacheUpdate};
+use super::{super::AutoShrinkChannelPayload, room::RoomEventCacheUpdate};
 
 /// A structure that can generate handles for subscribers, and count them. See
 /// [`SubscriberHandle`] to learn more.

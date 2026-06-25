@@ -55,9 +55,9 @@ use super::{
         event_linked_chunk::EventLinkedChunk,
         pagination::SharedPaginationStatus,
         read_receipts::compute_unread_counts,
+        subscriber::SubscribersHandle,
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
-    subscriber::SubscribersHandle,
 };
 use crate::room::WeakRoom;
 
