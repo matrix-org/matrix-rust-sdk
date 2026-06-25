@@ -1857,6 +1857,12 @@ mod timed_tests {
         assert_eq!(events2[1].event_id(), Some(evid2));
         assert!(stream2.is_empty());
 
+        // Grab a receiver for testing no diffs is sent.
+        let subscriber = {
+            let state = room_event_cache.inner.state.read().await.unwrap();
+            state.update_sender.new_room_receiver()
+        };
+
         // Drop the first stream, and wait a bit.
         drop(stream1);
         yield_now().await;
@@ -1874,6 +1880,10 @@ mod timed_tests {
             // Check the inner state: there's no more shared auto-shrinker.
             let state = room_event_cache.inner.state.read().await.unwrap();
             assert_eq!(state.subscribers_handle().count(), 0);
+
+            // No diff is sent when the linked chunk has auto-shrunk.
+            assert!(subscriber.is_empty());
+            assert!(generic_stream.is_empty());
         }
 
         // Getting the events will only give us the latest chunk.
