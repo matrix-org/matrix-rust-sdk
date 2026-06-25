@@ -137,10 +137,12 @@ enum WaitingTime {
 pub struct CrossProcessLockGuard {
     /// A clone of [`CrossProcessLock::inner`].
     ///
-    /// - Every time [`CrossProcessLockGuard`] is cloned, the number of holders
-    ///   of `CrossProcessLockInner` increases.
-    /// - Every time [`CrossProcessLockGuard`] is dropped, the number of holders
-    ///   of `CrossProcessLockInner` decreases.
+    /// The number of guards/holders is based on the `Weak::weak_count`.
+    ///
+    /// - Every time [`CrossProcessLockGuard`] is cloned, `Weak` is cloned, and
+    ///   thus the number of holders of `CrossProcessLockInner` increases.
+    /// - Every time [`CrossProcessLockGuard`] is dropped, `Weak` is dropped,
+    ///   and thus the number of holders of `CrossProcessLockInner` decreases.
     inner: Weak<CrossProcessLockInner>,
 }
 
@@ -157,7 +159,13 @@ impl CrossProcessLockGuard {
     /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
     /// of _dirty_.
     pub fn is_dirty(&self) -> bool {
-        self.inner.upgrade().map(|inner| inner.is_dirty()).unwrap_or(false)
+        self.inner
+            .upgrade()
+            .map(|inner| inner.is_dirty())
+            // If it's not possible to upgrade the weak pointer, it means the lock _and_ the
+            // `renew_task` have been dropped. In this case, whether the lock is dirty or
+            // not doesn't make any difference.
+            .unwrap_or(false)
     }
 
     /// Clear the dirty state from the cross-process lock associated to this
@@ -167,6 +175,9 @@ impl CrossProcessLockGuard {
     /// this method is called. This allows recovering from a dirty state and
     /// marking that it has recovered.
     pub fn clear_dirty(&self) {
+        // If it's not possible to upgrade the weak pointer, it means the lock _and_ the
+        // `renew_task` have been dropped. Marking the lock as non-dirty makes no
+        // particular sense, so we do nothing.
         if let Some(inner) = self.inner.upgrade() {
             inner.clear_dirty();
         }
@@ -204,13 +215,17 @@ pub struct CrossProcessLock<L> {
     //
     // Notes about the `Arc`/`Weak` usage:
     //
+    // - We want to track the number of holders, i.e. the number of guards. To achieve that, we
+    //   could use a thread-safe counter, or hijack `Arc` and `Weak` which provide two thread-safe
+    //   counters: strong count and weak count.
     // - `CrossProcessLock` holds an `Arc` (this field).
-    // - The `renew_task` holds an `Arc` (a clone of this field).
-    // - `CrossProcessLockGuard` holds a `Weak`.
+    // - `renew_task` holds an `Arc` (a clone of this field).
+    // - `CrossProcessLockGuard` holds a `Weak` (it could use an `Arc`, but a `Weak` is fine in
+    //   this context and offers a unique counter for guards!).
     // - Counting holders = counting the number of `Weak` pointers.
     // - It is safe to upgrade the `Weak` pointer to an `Arc` (to get information about dirtiness)
-    //   in a guard because the `renew_task` holds a clone of the `Arc` and will not exit as long
-    //   as all guards have been dropped.
+    //   in a guard because the `renew_task` holds a clone of the `Arc` and will not exit until all
+    //   guards have been dropped.
     // - It is always possible to create a `Weak` pointer (i) either from `CrossProcessLock` by
     //   using `Arc::downgrade`, (ii) or from `CrossProcessLockGuard` by cloning it.
     inner: Arc<CrossProcessLockInner>,
@@ -218,8 +233,8 @@ pub struct CrossProcessLock<L> {
     /// The key used in the key/value mapping for the lock entry.
     lock_key: String,
 
-    /// A mutex to control an attempt to take the lock, to avoid making it
-    /// re-entrant.
+    /// A mutex to control an attempt to take the lock, to prevent someone using
+    /// it in a re-entrant way.
     locking_attempt: Arc<Mutex<()>>,
 
     /// Backoff time, in milliseconds.
