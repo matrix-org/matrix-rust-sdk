@@ -513,10 +513,6 @@ impl ClientInner {
 
         client
     }
-
-    pub async fn set_media_fetcher(&self, media_fetcher: Arc<dyn MediaFetcher>) {
-        *self.media_fetcher.write().await = media_fetcher;
-    }
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -3617,7 +3613,13 @@ impl Client {
     /// Replaces the [`MediaFetcher`] used to download media from the media
     /// server with the provided one.
     pub async fn set_media_fetcher(&self, media_fetcher: Arc<dyn MediaFetcher>) {
-        self.inner.set_media_fetcher(media_fetcher).await;
+        *self.inner.media_fetcher.write().await = media_fetcher;
+    }
+
+    /// Returns the currently used [`MediaFetcher`] used to download media from
+    /// the media server.
+    pub async fn get_media_fetcher(&self) -> Arc<dyn MediaFetcher> {
+        self.inner.media_fetcher.read().await.clone()
     }
 }
 
