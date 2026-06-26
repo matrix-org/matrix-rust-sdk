@@ -182,14 +182,22 @@ impl<T> DerefMut for Subscriber<T> {
     }
 }
 
-pub type AutoShrinkMessage = OwnedRoomId;
+/// Type of messages exchanged between [`Subscriber`] and the
+/// [`auto_shrink_linked_chunk_task`] task.
+///
+/// [`auto_shrink_linked_chunk_task`]: super::super::tasks::auto_shrink_linked_chunk_task
+#[derive(Debug)]
+pub enum AutoShrinkMessage {
+    Room { room_id: OwnedRoomId },
+}
 
 #[cfg(test)]
 mod tests {
+    use assert_matches::assert_matches;
     use ruma::owned_room_id;
     use tokio::sync::{broadcast, mpsc};
 
-    use super::{Subscriber, SubscribersHandle};
+    use super::{AutoShrinkMessage, Subscriber, SubscribersHandle};
 
     #[test]
     fn test_subscribers_handle() {
@@ -237,7 +245,7 @@ mod tests {
 
         let mut subscriber = Subscriber::new(
             subscriber_receiver,
-            owned_room_id!("!r0"),
+            AutoShrinkMessage::Room { room_id: owned_room_id!("!r0") },
             auto_shrink_sender,
             &subscribers_handle,
         );
@@ -256,18 +264,19 @@ mod tests {
         let (auto_shrink_sender, mut auto_shrink_receiver) = mpsc::channel(1);
         let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
         let subscribers_handle = SubscribersHandle::default();
-        let auto_shrink_message = owned_room_id!("!r0");
+        let room_id = owned_room_id!("!r0");
+        let auto_shrink_message = AutoShrinkMessage::Room { room_id: room_id.clone() };
 
         let subscriber0 = Subscriber::new(
             subscriber_receiver.resubscribe(),
-            auto_shrink_message.clone(),
+            AutoShrinkMessage::Room { room_id: room_id.clone() },
             auto_shrink_sender.clone(),
             &subscribers_handle,
         );
 
         let subscriber1 = Subscriber::new(
             subscriber_receiver,
-            auto_shrink_message.clone(),
+            auto_shrink_message,
             auto_shrink_sender,
             &subscribers_handle,
         );
@@ -278,7 +287,12 @@ mod tests {
 
         // Drop the last subscriber. Side-effect should… take effect!
         drop(subscriber1);
-        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_message);
+        assert_matches!(
+            auto_shrink_receiver.try_recv().unwrap(),
+            AutoShrinkMessage::Room { room_id: expected_room_id } => {
+                assert_eq!(expected_room_id, room_id);
+            }
+        );
         assert!(auto_shrink_receiver.is_empty());
     }
 
@@ -287,11 +301,13 @@ mod tests {
         let (auto_shrink_sender, mut auto_shrink_receiver) = mpsc::channel(1);
         let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
         let subscribers_handle = SubscribersHandle::default();
-        let auto_shrink_noisy_message = owned_room_id!("!r1");
-        let auto_shrink_message = owned_room_id!("!r0");
+        let noisy_room_id = owned_room_id!("!r1");
+        let auto_shrink_noisy_message = AutoShrinkMessage::Room { room_id: noisy_room_id.clone() };
+        let room_id = owned_room_id!("!r0");
+        let auto_shrink_message = AutoShrinkMessage::Room { room_id };
 
         // Saturate the `auto_shrink` channel.
-        auto_shrink_sender.try_send(auto_shrink_noisy_message.clone()).unwrap();
+        auto_shrink_sender.try_send(auto_shrink_noisy_message).unwrap();
 
         let subscriber = Subscriber::new(
             subscriber_receiver,
@@ -307,7 +323,12 @@ mod tests {
 
         // We receive the noisy message: **not** the message from the subscriber under
         // testing.
-        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_noisy_message);
+        assert_matches!(
+            auto_shrink_receiver.try_recv().unwrap(),
+            AutoShrinkMessage::Room { room_id: expected_room_id } => {
+                assert_eq!(expected_room_id, noisy_room_id);
+            }
+        );
 
         // Then, we receive nothing, i.e. `subscriber` dropped without any side-effect.
         assert!(auto_shrink_receiver.is_empty());
@@ -318,7 +339,8 @@ mod tests {
         let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(1);
         let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
         let subscribers_handle = SubscribersHandle::default();
-        let auto_shrink_message = owned_room_id!("!r0");
+        let room_id = owned_room_id!("!r0");
+        let auto_shrink_message = AutoShrinkMessage::Room { room_id };
 
         let subscriber = Subscriber::new(
             subscriber_receiver,
