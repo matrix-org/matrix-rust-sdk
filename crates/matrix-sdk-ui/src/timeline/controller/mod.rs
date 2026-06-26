@@ -28,7 +28,7 @@ use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
-        RoomEventCache, ThreadEventCache, TimelineVectorDiffs,
+        RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -52,7 +52,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::{RwLock, RwLockWriteGuard, broadcast};
+use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{
     Instrument as _, Span, debug, error, field::debug, info, info_span, instrument, trace, warn,
 };
@@ -1417,7 +1417,7 @@ impl TimelineController {
             }
 
             TimelineFocusKind::Thread { event_cache, .. } => {
-                let (has_events, receiver) = self.init_with_thread_root(event_cache).await?;
+                let (has_events, subscriber) = self.init_with_thread_root(event_cache).await?;
 
                 let room = &self.room_data_provider;
                 let span = info_span!(
@@ -1432,7 +1432,7 @@ impl TimelineController {
                     .task_monitor()
                     .spawn_infinite_task(
                         "timeline::thread_event_cache_updates",
-                        thread_updates_task(receiver, event_cache.clone(), self.clone())
+                        thread_updates_task(subscriber, event_cache.clone(), self.clone())
                             .instrument(span),
                     )
                     .abort_on_drop();
@@ -1475,8 +1475,8 @@ impl TimelineController {
     pub(super) async fn init_with_thread_root(
         &self,
         event_cache: &ThreadEventCache,
-    ) -> Result<(bool, broadcast::Receiver<TimelineVectorDiffs>), Error> {
-        let (events, receiver) = event_cache.subscribe().await?;
+    ) -> Result<(bool, EventCacheSubscriber<TimelineVectorDiffs>), Error> {
+        let (events, subscriber) = event_cache.subscribe().await?;
         let has_events = !events.is_empty();
 
         // For each event, we also need to find the related events, as they don't
@@ -1502,7 +1502,7 @@ impl TimelineController {
             .await;
         }
 
-        Ok((has_events, receiver))
+        Ok((has_events, subscriber))
     }
 
     /// Given an event identifier, will fetch the details for the event it's

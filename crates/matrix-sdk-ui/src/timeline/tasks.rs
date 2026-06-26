@@ -138,7 +138,7 @@ pub(in crate::timeline) async fn event_focused_task(
 /// For a thread-focused timeline, a long-lived task that will listen to the
 /// underlying thread updates.
 pub(in crate::timeline) async fn thread_updates_task(
-    mut receiver: Receiver<TimelineVectorDiffs>,
+    mut thread_event_cache_subscriber: Subscriber<TimelineVectorDiffs>,
     event_cache: ThreadEventCache,
     timeline_controller: TimelineController,
 ) {
@@ -147,7 +147,7 @@ pub(in crate::timeline) async fn thread_updates_task(
     loop {
         trace!("Waiting for an event.");
 
-        let update = match receiver.recv().await {
+        let update = match thread_event_cache_subscriber.recv().await {
             Ok(up) => up,
             Err(RecvError::Closed) => break,
             Err(RecvError::Lagged(num_skipped)) => {

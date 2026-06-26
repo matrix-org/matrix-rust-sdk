@@ -48,6 +48,7 @@ use super::{
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
         room::RoomEventCacheLinkedChunkUpdate,
+        subscriber::SubscribersHandle,
     },
     ThreadEventCacheUpdateSender,
 };
@@ -86,6 +87,9 @@ pub struct ThreadEventCacheState {
     /// the first time we try to run backward pagination. We reset
     /// that upon clearing the timeline events.
     waited_for_initial_prev_token: bool,
+
+    /// A handle for subscribers.
+    subscribers_handle: SubscribersHandle,
 }
 
 impl ThreadEventCacheState {
@@ -238,6 +242,7 @@ impl ThreadEventCacheState {
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
+            subscribers_handle: SubscribersHandle::default(),
         })
     }
 }
@@ -246,6 +251,11 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
     /// Return a read-only reference to the underlying thread linked chunk.
     pub fn thread_linked_chunk(&self) -> &EventLinkedChunk {
         &self.state.thread_linked_chunk
+    }
+
+    /// Return a reference to subscribers handle.
+    pub fn subscribers_handle(&self) -> &SubscribersHandle {
+        &self.state.subscribers_handle
     }
 
     /// Compute and return the [`ThreadSummary`] for this thread.
@@ -617,6 +627,32 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             .expect("failed to remove an event");
 
         self.state.propagate_changes(&self.store).await
+    }
+
+    /// Automatically shrink the thread if there are no more subscribers, as
+    /// indicated by the atomic number of active subscribers.
+    #[must_use = "Propagate `VectorDiff` updates via `ThreadEventCacheUpdate`"]
+    pub async fn auto_shrink_if_no_subscribers(
+        &mut self,
+    ) -> Result<Option<Vec<VectorDiff<Event>>>> {
+        let number_of_subscribers = self.state.subscribers_handle.count();
+
+        trace!(number_of_subscribers, "received request to auto-shrink");
+
+        if number_of_subscribers == 0 {
+            // There is no more subscribers listening to this cache, we can shrink the state
+            // to its last chunk to save memory.
+            //
+            // In theory, between the condition (`… == 0`) and this instruction, a new
+            // subscriber could be created, creating a race, except that this method takes a
+            // `&mut`, ensuring an exclusive access to the state, ensuring no other
+            // subscribers can be created.
+            self.state.shrink_to_last_chunk(&self.store).await?;
+
+            Ok(Some(self.state.thread_linked_chunk.updates_as_vector_diffs()))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Apply some updates that are effective only on the store itself.

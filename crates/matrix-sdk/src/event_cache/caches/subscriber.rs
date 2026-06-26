@@ -19,7 +19,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use ruma::OwnedRoomId;
+use ruma::{OwnedEventId, OwnedRoomId};
 use tokio::sync::{broadcast::Receiver, mpsc};
 use tracing::{trace, warn};
 
@@ -188,7 +188,23 @@ impl<T> DerefMut for Subscriber<T> {
 /// [`auto_shrink_linked_chunk_task`]: super::super::tasks::auto_shrink_linked_chunk_task
 #[derive(Debug)]
 pub enum AutoShrinkMessage {
-    Room { room_id: OwnedRoomId },
+    /// Ask to automatically shrink a [`RoomEventCache`].
+    ///
+    /// [`RoomEventCache`]: super::room::RoomEventCache
+    Room {
+        /// The ID of the room.
+        room_id: OwnedRoomId,
+    },
+
+    /// Ask to automatically shrink a [`ThreadEventCache`].
+    ///
+    /// [`ThreadEventCache`]: super::thread::ThreadEventCache
+    Thread {
+        /// The room ID of the thread.
+        room_id: OwnedRoomId,
+        /// The thread ID (root).
+        thread_id: OwnedEventId,
+    },
 }
 
 #[cfg(test)]
