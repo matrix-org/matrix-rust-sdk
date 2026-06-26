@@ -48,7 +48,7 @@ use super::{
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
-    subscriber::{AutoShrinkChannelPayload, Subscriber},
+    subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
 
@@ -74,7 +74,7 @@ impl RoomEventCache {
         own_user_id: OwnedUserId,
         state: CacheStateLock<RoomStateSelector>,
         shared_pagination_status: SharedObservable<SharedPaginationStatus>,
-        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
@@ -329,7 +329,7 @@ pub(super) struct RoomEventCacheInner {
     ///
     /// See doc comment around [`EventCache::auto_shrink_linked_chunk_task`] for
     /// more details.
-    auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+    auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
 
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,

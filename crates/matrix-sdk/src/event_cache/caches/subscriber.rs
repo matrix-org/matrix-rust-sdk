@@ -78,14 +78,14 @@ pub struct Subscriber<T> {
     /// Underlying receiver of the cache's updates.
     subscriber_receiver: Receiver<T>,
 
-    /// The payload that is going to be sent to [`Self::auto_shrink_sender`].
+    /// The message that is going to be sent to [`Self::auto_shrink_sender`].
     ///
     /// This is an `Option` to take/own the value in the `Drop` implementation
     /// without cloning it.
-    auto_shrink_payload: Option<AutoShrinkChannelPayload>,
+    auto_shrink_message: Option<AutoShrinkMessage>,
 
     /// The sender side of the auto-shrink channel.
-    auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+    auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
 
     /// The subscribers handle shared by all subscribers.
     ///
@@ -102,13 +102,13 @@ impl<T> Subscriber<T> {
     /// Create a new [`Subscriber`].
     pub(super) fn new(
         subscriber_receiver: Receiver<T>,
-        auto_shrink_payload: AutoShrinkChannelPayload,
-        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        auto_shrink_message: AutoShrinkMessage,
+        auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         subscribers_handle: &SubscribersHandle,
     ) -> Self {
         Self {
             subscriber_receiver,
-            auto_shrink_payload: Some(auto_shrink_payload),
+            auto_shrink_message: Some(auto_shrink_message),
             auto_shrink_sender,
             subscriber_handle: Some(subscribers_handle.new_subscriber_handle()),
         }
@@ -136,13 +136,13 @@ impl<T> Drop for Subscriber<T> {
             // successful). The channel shouldn't be super busy in general, so this should
             // resolve quickly enough.
 
-            let mut payload = self
-                .auto_shrink_payload
+            let mut message = self
+                .auto_shrink_message
                 .take()
-                .expect("Unreachable: `auto_shrink_payload` must be `Some`");
+                .expect("Unreachable: `auto_shrink_message` must be `Some`");
             let mut num_attempts = 0;
 
-            while let Err(err) = self.auto_shrink_sender.try_send(payload) {
+            while let Err(err) = self.auto_shrink_sender.try_send(message) {
                 num_attempts += 1;
 
                 if num_attempts > 1024 {
@@ -156,8 +156,8 @@ impl<T> Drop for Subscriber<T> {
                 }
 
                 match err {
-                    mpsc::error::TrySendError::Full(stolen_payload) => {
-                        payload = stolen_payload;
+                    mpsc::error::TrySendError::Full(stolen_message) => {
+                        message = stolen_message;
                     }
                     mpsc::error::TrySendError::Closed(_) => return,
                 }
@@ -182,7 +182,7 @@ impl<T> DerefMut for Subscriber<T> {
     }
 }
 
-pub type AutoShrinkChannelPayload = OwnedRoomId;
+pub type AutoShrinkMessage = OwnedRoomId;
 
 #[cfg(test)]
 mod tests {
@@ -252,22 +252,22 @@ mod tests {
     }
 
     #[test]
-    fn test_subscriber_send_auto_shrink_payload_on_last_drop() {
+    fn test_subscriber_send_auto_shrink_message_on_last_drop() {
         let (auto_shrink_sender, mut auto_shrink_receiver) = mpsc::channel(1);
         let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
         let subscribers_handle = SubscribersHandle::default();
-        let auto_shrink_payload = owned_room_id!("!r0");
+        let auto_shrink_message = owned_room_id!("!r0");
 
         let subscriber0 = Subscriber::new(
             subscriber_receiver.resubscribe(),
-            auto_shrink_payload.clone(),
+            auto_shrink_message.clone(),
             auto_shrink_sender.clone(),
             &subscribers_handle,
         );
 
         let subscriber1 = Subscriber::new(
             subscriber_receiver,
-            auto_shrink_payload.clone(),
+            auto_shrink_message.clone(),
             auto_shrink_sender,
             &subscribers_handle,
         );
@@ -278,24 +278,24 @@ mod tests {
 
         // Drop the last subscriber. Side-effect should… take effect!
         drop(subscriber1);
-        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_payload);
+        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_message);
         assert!(auto_shrink_receiver.is_empty());
     }
 
     #[test]
-    fn test_subscriber_send_auto_shrink_payload_with_full_channel() {
+    fn test_subscriber_send_auto_shrink_message_with_full_channel() {
         let (auto_shrink_sender, mut auto_shrink_receiver) = mpsc::channel(1);
         let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
         let subscribers_handle = SubscribersHandle::default();
-        let auto_shrink_noisy_payload = owned_room_id!("!r1");
-        let auto_shrink_payload = owned_room_id!("!r0");
+        let auto_shrink_noisy_message = owned_room_id!("!r1");
+        let auto_shrink_message = owned_room_id!("!r0");
 
         // Saturate the `auto_shrink` channel.
-        auto_shrink_sender.try_send(auto_shrink_noisy_payload.clone()).unwrap();
+        auto_shrink_sender.try_send(auto_shrink_noisy_message.clone()).unwrap();
 
         let subscriber = Subscriber::new(
             subscriber_receiver,
-            auto_shrink_payload,
+            auto_shrink_message,
             auto_shrink_sender,
             &subscribers_handle,
         );
@@ -305,24 +305,24 @@ mod tests {
         // in no side-effect.
         drop(subscriber);
 
-        // We receive the noisy payload: **not** the payload from the subscriber under
+        // We receive the noisy message: **not** the message from the subscriber under
         // testing.
-        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_noisy_payload);
+        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_noisy_message);
 
         // Then, we receive nothing, i.e. `subscriber` dropped without any side-effect.
         assert!(auto_shrink_receiver.is_empty());
     }
 
     #[test]
-    fn test_subscriber_send_auto_shrink_payload_with_closed_channel() {
+    fn test_subscriber_send_auto_shrink_message_with_closed_channel() {
         let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(1);
         let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
         let subscribers_handle = SubscribersHandle::default();
-        let auto_shrink_payload = owned_room_id!("!r0");
+        let auto_shrink_message = owned_room_id!("!r0");
 
         let subscriber = Subscriber::new(
             subscriber_receiver,
-            auto_shrink_payload,
+            auto_shrink_message,
             auto_shrink_sender,
             &subscribers_handle,
         );

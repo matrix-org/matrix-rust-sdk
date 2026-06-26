@@ -32,9 +32,7 @@ use tokio::{
 };
 use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, trace, warn};
 
-use super::{
-    AutoShrinkChannelPayload, EventCacheError, EventCacheInner, RoomEventCacheLinkedChunkUpdate,
-};
+use super::{AutoShrinkMessage, EventCacheError, EventCacheInner, RoomEventCacheLinkedChunkUpdate};
 use crate::{
     client::WeakClient,
     send_queue::{LocalEchoContent, RoomSendQueueUpdate, SendQueueUpdate},
@@ -131,7 +129,7 @@ pub(super) async fn ignore_user_list_update_task(
 #[instrument(skip_all)]
 pub(super) async fn auto_shrink_linked_chunk_task(
     inner: Weak<EventCacheInner>,
-    mut rx: mpsc::Receiver<AutoShrinkChannelPayload>,
+    mut rx: mpsc::Receiver<AutoShrinkMessage>,
 ) {
     while let Some(room_id) = rx.recv().await {
         trace!(for_room = %room_id, "received notification to shrink");
