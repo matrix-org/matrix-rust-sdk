@@ -76,8 +76,8 @@ impl SubscriberHandle {
 /// The side-effect takes effect on `Drop`.
 #[allow(missing_debug_implementations)]
 pub struct Subscriber<T> {
-    /// Underlying receiver of the room event cache's updates.
-    recv: Receiver<T>,
+    /// Underlying receiver of the cache's updates.
+    subscriber_receiver: Receiver<T>,
 
     /// The payload that is going to be sent to [`Self::auto_shrink_sender`].
     ///
@@ -102,13 +102,13 @@ pub struct Subscriber<T> {
 impl<T> Subscriber<T> {
     /// Create a new [`Subscriber`].
     pub(super) fn new(
-        recv: Receiver<T>,
+        subscriber_receiver: Receiver<T>,
         auto_shrink_payload: AutoShrinkChannelPayload,
         auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
         subscribers_handle: &SubscribersHandle,
     ) -> Self {
         Self {
-            recv,
+            subscriber_receiver,
             auto_shrink_payload: Some(auto_shrink_payload),
             auto_shrink_sender,
             subscriber_handle: Some(subscribers_handle.new_subscriber_handle()),
@@ -173,19 +173,22 @@ impl<T> Deref for Subscriber<T> {
     type Target = Receiver<T>;
 
     fn deref(&self) -> &Self::Target {
-        &self.recv
+        &self.subscriber_receiver
     }
 }
 
 impl<T> DerefMut for Subscriber<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.recv
+        &mut self.subscriber_receiver
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::SubscribersHandle;
+    use ruma::owned_room_id;
+    use tokio::sync::{broadcast, mpsc};
+
+    use super::{Subscriber, SubscribersHandle};
 
     #[test]
     fn test_subscribers_handle() {
@@ -223,5 +226,115 @@ mod tests {
         // ZERO, yes, not 1.
         // If the state containing the `SubscribersHandle` drops, there is no
         // more update, and no auto-shrink, so it's fine to get a zero here.
+    }
+
+    #[test]
+    fn test_subscriber_deref() {
+        let (auto_shrink_sender, _auto_shrink_receiver) = mpsc::channel(1);
+        let (subscriber_sender, subscriber_receiver) = broadcast::channel(1);
+        let subscribers_handle = SubscribersHandle::default();
+
+        let mut subscriber = Subscriber::new(
+            subscriber_receiver,
+            owned_room_id!("!r0"),
+            auto_shrink_sender,
+            &subscribers_handle,
+        );
+
+        subscriber_sender.send('a').unwrap();
+
+        // `DerefMut` with `try_recv(&mut self)`.
+        assert_eq!(subscriber.try_recv().unwrap(), 'a');
+
+        // `Deref` with `is_empty(&self)`.
+        assert!(subscriber.is_empty());
+    }
+
+    #[test]
+    fn test_subscriber_send_auto_shrink_payload_on_last_drop() {
+        let (auto_shrink_sender, mut auto_shrink_receiver) = mpsc::channel(1);
+        let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
+        let subscribers_handle = SubscribersHandle::default();
+        let auto_shrink_payload = owned_room_id!("!r0");
+
+        let subscriber0 = Subscriber::new(
+            subscriber_receiver.resubscribe(),
+            auto_shrink_payload.clone(),
+            auto_shrink_sender.clone(),
+            &subscribers_handle,
+        );
+
+        let subscriber1 = Subscriber::new(
+            subscriber_receiver,
+            auto_shrink_payload.clone(),
+            auto_shrink_sender,
+            &subscribers_handle,
+        );
+
+        // Drop a subscriber. No side-effect because there is still one alive!
+        drop(subscriber0);
+        assert!(auto_shrink_receiver.is_empty());
+
+        // Drop the last subscriber. Side-effect should… take effect!
+        drop(subscriber1);
+        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_payload);
+        assert!(auto_shrink_receiver.is_empty());
+    }
+
+    #[test]
+    fn test_subscriber_send_auto_shrink_payload_with_full_channel() {
+        let (auto_shrink_sender, mut auto_shrink_receiver) = mpsc::channel(1);
+        let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
+        let subscribers_handle = SubscribersHandle::default();
+        let auto_shrink_noisy_payload = owned_room_id!("!r1");
+        let auto_shrink_payload = owned_room_id!("!r0");
+
+        // Saturate the `auto_shrink` channel.
+        auto_shrink_sender.try_send(auto_shrink_noisy_payload.clone()).unwrap();
+
+        let subscriber = Subscriber::new(
+            subscriber_receiver,
+            auto_shrink_payload,
+            auto_shrink_sender,
+            &subscribers_handle,
+        );
+
+        // Drop the last subscriber. Side-effect should… take effect, but (!) the
+        // channel is full, so it's going to retry many times and will fail, resulting
+        // in no side-effect.
+        drop(subscriber);
+
+        // We receive the noisy payload: **not** the payload from the subscriber under
+        // testing.
+        assert_eq!(auto_shrink_receiver.try_recv().unwrap(), auto_shrink_noisy_payload);
+
+        // Then, we receive nothing, i.e. `subscriber` dropped without any side-effect.
+        assert!(auto_shrink_receiver.is_empty());
+    }
+
+    #[test]
+    fn test_subscriber_send_auto_shrink_payload_with_closed_channel() {
+        let (auto_shrink_sender, auto_shrink_receiver) = mpsc::channel(1);
+        let (_subscriber_sender, subscriber_receiver) = broadcast::channel::<()>(1);
+        let subscribers_handle = SubscribersHandle::default();
+        let auto_shrink_payload = owned_room_id!("!r0");
+
+        let subscriber = Subscriber::new(
+            subscriber_receiver,
+            auto_shrink_payload,
+            auto_shrink_sender,
+            &subscribers_handle,
+        );
+
+        // Close the `auto_shrink` channel.
+        drop(auto_shrink_receiver);
+
+        // Drop the last subscriber. Side-effect should… take effect, but (!) the
+        // channel is closed, so it's going to stop immediately, resulting in no
+        // side-effect.
+        drop(subscriber);
+
+        // Sadly, nothing to assert because we are now blind, but at least the
+        // system shouldn't explode!
     }
 }
