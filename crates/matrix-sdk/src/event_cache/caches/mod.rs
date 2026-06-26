@@ -76,6 +76,7 @@ pub(super) struct Caches {
 #[derive(Debug)]
 struct CachesInternals {
     state: states::StateLock,
+    auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
     linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
     room_version_rules: RoomVersionRules,
 }
@@ -143,7 +144,7 @@ impl Caches {
             own_user_id,
             room_state,
             pagination_status,
-            auto_shrink_sender,
+            auto_shrink_sender.clone(),
             update_sender,
         );
 
@@ -161,6 +162,7 @@ impl Caches {
             event_focused: Arc::new(RwLock::new(HashMap::new())),
             internals: CachesInternals {
                 state: state.clone(),
+                auto_shrink_sender,
                 linked_chunk_update_sender,
                 room_version_rules,
             },
@@ -207,6 +209,7 @@ impl Caches {
                         self.internals.room_version_rules.clone(),
                         room.weak_room().to_owned(),
                         &self.internals.state,
+                        self.internals.auto_shrink_sender.clone(),
                         room.update_sender().generic_update_sender().clone(),
                         self.internals.linked_chunk_update_sender.clone(),
                     )

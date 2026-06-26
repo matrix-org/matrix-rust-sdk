@@ -28,10 +28,7 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::{
-    Notify,
-    broadcast::{Receiver, Sender},
-};
+use tokio::sync::{Notify, broadcast::Sender, mpsc};
 use tracing::{instrument, trace};
 
 use self::pagination::ThreadPagination;
@@ -46,6 +43,7 @@ use super::{
     },
     EventsOrigin, TimelineVectorDiffs,
     room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
 
@@ -74,6 +72,12 @@ struct ThreadEventCacheInner {
     /// A notifier that we received a new pagination token.
     pagination_batch_token_notifier: Notify,
 
+    /// Sender to the auto-shrink channel.
+    ///
+    /// See doc comment around [`EventCache::auto_shrink_linked_chunk_task`] for
+    /// more details.
+    auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
+
     /// Update sender for this thread.
     update_sender: ThreadEventCacheUpdateSender,
 }
@@ -94,6 +98,7 @@ impl ThreadEventCache {
         room_version_rules: RoomVersionRules,
         weak_room: WeakRoom,
         state: &StateLock,
+        auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
     ) -> Result<Self> {
@@ -126,6 +131,7 @@ impl ThreadEventCache {
                 weak_room,
                 state: cache_state,
                 pagination_batch_token_notifier: Notify::new(),
+                auto_shrink_sender,
                 update_sender,
             }),
         };
@@ -150,16 +156,31 @@ impl ThreadEventCache {
         &self.inner.thread_id
     }
 
-    /// Subscribe to live events from this thread.
-    pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
+    /// Subscribe to this thread updates, after getting the initial list of
+    /// events.
+    ///
+    /// Creating, and especially dropping, a [`Subscriber`] isn't free, as it
+    /// triggers side-effects.
+    pub async fn subscribe(&self) -> Result<(Vec<Event>, Subscriber<TimelineVectorDiffs>)> {
         let state = self.inner.state.read().await?;
-
         let events =
             state.thread_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
-        let recv = state.update_sender.new_thread_receiver();
+        let subscribers_handle = state.subscribers_handle();
 
-        Ok((events, recv))
+        let subscriber = Subscriber::new(
+            self.inner.update_sender.new_thread_receiver(),
+            AutoShrinkMessage::Thread {
+                room_id: self.inner.room_id.clone(),
+                thread_id: self.inner.thread_id.clone(),
+            },
+            self.inner.auto_shrink_sender.clone(),
+            subscribers_handle,
+        );
+
+        trace!("added a thread event cache subscriber; new count: {}", subscribers_handle.count());
+
+        Ok((events, subscriber))
     }
 
     /// Return a [`ThreadPagination`] useful for running back-pagination queries
@@ -312,15 +333,16 @@ mod timed_tests {
         store::StoreConfig,
         sync::{JoinedRoomUpdate, Timeline},
     };
-    use matrix_sdk_test::{async_test, event_factory::EventFactory};
+    use matrix_sdk_test::{ALICE, async_test, event_factory::EventFactory};
     use ruma::{
         event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id, user_id,
     };
+    use tokio::task::yield_now;
 
     use super::super::{super::RoomEventCacheGenericUpdate, TimelineVectorDiffs};
-    use crate::test_utils::client::MockClientBuilder;
+    use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
 
     #[async_test]
     async fn test_write_to_storage() {
@@ -1195,5 +1217,156 @@ mod timed_tests {
                 );
             }
         }
+    }
+
+    #[async_test]
+    async fn test_auto_shrink_after_all_subscribers_are_gone() {
+        let room_id = room_id!("!r0");
+        let thread_id = event_id!("$t0");
+
+        let client = MockClientBuilder::new(None).build().await;
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+        let event_id_0 = event_id!("$ev0");
+        let event_id_1 = event_id!("$ev1");
+
+        let thread_root =
+            f.text_msg("gr00t").event_id(thread_id).in_thread(thread_id, thread_id).into_event();
+        let event_0 =
+            f.text_msg("hello").event_id(event_id_0).in_thread(thread_id, event_id_0).into_event();
+        let event_1 =
+            f.text_msg("world").event_id(event_id_1).in_thread(thread_id, event_id_1).into_event();
+
+        // Fill the event cache store with an initial linked chunk with 2 events chunks.
+        {
+            client
+                .event_cache_store()
+                .lock()
+                .await
+                .expect("Could not acquire the event cache lock")
+                .as_clean()
+                .expect("Could not acquire a clean event cache lock")
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Thread(room_id, thread_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: vec![thread_root, event_0],
+                        },
+                        Update::NewItemsChunk {
+                            previous: Some(ChunkIdentifier::new(0)),
+                            new: ChunkIdentifier::new(1),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(1), 0),
+                            items: vec![event_1],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let (thread_event_cache, _drop_handles) =
+            event_cache.thread(room_id, thread_id).await.unwrap();
+
+        // Sanity check: lazily loaded, so only includes one item at start.
+        let (events1, mut stream1) = thread_event_cache.subscribe().await.unwrap();
+        assert_eq!(events1.len(), 1);
+        assert_eq!(events1[0].event_id(), Some(event_id_1));
+        assert!(stream1.is_empty());
+
+        let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
+        // Force loading the full linked chunk by back-paginating.
+        let outcome = thread_event_cache.pagination().run_backwards_once(20).await.unwrap();
+        assert_eq!(outcome.events.len(), 2);
+        assert_eq!(outcome.events[0].event_id(), Some(event_id_0));
+        assert_eq!(outcome.events[1].event_id(), Some(thread_id));
+        assert!(outcome.reached_start);
+
+        // We also get an update about the loading from the store. Ignore it, for this
+        // test's sake.
+        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = stream1.recv());
+        assert_eq!(diffs.len(), 2);
+        assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value } => {
+            assert_eq!(value.event_id(), Some(thread_id));
+        });
+        assert_matches!(&diffs[1], VectorDiff::Insert { index: 1, value } => {
+            assert_eq!(value.event_id(), Some(event_id_0));
+        });
+
+        assert!(stream1.is_empty());
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) = generic_stream.recv()
+        );
+        assert_eq!(expected_room_id, room_id);
+        assert!(generic_stream.is_empty());
+
+        // Have another subscriber.
+        // Since it's not the first one, and the previous one loaded some more events,
+        // the second subscribers sees them all.
+        let (events2, stream2) = thread_event_cache.subscribe().await.unwrap();
+        assert_eq!(events2.len(), 3);
+        assert_eq!(events2[0].event_id(), Some(thread_id));
+        assert_eq!(events2[1].event_id(), Some(event_id_0));
+        assert_eq!(events2[2].event_id(), Some(event_id_1));
+        assert!(stream2.is_empty());
+
+        // Grab a receiver for testing no diffs is sent.
+        let subscriber = {
+            let state = thread_event_cache.inner.state.read().await.unwrap();
+            state.update_sender.new_thread_receiver()
+        };
+
+        // Drop the first stream, and wait a bit.
+        drop(stream1);
+        yield_now().await;
+
+        // The second stream remains undisturbed.
+        assert!(stream2.is_empty());
+
+        // Now drop the second stream, and wait a bit.
+        drop(stream2);
+        yield_now().await;
+
+        // The linked chunk must have auto-shrunk by now.
+
+        {
+            // Check the inner state: there's no more shared auto-shrinker.
+            let state = thread_event_cache.inner.state.read().await.unwrap();
+            assert_eq!(state.subscribers_handle().count(), 0);
+
+            // No diff is sent when the linked chunk has auto-shrunk.
+            assert!(subscriber.is_empty());
+            assert!(generic_stream.is_empty());
+        }
+
+        // Getting the events will only give us the latest chunk.
+        let events3 = thread_event_cache
+            .inner
+            .state
+            .read()
+            .await
+            .unwrap()
+            .thread_linked_chunk()
+            .events()
+            .map(|(_position, item)| item.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(events3.len(), 1);
+        assert_eq!(events3[0].event_id(), Some(event_id_1));
     }
 }

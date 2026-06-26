@@ -158,6 +158,26 @@ pub(super) async fn auto_shrink_linked_chunk_task(
                     }
                 }
             }
+
+            AutoShrinkMessage::Thread { room_id, thread_id } => {
+                let ControlFlow::Continue(caches) = all_caches(inner.as_ref(), &room_id).await
+                else {
+                    continue;
+                };
+
+                let Ok(cache) = caches.thread(thread_id.clone()).await else {
+                    warn!(%room_id, %thread_id, "Failed to get the `ThreadEventCache`");
+                    continue;
+                };
+
+                match cache.state().write().await {
+                    Ok(mut state) => state.auto_shrink_if_no_subscribers().await,
+                    Err(err) => {
+                        warn!(%room_id, ?err, "Failed to get the `ThreadEventCacheStateLock`");
+                        continue;
+                    }
+                }
+            }
         };
 
         match maybe_diffs {
