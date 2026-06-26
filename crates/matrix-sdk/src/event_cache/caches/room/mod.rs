@@ -42,13 +42,13 @@ pub use self::{
 };
 use super::{
     super::{
-        AutoShrinkChannelPayload, EventsOrigin, Result,
+        EventsOrigin, Result,
         states::{CacheStateLock, StateLockWriteGuard, selectors::RoomStateSelector},
     },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
-    subscriber::Subscriber,
+    subscriber::{AutoShrinkChannelPayload, Subscriber},
 };
 use crate::room::WeakRoom;
 

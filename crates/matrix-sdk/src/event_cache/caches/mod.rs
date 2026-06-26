@@ -27,9 +27,9 @@ use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
 
+use self::subscriber::AutoShrinkChannelPayload;
 use super::{
-    AutoShrinkChannelPayload, EventCacheError, EventsOrigin, Result,
-    automatic_pagination::AutomaticPagination, states,
+    EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination, states,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
