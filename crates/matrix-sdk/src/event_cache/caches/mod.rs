@@ -27,7 +27,7 @@ use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
 
-use self::subscriber::AutoShrinkChannelPayload;
+use self::subscriber::AutoShrinkMessage;
 use super::{
     EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination, states,
 };
@@ -87,7 +87,7 @@ impl Caches {
         room_id: &RoomId,
         generic_update_sender: Sender<room::RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
-        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         state: &states::StateLock,
         automatic_pagination: Option<AutomaticPagination>,
     ) -> Result<Self> {

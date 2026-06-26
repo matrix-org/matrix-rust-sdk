@@ -83,7 +83,7 @@ pub use self::{
     },
 };
 use self::{
-    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkChannelPayload},
+    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},
     states::StateLock,
 };
 
@@ -582,7 +582,7 @@ struct EventCacheInner {
     /// [`EventCache::subscribe`].
     ///
     /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
-    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
+    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkMessage>>,
 
     /// A sender for room generic update.
     ///
