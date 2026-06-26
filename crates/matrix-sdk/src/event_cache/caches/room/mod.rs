@@ -131,7 +131,7 @@ impl RoomEventCache {
 
         let subscriber = Subscriber::new(
             self.inner.update_sender.new_room_receiver(),
-            self.inner.room_id.clone(),
+            AutoShrinkMessage::Room { room_id: self.inner.room_id.clone() },
             self.inner.auto_shrink_sender.clone(),
             subscribers_handle,
         );
