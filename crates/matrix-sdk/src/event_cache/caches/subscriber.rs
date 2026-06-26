@@ -19,10 +19,9 @@ use std::{
     sync::{Arc, Weak},
 };
 
+use ruma::OwnedRoomId;
 use tokio::sync::{broadcast::Receiver, mpsc};
 use tracing::{trace, warn};
-
-use super::super::AutoShrinkChannelPayload;
 
 /// A structure that can generate handles for subscribers, and count them. See
 /// [`SubscriberHandle`] to learn more.
@@ -182,6 +181,8 @@ impl<T> DerefMut for Subscriber<T> {
         &mut self.subscriber_receiver
     }
 }
+
+pub type AutoShrinkChannelPayload = OwnedRoomId;
 
 #[cfg(test)]
 mod tests {

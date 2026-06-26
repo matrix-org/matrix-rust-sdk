@@ -83,7 +83,7 @@ pub use self::{
     },
 };
 use self::{
-    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate},
+    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkChannelPayload},
     states::StateLock,
 };
 
@@ -615,8 +615,6 @@ struct EventCacheInner {
     /// flag to be set at subscription time.
     automatic_pagination: OnceLock<AutomaticPagination>,
 }
-
-type AutoShrinkChannelPayload = OwnedRoomId;
 
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {
