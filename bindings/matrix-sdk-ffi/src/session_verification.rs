@@ -20,7 +20,10 @@ use matrix_sdk::{
     encryption::{
         Encryption,
         identities::UserIdentity,
-        verification::{SasState, SasVerification, VerificationRequest, VerificationRequestState},
+        verification::{
+            CancelInfo as SdkCancelInfo, SasState, SasVerification, VerificationRequest,
+            VerificationRequestState,
+        },
     },
     ruma::events::key::verification::VerificationMethod,
 };
@@ -66,6 +69,24 @@ pub struct SessionVerificationRequestDetails {
     first_seen_timestamp: Timestamp,
 }
 
+/// Information about why a verification was cancelled
+#[derive(uniffi::Record, Clone)]
+pub struct SessionVerificationCancelInfo {
+    reason: String,
+    cancel_code: String,
+    cancelled_by_us: bool,
+}
+
+impl From<SdkCancelInfo> for SessionVerificationCancelInfo {
+    fn from(info: SdkCancelInfo) -> Self {
+        Self {
+            reason: info.reason().to_owned(),
+            cancel_code: info.cancel_code().as_str().to_owned(),
+            cancelled_by_us: info.cancelled_by_us(),
+        }
+    }
+}
+
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SessionVerificationControllerDelegate: SyncOutsideWasm + SendOutsideWasm {
     fn did_receive_verification_request(&self, details: SessionVerificationRequestDetails);
@@ -87,6 +108,8 @@ pub struct SessionVerificationController {
     delegate: Delegate,
     verification_request: Arc<RwLock<Option<VerificationRequest>>>,
     sas_verification: Arc<RwLock<Option<SasVerification>>>,
+    request_cancel_info: Arc<RwLock<Option<SessionVerificationCancelInfo>>>,
+    sas_cancel_info: Arc<RwLock<Option<SessionVerificationCancelInfo>>>,
 }
 
 #[matrix_sdk_ffi_macros::export]
@@ -175,8 +198,11 @@ impl SessionVerificationController {
                 }
 
                 let delegate = self.delegate.clone();
-                get_runtime_handle()
-                    .spawn(Self::listen_to_sas_verification_changes(verification, delegate));
+                get_runtime_handle().spawn(Self::listen_to_sas_verification_changes(
+                    verification,
+                    delegate,
+                    self.sas_cancel_info.clone(),
+                ));
             }
             _ => {
                 if let Some(delegate) = Self::current_delegate(&self.delegate) {
@@ -220,6 +246,16 @@ impl SessionVerificationController {
 
         Ok(verification_request.cancel().await?)
     }
+
+    /// Get the cancel info for the verification request, if it was cancelled
+    pub fn request_cancel_info(&self) -> Option<SessionVerificationCancelInfo> {
+        self.request_cancel_info.read().unwrap().clone()
+    }
+
+    /// Get the cancel info for the SAS verification, if it was cancelled
+    pub fn sas_cancel_info(&self) -> Option<SessionVerificationCancelInfo> {
+        self.sas_cancel_info.read().unwrap().clone()
+    }
 }
 
 impl SessionVerificationController {
@@ -235,6 +271,8 @@ impl SessionVerificationController {
             delegate: Arc::new(RwLock::new(None)),
             verification_request: Arc::new(RwLock::new(None)),
             sas_verification: Arc::new(RwLock::new(None)),
+            request_cancel_info: Arc::new(RwLock::new(None)),
+            sas_cancel_info: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -301,6 +339,8 @@ impl SessionVerificationController {
             verification_request,
             self.sas_verification.clone(),
             self.delegate.clone(),
+            self.request_cancel_info.clone(),
+            self.sas_cancel_info.clone(),
         ));
 
         Ok(())
@@ -320,6 +360,8 @@ impl SessionVerificationController {
         verification_request: VerificationRequest,
         sas_verification: Arc<RwLock<Option<SasVerification>>>,
         delegate: Delegate,
+        request_cancel_info: Arc<RwLock<Option<SessionVerificationCancelInfo>>>,
+        sas_cancel_info: Arc<RwLock<Option<SessionVerificationCancelInfo>>>,
     ) {
         let mut stream = verification_request.changes();
 
@@ -341,6 +383,7 @@ impl SessionVerificationController {
                         get_runtime_handle().spawn(Self::listen_to_sas_verification_changes(
                             verification,
                             delegate.clone(),
+                            sas_cancel_info.clone(),
                         ));
                     } else if let Some(current_delegate) = Self::current_delegate(&delegate) {
                         current_delegate.did_fail()
@@ -351,7 +394,13 @@ impl SessionVerificationController {
                         current_delegate.did_accept_verification_request()
                     }
                 }
-                VerificationRequestState::Cancelled(..) => {
+                VerificationRequestState::Cancelled(cancel_info) => {
+                    let info = SessionVerificationCancelInfo::from(cancel_info);
+                    warn!(
+                        "Verification request cancelled: code={}, reason={}, by_us={}",
+                        info.cancel_code, info.reason, info.cancelled_by_us
+                    );
+                    *request_cancel_info.write().unwrap() = Some(info);
                     if let Some(current_delegate) = Self::current_delegate(&delegate) {
                         current_delegate.did_cancel();
                     }
@@ -361,7 +410,11 @@ impl SessionVerificationController {
         }
     }
 
-    async fn listen_to_sas_verification_changes(sas: SasVerification, delegate: Delegate) {
+    async fn listen_to_sas_verification_changes(
+        sas: SasVerification,
+        delegate: Delegate,
+        sas_cancel_info: Arc<RwLock<Option<SessionVerificationCancelInfo>>>,
+    ) {
         let mut stream = sas.changes();
 
         while let Some(state) = stream.next().await {
@@ -399,9 +452,13 @@ impl SessionVerificationController {
                     }
                     break;
                 }
-                SasState::Cancelled(_cancel_info) => {
-                    // TODO: The cancel_info is usable, we should tell the user why we were
-                    // cancelled.
+                SasState::Cancelled(cancel_info) => {
+                    let info = SessionVerificationCancelInfo::from(cancel_info);
+                    warn!(
+                        "SAS verification cancelled: code={}, reason={}, by_us={}",
+                        info.cancel_code, info.reason, info.cancelled_by_us
+                    );
+                    *sas_cancel_info.write().unwrap() = Some(info);
                     if let Some(current_delegate) = Self::current_delegate(&delegate) {
                         current_delegate.did_cancel()
                     }
