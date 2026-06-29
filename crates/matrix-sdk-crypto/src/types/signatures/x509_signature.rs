@@ -13,6 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+use std::fmt::{Debug, Formatter};
 
 use cms::{
     cert::x509::{
@@ -27,7 +28,7 @@ use cms::{
 pub const X509_SIGNATURE_ALGORITHM: &str = "io.element.x509";
 
 /// An X.509 signature and certificate chain
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct X509Signature(ContentInfoWrapper);
 
 impl X509Signature {
@@ -54,6 +55,15 @@ impl X509Signature {
         // Given that we've either constructed this object ourselves, or successfully
         // parsed it from PEM, I don't think it's possible for encoding to fail.
         self.0.to_pem(der::pem::LineEnding::LF).expect("Failed to encode an X.509 signature")
+    }
+}
+
+// The debug format of `ContentInfo` is a very verbose list of each byte inside
+// the content, so we define our own debug format which is just the
+// stringification.
+impl Debug for X509Signature {
+    fn fmt(&self, fmt: &mut Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_tuple("X509Signature").field(&self.to_string()).finish()
     }
 }
 
