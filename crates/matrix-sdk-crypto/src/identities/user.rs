@@ -32,6 +32,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
 
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Verifier;
 use crate::{
     CryptoStoreError, DeviceData, VerificationRequest,
     error::SignatureError,
@@ -44,7 +46,6 @@ use crate::{
         requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
-    x509::X509Verifier,
 };
 
 /// Enum over the different user identity types we can have.
@@ -90,11 +91,13 @@ impl UserIdentity {
             UserIdentityData::Other(i) => {
                 // X509Verifier holds an Arc so cloning it gives us a reference to the single
                 // underlying ClientCertVerifier
+                #[cfg(feature = "experimental-x509-identity-verification")]
                 let x509_verifier = store.x509_verifier().cloned();
 
                 Self::Other(OtherUserIdentity {
                     inner: i,
                     own_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
                     x509_verifier,
                     verification_machine,
                 })
@@ -241,6 +244,7 @@ impl OwnUserIdentity {
 
         let cache = self.store.cache().await?;
         let account = cache.account().await?;
+        #[cfg(feature = "experimental-x509-identity-verification")]
         let x509_signer = self.store.x509_signer();
 
         let public_key = self
@@ -258,6 +262,7 @@ impl OwnUserIdentity {
         // TODO: AJB: duplicate of
         // matrix_sdk_crypto::olm::signing::PrivateCrossSigningIdentity::for_account
 
+        #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
             x509_signer.sign_cross_signing_key(&self.user_id, &mut cross_signing_key)?;
         }
@@ -344,6 +349,8 @@ pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub(crate) x509_verifier: Option<X509Verifier>,
 }
 
@@ -373,6 +380,7 @@ impl OtherUserIdentity {
         }
 
         // If we have an X.509 verifier, we can use that to verify the user
+        #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_verifier) = &self.x509_verifier {
             if x509_verifier
                 .verify_signed_object(&self.user_id, self.inner.master_key.deref().as_ref())
@@ -1486,9 +1494,13 @@ pub(crate) mod tests {
             },
         },
         olm::{Account, PrivateCrossSigningIdentity},
-        store::{CryptoStoreWrapper, MemoryStore, Store},
+        store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
+    };
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use crate::{
+        store::Store,
         x509::{
             X509Signer, X509Verifier,
             rust_raw_x509_signer::RustRawX509Signer,
@@ -2060,6 +2072,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
     #[async_test]
     async fn test_sign_own_identity_with_x509() {
         let account =
@@ -2106,6 +2119,7 @@ pub(crate) mod tests {
         assert!(x509_verifier.verify_signed_object(user_id!("@own_user:localhost"), &signed_key));
     }
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
     #[async_test]
     async fn test_verify_other_identity_with_x509() {
         // Given that a CA exists
@@ -2144,6 +2158,7 @@ pub(crate) mod tests {
     /// Generate a key pair and cert, signed by the supplied certificate
     /// authority, and return a new user's [`OtherUserIdentityData`] whose
     /// master signing key is signed by them.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     async fn signed_other_identity(
         ca_cert: &Certificate,
         ca_signing_key: &KeyPair,
@@ -2172,6 +2187,7 @@ pub(crate) mod tests {
 
     /// Generate a little certificate authority i.e. a key pair and a
     /// self-signed certificate.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     fn ca_cert() -> (Certificate, KeyPair) {
         let cert_params = cert_params("You Can Trust Us Certificate Authority");
 
@@ -2185,6 +2201,7 @@ pub(crate) mod tests {
 
     /// Generate a key pair and a certificate signed by the supplied certificate
     /// authority.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     fn cert_and_key_with_email_signed_by(
         email: &str,
         ca_cert: &Certificate,
@@ -2209,6 +2226,7 @@ pub(crate) mod tests {
 
     /// Create a CertificateParams (for creating a certificate) where the
     /// distinguished name has the CommonName provided.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     fn cert_params(common_name: &str) -> CertificateParams {
         let mut cert_params = CertificateParams::default();
         cert_params.distinguished_name.remove(DnType::CommonName);
@@ -2231,6 +2249,7 @@ pub(crate) mod tests {
             inner: other_user_identity_data,
             own_identity: Some(own_identity_data),
             verification_machine,
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_verifier: None,
         }
     }
@@ -2242,7 +2261,12 @@ pub(crate) mod tests {
      * Creates a new private user identity for the account.
      */
     fn get_verification_machine(account: &Account) -> VerificationMachine {
-        let private_identity = PrivateCrossSigningIdentity::for_account(account, None).unwrap();
+        let private_identity = PrivateCrossSigningIdentity::for_account(
+            account,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+        )
+        .unwrap();
         VerificationMachine::new(
             account.static_data().clone(),
             Arc::new(Mutex::new(private_identity)),
@@ -2258,6 +2282,7 @@ pub(crate) mod tests {
      * Creates a crypto store, backed by a [`MemoryStore`], for the given
      * account, with an X.509 verifier and signer.
      */
+    #[cfg(feature = "experimental-x509-identity-verification")]
     async fn create_store_with_x509(
         account: Account,
         x509_verifier: X509Verifier,

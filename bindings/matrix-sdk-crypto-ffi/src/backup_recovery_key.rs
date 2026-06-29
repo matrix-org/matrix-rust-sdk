@@ -4,7 +4,6 @@ use hmac::Hmac;
 use matrix_sdk_crypto::{
     backups::DecryptionError,
     store::{CryptoStoreError as InnerStoreError, types::BackupDecryptionKey},
-    types::Signature,
 };
 use pbkdf2::pbkdf2;
 use rand::{RngExt, distr::Alphanumeric, rng};
@@ -154,11 +153,7 @@ impl BackupRecoveryKey {
                             (
                                 k.to_string(),
                                 match v {
-                                    Ok(s) => match s {
-                                        Signature::Ed25519(s) => s.to_base64(),
-                                        Signature::X509(_s) => todo!("TODO: AJB: X509 signature not supported in MegolmV1BackupKey"),
-                                        Signature::Other(s) => s.to_owned(),
-                                    },
+                                    Ok(s) => s.to_base64(),
                                     Err(s) => s.source,
                                 },
                             )

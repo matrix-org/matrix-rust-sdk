@@ -43,6 +43,7 @@ testing = ["matrix-sdk-test"]
 # Enable experimental support for pushing secrets; see
 # https://github.com/matrix-org/matrix-spec-proposals/pull/4385
 experimental-push-secrets = []
+experimental-x509-identity-verification = []
 
 [dependencies]
 aes = { version = "0.8.4", default-features = false }

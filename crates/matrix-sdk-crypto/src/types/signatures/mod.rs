@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 mod signature;
+#[cfg(feature = "experimental-x509-identity-verification")]
 mod x509_signature;
 
 use std::collections::{BTreeMap, btree_map::IntoIter};
@@ -23,10 +24,9 @@ use ruma::{DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
-pub use self::{
-    signature::Signature,
-    x509_signature::{X509_SIGNATURE_ALGORITHM, X509Signature},
-};
+pub use self::signature::Signature;
+#[cfg(feature = "experimental-x509-identity-verification")]
+pub use self::x509_signature::{X509_SIGNATURE_ALGORITHM, X509Signature};
 
 /// Represents a signature that could not be decoded.
 ///

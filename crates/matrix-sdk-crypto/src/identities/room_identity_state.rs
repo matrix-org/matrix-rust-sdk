@@ -1111,8 +1111,14 @@ mod tests {
         let device_id = owned_device_id!("DEV123");
         let account = Account::with_device_id(user_id, &device_id);
 
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account, None).unwrap()));
+        let private_identity = Arc::new(Mutex::new(
+            PrivateCrossSigningIdentity::for_account(
+                &account,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
+            )
+            .unwrap(),
+        ));
 
         let other_user_identity_data =
             OtherUserIdentityData::from_private(&*private_identity.lock().await).await;
@@ -1131,6 +1137,7 @@ mod tests {
                     MemoryStore::new(),
                 )),
             ),
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_verifier: None,
         })
     }
@@ -1152,8 +1159,14 @@ mod tests {
         let device_id = owned_device_id!("DEV123");
         let account = Account::with_device_id(user_id, &device_id);
 
-        let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account, None).unwrap()));
+        let private_identity = Arc::new(Mutex::new(
+            PrivateCrossSigningIdentity::for_account(
+                &account,
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                None,
+            )
+            .unwrap(),
+        ));
 
         let own_user_identity_data =
             OwnUserIdentityData::from_private(&*private_identity.lock().await).await;

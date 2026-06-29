@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![cfg(feature = "experimental-x509-identity-verification")]
+
 //! Types and traits for verification of users and devices using X.509 keys and
 //! certificates.
 

@@ -28,13 +28,12 @@ use futures_util::try_join;
 use homeserver_config::*;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::DecryptionSettings;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::x509::{X509Signer, X509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{
-    BaseClient, DmRoomDefinition, ThreadingSupport,
-    crypto::x509::{X509Signer, X509Verifier},
-    store::StoreConfig,
-    ttl::TtlValue,
+    BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig, ttl::TtlValue,
 };
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 #[cfg(feature = "sqlite")]
@@ -134,7 +133,9 @@ pub struct ClientBuilder {
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
     search_index_store_kind: SearchIndexStoreKind,
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_signer: Option<X509Signer>,
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_verifier: Option<X509Verifier>,
     dm_room_definition: DmRoomDefinition,
     media_fetcher: Arc<dyn MediaFetcher>,
@@ -174,7 +175,9 @@ impl ClientBuilder {
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store_kind: SearchIndexStoreKind::InMemory,
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_signer: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_verifier: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: Arc::new(DefaultMediaFetcher),
@@ -554,6 +557,7 @@ impl ClientBuilder {
 
     /// The signer we will use to sign master signing keys and outgoing secret
     /// requests.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub fn with_x509_signer(mut self, x509_signer: Option<X509Signer>) -> Self {
         self.x509_signer = x509_signer;
         self
@@ -561,6 +565,7 @@ impl ClientBuilder {
 
     /// The verifier we wil use to verify master signing keys and incoming
     /// secret requests.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub fn with_x509_verifier(mut self, x509_verifier: Option<X509Verifier>) -> Self {
         self.x509_verifier = x509_verifier;
         self
@@ -611,7 +616,9 @@ impl ClientBuilder {
                 client.decryption_settings = self.decryption_settings;
             }
 
+            #[cfg(feature = "experimental-x509-identity-verification")]
             client.set_x509_signer(self.x509_signer);
+            #[cfg(feature = "experimental-x509-identity-verification")]
             client.set_x509_verifier(self.x509_verifier);
 
             client

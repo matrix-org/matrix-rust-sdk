@@ -17,9 +17,9 @@ use as_variant::as_variant;
 use ruma::DeviceKeyAlgorithm;
 use vodozemac::Ed25519Signature;
 
-use crate::types::{
-    InvalidSignature, X509_SIGNATURE_ALGORITHM, signatures::x509_signature::X509Signature,
-};
+use crate::types::InvalidSignature;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::types::{X509_SIGNATURE_ALGORITHM, X509Signature};
 
 /// Represents a potentially decoded signature (but *not* a validated one).
 ///
@@ -36,6 +36,7 @@ pub enum Signature {
     /// A Ed25519 digital signature.
     Ed25519(Ed25519Signature),
     /// An X.509 digital signature.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     X509(X509Signature),
     /// A digital signature in an unsupported algorithm. The raw signature bytes
     /// are represented as a base64-encoded string.
@@ -56,6 +57,7 @@ impl Signature {
                 .map(|s| s.into())
                 .map_err(|_| InvalidSignature { source: s }),
 
+            #[cfg(feature = "experimental-x509-identity-verification")]
             DeviceKeyAlgorithm::_Custom(_) if algorithm == X509_SIGNATURE_ALGORITHM.into() => {
                 X509Signature::from_str(&s)
                     .map(|s| s.into())
@@ -70,6 +72,7 @@ impl Signature {
     pub fn to_base64(&self) -> String {
         match self {
             Signature::Ed25519(s) => s.to_base64(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
             Signature::X509(s) => s.to_string(),
             Signature::Other(s) => s.to_owned(),
         }
@@ -82,6 +85,7 @@ impl From<Ed25519Signature> for Signature {
     }
 }
 
+#[cfg(feature = "experimental-x509-identity-verification")]
 impl From<X509Signature> for Signature {
     fn from(signature: X509Signature) -> Self {
         Self::X509(signature)

@@ -59,7 +59,6 @@ use matrix_sdk::{
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
 };
-use matrix_sdk_base::crypto::x509::RawX509Signature;
 use matrix_sdk_common::{
     SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
@@ -315,6 +314,7 @@ pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
 
 /// A foreign trait for low-level types which can sign messages using an
 /// X.509-certified key pair.
+#[cfg(feature = "experimental-x509-identity-verification")]
 #[matrix_sdk_ffi_macros::export(with_foreign)]
 pub trait X509Sign: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Create a signature for the given message using our private key
@@ -325,6 +325,7 @@ pub trait X509Sign: SyncOutsideWasm + SendOutsideWasm + Debug {
 
 /// A foreign trait for low-level types which can verify messages which were
 /// signed using an X.509-certified key pair.
+#[cfg(feature = "experimental-x509-identity-verification")]
 #[matrix_sdk_ffi_macros::export(with_foreign)]
 pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Check if the given signature is a valid X.509 signature for the given
@@ -335,7 +336,7 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     fn verify(&self, message: Vec<u8>, sig: RawX509Signature) -> bool;
 }
 
-/*/// An X.509 signature and certificate chain
+#[cfg(feature = "experimental-x509-identity-verification")]
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct X509Signature {
     /// The PEM-encoded certificate chain, starting with the device's own
@@ -353,6 +354,7 @@ pub struct X509Signature {
     pub signature: String,
 }
 
+#[cfg(feature = "experimental-x509-identity-verification")]
 impl From<X509Signature> for matrix_sdk_base::crypto::types::X509Signature {
     fn from(value: X509Signature) -> Self {
         Self {
@@ -363,6 +365,7 @@ impl From<X509Signature> for matrix_sdk_base::crypto::types::X509Signature {
     }
 }
 
+#[cfg(feature = "experimental-x509-identity-verification")]
 impl From<matrix_sdk_base::crypto::types::X509Signature> for X509Signature {
     fn from(value: matrix_sdk_base::crypto::types::X509Signature) -> Self {
         Self {
@@ -371,7 +374,7 @@ impl From<matrix_sdk_base::crypto::types::X509Signature> for X509Signature {
             signature: value.signature,
         }
     }
-}*/
+}
 
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {

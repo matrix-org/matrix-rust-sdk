@@ -19,6 +19,8 @@
 use std::{fs, path::PathBuf};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk::encryption::SignatureError;
 #[cfg(not(any(target_family = "wasm")))]
 use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
@@ -27,7 +29,7 @@ use matrix_sdk::{
     Client as MatrixClient, ClientBuildError as MatrixClientBuildError, HttpError, IdParseError,
     RumaApiError, ThreadingSupport,
     cross_process_lock::CrossProcessLockConfig as SdkCrossProcessLockConfig,
-    encryption::{BackupDownloadStrategy, EncryptionSettings, SignatureError},
+    encryption::{BackupDownloadStrategy, EncryptionSettings},
     event_cache::EventCacheError,
     media::MediaFetcher,
     ruma::{ServerName, UserId},
@@ -36,18 +38,24 @@ use matrix_sdk::{
         VersionBuilderError,
     },
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::{
+    types::X509Signature,
+    x509::{X509Signer, X509Verifier},
+};
 use matrix_sdk_base::{
     DmRoomDefinition,
-    crypto::{
-        CollectStrategy, DecryptionSettings, TrustRequirement,
-        x509::{RawX509Signature, X509Signer, X509Verifier},
-    },
+    crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
 };
 use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use ruma::OwnedDeviceId;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
-use super::client::{Client, X509Sign, X509Verify};
+use super::client::Client;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use super::client::{X509Sign, X509Verify};
 #[cfg(any(feature = "sqlite", feature = "indexeddb"))]
 use crate::store;
 use crate::{
@@ -167,7 +175,9 @@ pub struct ClientBuilder {
 
     threading_support: ThreadingSupport,
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_sign: Option<Arc<dyn X509Sign>>,
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_verify: Option<Arc<dyn X509Verify>>,
 
     dm_room_definition: DmRoomDefinition,
@@ -219,7 +229,9 @@ impl ClientBuilder {
             #[cfg(feature = "experimental-search")]
             search_index_store: None,
 
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_sign: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_verify: None,
 
             dm_room_definition: DmRoomDefinition::MatrixSpec,
@@ -400,18 +412,6 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    pub fn with_x509_sign(self: Arc<Self>, x509_sign: Arc<dyn X509Sign>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.x509_sign = Some(x509_sign);
-        Arc::new(builder)
-    }
-
-    pub fn with_x509_verify(self: Arc<Self>, x509_verify: Arc<dyn X509Verify>) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.x509_verify = Some(x509_verify);
-        Arc::new(builder)
-    }
-
     pub async fn build(self: Arc<Self>) -> Result<Arc<Client>, ClientBuildError> {
         let builder = unwrap_or_clone_arc(self);
         let mut inner_builder = MatrixClient::builder()
@@ -573,6 +573,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.media_fetcher(media_fetcher.clone());
         }
 
+        #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_sign) = builder.x509_sign {
             // Wrap the provided X509Sign impl in a shim which converts the arguments and
             // results.
@@ -590,6 +591,7 @@ impl ClientBuilder {
             inner_builder = inner_builder.with_x509_signer(Some(X509Signer::new(x509_sign)));
         }
 
+        #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_verify) = builder.x509_verify {
             // Wrap the provided X509Verify impl in a shim which converts the arguments.
             #[derive(Debug)]
@@ -606,6 +608,22 @@ impl ClientBuilder {
         let sdk_client = inner_builder.build().await?;
 
         Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
+    }
+}
+
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    pub fn with_x509_sign(self: Arc<Self>, x509_sign: Arc<dyn X509Sign>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.x509_sign = Some(x509_sign);
+        Arc::new(builder)
+    }
+
+    pub fn with_x509_verify(self: Arc<Self>, x509_verify: Arc<dyn X509Verify>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.x509_verify = Some(x509_verify);
+        Arc::new(builder)
     }
 }
 

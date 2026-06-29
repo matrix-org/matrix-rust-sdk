@@ -112,13 +112,14 @@ pub use memorystore::MemoryStore;
 pub use traits::{CryptoStore, DynCryptoStore, IntoCryptoStore};
 
 use self::caches::{SequenceNumber, StoreCache, StoreCacheGuard, UsersForKeyQuery};
+use crate::types::{
+    events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle,
+};
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::{X509Signer, X509Verifier};
 pub use crate::{
     dehydrated_devices::DehydrationError,
     gossiping::{GossipRequest, SecretInfo},
-};
-use crate::{
-    types::{events::room_key_withheld::RoomKeyWithheldContent, room_history::RoomKeyBundle},
-    x509::{X509Signer, X509Verifier},
 };
 
 /// A wrapper for our CryptoStore trait object.
@@ -492,10 +493,12 @@ struct StoreInner {
 
     /// If we can verify peoples' identities via X.509 certificates, a handle to
     /// the implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_verifier: Option<X509Verifier>,
 
     /// If we can sign our own identity via X.509 certificates, a handle to the
     /// implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_signer: Option<X509Signer>,
 
     /// Static account data that never changes (and thus can be loaded once and
@@ -559,7 +562,16 @@ impl Store {
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
     ) -> Self {
-        Self::new_with_x509(account, identity, store, verification_machine, None, None)
+        Self::new_with_x509(
+            account,
+            identity,
+            store,
+            verification_machine,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+        )
     }
 
     /// Create a new Store, allowing specification of X.509 parameters.
@@ -568,8 +580,10 @@ impl Store {
         identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
         store: Arc<CryptoStoreWrapper>,
         verification_machine: VerificationMachine,
-        x509_verifier: Option<X509Verifier>,
-        x509_signer: Option<X509Signer>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            X509Verifier,
+        >,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_signer: Option<X509Signer>,
     ) -> Self {
         Self {
             inner: Arc::new(StoreInner {
@@ -577,7 +591,9 @@ impl Store {
                 identity,
                 store: store.clone(),
                 verification_machine,
+                #[cfg(feature = "experimental-x509-identity-verification")]
                 x509_verifier,
+                #[cfg(feature = "experimental-x509-identity-verification")]
                 x509_signer,
                 cache: Arc::new(RwLock::new(StoreCache {
                     store,
@@ -606,12 +622,14 @@ impl Store {
 
     /// If we can sign our own identity via X.509 certificates, a handle to the
     /// implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub(crate) fn x509_signer(&self) -> Option<&X509Signer> {
         self.inner.x509_signer.as_ref()
     }
 
     /// If we can verify peoples' identities via X.509 certificates, a handle to
     /// the implementation.
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub(crate) fn x509_verifier(&self) -> Option<&X509Verifier> {
         self.inner.x509_verifier.as_ref()
     }

@@ -28,6 +28,7 @@ bundled-sqlite = ["matrix-sdk-sqlite/bundled"]
 experimental-encrypted-state-events = [
     "matrix-sdk-crypto/experimental-encrypted-state-events",
 ]
+experimental-x509-identity-verification = ["matrix-sdk-crypto/experimental-x509-identity-verification"]
 
 [dependencies]
 anyhow.workspace = true

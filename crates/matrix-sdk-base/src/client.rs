@@ -25,14 +25,13 @@ use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use futures_util::Stream;
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timer};
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_crypto::x509::{X509Signer, X509Verifier};
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_crypto::{
     CollectStrategy, DecryptionSettings, EncryptionSettings, OlmError, OlmMachine,
-    OlmMachineBuilder, TrustRequirement,
-    store::DynCryptoStore,
-    store::types::RoomPendingKeyBundleDetails,
-    types::requests::ToDeviceRequest,
-    x509::{X509Signer, X509Verifier},
+    OlmMachineBuilder, TrustRequirement, store::DynCryptoStore,
+    store::types::RoomPendingKeyBundleDetails, types::requests::ToDeviceRequest,
 };
 #[cfg(doc)]
 use ruma::DeviceId;
@@ -140,12 +139,12 @@ pub struct BaseClient {
 
     /// If supported, the signer that allows us to sign our cross-signing key
     /// with an X.509 certificate.
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_signer: Option<X509Signer>,
 
     /// If supported, the verifier that allows us to verify that items have been
     /// signed by a valid X.509 certificate.
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(feature = "experimental-x509-identity-verification")]
     x509_verifier: Option<X509Verifier>,
 
     /// The definition of what is considered a DM room.
@@ -220,9 +219,9 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             handle_verification_events: true,
             threading_support,
-            #[cfg(feature = "e2e-encryption")]
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_signer: None,
-            #[cfg(feature = "e2e-encryption")]
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_verifier: None,
             dm_room_definition,
         }
@@ -256,7 +255,9 @@ impl BaseClient {
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
             threading_support: self.threading_support,
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_signer: self.x509_signer.clone(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
             x509_verifier: self.x509_verifier.clone(),
             dm_room_definition: self.dm_room_definition.clone(),
         };
@@ -268,14 +269,14 @@ impl BaseClient {
 
     /// Provide the signer we will use to sign master signing keys and outgoing
     /// secret requests.
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub fn set_x509_signer(&mut self, x509_signer: Option<X509Signer>) {
         self.x509_signer = x509_signer;
     }
 
     /// Provide the verifier we will use to verify master signing keys and
     /// incoming secret requests.
-    #[cfg(feature = "e2e-encryption")]
+    #[cfg(feature = "experimental-x509-identity-verification")]
     pub fn set_x509_verifier(&mut self, x509_verifier: Option<X509Verifier>) {
         self.x509_verifier = x509_verifier
     }
@@ -416,14 +417,16 @@ impl BaseClient {
 
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
-        let olm_machine = OlmMachineBuilder::new(&session_meta.user_id, &session_meta.device_id)
+        let builder = OlmMachineBuilder::new(&session_meta.user_id, &session_meta.device_id)
             .with_crypto_store(self.crypto_store.clone())
-            .with_custom_account(custom_account)
+            .with_custom_account(custom_account);
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        let builder = builder
             .with_x509_verifier(self.x509_verifier.clone())
-            .with_x509_signer(self.x509_signer.clone())
-            .build()
-            .await
-            .map_err(OlmError::from)?;
+            .with_x509_signer(self.x509_signer.clone());
+
+        let olm_machine = builder.build().await.map_err(OlmError::from)?;
 
         *self.olm_machine.write().await = Some(olm_machine);
         Ok(())

@@ -56,6 +56,8 @@ use super::{
 };
 #[cfg(feature = "experimental-algorithms")]
 use crate::types::events::room::encrypted::OlmV2Curve25519AesSha2Content;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Signer;
 use crate::{
     DecryptionSettings, Device, OlmError, SignatureError, TrustRequirement,
     dehydrated_devices::DehydrationError,
@@ -77,7 +79,6 @@ use crate::{
         },
         requests::UploadSigningKeysRequest,
     },
-    x509::X509Signer,
 };
 
 #[derive(Debug)]
@@ -815,12 +816,18 @@ impl Account {
     ///   this device to the server.
     pub async fn bootstrap_cross_signing(
         &self,
-        x509_signer: Option<&X509Signer>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_signer: Option<
+            &X509Signer,
+        >,
     ) -> Result<
         (PrivateCrossSigningIdentity, UploadSigningKeysRequest, SignatureUploadRequest),
         SignatureError,
     > {
-        let identity = PrivateCrossSigningIdentity::for_account(self, x509_signer)?;
+        let identity = PrivateCrossSigningIdentity::for_account(
+            self,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer,
+        )?;
 
         let signature_request = identity.sign_account(self.static_data()).await?;
 
