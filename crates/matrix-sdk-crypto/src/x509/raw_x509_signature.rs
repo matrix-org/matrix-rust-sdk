@@ -311,12 +311,7 @@ fn map_signer_info_algorithms_to_signature_scheme(
 
     assert_oid_matches(&digest_alg.oid, &const_oid::db::rfc5912::ID_SHA_512)
         .map_err(RawX509SignatureParseError::UnsupportedDigestAlgorithm)?;
-
-    match &digest_alg.parameters {
-        None => {}
-        Some(x) if x.is_null() => {}
-        Some(_) => return Err(RawX509SignatureParseError::DigestAlgorithmParametersNotNull),
-    };
+    assert_digest_alg_params_null_or_absent(&digest_alg.parameters.owned_to_ref())?;
 
     let signature_algorithm_params: RsaPssParams<'_> = signature_algorithm
         .parameters
@@ -325,9 +320,9 @@ fn map_signer_info_algorithms_to_signature_scheme(
         .decode_as()
         .map_err(RawX509SignatureParseError::SignatureAlgorithmParametersParseError)?;
 
-    if signature_algorithm_params.hash != digest_alg.owned_to_ref() {
-        return Err(RawX509SignatureParseError::UnexpectedSignatureAlgorithmHash);
-    }
+    assert_oid_matches(&signature_algorithm_params.hash.oid, &const_oid::db::rfc5912::ID_SHA_512)
+        .map_err(RawX509SignatureParseError::UnsupportedDigestAlgorithm)?;
+    assert_digest_alg_params_null_or_absent(&signature_algorithm_params.hash.parameters)?;
 
     assert_oid_matches(&signature_algorithm_params.mask_gen.oid, &const_oid::db::rfc5912::ID_MGF_1)
         .map_err(RawX509SignatureParseError::UnsupportedSignatureAlgorithmMaskGen)?;
@@ -337,9 +332,9 @@ fn map_signer_info_algorithms_to_signature_scheme(
         .parameters
         .ok_or(RawX509SignatureParseError::SignatureAlgorithmMaskGenParametersNotSet)?;
 
-    if mask_gen_params != digest_alg.owned_to_ref() {
-        return Err(RawX509SignatureParseError::UnexpectedSignatureAlgorithmHash);
-    }
+    assert_oid_matches(&mask_gen_params.oid, &const_oid::db::rfc5912::ID_SHA_512)
+        .map_err(RawX509SignatureParseError::UnsupportedDigestAlgorithm)?;
+    assert_digest_alg_params_null_or_absent(&mask_gen_params.parameters)?;
 
     if signature_algorithm_params.salt_len != 64 {
         return Err(RawX509SignatureParseError::UnsupportedSignatureAlgorithmSaltLen(
@@ -411,3 +406,14 @@ fn assert_oid_matches(
         Err(OidMismatch { actual: actual.clone(), expected: expected.clone() })
     }
 }
+
+fn assert_digest_alg_params_null_or_absent(
+    digest_alg_params: &Option<der::AnyRef<'_>>,
+) -> Result<(), RawX509SignatureParseError> {
+    match digest_alg_params {
+        None => Ok(()),
+        Some(x) if x.is_null() => Ok(()),
+        Some(_) => Err(RawX509SignatureParseError::DigestAlgorithmParametersNotNull),
+    }
+}
+
