@@ -71,9 +71,8 @@ async fn test_empty_room_accept_invite() -> Result<()> {
         .room_id()
         .to_owned();
 
-    if let Some(room) = alice.get_room(&room_id) {
-        room.leave().await?;
-    }
+    let room = alice.get_room(&room_id).expect("Alice should see the room");
+    room.leave().await?;
 
     let mut bob_accepted = false;
     for i in 1..=5 {
