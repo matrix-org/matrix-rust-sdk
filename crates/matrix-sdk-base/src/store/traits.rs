@@ -519,18 +519,12 @@ pub trait StateStore: AsyncTraitDeps {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 
-    /// Saves or merges global user profile updates with existing profile
-    /// records.
-    ///
-    /// Following the MSC4262 update pattern, fields with explicit `null` values
-    /// indicates they should be removed, while fields not present are left
-    /// unchanged.
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error>;
-
     /// Get a user's global profile from the store.
+    ///
+    /// Global profiles are persisted as part of [`StateStore::save_changes`],
+    /// from the [`StateChanges::global_profiles`] field, following the MSC4262
+    /// update pattern: fields with an explicit `null` value are removed, while
+    /// fields not present are left unchanged.
     ///
     /// Returns `None` if there was no stored global profile for the given user.
     async fn get_global_profile(
@@ -852,13 +846,6 @@ impl<T: StateStore> StateStore for &T {
         (*self).load_thread_subscription(room, thread_id).await
     }
 
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error> {
-        (*self).save_global_profile_updates(profiles).await
-    }
-
     async fn get_global_profile(
         &self,
         user_id: &UserId,
@@ -1172,13 +1159,6 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.deref().load_thread_subscription(room, thread_id).await
-    }
-
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error> {
-        self.deref().save_global_profile_updates(profiles).await
     }
 
     async fn get_global_profile(
@@ -1519,13 +1499,6 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.0.remove_thread_subscription(room, thread_id).await.map_err(Into::into)
-    }
-
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error> {
-        self.0.save_global_profile_updates(profiles).await.map_err(Into::into)
     }
 
     async fn get_global_profile(
@@ -1911,13 +1884,6 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.store.remove_thread_subscription(room, thread_id).await
-    }
-
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error> {
-        self.store.save_global_profile_updates(profiles).await
     }
 
     async fn get_global_profile(

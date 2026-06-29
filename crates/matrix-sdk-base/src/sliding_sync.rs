@@ -206,6 +206,9 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
+        // Persist any global profile updates received through the profiles extension.
+        context.state_changes.global_profiles = extensions.profiles.clone();
+
         // Save the changes and apply them.
         processors::changes::save_and_apply(
             context,

@@ -2159,10 +2159,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         fields.insert("avatar_url".to_owned(), json!(null));
         let update = UserProfile::from_iter(fields);
 
-        let mut profiles = BTreeMap::new();
-        profiles.insert(user_id.to_owned(), update);
-
-        self.save_global_profile_updates(profiles).await?;
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(user_id.to_owned(), update);
+        self.save_changes(&changes).await?;
 
         let loaded = self.get_global_profile(user_id).await?.expect("Profile should be saved");
         let loaded_map: BTreeMap<String, serde_json::Value> = loaded.into_iter().collect();
@@ -2174,10 +2173,9 @@ impl StateStoreIntegrationTests for DynStateStore {
         fields.insert("avatar_url".to_owned(), json!("mxc://example.com/avatar"));
         let update2 = UserProfile::from_iter(fields);
 
-        let mut profiles = BTreeMap::new();
-        profiles.insert(user_id.to_owned(), update2);
-
-        self.save_global_profile_updates(profiles).await?;
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(user_id.to_owned(), update2);
+        self.save_changes(&changes).await?;
 
         let loaded2 = self.get_global_profile(user_id).await?.expect("Profile should exist");
         let loaded_map2: BTreeMap<String, serde_json::Value> = loaded2.into_iter().collect();
