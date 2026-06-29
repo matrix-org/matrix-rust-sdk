@@ -1481,13 +1481,17 @@ impl EventFactory {
     /// use matrix_sdk_test::event_factory::EventFactory;
     /// use ruma::{
     ///     events::{SyncStateEvent, call::member::CallMemberEventContent},
-    ///     owned_user_id, room_id, serde::Raw,
+    ///     owned_user_id, room_id,
+    ///     serde::Raw,
     /// };
     ///
     /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
     ///
     /// let event: Raw<SyncStateEvent<CallMemberEventContent>> = factory
-    ///     .call_membership_state(owned_user_id!("@alice:localhost"), "ABCDEF".to_owned())
+    ///     .call_membership_state(
+    ///         owned_user_id!("@alice:localhost"),
+    ///         "ABCDEF".to_owned(),
+    ///     )
     ///     .lk_focus("alias".to_owned(), "https://livekit2.com".to_owned())
     ///     .into_raw();
     /// ```
@@ -1815,7 +1819,6 @@ impl EventBuilder<RtcNotificationEventContent> {
 }
 
 impl EventBuilder<CallMemberEventContent> {
-
     /// Sets the livekit focus to the call membership event
     pub fn lk_focus(mut self, alias: String, service_url: String) -> Self {
         if let CallMemberEventContent::SessionContent(session_data) = &mut self.content {
