@@ -1038,6 +1038,26 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         .await
     }
 
+    async fn get_global_profiles(&self, user_ids: Vec<Key>) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let user_ids_length = user_ids.len();
+
+        self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
+            let sql_params = repeat_vars(user_ids.len());
+            let sql = format!(
+                "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({sql_params})"
+            );
+
+            let params = rusqlite::params_from_iter(user_ids);
+
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                .collect::<Result<_, _>>()?)
+        })
+        .await
+    }
+
     async fn get_user_ids(&self, room_id: Key, memberships: Vec<Key>) -> Result<Vec<Vec<u8>>> {
         let res = if memberships.is_empty() {
             self.prepare("SELECT data FROM member WHERE room_id = ?", |mut stmt| {
@@ -2441,26 +2461,44 @@ impl StateStore for SqliteStateStore {
         &self,
         user_id: &UserId,
     ) -> Result<Option<UserProfile>, Self::Error> {
-        let this = self.clone();
-        let user_id = self.encode_key(keys::GLOBAL_PROFILES, user_id);
-
-        let data: Option<Vec<u8>> = self
-            .read()
+        self.read()
             .await?
-            .query_row(
-                "SELECT profile_data FROM global_profiles WHERE user_id = ?",
-                (user_id,),
-                |row| row.get(0),
-            )
-            .await
-            .optional()?;
+            .get_global_profiles(vec![self.encode_key(keys::GLOBAL_PROFILES, user_id)])
+            .await?
+            .into_iter()
+            .next()
+            .map(|(_, data)| self.deserialize_json(&data))
+            .transpose()
+    }
 
-        let Some(data) = data else {
-            return Ok(None);
-        };
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        if user_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
 
-        let profile = this.deserialize_json(&data)?;
-        Ok(Some(profile))
+        let mut user_ids_map = user_ids
+            .iter()
+            .map(|u| (self.encode_key(keys::GLOBAL_PROFILES, u), u.as_ref()))
+            .collect::<BTreeMap<_, _>>();
+        let user_ids = user_ids_map.keys().cloned().collect();
+
+        self.read()
+            .await?
+            .get_global_profiles(user_ids)
+            .await?
+            .into_iter()
+            .map(|(user_id, data)| {
+                Ok((
+                    user_ids_map
+                        .remove(user_id.as_slice())
+                        .expect("returned user IDs were requested"),
+                    self.deserialize_json(&data)?,
+                ))
+            })
+            .collect()
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

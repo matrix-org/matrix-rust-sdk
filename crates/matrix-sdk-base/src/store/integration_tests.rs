@@ -122,6 +122,8 @@ pub trait StateStoreIntegrationTests {
     async fn test_thread_subscriptions_bulk_upsert(&self) -> TestResult;
     /// Test global profiles bulk saving and merging.
     async fn test_global_profiles_saving(&self) -> TestResult;
+    /// Test loading global profiles for several users at once.
+    async fn test_global_profiles_bulk_loading(&self) -> TestResult;
 }
 
 impl StateStoreIntegrationTests for DynStateStore {
@@ -2184,6 +2186,48 @@ impl StateStoreIntegrationTests for DynStateStore {
 
         Ok(())
     }
+
+    async fn test_global_profiles_bulk_loading(&self) -> TestResult {
+        let alice = user_id!("@alice:localhost");
+        let bob = user_id!("@bob:localhost");
+        let unknown = user_id!("@unknown:localhost");
+
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(
+            alice.to_owned(),
+            UserProfile::from_iter([("displayname".to_owned(), json!("Alice"))]),
+        );
+        changes.global_profiles.insert(
+            bob.to_owned(),
+            UserProfile::from_iter([("displayname".to_owned(), json!("Bob"))]),
+        );
+        self.save_changes(&changes).await?;
+
+        // The bulk getter returns the stored profiles and omits unknown users.
+        let requested = [alice.to_owned(), bob.to_owned(), unknown.to_owned()];
+        let profiles = self.get_global_profiles(&requested).await?;
+
+        assert_eq!(profiles.len(), 2);
+        assert!(!profiles.contains_key(unknown));
+
+        let alice_map: BTreeMap<String, serde_json::Value> = profiles
+            .get(alice)
+            .expect("Alice's profile should be loaded")
+            .clone()
+            .into_iter()
+            .collect();
+        assert_eq!(alice_map.get("displayname"), Some(&json!("Alice")));
+
+        let bob_map: BTreeMap<String, serde_json::Value> = profiles
+            .get(bob)
+            .expect("Bob's profile should be loaded")
+            .clone()
+            .into_iter()
+            .collect();
+        assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
+
+        Ok(())
+    }
 }
 
 /// Macro building to allow your StateStore implementation to run the entire
@@ -2381,6 +2425,12 @@ macro_rules! statestore_integration_tests {
             async fn test_global_profiles_saving() -> TestResult {
                 let store = get_store().await?.into_state_store();
                 store.test_global_profiles_saving().await
+            }
+
+            #[async_test]
+            async fn test_global_profiles_bulk_loading() -> TestResult {
+                let store = get_store().await?.into_state_store();
+                store.test_global_profiles_bulk_loading().await
             }
         }
     };

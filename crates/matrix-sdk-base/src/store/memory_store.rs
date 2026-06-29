@@ -1103,6 +1103,19 @@ impl StateStore for MemoryStore {
         Ok(inner.global_profiles.get(user_id).cloned())
     }
 
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(user_ids
+            .iter()
+            .filter_map(|user_id| {
+                inner.global_profiles.get(user_id).map(|profile| (&**user_id, profile.clone()))
+            })
+            .collect())
+    }
+
     async fn optimize(&self) -> Result<(), Self::Error> {
         Ok(())
     }
