@@ -37,6 +37,60 @@ use tracing::{debug, error, warn};
 use crate::helpers::{TestClientBuilder, wait_for_room};
 
 #[tokio::test]
+async fn test_empty_room_accept_invite() -> Result<()> {
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(e) = bob.sync(Default::default()).await {
+                error!("bob sync error: {e}");
+            }
+        }
+    });
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let a = alice.clone();
+    spawn(async move {
+        let alice = a;
+        loop {
+            if let Err(e) = alice.sync(Default::default()).await {
+                error!("alice sync error: {e}");
+            }
+        }
+    });
+
+    let room_id = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    let room = alice.get_room(&room_id).expect("Alice should see the room");
+    room.leave().await?;
+
+    let mut bob_accepted = false;
+    for i in 1..=5 {
+        if let Some(room) = bob.get_room(&room_id)
+            && matches!(room.state(), RoomState::Invited)
+        {
+            room.join().await?;
+            bob_accepted = true;
+            break;
+        }
+        sleep(Duration::from_millis(500 * i)).await;
+    }
+    anyhow::ensure!(bob_accepted, "bob couldn't find the invite after ~8 seconds");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_event_with_context() -> Result<()> {
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
