@@ -235,7 +235,7 @@ impl TryFrom<SignedData> for RawX509Signature {
                 cert.to_pem(LineEnding::CRLF).expect("Unable to format certificate chain as PEMs")
             })
             .collect::<Vec<_>>()
-            .join("\r\n");
+            .join("");
 
         if data.crls.is_some() {
             return Err(RawX509SignatureParseError::SignedDataContainsCrls);
