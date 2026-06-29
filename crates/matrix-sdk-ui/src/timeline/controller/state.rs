@@ -195,6 +195,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
             flow: Flow::Local { txn_id, send_handle },
             should_add_new_items,
         };
+
         let timeline_action = TimelineAction::from_content(content, in_reply_to, thread_root, None);
         TimelineEventHandler::new(&mut txn, ctx)
             .handle_event(&mut date_divider_adjuster, timeline_action, None)
