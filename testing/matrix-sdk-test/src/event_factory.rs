@@ -44,7 +44,7 @@ use ruma::{
             invite::CallInviteEventContent,
             member::{
                 ActiveFocus, ActiveLivekitFocus, Application, CallApplicationContent,
-                CallMemberEventContent, CallMemberStateKey, Focus, LivekitFocus,
+                CallMemberEventContent, CallMemberStateKey, CallScope, Focus, LivekitFocus,
             },
         },
         direct::{DirectEventContent, OwnedDirectUserIdentifier},
@@ -1475,37 +1475,36 @@ impl EventFactory {
         self.event(RtcDeclineEventContent::new(notification_event_id))
     }
 
-    // Creates a legacy rtc membership event (state event).
-    pub fn call_membership_legacy_state(
+    /// Creates a rtc membership state event.
+    ///
+    /// ```
+    /// use matrix_sdk_test::event_factory::EventFactory;
+    /// use ruma::{
+    ///     device_id, events::SyncStateEvent, room_id, serde::Raw, user_id,
+    /// };
+    ///
+    /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
+    ///
+    /// let event: Raw<SyncStateEvent<CallMemberEventContent>> = factory
+    ///     .call_membership_state(user_id!("@alice:localhost")"ABCDEF".to_owned())
+    ///     .lk_focus("alias".to_owned(), "https://livekit2.com".to_owned())
+    ///     .into_raw();
+    /// ```
+    pub fn call_membership_state(
         &self,
         user_id: OwnedUserId,
         device_id: String,
     ) -> EventBuilder<CallMemberEventContent> {
-        let focus = Focus::Livekit(LivekitFocus::new(
-            "room2".to_owned(),
-            "https://livekit2.com".to_owned(),
-        ));
-        self.event(CallMemberEventContent::new(
-            Application::Call(CallApplicationContent::new(
-                "".to_owned(),
-                ruma::events::call::member::CallScope::Room,
-            )),
+        let event = self.event(CallMemberEventContent::new(
+            Application::Call(CallApplicationContent::new("".to_owned(), CallScope::Room)),
             owned_device_id!(device_id.clone()),
             ActiveFocus::Livekit(ActiveLivekitFocus::new()),
-            vec![focus],
+            vec![],
             Some(MilliSecondsSinceUnixEpoch::now()),
             Some(Duration::from_secs(3600)),
-        ))
-        .state_key(CallMemberStateKey::new(user_id, device_id.into(), true).as_ref())
-    }
-
-    // Creates a legacy rtc membership event (state event).
-    pub fn call_membership_leave_legacy_state(
-        &self,
-        user_id: OwnedUserId,
-        device_id: String,
-    ) -> EventBuilder<CallMemberEventContent> {
-        self.event(CallMemberEventContent::new_empty(None))
+        ));
+        event
+            .sender(&user_id)
             .state_key(CallMemberStateKey::new(user_id, device_id.into(), true).as_ref())
     }
 
@@ -1814,6 +1813,36 @@ impl EventBuilder<RtcNotificationEventContent> {
     }
 }
 
+impl EventBuilder<CallMemberEventContent> {
+
+    /// Sets the livekit focus to the call membership event
+    pub fn lk_focus(mut self, alias: String, service_url: String) -> Self {
+        if let CallMemberEventContent::SessionContent(session_data) = &mut self.content {
+            session_data.foci_preferred =
+                vec![Focus::Livekit(LivekitFocus::new(alias, service_url))];
+        } else {
+            panic!("focus() called on a non-SessionContent call member event");
+        }
+        self
+    }
+
+    /// Sets the application for the call membership event.
+    pub fn application(mut self, call_id: String, scope: CallScope) -> Self {
+        if let CallMemberEventContent::SessionContent(session_data) = &mut self.content {
+            session_data.application =
+                Application::Call(CallApplicationContent::new(call_id, scope));
+        } else {
+            panic!("application() called on a non-SessionContent call member event");
+        }
+        self
+    }
+
+    /// Make the membership event as a membership event.
+    pub fn leave(mut self) -> Self {
+        self.content = CallMemberEventContent::new_empty(None);
+        self
+    }
+}
 pub struct ReadReceiptBuilder<'a> {
     factory: &'a EventFactory,
     content: ReceiptEventContent,
