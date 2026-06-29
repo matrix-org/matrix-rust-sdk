@@ -119,8 +119,8 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use crate::event_cache::{
-    automatic_pagination::AutomaticPagination, caches::event_linked_chunk::EventLinkedChunk,
+use super::{
+    super::automatic_pagination::AutomaticPagination, event_linked_chunk::EventLinkedChunk,
 };
 
 trait RoomReadReceiptsExt {
@@ -210,9 +210,7 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
             // Sliding sync sometimes sends the same event multiple times, so it can be at
             // the beginning and end of a batch, for instance. In that case, just reset
             // every time we see the event matching the receipt.
-            if let Some(event_id) = event.event_id()
-                && event_id == receipt_event_id
-            {
+            if event.event_id() == Some(receipt_event_id) {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
