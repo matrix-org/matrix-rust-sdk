@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_subscriber_deref() {
+    fn test_subscriber_t_derefs_to_t() {
         let (auto_shrink_sender, _auto_shrink_receiver) = mpsc::channel(1);
         let (subscriber_sender, subscriber_receiver) = broadcast::channel(1);
         let subscribers_handle = SubscribersHandle::default();
