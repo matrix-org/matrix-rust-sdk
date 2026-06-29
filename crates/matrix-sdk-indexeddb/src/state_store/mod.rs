@@ -2093,6 +2093,28 @@ impl_state_store!({
         store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()
     }
 
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>> {
+        let transaction = self
+            .inner
+            .transaction(keys::GLOBAL_PROFILES)
+            .with_mode(TransactionMode::Readonly)
+            .build()?;
+        let store = transaction.object_store(keys::GLOBAL_PROFILES)?;
+
+        let mut profiles = BTreeMap::new();
+        for user_id in user_ids {
+            let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+            if let Some(value) = store.get(&key).await? {
+                profiles.insert(user_id.as_ref(), self.deserialize_value(&value)?);
+            }
+        }
+
+        Ok(profiles)
+    }
+
     #[allow(clippy::unused_async)]
     async fn optimize(&self) -> Result<()> {
         Ok(())
