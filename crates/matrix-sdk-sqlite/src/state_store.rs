@@ -69,6 +69,7 @@ mod keys {
     pub const SEND_QUEUE: &str = "send_queue_events";
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
     pub const THREAD_SUBSCRIPTIONS: &str = "thread_subscriptions";
+    pub const GLOBAL_PROFILES: &str = "global_profiles";
 }
 
 /// The filename used for the SQLITE database file used by the state store.
@@ -1590,9 +1591,9 @@ impl StateStore for SqliteStateStore {
                     )?;
 
                     for (user_id, profile_update) in global_profiles {
-                        let user_id_str = user_id.as_str();
+                        let user_id = this.encode_key(keys::GLOBAL_PROFILES, &user_id);
                         let existing_data: Option<Vec<u8>> =
-                            select_stmt.query_row([user_id_str], |row| row.get(0)).optional()?;
+                            select_stmt.query_row([&user_id], |row| row.get(0)).optional()?;
 
                         let merged = if let Some(data) = existing_data {
                             let existing_profile: UserProfile = this.deserialize_json(&data)?;
@@ -1608,7 +1609,7 @@ impl StateStore for SqliteStateStore {
                         };
 
                         let serialized = this.serialize_json(&merged)?;
-                        insert_stmt.execute((user_id_str, serialized))?;
+                        insert_stmt.execute((&user_id, serialized))?;
                     }
                 }
 
@@ -2441,14 +2442,14 @@ impl StateStore for SqliteStateStore {
         user_id: &UserId,
     ) -> Result<Option<UserProfile>, Self::Error> {
         let this = self.clone();
-        let user_id_str = user_id.as_str().to_owned();
+        let user_id = self.encode_key(keys::GLOBAL_PROFILES, user_id);
 
         let data: Option<Vec<u8>> = self
             .read()
             .await?
             .query_row(
                 "SELECT profile_data FROM global_profiles WHERE user_id = ?",
-                (user_id_str,),
+                (user_id,),
                 |row| row.get(0),
             )
             .await
