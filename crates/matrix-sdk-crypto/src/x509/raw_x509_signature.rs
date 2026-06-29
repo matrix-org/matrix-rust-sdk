@@ -417,3 +417,35 @@ fn assert_digest_alg_params_null_or_absent(
     }
 }
 
+#[cfg(test)]
+mod test {
+    use insta::assert_debug_snapshot;
+
+    use super::*;
+
+    /// Test parsing a known CMS structure into a [`RawX509Signature`], and
+    /// compare it against a snapshot.
+    #[test]
+    fn test_sig_to_raw() {
+        const SIG: &str = include_str!("test_cms.pem");
+        let x509signature = X509Signature::from_str(SIG).unwrap();
+        let raw_signature: RawX509Signature = (&x509signature).try_into().unwrap();
+        assert_debug_snapshot!(raw_signature);
+    }
+
+    /// We should be able to roundtrip a CMS structure into a
+    /// [`RawX509Signature`] and back again.
+    #[test]
+    fn test_roundtrip_sig_to_raw_and_back() {
+        const SIG: &str = include_str!("test_cms.pem");
+        let x509signature = X509Signature::from_str(SIG).unwrap();
+        let raw_signature: RawX509Signature = (&x509signature).try_into().unwrap();
+        let (device_id, roundtripped) = raw_signature.into_x509_signature().unwrap();
+        assert_eq!(roundtripped.to_string(), x509signature.to_string());
+
+        // The SKI of the CA cert is
+        // D8:5E:91:9A:17:F0:C3:5B:13:DB:75:42:7D:21:37:9A:DF:3E:96:11, which when
+        // base64-encoded is...
+        assert_eq!(device_id, "2F6Rmhfww1sT23VCfSE3mt8+lhE");
+    }
+}
