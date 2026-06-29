@@ -50,6 +50,8 @@ openssl cms -sign -md sha512 -in <(echo -n "hello world") -signer src/cert.pem -
   -certfile src/cacert.pem -outform PEM -noattr -keyopt rsa_padding_mode:pss  > src/cms.pem
 
 openssl cms -verify -CAfile src/cacert.pem -inform PEM -in src/cms.pem -content <(echo -n "hello world")
+
+openssl cms -cmsout -print -inform PEM < src/cms.pem
 */
 const CMS_PEM: &[u8] = include_bytes!("cms.pem");
 
