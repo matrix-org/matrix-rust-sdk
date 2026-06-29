@@ -125,6 +125,7 @@ wasm-bindgen-test = { version = "0.3.55", default-features = false, features = [
 web-sys = { version = "0.3.82", default-features = false }
 wiremock = { version = "0.6.5", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
+zxcvbn = { version = "3.1.1", default-features = false }
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.18.0", default-features = false }
 matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.18.0" }
