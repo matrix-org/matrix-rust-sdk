@@ -1480,13 +1480,14 @@ impl EventFactory {
     /// ```
     /// use matrix_sdk_test::event_factory::EventFactory;
     /// use ruma::{
-    ///     device_id, events::SyncStateEvent, room_id, serde::Raw, user_id,
+    ///     events::{SyncStateEvent, call::member::CallMemberEventContent},
+    ///     owned_user_id, room_id, serde::Raw,
     /// };
     ///
     /// let factory = EventFactory::new().room(room_id!("!test:localhost"));
     ///
     /// let event: Raw<SyncStateEvent<CallMemberEventContent>> = factory
-    ///     .call_membership_state(user_id!("@alice:localhost")"ABCDEF".to_owned())
+    ///     .call_membership_state(owned_user_id!("@alice:localhost"), "ABCDEF".to_owned())
     ///     .lk_focus("alias".to_owned(), "https://livekit2.com".to_owned())
     ///     .into_raw();
     /// ```
