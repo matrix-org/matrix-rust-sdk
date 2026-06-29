@@ -12,93 +12,130 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-use std::pin::Pin;
+use std::{fmt::Debug, sync::Arc};
 
-use futures_util::{Stream, StreamExt as _};
-use matrix_sdk::{
-    deserialized_responses::TimelineEvent, message_search::SearchError as SdkSearchError,
+use eyeball_im::VectorDiff;
+use futures_util::{StreamExt as _, pin_mut};
+use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
+use matrix_sdk_ui::search::{
+    SearchService as UISearchService, SearchServiceMessageResult as UISearchServiceMessageResult,
+    SearchServicePaginationState, SearchServiceResult as UISearchServiceResult,
 };
-use matrix_sdk_ui::timeline::TimelineDetails;
-use ruma::OwnedRoomId;
-use tokio::sync::Mutex;
 
 use crate::{
+    TaskHandle,
     client::Client,
     error::ClientError,
-    room::Room,
+    runtime::get_runtime_handle,
     timeline::{ProfileDetails, TimelineItemContent},
     utils::Timestamp,
 };
 
-#[derive(uniffi::Error, thiserror::Error, Debug)]
-pub enum SearchError {
-    #[error("Failed to search through the index: {0}")]
-    IndexError(String),
-    #[error("Failed to load event content for search result: {0}")]
-    EventLoadError(String),
-}
-
-impl From<SdkSearchError> for SearchError {
-    fn from(err: SdkSearchError) -> Self {
-        match err {
-            SdkSearchError::IndexError(err) => SearchError::IndexError(err.to_string()),
-            SdkSearchError::EventLoadError(err) => SearchError::EventLoadError(err.to_string()),
-        }
-    }
-}
-
-/// A boxed stream of pages of the [`TimelineEvent`]s matching a single-room
-/// search.
-type RoomEventStream =
-    Pin<Box<dyn Stream<Item = Result<Vec<TimelineEvent>, SdkSearchError>> + Send>>;
-
-/// A boxed stream of pages of the `(room_id, event)`s matching a global search.
-type GlobalEventStream =
-    Pin<Box<dyn Stream<Item = Result<Vec<(OwnedRoomId, TimelineEvent)>, SdkSearchError>> + Send>>;
-
 #[matrix_sdk_ffi_macros::export]
-impl Room {
-    /// Search for messages in this room matching the given query, returning an
-    /// iterator that yields one page of results at a time.
-    pub fn search_messages(&self, query: String) -> RoomSearchIterator {
-        RoomSearchIterator {
-            sdk_room: (*self.inner).clone(),
-            stream: Mutex::new(Box::pin(self.inner.search_messages_events(query))),
-        }
+impl Client {
+    /// Create a global search service.
+    ///
+    /// A global search aggregates results of different kinds (currently only
+    /// messages) into a single reactive, paginated list of typed
+    /// [`SearchResult`]s. Call [`SearchService::set_query`] to start or update
+    /// the search, then [`SearchService::paginate`] to load more results.
+    pub fn search_service(&self) -> Arc<SearchService> {
+        Arc::new(SearchService { inner: UISearchService::new((*self.inner).clone()) })
     }
 }
 
+/// A reactive, paginated search across all the user's data.
 #[derive(uniffi::Object)]
-pub struct RoomSearchIterator {
-    sdk_room: matrix_sdk::room::Room,
-    stream: Mutex<RoomEventStream>,
+pub struct SearchService {
+    inner: UISearchService,
 }
 
 #[matrix_sdk_ffi_macros::export]
-impl RoomSearchIterator {
-    /// Return the next page of search results, or `None` if there are no more
-    /// results.
-    pub async fn next_events(&self) -> Result<Option<Vec<RoomSearchResult>>, SearchError> {
-        let Some(events) = self.stream.lock().await.next().await else {
-            return Ok(None);
-        };
+impl SearchService {
+    /// Set (or update) the search query.
+    /// Clears the current results, restarts pagination from scratch and loads
+    /// the first page. Call [`Self::paginate`] to load any further pages.
+    pub async fn set_query(&self, query: String) -> Result<(), ClientError> {
+        self.inner.set_query(query).await.map_err(|err| ClientError::from(anyhow::Error::from(err)))
+    }
 
-        let events = events?;
-        let mut results = Vec::with_capacity(events.len());
-        for event in events {
-            if let Some(result) = RoomSearchResult::from(&self.sdk_room, event).await {
-                results.push(result);
+    /// Load the next page of results if a page isn't already loading and the
+    /// end hasn't been reached. Otherwise it no-ops.
+    pub async fn paginate(&self) -> Result<(), ClientError> {
+        self.inner.paginate().await.map_err(|err| ClientError::from(anyhow::Error::from(err)))
+    }
+
+    /// Returns the current pagination state.
+    pub fn pagination_state(&self) -> SearchServicePaginationState {
+        self.inner.pagination_state()
+    }
+
+    /// Subscribe to pagination state updates.
+    pub fn subscribe_to_pagination_state_updates(
+        &self,
+        listener: Box<dyn SearchServicePaginationStateListener>,
+    ) -> Arc<TaskHandle> {
+        let pagination_state = self.inner.subscribe_to_pagination_state_updates();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(pagination_state);
+
+            while let Some(state) = pagination_state.next().await {
+                listener.on_update(state);
+            }
+        })))
+    }
+
+    /// Subscribe to the search results.
+    pub async fn subscribe_to_results(
+        &self,
+        listener: Box<dyn SearchServiceResultsListener>,
+    ) -> Arc<TaskHandle> {
+        let (initial_values, mut stream) = self.inner.subscribe_to_results().await;
+
+        listener.on_update(vec![SearchServiceResultsUpdate::Reset {
+            values: initial_values.into_iter().map(Into::into).collect(),
+        }]);
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(diffs) = stream.next().await {
+                listener.on_update(diffs.into_iter().map(Into::into).collect());
+            }
+        })))
+    }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SearchServicePaginationStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+    fn on_update(&self, pagination_state: SearchServicePaginationState);
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait SearchServiceResultsListener: SendOutsideWasm + SyncOutsideWasm + Debug {
+    fn on_update(&self, updates: Vec<SearchServiceResultsUpdate>);
+}
+
+/// A single search result, tagged by the kind of entity it represents.
+#[derive(uniffi::Enum)]
+pub enum SearchServiceResult {
+    /// A message (room timeline event) matching the query.
+    Message { room_id: String, result: MessageSearchResult },
+}
+
+impl From<UISearchServiceResult> for SearchServiceResult {
+    fn from(result: UISearchServiceResult) -> Self {
+        match result {
+            UISearchServiceResult::Message(message) => {
+                let room_id = message.room_id.to_string();
+                Self::Message { room_id, result: message.into() }
             }
         }
-
-        results.shrink_to_fit();
-
-        Ok(Some(results))
     }
 }
 
+/// A message matching a search query, with its content and sender resolved.
 #[derive(Clone, uniffi::Record)]
-pub struct RoomSearchResult {
+pub struct MessageSearchResult {
     event_id: String,
     sender: String,
     sender_profile: ProfileDetails,
@@ -106,98 +143,55 @@ pub struct RoomSearchResult {
     timestamp: Timestamp,
 }
 
-impl RoomSearchResult {
-    async fn from(room: &matrix_sdk::room::Room, event: TimelineEvent) -> Option<Self> {
-        let sender = event.sender()?;
-
-        let event_id = event.event_id().unwrap().to_string();
-        let timestamp =
-            event.timestamp().unwrap_or_else(ruma::MilliSecondsSinceUnixEpoch::now).into();
-
-        let content = matrix_sdk_ui::timeline::TimelineItemContent::from_event(room, event).await?;
-        let profile = TimelineDetails::from_initial_value(
-            matrix_sdk_ui::timeline::Profile::load(room, &sender).await,
-        );
-
-        Some(Self {
-            event_id,
-            sender: sender.to_string(),
-            sender_profile: ProfileDetails::from(profile),
-            content: TimelineItemContent::from(content),
-            timestamp,
-        })
-    }
-}
-
-#[derive(Clone, uniffi::Enum)]
-pub enum SearchRoomFilter {
-    /// All the joined rooms (= DMs + non-DMs).
-    Rooms,
-    /// Only joined DM rooms.
-    Dms,
-    /// Only joined non-DM (group) rooms.
-    NonDms,
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl Client {
-    /// Search across all all rooms for the given query, returning an iterator
-    /// over the results.
-    pub async fn search_messages(
-        &self,
-        query: String,
-        filter: SearchRoomFilter,
-    ) -> Result<GlobalSearchIterator, ClientError> {
-        let sdk_client = (*self.inner).clone();
-        let mut builder = sdk_client.search_messages(query);
-
-        match filter {
-            SearchRoomFilter::Rooms => {}
-            SearchRoomFilter::Dms => builder = builder.only_dm_rooms().await?,
-            SearchRoomFilter::NonDms => builder = builder.no_dms().await?,
+impl From<UISearchServiceMessageResult> for MessageSearchResult {
+    fn from(result: UISearchServiceMessageResult) -> Self {
+        Self {
+            event_id: result.event_id.to_string(),
+            sender: result.sender.to_string(),
+            sender_profile: ProfileDetails::from(result.sender_profile),
+            content: TimelineItemContent::from(result.content),
+            timestamp: result.timestamp.into(),
         }
-
-        Ok(GlobalSearchIterator {
-            sdk_client,
-            stream: Mutex::new(Box::pin(builder.build_events())),
-        })
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct GlobalSearchResult {
-    room_id: String,
-    result: RoomSearchResult,
+#[derive(uniffi::Enum)]
+pub enum SearchServiceResultsUpdate {
+    Append { values: Vec<SearchServiceResult> },
+    Clear,
+    PushFront { value: SearchServiceResult },
+    PushBack { value: SearchServiceResult },
+    PopFront,
+    PopBack,
+    Insert { index: u32, value: SearchServiceResult },
+    Set { index: u32, value: SearchServiceResult },
+    Remove { index: u32 },
+    Truncate { length: u32 },
+    Reset { values: Vec<SearchServiceResult> },
 }
 
-#[derive(uniffi::Object)]
-pub struct GlobalSearchIterator {
-    sdk_client: matrix_sdk::Client,
-    stream: Mutex<GlobalEventStream>,
-}
-
-#[matrix_sdk_ffi_macros::export]
-impl GlobalSearchIterator {
-    /// Return the next page of search results, or `None` if there are no more
-    /// results.
-    pub async fn next_events(&self) -> Result<Option<Vec<GlobalSearchResult>>, SearchError> {
-        let Some(batch) = self.stream.lock().await.next().await else {
-            return Ok(None);
-        };
-
-        let batch = batch?;
-        let mut results = Vec::with_capacity(batch.len());
-        for (room_id, event) in batch {
-            let Some(room) = self.sdk_client.get_room(&room_id) else {
-                continue;
-            };
-            if let Some(result) = RoomSearchResult::from(&room, event).await {
-                results.push(GlobalSearchResult { room_id: room_id.to_string(), result });
+impl From<VectorDiff<UISearchServiceResult>> for SearchServiceResultsUpdate {
+    fn from(diff: VectorDiff<UISearchServiceResult>) -> Self {
+        match diff {
+            VectorDiff::Append { values } => {
+                Self::Append { values: values.into_iter().map(Into::into).collect() }
+            }
+            VectorDiff::Clear => Self::Clear,
+            VectorDiff::PushFront { value } => Self::PushFront { value: value.into() },
+            VectorDiff::PushBack { value } => Self::PushBack { value: value.into() },
+            VectorDiff::PopFront => Self::PopFront,
+            VectorDiff::PopBack => Self::PopBack,
+            VectorDiff::Insert { index, value } => {
+                Self::Insert { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Set { index, value } => {
+                Self::Set { index: index as u32, value: value.into() }
+            }
+            VectorDiff::Remove { index } => Self::Remove { index: index as u32 },
+            VectorDiff::Truncate { length } => Self::Truncate { length: length as u32 },
+            VectorDiff::Reset { values } => {
+                Self::Reset { values: values.into_iter().map(Into::into).collect() }
             }
         }
-
-        results.shrink_to_fit();
-
-        Ok(Some(results))
     }
 }
