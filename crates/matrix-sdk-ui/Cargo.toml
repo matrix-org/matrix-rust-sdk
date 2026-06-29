@@ -21,6 +21,10 @@ unstable-msc3956 = ["ruma/unstable-msc3956"]
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
 
+# Enable the global, reactive search service built on top of the SDK's
+# message search.
+experimental-search = ["matrix-sdk/experimental-search"]
+
 # Enable experimental support for encrypting state events; see
 # https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
 experimental-encrypted-state-events = [
