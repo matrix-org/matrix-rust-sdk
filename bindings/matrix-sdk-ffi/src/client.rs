@@ -59,6 +59,8 @@ use matrix_sdk::{
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::x509::RawX509Signature;
 use matrix_sdk_common::{
     SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
@@ -336,7 +338,7 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     fn verify(&self, message: Vec<u8>, sig: RawX509Signature) -> bool;
 }
 
-#[cfg(feature = "experimental-x509-identity-verification")]
+/*#[cfg(feature = "experimental-x509-identity-verification")]
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
 pub struct X509Signature {
     /// The PEM-encoded certificate chain, starting with the device's own
@@ -374,7 +376,7 @@ impl From<matrix_sdk_base::crypto::types::X509Signature> for X509Signature {
             signature: value.signature,
         }
     }
-}
+}*/
 
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {

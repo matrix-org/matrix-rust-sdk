@@ -39,17 +39,12 @@ use matrix_sdk::{
     },
 };
 #[cfg(feature = "experimental-x509-identity-verification")]
-use matrix_sdk_base::crypto::{
-    types::X509Signature,
-    x509::{X509Signer, X509Verifier},
-};
+use matrix_sdk_base::crypto::x509::{RawX509Signature, X509Signer, X509Verifier};
 use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
 };
 use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
-#[cfg(feature = "experimental-x509-identity-verification")]
-use ruma::OwnedDeviceId;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
