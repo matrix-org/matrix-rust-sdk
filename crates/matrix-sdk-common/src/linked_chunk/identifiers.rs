@@ -149,3 +149,86 @@ impl From<LinkedChunkId<'_>> for OwnedLinkedChunkId {
         value.to_owned()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use ruma::{event_id, room_id};
+
+    use super::LinkedChunkId;
+
+    #[test]
+    fn test_display() {
+        assert_eq!(LinkedChunkId::Room(room_id!("!r")).to_string(), "!r");
+        assert_eq!(
+            LinkedChunkId::Thread(room_id!("!r"), event_id!("$e")).to_string(),
+            "!r:thread:$e"
+        );
+        assert_eq!(LinkedChunkId::PinnedEvents(room_id!("!r")).to_string(), "!r:pinned");
+        assert_eq!(
+            LinkedChunkId::EventFocused(room_id!("!r"), event_id!("$e")).to_string(),
+            "!r:event_focused:$e"
+        );
+    }
+
+    #[test]
+    fn test_storage_key() {
+        assert_eq!(LinkedChunkId::Room(room_id!("!r")).storage_key().as_ref(), "!r".as_bytes());
+        assert_eq!(
+            LinkedChunkId::Thread(room_id!("!r"), event_id!("$e")).storage_key().as_ref(),
+            "t:!r:$e".as_bytes()
+        );
+        assert_eq!(
+            LinkedChunkId::PinnedEvents(room_id!("!r")).storage_key().as_ref(),
+            "pinned:!r".as_bytes()
+        );
+        assert_eq!(
+            LinkedChunkId::EventFocused(room_id!("!r"), event_id!("$e")).storage_key().as_ref(),
+            "event_focused:!r:$e".as_bytes()
+        );
+    }
+
+    #[test]
+    fn test_partial_eq() {
+        // Room.
+        assert!(LinkedChunkId::Room(room_id!("!r0")) == LinkedChunkId::Room(room_id!("!r0")));
+        assert!(LinkedChunkId::Room(room_id!("!r0")) != LinkedChunkId::Room(room_id!("!r1")));
+
+        // Thread.
+        assert!(
+            LinkedChunkId::Thread(room_id!("!r0"), event_id!("$e0"))
+                == LinkedChunkId::Thread(room_id!("!r0"), event_id!("$e0"))
+        );
+        assert!(
+            LinkedChunkId::Thread(room_id!("!r0"), event_id!("$e0"))
+                != LinkedChunkId::Thread(room_id!("!r1"), event_id!("$e0"))
+        );
+        assert!(
+            LinkedChunkId::Thread(room_id!("!r0"), event_id!("$e0"))
+                != LinkedChunkId::Thread(room_id!("!r0"), event_id!("$e1"))
+        );
+
+        // PinnedEvents.
+        assert!(
+            LinkedChunkId::PinnedEvents(room_id!("!r0"))
+                == LinkedChunkId::PinnedEvents(room_id!("!r0"))
+        );
+        assert!(
+            LinkedChunkId::PinnedEvents(room_id!("!r0"))
+                != LinkedChunkId::PinnedEvents(room_id!("!r1"))
+        );
+
+        // EventFocused.
+        assert!(
+            LinkedChunkId::EventFocused(room_id!("!r0"), event_id!("$e0"))
+                == LinkedChunkId::EventFocused(room_id!("!r0"), event_id!("$e0"))
+        );
+        assert!(
+            LinkedChunkId::EventFocused(room_id!("!r0"), event_id!("$e0"))
+                != LinkedChunkId::EventFocused(room_id!("!r1"), event_id!("$e0"))
+        );
+        assert!(
+            LinkedChunkId::EventFocused(room_id!("!r0"), event_id!("$e0"))
+                != LinkedChunkId::EventFocused(room_id!("!r0"), event_id!("$e1"))
+        );
+    }
+}
