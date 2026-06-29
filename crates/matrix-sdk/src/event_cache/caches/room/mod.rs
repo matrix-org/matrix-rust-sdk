@@ -14,14 +14,9 @@
 
 pub mod pagination;
 mod state;
-mod subscriber;
 mod updates;
 
-use std::{
-    collections::BTreeMap,
-    fmt,
-    sync::{Arc, atomic::Ordering},
-};
+use std::{collections::BTreeMap, fmt, sync::Arc};
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
@@ -40,7 +35,6 @@ use tracing::{instrument, trace, warn};
 use self::pagination::RoomPagination;
 pub use self::{
     state::RoomEventCacheState,
-    subscriber::RoomEventCacheSubscriber,
     updates::{
         RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
         RoomEventCacheUpdateSender,
@@ -48,12 +42,13 @@ pub use self::{
 };
 use super::{
     super::{
-        AutoShrinkChannelPayload, EventsOrigin, Result,
+        EventsOrigin, Result,
         states::{CacheStateLock, StateLockWriteGuard, selectors::RoomStateSelector},
     },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
     pagination::SharedPaginationStatus,
+    subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
 
@@ -79,7 +74,7 @@ impl RoomEventCache {
         own_user_id: OwnedUserId,
         state: CacheStateLock<RoomStateSelector>,
         shared_pagination_status: SharedObservable<SharedPaginationStatus>,
-        auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+        auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         update_sender: RoomEventCacheUpdateSender,
     ) -> Self {
         Self {
@@ -125,23 +120,23 @@ impl RoomEventCache {
     /// events.
     ///
     /// Use [`RoomEventCache::events`] to get all current events without the
-    /// subscriber. Creating, and especially dropping, a
-    /// [`RoomEventCacheSubscriber`] isn't free, as it triggers side-effects.
-    pub async fn subscribe(&self) -> Result<(Vec<Event>, RoomEventCacheSubscriber)> {
+    /// subscriber. Creating, and especially dropping, a [`Subscriber`] isn't
+    /// free, as it triggers side-effects.
+    pub async fn subscribe(&self) -> Result<(Vec<Event>, Subscriber<RoomEventCacheUpdate>)> {
         let state = self.inner.state.read().await?;
         let events =
             state.room_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
-        let subscriber_count = state.subscriber_count();
-        let previous_subscriber_count = subscriber_count.fetch_add(1, Ordering::SeqCst);
-        trace!("added a room event cache subscriber; new count: {}", previous_subscriber_count + 1);
+        let subscribers_handle = state.subscribers_handle();
 
-        let subscriber = RoomEventCacheSubscriber::new(
+        let subscriber = Subscriber::new(
             self.inner.update_sender.new_room_receiver(),
-            self.inner.room_id.clone(),
+            AutoShrinkMessage::Room { room_id: self.inner.room_id.clone() },
             self.inner.auto_shrink_sender.clone(),
-            subscriber_count.clone(),
+            subscribers_handle,
         );
+
+        trace!("added a room event cache subscriber; new count: {}", subscribers_handle.count());
 
         Ok((events, subscriber))
     }
@@ -334,7 +329,7 @@ pub(super) struct RoomEventCacheInner {
     ///
     /// See doc comment around [`EventCache::auto_shrink_linked_chunk_task`] for
     /// more details.
-    auto_shrink_sender: mpsc::Sender<AutoShrinkChannelPayload>,
+    auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
 
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,
@@ -1861,6 +1856,12 @@ mod timed_tests {
         assert_eq!(events2[1].event_id(), Some(evid2));
         assert!(stream2.is_empty());
 
+        // Grab a receiver for testing no diffs is sent.
+        let subscriber = {
+            let state = room_event_cache.inner.state.read().await.unwrap();
+            state.update_sender.new_room_receiver()
+        };
+
         // Drop the first stream, and wait a bit.
         drop(stream1);
         yield_now().await;
@@ -1877,7 +1878,11 @@ mod timed_tests {
         {
             // Check the inner state: there's no more shared auto-shrinker.
             let state = room_event_cache.inner.state.read().await.unwrap();
-            assert_eq!(state.subscriber_count().load(std::sync::atomic::Ordering::SeqCst), 0);
+            assert_eq!(state.subscribers_handle().count(), 0);
+
+            // No diff is sent when the linked chunk has auto-shrunk.
+            assert!(subscriber.is_empty());
+            assert!(generic_stream.is_empty());
         }
 
         // Getting the events will only give us the latest chunk.

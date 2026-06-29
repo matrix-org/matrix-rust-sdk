@@ -22,7 +22,7 @@ use ruma::events::{
 };
 
 use crate::{
-    client::JoinRule, event::TimelineEventType, ruma::AssetType,
+    client::JoinRule, event::FfiTimelineEventType, ruma::AssetType,
     timeline::msg_like::MsgLikeContent, utils::Timestamp,
 };
 
@@ -317,8 +317,8 @@ pub enum OtherState {
         change: RoomPinnedEventsChange,
     },
     RoomPowerLevels {
-        events: HashMap<TimelineEventType, i64>,
-        previous_events: Option<HashMap<TimelineEventType, i64>>,
+        events: HashMap<FfiTimelineEventType, i64>,
+        previous_events: Option<HashMap<FfiTimelineEventType, i64>>,
         users: HashMap<String, i64>,
         previous_users: Option<HashMap<String, i64>>,
         thresholds: PowerLevelChanges,

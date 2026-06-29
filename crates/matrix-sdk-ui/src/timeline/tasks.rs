@@ -20,7 +20,7 @@ use eyeball::Subscriber;
 use matrix_sdk::{
     event_cache::{
         EventFocusThreadMode, EventFocusedCache, EventsOrigin, PinnedEventsCache, RoomEventCache,
-        RoomEventCacheSubscriber, RoomEventCacheUpdate, ThreadEventCache, TimelineVectorDiffs,
+        RoomEventCacheUpdate, Subscriber, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -143,7 +143,7 @@ pub(in crate::timeline) async fn event_focused_task(
 /// For a thread-focused timeline, a long-lived task that will listen to the
 /// underlying thread updates.
 pub(in crate::timeline) async fn thread_updates_task(
-    mut receiver: Receiver<TimelineVectorDiffs>,
+    mut thread_event_cache_subscriber: Subscriber<TimelineVectorDiffs>,
     event_cache: ThreadEventCache,
     timeline_controller: TimelineController,
 ) {
@@ -152,7 +152,7 @@ pub(in crate::timeline) async fn thread_updates_task(
     loop {
         trace!("Waiting for an event.");
 
-        let update = match receiver.recv().await {
+        let update = match thread_event_cache_subscriber.recv().await {
             Ok(up) => up,
             Err(RecvError::Closed) => break,
             Err(RecvError::Lagged(num_skipped)) => {
@@ -192,7 +192,7 @@ pub(in crate::timeline) async fn thread_updates_task(
 pub(in crate::timeline) async fn room_event_cache_updates_task(
     room_event_cache: RoomEventCache,
     timeline_controller: TimelineController,
-    mut room_event_cache_subscriber: RoomEventCacheSubscriber,
+    mut room_event_cache_subscriber: Subscriber<RoomEventCacheUpdate>,
     timeline_focus: TimelineFocus,
 ) {
     trace!("Spawned the event subscriber task.");

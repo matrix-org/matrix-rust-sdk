@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
-
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -60,6 +55,7 @@ use super::{
         event_linked_chunk::EventLinkedChunk,
         pagination::SharedPaginationStatus,
         read_receipts::compute_unread_counts,
+        subscriber::SubscribersHandle,
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
 };
@@ -103,9 +99,8 @@ pub struct RoomEventCacheState {
     /// that upon clearing the timeline events.
     waited_for_initial_prev_token: bool,
 
-    /// An atomic count of the current number of subscriber of the
-    /// [`super::RoomEventCache`].
-    subscriber_count: Arc<AtomicUsize>,
+    /// A handle for subscribers.
+    subscribers_handle: SubscribersHandle,
 
     /// A copy of the automatic pagination API object.
     automatic_pagination: Option<AutomaticPagination>,
@@ -192,7 +187,7 @@ impl RoomEventCacheState {
             linked_chunk_update_sender,
             room_version_rules,
             waited_for_initial_prev_token: false,
-            subscriber_count: Default::default(),
+            subscribers_handle: Default::default(),
             automatic_pagination,
         })
     }
@@ -204,9 +199,9 @@ impl RoomEventCacheState {
 }
 
 impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
-    /// Return the subscriber count.
-    pub fn subscriber_count(&self) -> &Arc<AtomicUsize> {
-        &self.state.subscriber_count
+    /// Return a reference to subscribers handle.
+    pub fn subscribers_handle(&self) -> &SubscribersHandle {
+        &self.state.subscribers_handle
     }
 
     /// See documentation of [`find_event`].
@@ -396,13 +391,18 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     pub async fn auto_shrink_if_no_subscribers(
         &mut self,
     ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
-        let subscriber_count = self.state.subscriber_count.load(Ordering::SeqCst);
+        let number_of_subscribers = self.state.subscribers_handle.count();
 
-        trace!(subscriber_count, "received request to auto-shrink");
+        trace!(number_of_subscribers, "received request to auto-shrink");
 
-        if subscriber_count == 0 {
-            // If we are the last strong reference to the auto-shrinker, we can shrink the
-            // events data structure to its last chunk.
+        if number_of_subscribers == 0 {
+            // There is no more subscribers listening to this cache, we can shrink the state
+            // to its last chunk to save memory.
+            //
+            // In theory, between the condition (`… == 0`) and this instruction, a new
+            // subscriber could be created, creating a race, except that this method takes a
+            // `&mut`, ensuring an exclusive access to the state, ensuring no other
+            // subscribers can be created.
             self.shrink_to_last_chunk().await?;
 
             Ok(Some(self.state.room_linked_chunk.updates_as_vector_diffs()))
