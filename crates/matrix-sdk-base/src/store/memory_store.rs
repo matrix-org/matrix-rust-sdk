@@ -539,6 +539,22 @@ impl StateStore for MemoryStore {
             }
         }
 
+        for (user_id, profile_update) in &changes.global_profiles {
+            let merged = if let Some(existing_profile) = inner.global_profiles.get(user_id) {
+                super::traits::merge_profile(existing_profile.clone(), profile_update.clone())
+            } else {
+                // TODO: Confirm if this is actually necessary. Related:
+                // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
+                let map: BTreeMap<String, serde_json::Value> = profile_update
+                    .clone()
+                    .into_iter()
+                    .filter(|(_, value)| !value.is_null())
+                    .collect();
+                UserProfile::from_iter(map)
+            };
+            inner.global_profiles.insert(user_id.clone(), merged);
+        }
+
         debug!("Saved changes in {:?}", now.elapsed());
 
         Ok(())
@@ -1076,26 +1092,6 @@ impl StateStore for MemoryStore {
             inner.thread_subscriptions.remove(room);
         }
 
-        Ok(())
-    }
-
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error> {
-        let mut inner = self.inner.write().unwrap();
-        for (user_id, profile_update) in profiles {
-            let merged = if let Some(existing_profile) = inner.global_profiles.get(&user_id) {
-                super::traits::merge_profile(existing_profile.clone(), profile_update)
-            } else {
-                // TODO: Confirm if this is actually necessary. Related:
-                // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
-                let map: BTreeMap<String, serde_json::Value> =
-                    profile_update.into_iter().filter(|(_, value)| !value.is_null()).collect();
-                UserProfile::from_iter(map)
-            };
-            inner.global_profiles.insert(user_id, merged);
-        }
         Ok(())
     }
 

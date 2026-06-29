@@ -61,6 +61,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
         },
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use serde::de::DeserializeOwned;
@@ -583,6 +584,13 @@ pub struct StateChanges {
     /// A map from room id to a map of a display name and a set of user ids that
     /// share that display name in the given room.
     pub ambiguity_maps: BTreeMap<OwnedRoomId, HashMap<DisplayName, BTreeSet<OwnedUserId>>>,
+
+    /// A mapping of `UserId` to global `UserProfile` updates, as defined in
+    /// MSC4262.
+    ///
+    /// These follow the MSC4262 update pattern: fields with an explicit `null`
+    /// value are removed, while fields that aren't present are left unchanged.
+    pub global_profiles: BTreeMap<OwnedUserId, UserProfile>,
 }
 
 impl StateChanges {

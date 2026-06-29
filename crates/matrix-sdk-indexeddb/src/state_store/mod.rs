@@ -776,6 +776,7 @@ impl_state_store!({
             ),
             (!changes.room_account_data.is_empty(), keys::ROOM_ACCOUNT_DATA),
             (!changes.receipts.is_empty(), keys::ROOM_EVENT_RECEIPTS),
+            (!changes.global_profiles.is_empty(), keys::GLOBAL_PROFILES),
         ]
         .iter()
         .filter_map(|(id, key)| if *id { Some(*key) } else { None })
@@ -1098,6 +1099,30 @@ impl_state_store!({
                         state.put(&self.serialize_value(&redacted)?).with_key(key).build()?;
                     }
                 }
+            }
+        }
+
+        if !changes.global_profiles.is_empty() {
+            let store = tx.object_store(keys::GLOBAL_PROFILES)?;
+            for (user_id, profile_update) in &changes.global_profiles {
+                let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
+                let existing: Option<UserProfile> =
+                    store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()?;
+
+                let merged = if let Some(existing_profile) = existing {
+                    matrix_sdk_base::store::merge_profile(existing_profile, profile_update.clone())
+                } else {
+                    // TODO: Confirm if this is actually necessary. Related:
+                    // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
+                    let map: BTreeMap<String, serde_json::Value> = profile_update
+                        .clone()
+                        .into_iter()
+                        .filter(|(_, value)| !value.is_null())
+                        .collect();
+                    UserProfile::from_iter(map)
+                };
+
+                store.put(&self.serialize_value(&merged)?).with_key(key).build()?;
             }
         }
 
@@ -2053,39 +2078,6 @@ impl_state_store!({
         transaction.object_store(keys::THREAD_SUBSCRIPTIONS)?.delete(&encoded_key).await?;
         transaction.commit().await?;
 
-        Ok(())
-    }
-
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<()> {
-        let transaction = self
-            .inner
-            .transaction(keys::GLOBAL_PROFILES)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        let store = transaction.object_store(keys::GLOBAL_PROFILES)?;
-
-        for (user_id, profile_update) in profiles {
-            let key = self.encode_key(keys::GLOBAL_PROFILES, &user_id);
-            let existing: Option<UserProfile> =
-                store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()?;
-
-            let merged = if let Some(existing_profile) = existing {
-                matrix_sdk_base::store::merge_profile(existing_profile, profile_update)
-            } else {
-                // TODO: Confirm if this is actually necessary. Related:
-                // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
-                let map: BTreeMap<String, serde_json::Value> =
-                    profile_update.into_iter().filter(|(_, value)| !value.is_null()).collect();
-                UserProfile::from_iter(map)
-            };
-
-            store.put(&self.serialize_value(&merged)?).with_key(key).build()?;
-        }
-
-        transaction.commit().await?;
         Ok(())
     }
 

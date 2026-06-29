@@ -1296,6 +1296,7 @@ impl StateStore for SqliteStateStore {
                     redactions,
                     stripped_state,
                     ambiguity_maps,
+                    global_profiles,
                 } = changes;
 
                 if let Some(sync_token) = sync_token {
@@ -1577,6 +1578,37 @@ impl StateStore for SqliteStateStore {
                             // We only create new buckets with the normalized display name.
                             txn.set_display_name(&room_id, &encoded_name, &data)?;
                         }
+                    }
+                }
+
+                if !global_profiles.is_empty() {
+                    let mut select_stmt = txn.prepare_cached(
+                        "SELECT profile_data FROM global_profiles WHERE user_id = ?",
+                    )?;
+                    let mut insert_stmt = txn.prepare_cached(
+                        "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
+                    )?;
+
+                    for (user_id, profile_update) in global_profiles {
+                        let user_id_str = user_id.as_str();
+                        let existing_data: Option<Vec<u8>> =
+                            select_stmt.query_row([user_id_str], |row| row.get(0)).optional()?;
+
+                        let merged = if let Some(data) = existing_data {
+                            let existing_profile: UserProfile = this.deserialize_json(&data)?;
+                            matrix_sdk_base::store::merge_profile(existing_profile, profile_update)
+                        } else {
+                            // TODO: Confirm if this is actually necessary. Related:
+                            // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
+                            let map: BTreeMap<String, serde_json::Value> = profile_update
+                                .into_iter()
+                                .filter(|(_, value)| !value.is_null())
+                                .collect();
+                            UserProfile::from_iter(map)
+                        };
+
+                        let serialized = this.serialize_json(&merged)?;
+                        insert_stmt.execute((user_id_str, serialized))?;
                     }
                 }
 
@@ -2399,48 +2431,6 @@ impl StateStore for SqliteStateStore {
                 "DELETE FROM thread_subscriptions WHERE room_id = ? AND event_id = ?",
                 (room_id, thread_id),
             )
-            .await?;
-
-        Ok(())
-    }
-
-    async fn save_global_profile_updates(
-        &self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<(), Self::Error> {
-        let this = self.clone();
-        self.write()
-            .await?
-            .with_transaction(move |txn| -> Result<()> {
-                let mut select_stmt = txn
-                    .prepare_cached("SELECT profile_data FROM global_profiles WHERE user_id = ?")?;
-                let mut insert_stmt = txn.prepare_cached(
-                    "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
-                )?;
-
-                for (user_id, profile_update) in profiles {
-                    let user_id_str = user_id.as_str();
-                    let existing_data: Option<Vec<u8>> =
-                        select_stmt.query_row([user_id_str], |row| row.get(0)).optional()?;
-
-                    let merged = if let Some(data) = existing_data {
-                        let existing_profile: UserProfile = this.deserialize_json(&data)?;
-                        matrix_sdk_base::store::merge_profile(existing_profile, profile_update)
-                    } else {
-                        // TODO: Confirm if this is actually necessary. Related:
-                        // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
-                        let map: BTreeMap<String, serde_json::Value> = profile_update
-                            .into_iter()
-                            .filter(|(_, value)| !value.is_null())
-                            .collect();
-                        UserProfile::from_iter(map)
-                    };
-
-                    let serialized = this.serialize_json(&merged)?;
-                    insert_stmt.execute((user_id_str, serialized))?;
-                }
-                Ok(())
-            })
             .await?;
 
         Ok(())

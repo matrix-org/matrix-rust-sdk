@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use futures_util::future::try_join_all;
 use matrix_sdk_base::{
@@ -6,13 +6,12 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::deserialized_responses::ProcessedToDeviceEvent;
 use ruma::{
-    OwnedRoomId, OwnedUserId,
+    OwnedRoomId,
     api::{
         FeatureFlag, SupportedVersions,
         client::sync::sync_events::v5::{self as http, response},
     },
     events::GlobalAccountDataEventType,
-    profile::UserProfile,
 };
 use tokio::sync::MutexGuard;
 use tracing::error;
@@ -254,22 +253,6 @@ impl SlidingSyncResponseProcessor {
             .thread_subscription_catchup()
             .sync_subscriptions(thread_subs.subscribed, thread_subs.unsubscribed, catchup_token)
             .await?;
-
-        Ok(())
-    }
-
-    pub async fn handle_profiles(
-        &mut self,
-        profiles: BTreeMap<OwnedUserId, UserProfile>,
-    ) -> Result<()> {
-        let client = self.client.clone();
-
-        client
-            .base_client()
-            .state_store()
-            .save_global_profile_updates(profiles)
-            .await
-            .map_err(matrix_sdk_base::StoreError::from)?;
 
         Ok(())
     }
