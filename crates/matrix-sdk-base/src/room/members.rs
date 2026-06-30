@@ -94,6 +94,8 @@ impl Room {
 
         let mut profiles = self.store.get_profiles(self.room_id(), &user_ids).await?;
 
+        let mut global_profiles = self.store.get_global_profiles(&user_ids).await?;
+
         let mut presences = self
             .store
             .get_presence_events(&user_ids)
@@ -111,8 +113,15 @@ impl Room {
 
         for event in member_events {
             let profile = profiles.remove(event.user_id());
+            let global_profile = global_profiles.remove(event.user_id());
             let presence = presences.remove(event.user_id());
-            members.push(RoomMember::from_parts(event, profile, None, presence, &room_info))
+            members.push(RoomMember::from_parts(
+                event,
+                profile,
+                global_profile,
+                presence,
+                &room_info,
+            ))
         }
 
         Ok(members)
@@ -158,7 +167,10 @@ impl Room {
 
         let profile = async { self.store.get_profile(self.room_id(), user_id).await };
 
-        let (Some(event), presence, profile) = future::try_join3(event, presence, profile).await?
+        let global_profile = async { self.store.get_global_profile(user_id).await };
+
+        let (Some(event), presence, profile, global_profile) =
+            future::try_join4(event, presence, profile, global_profile).await?
         else {
             return Ok(None);
         };
@@ -166,7 +178,7 @@ impl Room {
         let display_names = [event.display_name()];
         let room_info = self.member_room_info(&display_names).await?;
 
-        Ok(Some(RoomMember::from_parts(event, profile, None, presence, &room_info)))
+        Ok(Some(RoomMember::from_parts(event, profile, global_profile, presence, &room_info)))
     }
 
     /// The current `MemberRoomInfo` for this room.
