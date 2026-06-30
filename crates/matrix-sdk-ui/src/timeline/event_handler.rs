@@ -563,13 +563,13 @@ pub(super) type RemovedItem = bool;
 pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableItemsTransaction<'o>,
     meta: &'a mut TimelineMetadata,
-    ctx: TimelineEventContext,
+    ctx: &'a TimelineEventContext,
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) fn new<P: RoomDataProvider>(
         state: &'a mut TimelineStateTransaction<'o, P>,
-        ctx: TimelineEventContext,
+        ctx: &'a TimelineEventContext,
     ) -> Self {
         let TimelineStateTransaction { items, meta, .. } = state;
         Self { items, meta, ctx }

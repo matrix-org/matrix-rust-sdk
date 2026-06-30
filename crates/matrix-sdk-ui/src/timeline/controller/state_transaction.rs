@@ -299,7 +299,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     ctx.should_add_new_items = true;
                 }
 
-                TimelineEventHandler::new(self, ctx)
+                TimelineEventHandler::new(self, &ctx)
                     .handle_event(date_divider_adjuster, action, None)
                     .await;
             }
@@ -941,7 +941,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 should_add_new_items: should_add,
             };
 
-            TimelineEventHandler::new(self, ctx)
+            TimelineEventHandler::new(self, &ctx)
                 .handle_event(date_divider_adjuster, timeline_action, recycled_timeline_id)
                 .await
         } else {
