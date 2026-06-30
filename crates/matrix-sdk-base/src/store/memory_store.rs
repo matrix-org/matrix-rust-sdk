@@ -540,19 +540,9 @@ impl StateStore for MemoryStore {
         }
 
         for (user_id, profile_update) in &changes.global_profiles {
-            let merged = if let Some(existing_profile) = inner.global_profiles.get(user_id) {
-                super::traits::merge_profile(existing_profile.clone(), profile_update.clone())
-            } else {
-                // TODO: Confirm if this is actually necessary. Related:
-                // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
-                let map: BTreeMap<String, serde_json::Value> = profile_update
-                    .clone()
-                    .into_iter()
-                    .filter(|(_, value)| !value.is_null())
-                    .collect();
-                UserProfile::from_iter(map)
-            };
-            inner.global_profiles.insert(user_id.clone(), merged);
+            let mut profile = inner.global_profiles.get(user_id).cloned().unwrap_or_default();
+            profile.merge(profile_update.clone());
+            inner.global_profiles.insert(user_id.clone(), profile);
         }
 
         debug!("Saved changes in {:?}", now.elapsed());

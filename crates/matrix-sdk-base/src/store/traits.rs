@@ -2124,21 +2124,6 @@ where
     }
 }
 
-// TODO: Use Ruma once the PR is merged there instead of this local helper (https://github.com/ruma/ruma/pull/2518)
-/// Helper function to merge a profile update with an existing profile based on
-/// the MSC
-pub fn merge_profile(existing: UserProfile, update: UserProfile) -> UserProfile {
-    let mut map: BTreeMap<String, serde_json::Value> = existing.into_iter().collect();
-    for (key, value) in update {
-        if value.is_null() {
-            map.remove(&key);
-        } else {
-            map.insert(key, value);
-        }
-    }
-    UserProfile::from_iter(map)
-}
-
 /// Serialisable representation of get_supported_versions::Response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SupportedVersionsResponse {

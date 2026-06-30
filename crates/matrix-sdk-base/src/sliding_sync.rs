@@ -302,7 +302,7 @@ mod tests {
             },
         },
         mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id,
-        profile::UserProfile,
+        profile::UserProfileUpdate,
         room_alias_id, room_id,
         serde::Raw,
         uint, user_id,
@@ -450,11 +450,11 @@ mod tests {
         let mut response = http::Response::new("0".to_owned());
         response.extensions.profiles.insert(
             alice.to_owned(),
-            UserProfile::from_iter([("displayname".to_owned(), json!("Alice"))]),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
         );
         response.extensions.profiles.insert(
             bob.to_owned(),
-            UserProfile::from_iter([("displayname".to_owned(), json!("Bob"))]),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Bob"))]),
         );
 
         // When the response is processed.
@@ -490,7 +490,7 @@ mod tests {
         let mut response = http::Response::new("1".to_owned());
         response.extensions.profiles.insert(
             alice.to_owned(),
-            UserProfile::from_iter([("displayname".to_owned(), json!("Alice Updated"))]),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice Updated"))]),
         );
 
         client
