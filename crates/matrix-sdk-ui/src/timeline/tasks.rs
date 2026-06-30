@@ -16,7 +16,7 @@
 
 use std::collections::BTreeSet;
 
-use eyeball::Subscriber;
+use eyeball::Subscriber as EyeballSubscriber;
 use matrix_sdk::{
     event_cache::{
         EventFocusThreadMode, EventFocusedCache, EventsOrigin, PinnedEventsCache, RoomEventCache,
@@ -318,7 +318,7 @@ pub(in crate::timeline) async fn room_send_queue_update_task(
 /// Long-lived task that watches RoomInfo for RTC membership changes
 /// and updates the active RtcNotification timeline item.
 pub(in crate::timeline) async fn rtc_membership_update_task(
-    mut room_info: Subscriber<RoomInfo>,
+    mut room_info: EyeballSubscriber<RoomInfo>,
     timeline_controller: TimelineController,
 ) {
     // let mut prev_members: Vec<OwnedUserId> = Vec::new();
