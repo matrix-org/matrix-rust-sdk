@@ -16,7 +16,7 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",
@@ -49,6 +49,9 @@ indexeddb = [
     "matrix-sdk-indexeddb/event-cache-store",
     "matrix-sdk-indexeddb/media-store"
 ]
+# If enabled, reqwest depends on and installs aws-lc-rs as the default crypto
+# provider for rustls
+rustls-aws-lc-rs = ["reqwest/rustls"]
 
 qrcode = ["e2e-encryption", "matrix-sdk-base/qrcode"]
 automatic-room-key-forwarding = ["e2e-encryption", "matrix-sdk-base/automatic-room-key-forwarding"]
@@ -160,13 +163,13 @@ zeroize.workspace = true
 backon = "1.6.0"
 # only activate reqwest's stream feature on non-wasm, the wasm part seems to not
 # support *sending* streams, which makes it useless for us.
-reqwest = { workspace = true, features = ["stream", "gzip", "http2", "rustls"] }
+reqwest = { workspace = true, features = ["stream", "gzip", "http2", "rustls-no-provider"] }
 tokio = { workspace = true, features = ["fs", "rt", "macros"] }
 wiremock = { workspace = true, optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
-reqwest = { workspace = true, features = ["gzip", "http2", "rustls"] }
+reqwest = { workspace = true, features = ["gzip", "http2", "rustls-no-provider"] }
 tokio = { workspace = true, features = ["macros"] }
 
 [dev-dependencies]
@@ -180,6 +183,7 @@ insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
+reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 stream_assert.workspace = true
