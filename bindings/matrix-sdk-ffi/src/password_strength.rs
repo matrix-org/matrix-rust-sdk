@@ -12,24 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Password strength estimation is powered by zxcvbn, which evaluates passwords via pattern
+// matching: dictionary words, keyboard walks, repeats, dates, l33t speak, etc.
+//
+// zxcvbn produces its own ranking (VeryWeak–VeryStrong) and a numeric score (log₁₀ of estimated
+// guesses). The caller supplies PasswordStrengthThresholds, which define the minimum score
+// required to achieve each ranking level — each threshold is a floor for that level.
+//
+// The final ranking is min(zxcvbn ranking, threshold-derived ranking). This means:
+// - zxcvbn's pattern penalties are always preserved (it can only pull the ranking down)
+// - the thresholds prevent zxcvbn from awarding rankings that no longer reflect real-world
+//   attack difficulty given modern hardware
+
 use zxcvbn::feedback::{Suggestion as ZxcvbnSuggestion, Warning as ZxcvbnWarning};
 
 /// A ranking representing the estimated strength of a password, ranging from
 /// `VeryWeak` (easily guessable) to `VeryStrong` (highly resistant to attack).
-///
-/// Rankings are produced by the zxcvbn algorithm, which considers factors such as
-/// common passwords, dictionary words, keyboard patterns, and l33t speak.
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub enum PasswordStrengthRanking {
-    /// Rank 0 — too guessable, risky password.
     VeryWeak,
-    /// Rank 1 — very guessable, protection from throttled online attacks.
     Weak,
-    /// Rank 2 — somewhat guessable, protection from unthrottled online attacks.
     Fair,
-    /// Rank 3 — safely unguessable, moderate protection from offline slow-hash attacks.
     Strong,
-    /// Rank 4 — very unguessable, strong protection from offline slow-hash attacks.
     VeryStrong,
 }
 
@@ -47,8 +51,7 @@ impl From<zxcvbn::Score> for PasswordStrengthRanking {
     }
 }
 
-/// A warning explaining what is wrong with the password. Only set when the
-/// ranking is Fair or below.
+/// A warning explaining what is wrong with the password.
 #[derive(uniffi::Enum)]
 pub enum PasswordStrengthWarning {
     StraightRowsOfKeysAreEasyToGuess,
@@ -169,9 +172,8 @@ pub struct PasswordStrengthFeedback {
 
 /// The full result of a password strength estimation.
 #[derive(uniffi::Record)]
-pub struct PasswordStrengthResult {
-    /// Overall strength ranking from VeryWeak to VeryStrong. Any ranking
-    /// below Strong should be considered too weak.
+pub struct PasswordStrengthEstimate {
+    /// Overall strength ranking from VeryWeak to VeryStrong.
     pub ranking: PasswordStrengthRanking,
     /// Estimated number of guesses needed to crack the password.
     pub guesses: u64,
@@ -183,25 +185,83 @@ pub struct PasswordStrengthResult {
     pub feedback: Option<PasswordStrengthFeedback>,
 }
 
-/// Estimates the strength of `password` using the zxcvbn algorithm.
+/// Minimum `score` (log₁₀ of estimated guesses) required to achieve each
+/// ranking level. Any score below `weak` is ranked `VeryWeak`.
+#[derive(uniffi::Record)]
+pub struct PasswordStrengthThresholds {
+    /// Minimum score to achieve `Weak`.
+    pub weak: f64,
+    /// Minimum score to achieve `Fair`.
+    pub fair: f64,
+    /// Minimum score to achieve `Strong`.
+    pub strong: f64,
+    /// Minimum score to achieve `VeryStrong`.
+    pub very_strong: f64,
+}
+
+impl PasswordStrengthThresholds {
+    fn ranking_for_score(&self, score: f64) -> PasswordStrengthRanking {
+        if score >= self.very_strong {
+            PasswordStrengthRanking::VeryStrong
+        } else if score >= self.strong {
+            PasswordStrengthRanking::Strong
+        } else if score >= self.fair {
+            PasswordStrengthRanking::Fair
+        } else if score >= self.weak {
+            PasswordStrengthRanking::Weak
+        } else {
+            PasswordStrengthRanking::VeryWeak
+        }
+    }
+}
+
+/// Estimates password strength using caller-supplied thresholds.
 ///
-/// Optionally, pass a list of `user_inputs` (e.g. username, email address)
-/// so that the estimator can penalise passwords that contain personal
-/// information.
+/// Construct once with your desired thresholds, then call `estimate` for each
+/// password without having to re-supply the thresholds every time.
+#[derive(uniffi::Object)]
+pub struct PasswordStrengthEstimator {
+    thresholds: PasswordStrengthThresholds,
+}
+
 #[matrix_sdk_ffi_macros::export]
-pub fn score_password(password: String, user_inputs: Vec<String>) -> PasswordStrengthResult {
-    let inputs: Vec<&str> = user_inputs.iter().map(String::as_str).collect();
-    let entropy = zxcvbn::zxcvbn(&password, &inputs);
+impl PasswordStrengthEstimator {
+    #[uniffi::constructor]
+    pub fn new(thresholds: PasswordStrengthThresholds) -> Self {
+        Self { thresholds }
+    }
 
-    let feedback = entropy.feedback().map(|f| PasswordStrengthFeedback {
-        warning: f.warning().map(PasswordStrengthWarning::from),
-        suggestions: f.suggestions().iter().copied().map(PasswordStrengthSuggestion::from).collect(),
-    });
+    /// Estimates the strength of `password`.
+    ///
+    /// Optionally, pass a list of `user_inputs` (e.g. username, email address)
+    /// so that the estimator can penalize passwords that contain personal
+    /// information.
+    ///
+    /// The returned ranking reflects both the configured thresholds and
+    /// pattern-based penalties, taking whichever is more conservative.
+    pub fn estimate(&self, password: String, user_inputs: Vec<String>) -> PasswordStrengthEstimate {
+        let inputs: Vec<&str> = user_inputs.iter().map(String::as_str).collect();
+        let entropy = zxcvbn::zxcvbn(&password, &inputs);
 
-    PasswordStrengthResult {
-        ranking: entropy.score().into(),
-        guesses: entropy.guesses(),
-        score: entropy.guesses_log10(),
-        feedback,
+        let feedback = entropy.feedback().map(|f| PasswordStrengthFeedback {
+            warning: f.warning().map(PasswordStrengthWarning::from),
+            suggestions: f
+                .suggestions()
+                .iter()
+                .copied()
+                .map(PasswordStrengthSuggestion::from)
+                .collect(),
+        });
+
+        let zxcvbn_ranking = PasswordStrengthRanking::from(entropy.score());
+        let threshold_ranking = self.thresholds.ranking_for_score(entropy.guesses_log10());
+        let ranking = zxcvbn_ranking.min(threshold_ranking);
+
+        PasswordStrengthEstimate {
+            ranking,
+            guesses: entropy.guesses(),
+            score: entropy.guesses_log10(),
+            feedback,
+        }
     }
 }
