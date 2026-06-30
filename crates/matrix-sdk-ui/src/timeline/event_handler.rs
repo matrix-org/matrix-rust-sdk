@@ -1212,13 +1212,13 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// active call info, and cleans up any previous notification that had
     /// active members.
     fn apply_active_call_to_last_rtc_notification(&mut self) {
-        let last_notification = rfind_event_item(&self.items, |it| {
+        let last_notification = rfind_event_item(self.items, |it| {
             matches!(it.content(), TimelineItemContent::RtcNotification { .. })
         })
         .map(|(a, b)| (a, b.internal_id.clone(), b.clone()));
 
         if let Some((idx, internal_id, last_notification)) = last_notification {
-            // Is this the same than previously?
+            // Is this the same as previously?
             if let Some(prev_event_id) = &self.meta.active_rtc_notification_event_id {
                 if Some(prev_event_id.as_ref()) == last_notification.event_id() {
                     // then no changes, the newest rtc_notification event have not change
