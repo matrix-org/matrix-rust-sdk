@@ -627,64 +627,75 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
-        let mut added_item = false;
+        self.handle_timeline_action(timeline_action, recycled_timeline_id)
+    }
 
+    fn handle_timeline_action(
+        &mut self,
+        timeline_action: TimelineAction,
+        recycled_timeline_id: Option<TimelineUniqueId>,
+    ) -> bool {
         match timeline_action {
             TimelineAction::AddItem { content } => {
                 if self.ctx.should_add_new_items {
                     self.add_item(content, recycled_timeline_id);
-                    added_item = true;
+                    true
+                } else {
+                    false
                 }
             }
-
-            TimelineAction::HandleAggregation { related_event, kind } => match kind {
-                HandleAggregationKind::Reaction { key } => {
-                    self.handle_reaction(related_event, key);
-                }
-                HandleAggregationKind::Redaction => {
-                    self.handle_redaction(related_event);
-                }
-                HandleAggregationKind::Edit { replacement } => {
-                    self.handle_edit(
-                        replacement.event_id.clone(),
-                        PendingEditKind::RoomMessage(replacement),
-                    );
-                }
-                HandleAggregationKind::PollResponse { answers } => {
-                    self.handle_poll_response(related_event, answers);
-                }
-                HandleAggregationKind::PollEdit { replacement } => {
-                    self.handle_edit(
-                        replacement.event_id.clone(),
-                        PendingEditKind::Poll(replacement),
-                    );
-                }
-                HandleAggregationKind::PollEnd => {
-                    self.handle_poll_end(related_event);
-                }
-                HandleAggregationKind::BeaconUpdate { mut location } => {
-                    // Propagate the encryption info from the event context into
-                    // the beacon location update so it can be inspected later
-                    // (e.g. for shield state computation).
-                    let encryption_info = as_variant!(
-                        &self.ctx.flow,
-                        Flow::Remote { encryption_info, .. } => encryption_info.clone()
-                    )
-                    .flatten();
-                    location.encryption_info = encryption_info;
-
-                    self.handle_beacon_update(related_event, location);
-                }
-                HandleAggregationKind::BeaconStop { own_id, content } => {
-                    self.handle_beacon_stop(own_id, content);
-                }
-                HandleAggregationKind::CallDeclined => {
-                    self.handle_call_declined(related_event);
-                }
-            },
+            TimelineAction::HandleAggregation { related_event, kind } => {
+                self.handle_aggregation_action(related_event, kind);
+                false
+            }
         }
+    }
 
-        added_item
+    fn handle_aggregation_action(
+        &mut self,
+        related_event: OwnedEventId,
+        kind: HandleAggregationKind,
+    ) {
+        match kind {
+            HandleAggregationKind::Reaction { key } => {
+                self.handle_reaction(related_event, key);
+            }
+            HandleAggregationKind::Redaction => {
+                self.handle_redaction(related_event);
+            }
+            HandleAggregationKind::Edit { replacement } => {
+                self.handle_edit(
+                    replacement.event_id.clone(),
+                    PendingEditKind::RoomMessage(replacement),
+                );
+            }
+            HandleAggregationKind::PollResponse { answers } => {
+                self.handle_poll_response(related_event, answers);
+            }
+            HandleAggregationKind::PollEdit { replacement } => {
+                self.handle_edit(replacement.event_id.clone(), PendingEditKind::Poll(replacement));
+            }
+            HandleAggregationKind::PollEnd => {
+                self.handle_poll_end(related_event);
+            }
+            HandleAggregationKind::BeaconUpdate { mut location } => {
+                // Propagate the encryption info from the event context into the
+                // beacon location update so it can be inspected later.
+                let encryption_info = as_variant!(
+                    &self.ctx.flow,
+                    Flow::Remote { encryption_info, .. } => encryption_info.clone()
+                )
+                .flatten();
+                location.encryption_info = encryption_info;
+                self.handle_beacon_update(related_event, location);
+            }
+            HandleAggregationKind::BeaconStop { own_id, content } => {
+                self.handle_beacon_stop(own_id, content);
+            }
+            HandleAggregationKind::CallDeclined => {
+                self.handle_call_declined(related_event);
+            }
+        }
     }
 
     #[instrument(skip(self, edit_kind))]
