@@ -321,7 +321,6 @@ pub(in crate::timeline) async fn rtc_membership_update_task(
     mut room_info: EyeballSubscriber<RoomInfo>,
     timeline_controller: TimelineController,
 ) {
-    // let mut prev_members: Vec<OwnedUserId> = Vec::new();
     let mut prev_info = None;
     let own_user = timeline_controller.room().own_user_id().to_owned();
 
