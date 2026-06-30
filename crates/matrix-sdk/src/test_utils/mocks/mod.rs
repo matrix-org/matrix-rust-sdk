@@ -5022,6 +5022,13 @@ impl<'a> MockEndpoint<'a, SetProfileFieldEndpoint> {
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
     }
+
+    /// Expect the request body to set the given [`ProfileFieldValue`].
+    pub fn expect_field_value(mut self, value: ProfileFieldValue) -> Self {
+        let body = BTreeMap::from([(value.field_name(), value.value())]);
+        self.mock = self.mock.and(body_json(body));
+        self
+    }
 }
 
 /// A prebuilt mock for `DELETE /_matrix/client/*/profile/{user_id}/{key_name}`.

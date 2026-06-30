@@ -125,6 +125,8 @@ use super::{
     room::{Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
+#[cfg(feature = "unstable-msc4426")]
+use crate::ruma::UserStatus;
 use crate::{
     ClientError,
     authentication::{
@@ -2515,6 +2517,32 @@ impl From<&search_users::v3::User> for UserProfile {
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
         }
+    }
+}
+
+#[cfg(feature = "unstable-msc4426")]
+#[matrix_sdk_ffi_macros::export]
+impl Client {
+    /// Set the current user's status (MSC4426 `m.status` profile field).
+    ///
+    /// Replaces any existing status. Use [`Self::clear_user_status`] to
+    /// remove it.
+    pub async fn set_user_status(&self, status: UserStatus) -> Result<(), ClientError> {
+        self.inner.account().set_status(status.emoji, status.text).await?;
+        Ok(())
+    }
+
+    /// Clear the current user's status (MSC4426).
+    ///
+    /// Deletes both `m.status` and `m.call` concurrently. Clearing `m.status`
+    /// alone would let `m.call` immediately reappear if the user were in a
+    /// call.
+    pub async fn clear_user_status(&self) -> Result<(), ClientError> {
+        let account = self.inner.account();
+        let (status_res, call_res) = tokio::join!(account.clear_status(), account.clear_call());
+        status_res?;
+        call_res?;
+        Ok(())
     }
 }
 
