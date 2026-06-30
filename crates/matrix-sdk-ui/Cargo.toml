@@ -51,7 +51,7 @@ matrix-sdk-base.workspace = true
 matrix-sdk-common.workspace = true
 mime.workspace = true
 pin-project-lite.workspace = true
-ruma = { workspace = true, features = ["html", "unstable-msc3381"] }
+ruma = { workspace = true, features = ["html", "unstable-msc3381", "unstable-msc4426"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -29,6 +29,7 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedTransactionId,
     OwnedUserId, TransactionId, UserId,
     events::{AnySyncTimelineEvent, receipt::Receipt, room::message::MessageType},
+    profile::{CallProfileField, StatusProfileField},
     room_version_rules::RedactionRules,
     serde::Raw,
 };
@@ -701,6 +702,12 @@ pub struct Profile {
 
     /// The avatar URL, if set.
     pub avatar_url: Option<OwnedMxcUri>,
+
+    /// The user's status, taken from their global profile, if set.
+    pub status: Option<StatusProfileField>,
+
+    /// The user's call indicator, taken from their global profile, if set.
+    pub call: Option<CallProfileField>,
 }
 
 impl Profile {
@@ -710,6 +717,8 @@ impl Profile {
                 display_name: member.display_name().map(ToOwned::to_owned),
                 display_name_ambiguous: member.name_ambiguous(),
                 avatar_url: member.avatar_url().map(ToOwned::to_owned),
+                status: member.status().cloned(),
+                call: member.call().cloned(),
             }),
             Ok(None) if room.are_members_synced() => Some(Profile::default()),
             Ok(None) => None,
