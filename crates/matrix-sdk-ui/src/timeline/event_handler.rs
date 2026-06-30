@@ -165,7 +165,7 @@ pub(super) enum HandleAggregationKind {
     /// Sent when the user stops sharing their location. Unlike [`BeaconUpdate`]
     /// this does not carry a `relates_to` event ID; instead the target live
     /// item is found by matching the sender.
-    BeaconStop { content: BeaconInfoEventContent },
+    BeaconStop { own_id: TimelineEventItemId, content: BeaconInfoEventContent },
 
     /// A decline for an `m.rtc.notification` call.
     CallDeclined,
@@ -347,11 +347,15 @@ impl TimelineAction {
                             // A non-live beacon_info is a stop event: it should update the
                             // existing live item from the same sender rather than creating a
                             // new timeline item.
+                            let event_id = ev.event_id.clone();
                             vec![Self::HandleAggregation {
                                 // There is no explicit relates_to on a beacon_info state event;
                                 // the target is identified by sender in handle_beacon_stop.
-                                related_event: ev.event_id,
-                                kind: HandleAggregationKind::BeaconStop { content: ev.content },
+                                related_event: event_id.clone(),
+                                kind: HandleAggregationKind::BeaconStop {
+                                    own_id: TimelineEventItemId::EventId(event_id),
+                                    content: ev.content,
+                                },
                             }]
                         }
                     }
@@ -671,8 +675,8 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
                     self.handle_beacon_update(related_event, location);
                 }
-                HandleAggregationKind::BeaconStop { content } => {
-                    self.handle_beacon_stop(content);
+                HandleAggregationKind::BeaconStop { own_id, content } => {
+                    self.handle_beacon_stop(own_id, content);
                 }
                 HandleAggregationKind::CallDeclined => {
                     self.handle_call_declined(related_event);
@@ -801,7 +805,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// The stop event's content must match the start item's content (except for
     /// the `live` field) to ensure we apply the stop to the correct session.
     #[instrument(skip(self, content))]
-    fn handle_beacon_stop(&mut self, content: BeaconInfoEventContent) {
+    fn handle_beacon_stop(&mut self, own_id: TimelineEventItemId, content: BeaconInfoEventContent) {
         let sender = &self.ctx.sender;
 
         // Find the live start item by sender and matching content.
@@ -811,10 +815,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         })
         .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned));
 
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::BeaconStop { content },
-        );
+        let aggregation = Aggregation::new(own_id, AggregationKind::BeaconStop { content });
 
         let Some(target_event_id) = target_event_id else {
             // The live start item hasn't arrived yet (or the content doesn't match).
