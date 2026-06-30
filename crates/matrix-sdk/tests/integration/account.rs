@@ -402,3 +402,73 @@ async fn test_clear_call() {
     let account = client.account();
     account.clear_call().await.unwrap();
 }
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_fetch_user_profile_with_status() {
+    use ruma::{
+        SecondsSinceUnixEpoch,
+        api::client::profile::{Call, Status},
+        profile::{CallProfileField, StatusProfileField},
+        uint,
+    };
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    let mut call_field = CallProfileField::new();
+    call_field.call_joined_ts = Some(SecondsSinceUnixEpoch(uint!(1_770_140_640)));
+
+    server
+        .mock_get_profile(user_id)
+        .ok_with_fields(vec![
+            ProfileFieldValue::DisplayName("Alice".to_owned()),
+            ProfileFieldValue::AvatarUrl(mxc_uri!("mxc://localhost/abc").to_owned()),
+            ProfileFieldValue::Status(StatusProfileField::new("Away".to_owned(), "🌴".to_owned())),
+            ProfileFieldValue::Call(call_field),
+        ])
+        .mock_once()
+        .named("get profile with status and call")
+        .mount()
+        .await;
+
+    let profile = client.account().fetch_user_profile().await.unwrap();
+
+    assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Alice"));
+    let status = profile.get_static::<Status>().unwrap().unwrap();
+    assert_eq!(status.emoji, "🌴");
+    assert_eq!(status.text, "Away");
+    let call = profile.get_static::<Call>().unwrap().unwrap();
+    assert_eq!(call.call_joined_ts, Some(SecondsSinceUnixEpoch(uint!(1_770_140_640))));
+}
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_fetch_user_profile_call_without_ts() {
+    use ruma::{
+        api::client::profile::{Call, Status},
+        profile::CallProfileField,
+    };
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_get_profile(user_id)
+        .ok_with_fields(vec![
+            ProfileFieldValue::DisplayName("Bob".to_owned()),
+            ProfileFieldValue::Call(CallProfileField::new()),
+        ])
+        .mock_once()
+        .named("get profile with call but no ts")
+        .mount()
+        .await;
+
+    let profile = client.account().fetch_user_profile().await.unwrap();
+
+    assert_eq!(profile.get_static::<Status>().unwrap(), None);
+    let call = profile.get_static::<Call>().unwrap().unwrap();
+    assert_eq!(call.call_joined_ts, None);
+}
