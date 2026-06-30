@@ -58,6 +58,7 @@ pub struct RoomIndex {
     room_id: OwnedRoomId,
     uncommitted_adds: HashSet<OwnedEventId>,
     uncommitted_removes: HashSet<OwnedEventId>,
+    reader: Option<IndexReader>,
 }
 
 impl fmt::Debug for RoomIndex {
@@ -79,6 +80,7 @@ impl RoomIndex {
             room_id: room_id.to_owned(),
             uncommitted_adds: HashSet::new(),
             uncommitted_removes: HashSet::new(),
+            reader: None,
         }
     }
 
@@ -88,9 +90,15 @@ impl RoomIndex {
         Ok(SearchIndexWriter::new(writer, self.schema.clone()))
     }
 
-    /// Get a [`IndexReader`] for this index.
-    fn get_reader(&self) -> Result<IndexReader, IndexError> {
-        Ok(self.index.reader_builder().try_into()?)
+    /// Get or create the cached [`IndexReader`] for this index.
+    fn get_reader(&mut self) -> Result<&IndexReader, IndexError> {
+        Ok(match self.reader {
+            Some(ref reader) => reader,
+            None => {
+                let reader = self.index.reader_builder().try_into()?;
+                self.reader.insert(reader)
+            }
+        })
     }
 
     /// Commit added events to [`RoomIndex`]. The changes are not reflected in
@@ -132,7 +140,7 @@ impl RoomIndex {
     /// (and there are a surplus of results)
     /// then this will return results `11, 12, 13`
     pub fn search(
-        &self,
+        &mut self,
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
@@ -164,7 +172,7 @@ impl RoomIndex {
     }
 
     fn get_events_to_be_removed(
-        &self,
+        &mut self,
         event_id: &EventId,
     ) -> Result<Vec<OwnedEventId>, IndexError> {
         Ok(self
@@ -313,7 +321,7 @@ impl RoomIndex {
         Ok(())
     }
 
-    fn contains(&self, event_id: &EventId) -> bool {
+    fn contains(&mut self, event_id: &EventId) -> bool {
         let search_result = self.search(
             format!("{}:\"{event_id}\"", self.schema.get_field_name(self.schema.primary_key()))
                 .as_str(),
@@ -445,7 +453,7 @@ mod tests {
     #[test]
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndexBuilder::new_in_memory(room_id).build();
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
 
@@ -457,7 +465,7 @@ mod tests {
     #[test]
     fn test_index_contains_false() {
         let room_id = room_id!("!room_id:localhost");
-        let index = RoomIndexBuilder::new_in_memory(room_id).build();
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
 
