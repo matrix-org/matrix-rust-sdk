@@ -91,7 +91,7 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "feder
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
 # Add support for user status profile fields (m.status, m.call).
-unstable-msc4426 = ["ruma/unstable-msc4426"]
+unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
 
 experimental-search = ["matrix-sdk-search"]
 

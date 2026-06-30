@@ -1263,6 +1263,8 @@ mod tests {
         BOB, InvitedRoomBuilder, LeftRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory, ruma_response_from_json,
     };
+    #[cfg(feature = "unstable-msc4426")]
+    use ruma::profile::{ProfileFieldValue, StatusProfileField, UserProfileUpdate};
     use ruma::{
         api::client::{self as api, sync::sync_events::v5},
         event_id,
@@ -1280,6 +1282,8 @@ mod tests {
         store::{RoomLoadSettings, StateStoreExt, StoreConfig},
         test_utils::logged_in_base_client,
     };
+    #[cfg(feature = "unstable-msc4426")]
+    use crate::{RoomMemberships, store::StateChanges};
 
     #[test]
     fn test_requested_required_states() {
@@ -1754,6 +1758,69 @@ mod tests {
         assert_eq!(member.user_id(), user_id);
         assert_eq!(member.display_name().unwrap(), "Invited Alice");
         assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
+    }
+
+    #[cfg(feature = "unstable-msc4426")]
+    #[async_test]
+    async fn test_room_member_carries_global_profile_status() {
+        let user_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = BaseClient::new(
+            StoreConfig::new(CrossProcessLockConfig::SingleProcess),
+            ThreadingSupport::Disabled,
+            DmRoomDefinition::default(),
+        );
+        client
+            .activate(
+                SessionMeta { user_id: user_id.to_owned(), device_id: "FOOBAR".into() },
+                RoomLoadSettings::default(),
+                #[cfg(feature = "e2e-encryption")]
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Let the SDK know about the room, with the user as a joined member.
+        let f = EventFactory::new().sender(user_id);
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(
+                matrix_sdk_test::JoinedRoomBuilder::new(room_id).add_state_event(f.member(user_id)),
+            )
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+
+        // Without a global profile, the member has no status.
+        let member = room.get_member(user_id).await.expect("ok").expect("exists");
+        assert!(member.status().is_none());
+
+        // Save a global profile carrying an `m.status` for the member.
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(
+            user_id.to_owned(),
+            UserProfileUpdate::from_iter([ProfileFieldValue::Status(StatusProfileField::new(
+                "Working".to_owned(),
+                "💻".to_owned(),
+            ))]),
+        );
+        client.state_store().save_changes(&changes).await.unwrap();
+
+        // `get_member` surfaces the status from the global profile.
+        let member = room.get_member(user_id).await.expect("ok").expect("exists");
+        let status = member.status().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
+
+        // `members` surfaces it too.
+        let members = room.members(RoomMemberships::JOIN).await.unwrap();
+        let member =
+            members.iter().find(|m| m.user_id() == user_id).expect("member is in the list");
+        let status = member.status().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
     }
 
     #[async_test]
