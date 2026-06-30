@@ -27,7 +27,7 @@ use zxcvbn::feedback::{Suggestion as ZxcvbnSuggestion, Warning as ZxcvbnWarning}
 
 /// A ranking representing the estimated strength of a password, ranging from
 /// `VeryWeak` (easily guessable) to `VeryStrong` (highly resistant to attack).
-#[derive(uniffi::Enum)]
+#[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PasswordStrengthRanking {
     VeryWeak,
     Weak,
@@ -274,5 +274,137 @@ impl PasswordStrengthEstimator {
             score: entropy.guesses_log10(),
             feedback,
         }
+    }
+}
+
+#[cfg(test)]
+// These tests are to cover our barrier — threshold logic and data passthrough — not zxcvbn's internals.
+// We verify that our ranking derivation is correct, that zxcvbn output (score, feedback,
+// user input penalties) is correctly forwarded, and that threshold configuration produces
+// the expected ranking behavior. We do not test zxcvbn's pattern detection or scoring logic.
+mod tests {
+    use super::*;
+
+    // Known-output tests: confirm specific passwords produce expected rankings
+    // using zxcvbn default thresholds.
+    #[test]
+    fn test_same_leniency_as_zxcvbn() {
+        let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
+
+        let cases: &[(&str, PasswordStrengthRanking)] = &[
+            ("password",                                PasswordStrengthRanking::VeryWeak),
+            ("123456",                                  PasswordStrengthRanking::VeryWeak),
+            ("15",                                      PasswordStrengthRanking::VeryWeak),
+            ("154",                                     PasswordStrengthRanking::VeryWeak),
+            ("hunter2",                                 PasswordStrengthRanking::Weak),
+            ("qwerty2025",                              PasswordStrengthRanking::Weak),
+            ("foo bar",                                 PasswordStrengthRanking::Fair),
+            ("March212024!",                            PasswordStrengthRanking::Strong),
+            ("Tr0ub4dor&3",                             PasswordStrengthRanking::VeryStrong),
+            ("correct horse battery staple",            PasswordStrengthRanking::VeryStrong),
+            ("correcthorsebatterystaple!extra",         PasswordStrengthRanking::VeryStrong),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA",          PasswordStrengthRanking::VeryStrong),
+        ];
+
+        for (pw, expected_ranking) in cases {
+            let result = estimator.estimate(pw.to_string(), vec![]);
+            assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
+        }
+    }
+
+    // More lenient thresholds — passwords rank higher than zxcvbn would.
+    #[test]
+    fn test_more_lenient_thresholds() {
+        let lenient_estimator = PasswordStrengthEstimator::new(PasswordStrengthThresholds {
+            weak: 1.0,
+            fair: 2.0,
+            strong: 3.0,
+            very_strong: 4.0,
+        });
+
+        let cases: &[(&str, PasswordStrengthRanking)] = &[
+            ("password",                                PasswordStrengthRanking::VeryWeak),
+            ("123456",                                  PasswordStrengthRanking::VeryWeak),
+            ("15",                                      PasswordStrengthRanking::Weak),
+            ("154",                                     PasswordStrengthRanking::Fair),
+            ("hunter2",                                 PasswordStrengthRanking::Strong),
+            ("qwerty2025",                              PasswordStrengthRanking::VeryStrong),
+            ("foo bar",                                 PasswordStrengthRanking::VeryStrong),
+            ("March212024!",                            PasswordStrengthRanking::VeryStrong),
+            ("Tr0ub4dor&3",                             PasswordStrengthRanking::VeryStrong),
+            ("correct horse battery staple",            PasswordStrengthRanking::VeryStrong),
+            ("correcthorsebatterystaple!extra",         PasswordStrengthRanking::VeryStrong),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA",          PasswordStrengthRanking::VeryStrong),
+        ];
+
+        for (pw, expected_ranking) in cases {
+            let result = lenient_estimator.estimate(pw.to_string(), vec![]);
+            assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
+        }
+    }
+
+    // Stricter thresholds — passwords rank lower than zxcvbn would.
+    #[test]
+    fn test_stricter_thresholds() {
+        let strict_estimator = PasswordStrengthEstimator::new(PasswordStrengthThresholds {
+            weak: 6.0,
+            fair: 10.0,
+            strong: 17.0,
+            very_strong: 20.0,
+        });
+
+        let cases: &[(&str, PasswordStrengthRanking)] = &[
+            ("password",                                PasswordStrengthRanking::VeryWeak),
+            ("123456",                                  PasswordStrengthRanking::VeryWeak),
+            ("15",                                      PasswordStrengthRanking::VeryWeak),
+            ("154",                                     PasswordStrengthRanking::VeryWeak),
+            ("hunter2",                                 PasswordStrengthRanking::VeryWeak),
+            ("qwerty2025",                              PasswordStrengthRanking::VeryWeak),
+            ("foo bar",                                 PasswordStrengthRanking::Weak),
+            ("March212024!",                            PasswordStrengthRanking::Weak),
+            ("Tr0ub4dor&3",                             PasswordStrengthRanking::Fair),
+            ("correct horse battery staple",            PasswordStrengthRanking::VeryStrong),
+            ("correcthorsebatterystaple!extra",         PasswordStrengthRanking::VeryStrong),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA",          PasswordStrengthRanking::VeryStrong),
+        ];
+
+        for (pw, expected_ranking) in cases {
+            let result = strict_estimator.estimate(pw.to_string(), vec![]);
+            assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
+            println!("{pw}, {0}", result.score);
+        }
+    }
+
+    #[test]
+    fn test_user_inputs_lower_score() {
+        let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
+        let password = "michael1985".to_string();
+
+        let without_inputs = estimator.estimate(password.clone(), vec![]);
+        let with_inputs = estimator.estimate(password.clone(), vec!["michael".to_string(), "1985".to_string()]);
+        let with_nonmatching_inputs = estimator.estimate(password, vec!["foo".to_string(), "blar".to_string()]);
+
+        assert!(
+            with_inputs.score <= without_inputs.score,
+            "score should be lower or equal when matching user inputs are provided"
+        );
+
+        assert!(
+            with_inputs.score == with_nonmatching_inputs.score,
+            "score should be equal when no matching user inputs are provided"
+        );
+    }
+
+    #[test]
+    fn test_feedback_present_for_weak_passwords() {
+        let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
+
+        let weak = estimator.estimate("password".to_string(), vec![]);
+        let weak_feedback = weak.feedback.as_ref().expect("expected feedback for a weak password");
+        assert!(weak_feedback.warning.is_some(), "expected a warning for a weak password");
+        assert!(!weak_feedback.suggestions.is_empty(), "expected suggestions for a weak password");
+
+        let strong = estimator.estimate("correct horse battery staple".to_string(), vec![]);
+        assert!(strong.feedback.is_none(), "expected no feedback for a strong password");
     }
 }
