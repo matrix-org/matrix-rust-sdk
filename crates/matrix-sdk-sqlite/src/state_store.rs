@@ -1615,20 +1615,13 @@ impl StateStore for SqliteStateStore {
                         let existing_data: Option<Vec<u8>> =
                             select_stmt.query_row([&user_id], |row| row.get(0)).optional()?;
 
-                        let merged = if let Some(data) = existing_data {
-                            let existing_profile: UserProfile = this.deserialize_json(&data)?;
-                            matrix_sdk_base::store::merge_profile(existing_profile, profile_update)
-                        } else {
-                            // TODO: Confirm if this is actually necessary. Related:
-                            // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
-                            let map: BTreeMap<String, serde_json::Value> = profile_update
-                                .into_iter()
-                                .filter(|(_, value)| !value.is_null())
-                                .collect();
-                            UserProfile::from_iter(map)
-                        };
+                        let mut profile: UserProfile = existing_data
+                            .map(|data| this.deserialize_json(&data))
+                            .transpose()?
+                            .unwrap_or_default();
+                        profile.merge(profile_update);
 
-                        let serialized = this.serialize_json(&merged)?;
+                        let serialized = this.serialize_json(&profile)?;
                         insert_stmt.execute((&user_id, serialized))?;
                     }
                 }

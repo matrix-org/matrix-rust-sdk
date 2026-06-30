@@ -1109,20 +1109,10 @@ impl_state_store!({
                 let existing: Option<UserProfile> =
                     store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()?;
 
-                let merged = if let Some(existing_profile) = existing {
-                    matrix_sdk_base::store::merge_profile(existing_profile, profile_update.clone())
-                } else {
-                    // TODO: Confirm if this is actually necessary. Related:
-                    // https://github.com/matrix-org/matrix-spec-proposals/pull/4262#discussion_r3466830101
-                    let map: BTreeMap<String, serde_json::Value> = profile_update
-                        .clone()
-                        .into_iter()
-                        .filter(|(_, value)| !value.is_null())
-                        .collect();
-                    UserProfile::from_iter(map)
-                };
+                let mut profile = existing.unwrap_or_default();
+                profile.merge(profile_update.clone());
 
-                store.put(&self.serialize_value(&merged)?).with_key(key).build()?;
+                store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
             }
         }
 

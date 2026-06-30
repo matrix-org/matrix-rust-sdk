@@ -61,7 +61,7 @@ use ruma::{
             redaction::SyncRoomRedactionEvent,
         },
     },
-    profile::UserProfile,
+    profile::UserProfileUpdate,
     serde::Raw,
 };
 use serde::de::DeserializeOwned;
@@ -100,7 +100,7 @@ pub use self::{
         ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent, DraftThumbnail,
         DynStateStore, IncorrectMutexGuardError, IntoStateStore, SaveLockedStateStore, StateStore,
         StateStoreDataKey, StateStoreDataValue, StateStoreExt, SupportedVersionsResponse,
-        ThreadSubscriptionCatchupToken, WellKnownResponse, merge_profile,
+        ThreadSubscriptionCatchupToken, WellKnownResponse,
     },
 };
 
@@ -590,7 +590,7 @@ pub struct StateChanges {
     ///
     /// These follow the MSC4262 update pattern: fields with an explicit `null`
     /// value are removed, while fields that aren't present are left unchanged.
-    pub global_profiles: BTreeMap<OwnedUserId, UserProfile>,
+    pub global_profiles: BTreeMap<OwnedUserId, UserProfileUpdate>,
 }
 
 impl StateChanges {

@@ -37,7 +37,7 @@ use ruma::{
     },
     mxc_uri, owned_event_id, owned_mxc_uri,
     presence::PresenceState,
-    profile::UserProfile,
+    profile::UserProfileUpdate,
     push::Ruleset,
     room_id,
     room_version_rules::AuthorizationRules,
@@ -2159,7 +2159,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut fields = BTreeMap::new();
         fields.insert("displayname".to_owned(), json!("Alice"));
         fields.insert("avatar_url".to_owned(), json!(null));
-        let update = UserProfile::from_iter(fields);
+        let update = UserProfileUpdate::from_iter(fields);
 
         let mut changes = StateChanges::default();
         changes.global_profiles.insert(user_id.to_owned(), update);
@@ -2173,7 +2173,7 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut fields = BTreeMap::new();
         fields.insert("displayname".to_owned(), json!(null));
         fields.insert("avatar_url".to_owned(), json!("mxc://example.com/avatar"));
-        let update2 = UserProfile::from_iter(fields);
+        let update2 = UserProfileUpdate::from_iter(fields);
 
         let mut changes = StateChanges::default();
         changes.global_profiles.insert(user_id.to_owned(), update2);
@@ -2195,11 +2195,11 @@ impl StateStoreIntegrationTests for DynStateStore {
         let mut changes = StateChanges::default();
         changes.global_profiles.insert(
             alice.to_owned(),
-            UserProfile::from_iter([("displayname".to_owned(), json!("Alice"))]),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
         );
         changes.global_profiles.insert(
             bob.to_owned(),
-            UserProfile::from_iter([("displayname".to_owned(), json!("Bob"))]),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Bob"))]),
         );
         self.save_changes(&changes).await?;
 
