@@ -243,7 +243,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         let event_id = deserialized.event_id().to_owned();
         let txn_id = deserialized.transaction_id().map(ToOwned::to_owned);
 
-        let timeline_action = TimelineAction::from_event(
+        let timeline_actions = TimelineAction::from_event(
             deserialized,
             raw_event,
             room_data_provider,
@@ -254,56 +254,53 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         )
         .await;
 
-        match timeline_action {
-            Some(action @ TimelineAction::AddItem { .. })
-            | Some(action @ TimelineAction::HandleAggregation { .. }) => {
-                let encryption_info = event.kind.encryption_info().cloned();
-                let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
+        if timeline_actions.is_empty() {
+            return;
+        }
 
-                let (forwarder, forwarder_profile) =
-                    get_forwarder_info(&event, room_data_provider).await;
+        let encryption_info = event.kind.encryption_info().cloned();
+        let sender_profile = room_data_provider.profile_from_user_id(&sender).await;
 
-                let mut ctx = TimelineEventContext {
-                    sender,
-                    sender_profile,
-                    forwarder,
-                    forwarder_profile,
-                    timestamp,
-                    // These are not used when handling an aggregation.
-                    read_receipts: Default::default(),
-                    is_highlighted: false,
-                    flow: Flow::Remote {
-                        event_id: event_id.clone(),
-                        raw_event: event.raw().clone(),
-                        encryption_info,
-                        txn_id,
-                        position,
-                    },
-                    // This field is not used when handling an aggregation.
-                    should_add_new_items: false,
-                };
+        let (forwarder, forwarder_profile) = get_forwarder_info(&event, room_data_provider).await;
 
-                // FIXME: Continuation of the hackjob to get UTDs for focused timelines
-                // working from `handle_remote_aggregations()`.
-                if let TimelineAction::AddItem { .. } = action
-                    && let TimelineItemPosition::UpdateAt { timeline_item_index } = position
-                    && let Some(event) = self.items.get(timeline_item_index)
-                    && event
-                        .as_event()
-                        .map(|e| {
-                            e.content().is_unable_to_decrypt() && e.event_id() == Some(&event_id)
-                        })
-                        .unwrap_or_default()
-                {
-                    // Except when this is an UTD transitioning into a decrypted event.
-                    ctx.should_add_new_items = true;
-                }
+        let mut ctx = TimelineEventContext {
+            sender,
+            sender_profile,
+            forwarder,
+            forwarder_profile,
+            timestamp,
+            // These are not used when handling an aggregation.
+            read_receipts: Default::default(),
+            is_highlighted: false,
+            flow: Flow::Remote {
+                event_id: event_id.clone(),
+                raw_event: event.raw().clone(),
+                encryption_info,
+                txn_id,
+                position,
+            },
+            // This field is not used when handling an aggregation.
+            should_add_new_items: false,
+        };
 
-                TimelineEventHandler::new(self, &ctx)
-                    .handle_event(date_divider_adjuster, action, None)
-                    .await;
-            }
-            None => {}
+        // FIXME: Continuation of the hackjob to get UTDs for focused timelines
+        // working from `handle_remote_aggregations()`.
+        if let [TimelineAction::AddItem { .. }] = timeline_actions.as_slice()
+            && let TimelineItemPosition::UpdateAt { timeline_item_index } = position
+            && let Some(item) = self.items.get(timeline_item_index)
+            && item
+                .as_event()
+                .map(|e| e.content().is_unable_to_decrypt() && e.event_id() == Some(&event_id))
+                .unwrap_or_default()
+        {
+            // Except when this is an UTD transitioning into a decrypted event.
+            ctx.should_add_new_items = true;
+        }
+
+        for action in timeline_actions {
+            TimelineEventHandler::new(self, &ctx)
+                .handle_event(date_divider_adjuster, action, None)
+                .await;
         }
     }
 
@@ -590,7 +587,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         OwnedUserId,
         MilliSecondsSinceUnixEpoch,
         Option<OwnedTransactionId>,
-        Option<TimelineAction>,
+        Vec<TimelineAction>,
         Option<OwnedEventId>,
         bool,
         bool,
@@ -650,7 +647,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     sender,
                     origin_server_ts,
                     transaction_id,
-                    Some(TimelineAction::failed_to_parse(event_type, deserialization_error)),
+                    vec![TimelineAction::failed_to_parse(event_type, deserialization_error)],
                     None,
                     true,
                     true,
@@ -831,7 +828,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             sender,
             timestamp,
             txn_id,
-            timeline_action,
+            timeline_actions,
             thread_root,
             should_add,
             can_show_read_receipts,
@@ -903,7 +900,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         .await;
 
         // Handle the event to create or update a timeline item.
-        let item_added = if let Some(timeline_action) = timeline_action {
+        let item_added = if !timeline_actions.is_empty() {
             let sender_profile = if let Some(profile) = profiles.get(&sender) {
                 profile.clone()
             } else {
@@ -912,6 +909,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 profile
             };
 
+            let mut item_added = false;
             let ctx = TimelineEventContext {
                 sender,
                 sender_profile,
@@ -930,6 +928,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 } else {
                     Default::default()
                 },
+
                 is_highlighted,
                 flow: Flow::Remote {
                     event_id: event_id.clone(),
@@ -940,10 +939,20 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 },
                 should_add_new_items: should_add,
             };
+            // A recycled timeline ID carries the TimelineUniqueId from a previously
+            // removed item (see VectorDiff::Remove), so that when the same event is
+            // re-added in the same diff batch the UI sees a stable identifier.
+            // It is only applicable when the event produces a single AddItem action;
+            // with multiple actions (e.g. beacon replace) there
+            // is no single item to associate it with, so it's safe to ignore.
+            let recycled_timeline_id = recycled_timeline_id.filter(|_| timeline_actions.len() == 1);
 
-            TimelineEventHandler::new(self, &ctx)
-                .handle_event(date_divider_adjuster, timeline_action, recycled_timeline_id)
-                .await
+            for action in timeline_actions {
+                item_added |= TimelineEventHandler::new(self, &ctx)
+                    .handle_event(date_divider_adjuster, action, recycled_timeline_id.clone())
+                    .await;
+            }
+            item_added
         } else {
             // No item has been added to the timeline.
             false
