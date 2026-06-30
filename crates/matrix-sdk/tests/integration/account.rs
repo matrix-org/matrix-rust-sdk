@@ -322,3 +322,83 @@ async fn test_get_cached_avatar_url() {
     let res_avatar_url = account.get_cached_avatar_url().await.unwrap();
     assert_eq!(res_avatar_url, None);
 }
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_set_status() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::Status)
+        .ok()
+        .mock_once()
+        .named("set org.matrix.msc4426.status profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+    account.set_status("🌴".to_owned(), "Away".to_owned()).await.unwrap();
+}
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_clear_status() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_delete_profile_field(user_id, ProfileFieldName::Status)
+        .ok()
+        .mock_once()
+        .named("delete org.matrix.msc4426.status profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+    account.clear_status().await.unwrap();
+}
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_set_call() {
+    use ruma::{SecondsSinceUnixEpoch, uint};
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    // Two PUTs expected: one with a join ts, one without.
+    server
+        .mock_set_profile_field(user_id, ProfileFieldName::Call)
+        .ok()
+        .expect(2)
+        .named("set org.matrix.msc4426.call profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+    account.set_call(Some(SecondsSinceUnixEpoch(uint!(1_770_140_640)))).await.unwrap();
+    account.set_call(None).await.unwrap();
+}
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_clear_call() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().server_versions(vec![MatrixVersion::V1_16]).build().await;
+    let user_id = client.user_id().unwrap();
+
+    server
+        .mock_delete_profile_field(user_id, ProfileFieldName::Call)
+        .ok()
+        .mock_once()
+        .named("delete org.matrix.msc4426.call profile field")
+        .mount()
+        .await;
+
+    let account = client.account();
+    account.clear_call().await.unwrap();
+}

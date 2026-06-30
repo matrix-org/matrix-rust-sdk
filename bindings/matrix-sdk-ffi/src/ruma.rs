@@ -20,6 +20,8 @@ use std::{
 
 use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
+#[cfg(feature = "unstable-msc4426")]
+use ruma::profile::StatusProfileField;
 use ruma::{
     KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
     OwnedRoomId, OwnedUserId, UInt, UserId, assign,
@@ -217,6 +219,28 @@ impl From<RumaPresenceState> for PresenceState {
             RumaPresenceState::Unavailable => Self::Unavailable,
             _ => Self::default(),
         }
+    }
+}
+
+/// A user-set status (MSC4426 `m.status` profile field value).
+#[cfg(feature = "unstable-msc4426")]
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserStatus {
+    pub emoji: String,
+    pub text: String,
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<UserStatus> for StatusProfileField {
+    fn from(value: UserStatus) -> Self {
+        Self::new(value.text, value.emoji)
+    }
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<StatusProfileField> for UserStatus {
+    fn from(value: StatusProfileField) -> Self {
+        Self { emoji: value.emoji, text: value.text }
     }
 }
 
