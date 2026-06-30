@@ -336,13 +336,36 @@ impl TimelineAction {
                         // beacon_info that was started as live, regardless of whether
                         // the timeout has since expired.
                         if ev.content.live {
-                            vec![Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
-                                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(ev.content)),
-                                reactions: Default::default(),
-                                thread_root: None,
-                                in_reply_to: None,
-                                thread_summary: None,
-                            }))]
+                            let add_item_action =
+                                Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
+                                    kind: MsgLikeKind::LiveLocation(LiveLocationState::new(
+                                        ev.content,
+                                    )),
+                                    reactions: Default::default(),
+                                    thread_root: None,
+                                    in_reply_to: None,
+                                    thread_summary: None,
+                                }));
+                            let handle_aggregation_action = ev.unsigned.prev_content.map(|prev| {
+                                let prev_content = BeaconInfoEventContent::new(
+                                    prev.description,
+                                    prev.timeout,
+                                    false,
+                                    prev.ts,
+                                );
+                                Self::HandleAggregation {
+                                    related_event: ev.event_id.clone(),
+                                    kind: HandleAggregationKind::BeaconStop {
+                                        own_id: TimelineEventItemId::TransactionId(
+                                            TransactionId::new(),
+                                        ),
+                                        content: prev_content,
+                                    },
+                                }
+                            });
+                            let mut actions = vec![add_item_action];
+                            actions.extend(handle_aggregation_action);
+                            actions
                         } else {
                             // A non-live beacon_info is a stop event: it should update the
                             // existing live item from the same sender rather than creating a
