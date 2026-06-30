@@ -4651,7 +4651,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.101",
@@ -8273,8 +8273,7 @@ dependencies = [
 [[package]]
 name = "zxcvbn"
 version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f9eaee90f4a795d1eb4ba6c51e1c1721d4784d550e8efa7b2600f29c867365e0"
+source = "git+https://github.com/shssoichiro/zxcvbn-rs?rev=4e8e784b23541d118800df84feedf8160879d1af#4e8e784b23541d118800df84feedf8160879d1af"
 dependencies = [
  "chrono",
  "fancy-regex 0.18.0",
