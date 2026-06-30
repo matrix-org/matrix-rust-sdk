@@ -15,40 +15,25 @@
 // Password strength estimation is powered by zxcvbn, which evaluates passwords via pattern
 // matching: dictionary words, keyboard walks, repeats, dates, l33t speak, etc.
 //
-// zxcvbn produces its own ranking (VeryWeak–VeryStrong) and a numeric score (log₁₀ of estimated
-// guesses). The caller supplies PasswordStrengthThresholds, which define the minimum score
-// required to achieve each ranking level — each threshold is a floor for that level.
-//
-// The final ranking is min(zxcvbn ranking, threshold-derived ranking). This means:
-// - zxcvbn's pattern penalties are always preserved (it can only pull the ranking down)
-// - the thresholds prevent zxcvbn from awarding rankings that no longer reflect real-world
-//   attack difficulty given modern hardware
+// zxcvbn produces a numeric score (log₁₀ of estimated guesses needed to crack the password),
+// accounting for both brute force and pattern-based attacks — whichever requires fewer guesses.
+// We do not use zxcvbn's own ranking (Score::Zero–Four), because the library was written over
+// a decade ago and its thresholds have not been updated to reflect modern hardware attack rates.
+// Instead, the caller supplies PasswordStrengthThresholds, which define the minimum score
+// required to achieve each ranking level. The final ranking is derived solely from that score
+// against the thresholds, giving callers full control over what constitutes an acceptable password.
 
 use zxcvbn::feedback::{Suggestion as ZxcvbnSuggestion, Warning as ZxcvbnWarning};
 
 /// A ranking representing the estimated strength of a password, ranging from
 /// `VeryWeak` (easily guessable) to `VeryStrong` (highly resistant to attack).
-#[derive(uniffi::Enum, Clone, PartialOrd, Ord, PartialEq, Eq)]
+#[derive(uniffi::Enum)]
 pub enum PasswordStrengthRanking {
     VeryWeak,
     Weak,
     Fair,
     Strong,
     VeryStrong,
-}
-
-impl From<zxcvbn::Score> for PasswordStrengthRanking {
-    fn from(score: zxcvbn::Score) -> Self {
-        match score {
-            zxcvbn::Score::Zero => Self::VeryWeak,
-            zxcvbn::Score::One => Self::Weak,
-            zxcvbn::Score::Two => Self::Fair,
-            zxcvbn::Score::Three => Self::Strong,
-            zxcvbn::Score::Four => Self::VeryStrong,
-            // Score is non-exhaustive; treat any future unknown variant conservatively.
-            _ => Self::VeryWeak,
-        }
-    }
 }
 
 /// A warning explaining what is wrong with the password.
@@ -231,14 +216,42 @@ impl PasswordStrengthEstimator {
         Self { thresholds }
     }
 
+    /// Creates an estimator using zxcvbn's original thresholds.
+    #[uniffi::constructor]
+    pub fn with_zxcvbn_defaults() -> Self {
+        Self {
+            thresholds: PasswordStrengthThresholds {
+                weak: 3.0,      // 10^3
+                fair: 6.0,      // 10^6
+                strong: 8.0,    // 10^8
+                very_strong: 10.0, // 10^10
+            },
+        }
+    }
+
+    /// Creates an estimator using thresholds tuned for modern hardware (2025).
+    /// Values derived from determining entropy from the chart at https://www.hivesystems.com/blog/are-your-passwords-in-the-green
+    #[uniffi::constructor]
+    pub fn with_modern_defaults2025() -> Self {
+        Self {
+            thresholds: PasswordStrengthThresholds {
+                weak: 11.0,
+                fair: 16.5,
+                strong: 22.0,
+                very_strong: 25.5,
+            },
+        }
+    }
+
     /// Estimates the strength of `password`.
     ///
     /// Optionally, pass a list of `user_inputs` (e.g. username, email address)
     /// so that the estimator can penalize passwords that contain personal
     /// information.
     ///
-    /// The returned ranking reflects both the configured thresholds and
-    /// pattern-based penalties, taking whichever is more conservative.
+    /// The returned ranking is derived from the configured thresholds applied
+    /// to the estimated guess count, which already accounts for pattern-based
+    /// attacks.
     pub fn estimate(&self, password: String, user_inputs: Vec<String>) -> PasswordStrengthEstimate {
         let inputs: Vec<&str> = user_inputs.iter().map(String::as_str).collect();
         let entropy = zxcvbn::zxcvbn(&password, &inputs);
@@ -253,9 +266,7 @@ impl PasswordStrengthEstimator {
                 .collect(),
         });
 
-        let zxcvbn_ranking = PasswordStrengthRanking::from(entropy.score());
-        let threshold_ranking = self.thresholds.ranking_for_score(entropy.guesses_log10());
-        let ranking = zxcvbn_ranking.min(threshold_ranking);
+        let ranking = self.thresholds.ranking_for_score(entropy.guesses_log10());
 
         PasswordStrengthEstimate {
             ranking,
