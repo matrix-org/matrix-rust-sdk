@@ -289,6 +289,7 @@ impl TimelineAction {
                         // configured. We treat it the same as any other message-like event.
                         Self::from_content(
                             AnyMessageLikeEventContent::RoomEncrypted(content),
+                            Some(raw_event),
                             in_reply_to,
                             thread_root,
                             thread_summary,
@@ -296,9 +297,13 @@ impl TimelineAction {
                     }
                 }
 
-                Some(content) => {
-                    Self::from_content(content, in_reply_to, thread_root, thread_summary)
-                }
+                Some(content) => Self::from_content(
+                    content,
+                    Some(raw_event),
+                    in_reply_to,
+                    thread_root,
+                    thread_summary,
+                ),
 
                 None => Self::add_item(redacted_message_or_none(ev.event_type())?),
             },
@@ -373,6 +378,7 @@ impl TimelineAction {
     /// or an aggregation) is not supported for this event type.
     pub(super) fn from_content(
         content: AnyMessageLikeEventContent,
+        raw_event: Option<&Raw<AnySyncTimelineEvent>>,
         in_reply_to: Option<InReplyToDetails>,
         thread_root: Option<OwnedEventId>,
         thread_summary: Option<ThreadSummary>,
@@ -477,7 +483,10 @@ impl TimelineAction {
             },
 
             event => {
-                let other = OtherMessageLike { event_type: event.event_type() };
+                let other = OtherMessageLike {
+                    event_type: event.event_type(),
+                    raw_event: raw_event.cloned(),
+                };
 
                 Self::AddItem {
                     content: TimelineItemContent::MsgLike(MsgLikeContent {

@@ -199,6 +199,7 @@ impl TimelineItemContent {
                     None,
                     None,
                     None,
+                    None,
                 ) {
                     TimelineAction::AddItem { content } => Some(content),
                     _ => None,
