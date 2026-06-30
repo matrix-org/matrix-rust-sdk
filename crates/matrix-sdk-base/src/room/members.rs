@@ -31,6 +31,7 @@ use ruma::{
             power_levels::{PowerLevelAction, RoomPowerLevels, UserPowerLevel},
         },
     },
+    profile::{Call, CallProfileField, Status, StatusProfileField, UserProfile},
 };
 use tracing::debug;
 
@@ -111,7 +112,7 @@ impl Room {
         for event in member_events {
             let profile = profiles.remove(event.user_id());
             let presence = presences.remove(event.user_id());
-            members.push(RoomMember::from_parts(event, profile, presence, &room_info))
+            members.push(RoomMember::from_parts(event, profile, None, presence, &room_info))
         }
 
         Ok(members)
@@ -165,7 +166,7 @@ impl Room {
         let display_names = [event.display_name()];
         let room_info = self.member_room_info(&display_names).await?;
 
-        Ok(Some(RoomMember::from_parts(event, profile, presence, &room_info)))
+        Ok(Some(RoomMember::from_parts(event, profile, None, presence, &room_info)))
     }
 
     /// The current `MemberRoomInfo` for this room.
@@ -212,6 +213,10 @@ pub struct RoomMember {
     // Stored in addition to the latest member event overall to get displayname
     // and avatar from, which should be ignored on events sent by others.
     pub(crate) profile: Arc<Option<MinimalRoomMemberEvent>>,
+    // The user's status, taken from their global profile.
+    pub(crate) status: Option<StatusProfileField>,
+    // The user's call indicator, taken from their global profile.
+    pub(crate) call: Option<CallProfileField>,
     #[allow(dead_code)]
     pub(crate) presence: Arc<Option<PresenceEvent>>,
     pub(crate) power_levels: Arc<RoomPowerLevels>,
@@ -225,6 +230,7 @@ impl RoomMember {
     pub(crate) fn from_parts(
         event: MemberEvent,
         profile: Option<MinimalRoomMemberEvent>,
+        global_profile: Option<UserProfile>,
         presence: Option<PresenceEvent>,
         room_info: &MemberRoomInfo<'_>,
     ) -> Self {
@@ -244,9 +250,15 @@ impl RoomMember {
         let is_ignored = ignored_users.as_ref().is_some_and(|s| s.contains(event.user_id()));
         let is_service_member = service_members.as_ref().is_some_and(|s| s.contains(&user_id));
 
+        // Extract global profile fields, swallowing any deserialization errors.
+        let status = global_profile.as_ref().and_then(|p| p.get_static::<Status>().ok().flatten());
+        let call = global_profile.as_ref().and_then(|p| p.get_static::<Call>().ok().flatten());
+
         Self {
             event: event.into(),
             profile: profile.into(),
+            status,
+            call,
             presence: presence.into(),
             power_levels: power_levels.clone(),
             max_power_level: *max_power_level,
@@ -290,6 +302,28 @@ impl RoomMember {
         } else {
             self.event.avatar_url()
         }
+    }
+
+    /// Get the user's status, if any.
+    ///
+    /// This is the user-set status (emoji + text) taken from the user's global
+    /// profile.
+    ///
+    /// Global profiles are only populated when syncing via sliding sync with
+    /// the profiles extension enabled; this is always `None` under sync v2.
+    pub fn status(&self) -> Option<&StatusProfileField> {
+        self.status.as_ref()
+    }
+
+    /// Get the user's call indicator, if any.
+    ///
+    /// This indicates the user is currently in a call (and optionally how long
+    /// they've been in it). It is taken from the user's global profile.
+    ///
+    /// Global profiles are only populated when syncing via sliding sync with
+    /// the profiles extension enabled; this is always `None` under sync v2.
+    pub fn call(&self) -> Option<&CallProfileField> {
+        self.call.as_ref()
     }
 
     /// Get the normalized power level of this member.
@@ -509,7 +543,13 @@ pub fn normalize_power_level(power_level: Int, max_power_level: i64) -> Int {
 
 #[cfg(test)]
 mod tests {
+    use matrix_sdk_common::ROOM_VERSION_RULES_FALLBACK;
+    use matrix_sdk_test::event_factory::EventFactory;
     use proptest::prelude::*;
+    use ruma::{
+        SecondsSinceUnixEpoch, events::room::power_levels::RoomPowerLevelsSource,
+        profile::ProfileFieldValue, user_id,
+    };
 
     use super::*;
 
@@ -556,5 +596,49 @@ mod tests {
         let normalized = i64::from(normalized);
         assert!(normalized >= 0);
         assert!(normalized <= 100);
+    }
+
+    #[test]
+    fn test_global_profile_fields() {
+        let user_id = user_id!("@alice:example.org");
+        let event = MemberEvent::Sync(EventFactory::new().sender(user_id).member(user_id).into());
+        let room_info = MemberRoomInfo {
+            power_levels: Arc::new(RoomPowerLevels::new(
+                RoomPowerLevelsSource::None,
+                &ROOM_VERSION_RULES_FALLBACK.authorization,
+                std::iter::empty::<OwnedUserId>(),
+            )),
+            max_power_level: 100,
+            users_display_names: HashMap::new(),
+            ignored_users: None,
+            service_members: None,
+        };
+
+        // Without a global profile, neither field is set.
+        let member = RoomMember::from_parts(event.clone(), None, None, None, &room_info);
+        assert!(member.status().is_none());
+        assert!(member.call().is_none());
+
+        // A global profile carrying both m.status and m.call is extracted into
+        // both fields.
+        let mut call = CallProfileField::new();
+        call.call_joined_ts = Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()));
+        let global_profile = UserProfile::from_iter([
+            ProfileFieldValue::Status(StatusProfileField::new(
+                "Working".to_owned(),
+                "💻".to_owned(),
+            )),
+            ProfileFieldValue::Call(call),
+        ]);
+
+        let member = RoomMember::from_parts(event, None, Some(global_profile), None, &room_info);
+
+        let status = member.status().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
+        assert_eq!(
+            member.call().expect("call is set").call_joined_ts,
+            Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()))
+        );
     }
 }
