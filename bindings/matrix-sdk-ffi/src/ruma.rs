@@ -20,8 +20,6 @@ use std::{
 
 use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
-#[cfg(feature = "unstable-msc4426")]
-use ruma::profile::StatusProfileField;
 use ruma::{
     KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
     OwnedRoomId, OwnedUserId, UInt, UserId, assign,
@@ -86,6 +84,11 @@ use ruma::{
         Ruleset as RumaRuleset, SimplePushRule as RumaSimplePushRule,
     },
     serde::JsonObject,
+};
+#[cfg(feature = "unstable-msc4426")]
+use ruma::{
+    SecondsSinceUnixEpoch,
+    profile::{CallProfileField, StatusProfileField},
 };
 use tracing::info;
 
@@ -241,6 +244,34 @@ impl From<UserStatus> for StatusProfileField {
 impl From<StatusProfileField> for UserStatus {
     fn from(value: StatusProfileField) -> Self {
         Self { emoji: value.emoji, text: value.text }
+    }
+}
+
+/// The user's call indicator (MSC4426 `m.call` profile field value).
+///
+/// Presence of a `UserCall` value means the user is in a call. The optional
+/// `call_joined_ts` is the Unix-epoch seconds when they joined, if known.
+#[cfg(feature = "unstable-msc4426")]
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserCall {
+    pub call_joined_ts: Option<u64>,
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<CallProfileField> for UserCall {
+    fn from(value: CallProfileField) -> Self {
+        Self { call_joined_ts: value.call_joined_ts.map(|ts| u64::from(ts.get())) }
+    }
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<UserCall> for CallProfileField {
+    fn from(value: UserCall) -> Self {
+        let mut field = CallProfileField::new();
+        field.call_joined_ts = value
+            .call_joined_ts
+            .map(|secs| SecondsSinceUnixEpoch(UInt::try_from(secs).unwrap_or_default()));
+        field
     }
 }
 
