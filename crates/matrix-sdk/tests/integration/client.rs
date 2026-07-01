@@ -1916,7 +1916,12 @@ async fn test_server_vendor_info() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
-    // Mock the federation version endpoint
+    // With unstable-msc4383 on, server_vendor_info reads /versions first; mock
+    // it as Ok without the MSC4383 server object so the federation fallback
+    // path is the one under test.
+    #[cfg(feature = "unstable-msc4383")]
+    server.mock_versions().ok().mount().await;
+
     server.mock_federation_version().ok("Synapse", "1.70.0").mount().await;
 
     let server_info = client.server_vendor_info(None).await.unwrap();
@@ -1957,12 +1962,108 @@ async fn test_server_vendor_info_with_missing_fields() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;
 
+    // With unstable-msc4383 on, /versions is the primary path; mock it as Ok
+    // without the MSC4383 server object so we fall back to federation.
+    #[cfg(feature = "unstable-msc4383")]
+    server.mock_versions().ok().mount().await;
+
     // Mock the federation version endpoint with missing fields
     server.mock_federation_version().ok_empty().mount().await;
 
     let server_info = client.server_vendor_info(None).await.unwrap();
 
     // Should use defaults for missing fields
+    assert_eq!(server_info.server_name, "unknown");
+    assert_eq!(server_info.version, "unknown");
+}
+
+#[cfg(feature = "unstable-msc4383")]
+#[async_test]
+async fn test_server_vendor_info_uses_versions_when_present() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_versions().with_server_info("Tuwunel", "1.6.2").ok().mount().await;
+
+    let server_info = client.server_vendor_info(None).await.unwrap();
+
+    assert_eq!(server_info.server_name, "Tuwunel");
+    assert_eq!(server_info.version, "1.6.2");
+}
+
+#[cfg(all(feature = "unstable-msc4383", feature = "federation-api"))]
+#[async_test]
+async fn test_server_vendor_info_falls_back_to_federation() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_versions().ok().mount().await;
+    server.mock_federation_version().ok("Synapse", "1.70.0").mount().await;
+
+    let server_info = client.server_vendor_info(None).await.unwrap();
+
+    assert_eq!(server_info.server_name, "Synapse");
+    assert_eq!(server_info.version, "1.70.0");
+}
+
+#[cfg(feature = "unstable-msc4383")]
+#[async_test]
+async fn test_server_vendor_info_with_partial_msc4383_fields() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_versions().with_server_info_partial(Some("Tuwunel"), None).ok().mount().await;
+
+    let server_info = client.server_vendor_info(None).await.unwrap();
+
+    assert_eq!(server_info.server_name, "Tuwunel");
+    assert_eq!(server_info.version, "unknown");
+}
+
+#[cfg(feature = "unstable-msc4383")]
+#[async_test]
+async fn test_server_vendor_info_with_empty_msc4383_object() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Empty `server: {}` is treated as a present-but-empty advertisement, not
+    // as absent; the federation fallback (if compiled in) is not consulted.
+    server.mock_versions().with_server_info_partial(None, None).ok().mount().await;
+
+    let server_info = client.server_vendor_info(None).await.unwrap();
+
+    assert_eq!(server_info.server_name, "unknown");
+    assert_eq!(server_info.version, "unknown");
+}
+
+#[cfg(feature = "unstable-msc4383")]
+#[async_test]
+async fn test_server_vendor_info_propagates_versions_error() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    server.mock_versions().error500().mount().await;
+
+    // Even with the federation fallback compiled in, an error on the
+    // MSC4383 read path must not be silently swallowed.
+    client
+        .server_vendor_info(Some(RequestConfig::new().disable_retry()))
+        .await
+        .expect_err("server_vendor_info should propagate transport errors on /versions");
+}
+
+#[cfg(all(feature = "unstable-msc4383", not(feature = "federation-api")))]
+#[async_test]
+async fn test_server_vendor_info_unknown_without_federation_fallback() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // /versions returns Ok but no MSC4383 server object; with federation-api
+    // disabled there is no fallback, so the result is the sentinel "unknown".
+    server.mock_versions().ok().mount().await;
+
+    let server_info = client.server_vendor_info(None).await.unwrap();
+
     assert_eq!(server_info.server_name, "unknown");
     assert_eq!(server_info.version, "unknown");
 }
