@@ -33,6 +33,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
     },
+    profile::UserProfile,
     serde::Raw,
     time::Instant,
 };
@@ -93,6 +94,7 @@ struct MemoryStoreInner {
     seen_knock_requests: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, OwnedUserId>>,
     thread_subscriptions: BTreeMap<OwnedRoomId, BTreeMap<OwnedEventId, StoredThreadSubscription>>,
     thread_subscriptions_catchup_tokens: Option<Vec<ThreadSubscriptionCatchupToken>>,
+    global_profiles: HashMap<OwnedUserId, UserProfile>,
     homeserver_capabilities: Option<TtlValue<Capabilities>>,
 }
 
@@ -535,6 +537,12 @@ impl StateStore for MemoryStore {
                     }
                 }
             }
+        }
+
+        for (user_id, profile_update) in &changes.global_profiles {
+            let mut profile = inner.global_profiles.get(user_id).cloned().unwrap_or_default();
+            profile.merge(profile_update.clone());
+            inner.global_profiles.insert(user_id.clone(), profile);
         }
 
         debug!("Saved changes in {:?}", now.elapsed());
@@ -1075,6 +1083,27 @@ impl StateStore for MemoryStore {
         }
 
         Ok(())
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(inner.global_profiles.get(user_id).cloned())
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        Ok(user_ids
+            .iter()
+            .filter_map(|user_id| {
+                inner.global_profiles.get(user_id).map(|profile| (&**user_id, profile.clone()))
+            })
+            .collect())
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

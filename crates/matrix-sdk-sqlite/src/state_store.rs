@@ -34,6 +34,7 @@ use ruma::{
             member::{StrippedRoomMemberEvent, SyncRoomMemberEvent},
         },
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use rusqlite::{OptionalExtension, Transaction};
@@ -68,6 +69,7 @@ mod keys {
     pub const SEND_QUEUE: &str = "send_queue_events";
     pub const DEPENDENTS_SEND_QUEUE: &str = "dependent_send_queue_events";
     pub const THREAD_SUBSCRIPTIONS: &str = "thread_subscriptions";
+    pub const GLOBAL_PROFILES: &str = "global_profiles";
 }
 
 /// The filename used for the SQLITE database file used by the state store.
@@ -485,6 +487,22 @@ impl SqliteStateStore {
         }
 
         if to == Some(15) {
+            return Ok(());
+        }
+
+        if from < 16 {
+            debug!("Upgrading database to version 16");
+            conn.with_transaction(move |txn| {
+                // Run the migration.
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/014_global_profiles.sql"
+                ))?;
+                txn.set_db_version(16)
+            })
+            .await?;
+        }
+
+        if to == Some(16) {
             return Ok(());
         }
 
@@ -1020,6 +1038,26 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         .await
     }
 
+    async fn get_global_profiles(&self, user_ids: Vec<Key>) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let user_ids_length = user_ids.len();
+
+        self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
+            let sql_params = repeat_vars(user_ids.len());
+            let sql = format!(
+                "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({sql_params})"
+            );
+
+            let params = rusqlite::params_from_iter(user_ids);
+
+            Ok(txn
+                .prepare(&sql)?
+                .query(params)?
+                .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                .collect::<Result<_, _>>()?)
+        })
+        .await
+    }
+
     async fn get_user_ids(&self, room_id: Key, memberships: Vec<Key>) -> Result<Vec<Vec<u8>>> {
         let res = if memberships.is_empty() {
             self.prepare("SELECT data FROM member WHERE room_id = ?", |mut stmt| {
@@ -1279,6 +1317,7 @@ impl StateStore for SqliteStateStore {
                     redactions,
                     stripped_state,
                     ambiguity_maps,
+                    global_profiles,
                 } = changes;
 
                 if let Some(sync_token) = sync_token {
@@ -1560,6 +1599,30 @@ impl StateStore for SqliteStateStore {
                             // We only create new buckets with the normalized display name.
                             txn.set_display_name(&room_id, &encoded_name, &data)?;
                         }
+                    }
+                }
+
+                if !global_profiles.is_empty() {
+                    let mut select_stmt = txn.prepare_cached(
+                        "SELECT profile_data FROM global_profiles WHERE user_id = ?",
+                    )?;
+                    let mut insert_stmt = txn.prepare_cached(
+                        "INSERT OR REPLACE INTO global_profiles (user_id, profile_data) VALUES (?, ?)",
+                    )?;
+
+                    for (user_id, profile_update) in global_profiles {
+                        let user_id = this.encode_key(keys::GLOBAL_PROFILES, &user_id);
+                        let existing_data: Option<Vec<u8>> =
+                            select_stmt.query_row([&user_id], |row| row.get(0)).optional()?;
+
+                        let mut profile: UserProfile = existing_data
+                            .map(|data| this.deserialize_json(&data))
+                            .transpose()?
+                            .unwrap_or_default();
+                        profile.merge(profile_update);
+
+                        let serialized = this.serialize_json(&profile)?;
+                        insert_stmt.execute((&user_id, serialized))?;
                     }
                 }
 
@@ -2385,6 +2448,50 @@ impl StateStore for SqliteStateStore {
             .await?;
 
         Ok(())
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.read()
+            .await?
+            .get_global_profiles(vec![self.encode_key(keys::GLOBAL_PROFILES, user_id)])
+            .await?
+            .into_iter()
+            .next()
+            .map(|(_, data)| self.deserialize_json(&data))
+            .transpose()
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        if user_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let mut user_ids_map = user_ids
+            .iter()
+            .map(|u| (self.encode_key(keys::GLOBAL_PROFILES, u), u.as_ref()))
+            .collect::<BTreeMap<_, _>>();
+        let user_ids = user_ids_map.keys().cloned().collect();
+
+        self.read()
+            .await?
+            .get_global_profiles(user_ids)
+            .await?
+            .into_iter()
+            .map(|(user_id, data)| {
+                Ok((
+                    user_ids_map
+                        .remove(user_id.as_slice())
+                        .expect("returned user IDs were requested"),
+                    self.deserialize_json(&data)?,
+                ))
+            })
+            .collect()
     }
 
     async fn optimize(&self) -> Result<(), Self::Error> {

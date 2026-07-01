@@ -28,7 +28,7 @@ use ruma::{
     EventId, OwnedDeviceId, OwnedMxcUri, OwnedUserId, RoomId, TransactionId,
     api::client::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
-        delayed_events::{self, update_delayed_event::unstable::UpdateAction},
+        delayed_events::{self, update_delayed_event::UpdateAction},
         filter::RoomEventFilter,
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
@@ -219,8 +219,8 @@ impl MatrixDriver {
         &self,
         delay_id: String,
         action: UpdateAction,
-    ) -> Result<delayed_events::update_delayed_event::unstable::Response> {
-        let r = delayed_events::update_delayed_event::unstable::Request::new(delay_id, action);
+    ) -> Result<delayed_events::update_delayed_event::unstable_v1::Response> {
+        let r = delayed_events::update_delayed_event::unstable_v1::Request::new(delay_id, action);
         self.room.client.send(r).await.map_err(|error| Error::Http(Box::new(error)))
     }
 

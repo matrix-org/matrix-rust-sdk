@@ -317,7 +317,7 @@ impl MatrixDriverRequest for SendToDeviceRequest {
 /// and `action`. Defined by [MSC4157](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 #[derive(Deserialize, Debug, Clone)]
 pub(crate) struct UpdateDelayedEventRequest {
-    pub(crate) action: update_delayed_event::unstable::UpdateAction,
+    pub(crate) action: update_delayed_event::UpdateAction,
     pub(crate) delay_id: String,
 }
 
@@ -328,10 +328,10 @@ impl From<UpdateDelayedEventRequest> for MatrixDriverRequestData {
 }
 
 impl MatrixDriverRequest for UpdateDelayedEventRequest {
-    type Response = update_delayed_event::unstable::Response;
+    type Response = update_delayed_event::unstable_v1::Response;
 }
 
-impl FromMatrixDriverResponse for update_delayed_event::unstable::Response {
+impl FromMatrixDriverResponse for update_delayed_event::unstable_v1::Response {
     fn from_response(ev: MatrixDriverResponse) -> Option<Self> {
         match ev {
             MatrixDriverResponse::DelayedEventUpdated(response) => Some(response),
