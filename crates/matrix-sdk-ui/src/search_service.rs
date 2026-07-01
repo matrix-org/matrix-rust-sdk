@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! A global, reactive search service.
+//! A reactive search service.
 //!
 //! [`SearchService`] aggregates results of different kinds into a single
 //! reactive, paginated list of typed [`ResultType`]s. Call
@@ -103,7 +103,7 @@ impl MessageResult {
     }
 }
 
-/// A global, reactive, paginated search across all the user's data.
+/// A reactive, paginated search across all the user's data.
 pub struct SearchService {
     /// The client used to run searches and resolve their results.
     client: Client,

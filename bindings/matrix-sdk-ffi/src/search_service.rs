@@ -33,9 +33,9 @@ use crate::{
 
 #[matrix_sdk_ffi_macros::export]
 impl Client {
-    /// Create a global search service.
+    /// Create a search service.
     ///
-    /// A global search aggregates results of different kinds (currently only
+    /// The search service aggregates results of different kinds (currently only
     /// messages) into a single reactive, paginated list of typed
     /// [`SearchResult`]s. Call [`SearchService::set_query`] to start or update
     /// the search, then [`SearchService::paginate`] to load more results.
