@@ -26,7 +26,7 @@ mod room_preview;
 mod ruma;
 mod runtime;
 #[cfg(feature = "experimental-search")]
-mod search;
+mod search_service;
 mod session_verification;
 mod spaces;
 mod store;
