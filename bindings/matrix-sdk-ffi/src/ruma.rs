@@ -85,6 +85,11 @@ use ruma::{
     },
     serde::JsonObject,
 };
+#[cfg(feature = "unstable-msc4426")]
+use ruma::{
+    SecondsSinceUnixEpoch,
+    profile::{CallProfileField, StatusProfileField},
+};
 use tracing::info;
 
 use crate::{
@@ -217,6 +222,56 @@ impl From<RumaPresenceState> for PresenceState {
             RumaPresenceState::Unavailable => Self::Unavailable,
             _ => Self::default(),
         }
+    }
+}
+
+/// A user-set status (MSC4426 `m.status` profile field value).
+#[cfg(feature = "unstable-msc4426")]
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserStatus {
+    pub emoji: String,
+    pub text: String,
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<UserStatus> for StatusProfileField {
+    fn from(value: UserStatus) -> Self {
+        Self::new(value.text, value.emoji)
+    }
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<StatusProfileField> for UserStatus {
+    fn from(value: StatusProfileField) -> Self {
+        Self { emoji: value.emoji, text: value.text }
+    }
+}
+
+/// The user's call indicator (MSC4426 `m.call` profile field value).
+///
+/// Presence of a `UserCall` value means the user is in a call. The optional
+/// `call_joined_ts` is the Unix-epoch seconds when they joined, if known.
+#[cfg(feature = "unstable-msc4426")]
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserCall {
+    pub call_joined_ts: Option<u64>,
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<CallProfileField> for UserCall {
+    fn from(value: CallProfileField) -> Self {
+        Self { call_joined_ts: value.call_joined_ts.map(|ts| u64::from(ts.get())) }
+    }
+}
+
+#[cfg(feature = "unstable-msc4426")]
+impl From<UserCall> for CallProfileField {
+    fn from(value: UserCall) -> Self {
+        let mut field = CallProfileField::new();
+        field.call_joined_ts = value
+            .call_joined_ts
+            .map(|secs| SecondsSinceUnixEpoch(UInt::try_from(secs).unwrap_or_default()));
+        field
     }
 }
 

@@ -24,7 +24,7 @@ crate-type = [
 ]
 
 [features]
-default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search"]
+default = ["bundled-sqlite", "unstable-msc4274", "unstable-msc4426", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search"]
 experimental-search = ["matrix-sdk/experimental-search"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
@@ -33,6 +33,7 @@ bundled-sqlite = ["sqlite", "matrix-sdk/bundled-sqlite"]
 # Use IndexedDB for the session storage.
 indexeddb = ["matrix-sdk/indexeddb"]
 unstable-msc4274 = ["matrix-sdk-ui/unstable-msc4274"]
+unstable-msc4426 = ["matrix-sdk/unstable-msc4426"]
 # Required when targeting a Javascript environment, like Wasm in a browser.
 js = ["matrix-sdk-ui/js"]
 # Enable sentry error monitoring, not compatible with Wasm platforms.
@@ -88,6 +89,8 @@ ruma = { workspace = true, features = [
     "unstable-msc2545",
     # Room language event type
     "unstable-msc4334",
+    # User status profile fields (m.status, m.call).
+    "unstable-msc4426",
     "unstable-uniffi",
 ] }
 serde.workspace = true
