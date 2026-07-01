@@ -12,16 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Password strength estimation is powered by zxcvbn, which evaluates passwords via pattern
-// matching: dictionary words, keyboard walks, repeats, dates, l33t speak, etc.
+// Password strength estimation is powered by zxcvbn, which evaluates passwords
+// via pattern matching: dictionary words, keyboard walks, repeats, dates, l33t
+// speak, etc.
 //
-// zxcvbn produces a numeric score (log₁₀ of estimated guesses needed to crack the password),
-// accounting for both brute force and pattern-based attacks — whichever requires fewer guesses.
-// We do not use zxcvbn's own ranking (Score::Zero–Four), because the library was written over
-// a decade ago and its thresholds have not been updated to reflect modern hardware attack rates.
-// Instead, the caller supplies PasswordStrengthThresholds, which define the minimum score
-// required to achieve each ranking level. The final ranking is derived solely from that score
-// against the thresholds, giving callers full control over what constitutes an acceptable password.
+// zxcvbn produces a numeric score (log₁₀ of estimated guesses needed to crack
+// the password), accounting for both brute force and pattern-based attacks —
+// whichever requires fewer guesses. We do not use zxcvbn's own ranking
+// (Score::Zero–Four), because the library was written over a decade ago and its
+// thresholds have not been updated to reflect modern hardware attack rates.
+// Instead, the caller supplies PasswordStrengthThresholds, which define the
+// minimum score required to achieve each ranking level. The final ranking is
+// derived solely from that score against the thresholds, giving callers full
+// control over what constitutes an acceptable password.
 
 use zxcvbn::feedback::{Suggestion as ZxcvbnSuggestion, Warning as ZxcvbnWarning};
 
@@ -221,9 +224,9 @@ impl PasswordStrengthEstimator {
     pub fn with_zxcvbn_defaults() -> Self {
         Self {
             thresholds: PasswordStrengthThresholds {
-                weak: 3.0,      // 10^3
-                fair: 6.0,      // 10^6
-                strong: 8.0,    // 10^8
+                weak: 3.0,         // 10^3
+                fair: 6.0,         // 10^6
+                strong: 8.0,       // 10^8
                 very_strong: 10.0, // 10^10
             },
         }
@@ -278,10 +281,11 @@ impl PasswordStrengthEstimator {
 }
 
 #[cfg(test)]
-// These tests are to cover our barrier — threshold logic and data passthrough — not zxcvbn's internals.
-// We verify that our ranking derivation is correct, that zxcvbn output (score, feedback,
-// user input penalties) is correctly forwarded, and that threshold configuration produces
-// the expected ranking behavior. We do not test zxcvbn's pattern detection or scoring logic.
+// These tests are to cover our barrier — threshold logic and data passthrough —
+// not zxcvbn's internals. We verify that our ranking derivation is correct,
+// that zxcvbn output (score, feedback, user input penalties) is correctly
+// forwarded, and that threshold configuration produces the expected ranking
+// behavior. We do not test zxcvbn's pattern detection or scoring logic.
 mod tests {
     use super::*;
 
@@ -292,18 +296,18 @@ mod tests {
         let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
 
         let cases: &[(&str, PasswordStrengthRanking)] = &[
-            ("password",                                PasswordStrengthRanking::VeryWeak),
-            ("123456",                                  PasswordStrengthRanking::VeryWeak),
-            ("15",                                      PasswordStrengthRanking::VeryWeak),
-            ("154",                                     PasswordStrengthRanking::VeryWeak),
-            ("hunter2",                                 PasswordStrengthRanking::Weak),
-            ("qwerty2025",                              PasswordStrengthRanking::Weak),
-            ("foo bar",                                 PasswordStrengthRanking::Fair),
-            ("March212024!",                            PasswordStrengthRanking::Strong),
-            ("Tr0ub4dor&3",                             PasswordStrengthRanking::VeryStrong),
-            ("correct horse battery staple",            PasswordStrengthRanking::VeryStrong),
-            ("correcthorsebatterystaple!extra",         PasswordStrengthRanking::VeryStrong),
-            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA",          PasswordStrengthRanking::VeryStrong),
+            ("password", PasswordStrengthRanking::VeryWeak),
+            ("123456", PasswordStrengthRanking::VeryWeak),
+            ("15", PasswordStrengthRanking::VeryWeak),
+            ("154", PasswordStrengthRanking::VeryWeak),
+            ("hunter2", PasswordStrengthRanking::Weak),
+            ("qwerty2025", PasswordStrengthRanking::Weak),
+            ("foo bar", PasswordStrengthRanking::Fair),
+            ("March212024!", PasswordStrengthRanking::Strong),
+            ("Tr0ub4dor&3", PasswordStrengthRanking::VeryStrong),
+            ("correct horse battery staple", PasswordStrengthRanking::VeryStrong),
+            ("correcthorsebatterystaple!extra", PasswordStrengthRanking::VeryStrong),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA", PasswordStrengthRanking::VeryStrong),
         ];
 
         for (pw, expected_ranking) in cases {
@@ -323,18 +327,18 @@ mod tests {
         });
 
         let cases: &[(&str, PasswordStrengthRanking)] = &[
-            ("password",                                PasswordStrengthRanking::VeryWeak),
-            ("123456",                                  PasswordStrengthRanking::VeryWeak),
-            ("15",                                      PasswordStrengthRanking::Weak),
-            ("154",                                     PasswordStrengthRanking::Fair),
-            ("hunter2",                                 PasswordStrengthRanking::Strong),
-            ("qwerty2025",                              PasswordStrengthRanking::VeryStrong),
-            ("foo bar",                                 PasswordStrengthRanking::VeryStrong),
-            ("March212024!",                            PasswordStrengthRanking::VeryStrong),
-            ("Tr0ub4dor&3",                             PasswordStrengthRanking::VeryStrong),
-            ("correct horse battery staple",            PasswordStrengthRanking::VeryStrong),
-            ("correcthorsebatterystaple!extra",         PasswordStrengthRanking::VeryStrong),
-            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA",          PasswordStrengthRanking::VeryStrong),
+            ("password", PasswordStrengthRanking::VeryWeak),
+            ("123456", PasswordStrengthRanking::VeryWeak),
+            ("15", PasswordStrengthRanking::Weak),
+            ("154", PasswordStrengthRanking::Fair),
+            ("hunter2", PasswordStrengthRanking::Strong),
+            ("qwerty2025", PasswordStrengthRanking::VeryStrong),
+            ("foo bar", PasswordStrengthRanking::VeryStrong),
+            ("March212024!", PasswordStrengthRanking::VeryStrong),
+            ("Tr0ub4dor&3", PasswordStrengthRanking::VeryStrong),
+            ("correct horse battery staple", PasswordStrengthRanking::VeryStrong),
+            ("correcthorsebatterystaple!extra", PasswordStrengthRanking::VeryStrong),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA", PasswordStrengthRanking::VeryStrong),
         ];
 
         for (pw, expected_ranking) in cases {
@@ -354,18 +358,18 @@ mod tests {
         });
 
         let cases: &[(&str, PasswordStrengthRanking)] = &[
-            ("password",                                PasswordStrengthRanking::VeryWeak),
-            ("123456",                                  PasswordStrengthRanking::VeryWeak),
-            ("15",                                      PasswordStrengthRanking::VeryWeak),
-            ("154",                                     PasswordStrengthRanking::VeryWeak),
-            ("hunter2",                                 PasswordStrengthRanking::VeryWeak),
-            ("qwerty2025",                              PasswordStrengthRanking::VeryWeak),
-            ("foo bar",                                 PasswordStrengthRanking::Weak),
-            ("March212024!",                            PasswordStrengthRanking::Weak),
-            ("Tr0ub4dor&3",                             PasswordStrengthRanking::Fair),
-            ("correct horse battery staple",            PasswordStrengthRanking::VeryStrong),
-            ("correcthorsebatterystaple!extra",         PasswordStrengthRanking::VeryStrong),
-            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA",          PasswordStrengthRanking::VeryStrong),
+            ("password", PasswordStrengthRanking::VeryWeak),
+            ("123456", PasswordStrengthRanking::VeryWeak),
+            ("15", PasswordStrengthRanking::VeryWeak),
+            ("154", PasswordStrengthRanking::VeryWeak),
+            ("hunter2", PasswordStrengthRanking::VeryWeak),
+            ("qwerty2025", PasswordStrengthRanking::VeryWeak),
+            ("foo bar", PasswordStrengthRanking::Weak),
+            ("March212024!", PasswordStrengthRanking::Weak),
+            ("Tr0ub4dor&3", PasswordStrengthRanking::Fair),
+            ("correct horse battery staple", PasswordStrengthRanking::VeryStrong),
+            ("correcthorsebatterystaple!extra", PasswordStrengthRanking::VeryStrong),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA", PasswordStrengthRanking::VeryStrong),
         ];
 
         for (pw, expected_ranking) in cases {
@@ -381,8 +385,10 @@ mod tests {
         let password = "michael1985".to_string();
 
         let without_inputs = estimator.estimate(password.clone(), vec![]);
-        let with_inputs = estimator.estimate(password.clone(), vec!["michael".to_string(), "1985".to_string()]);
-        let with_nonmatching_inputs = estimator.estimate(password, vec!["foo".to_string(), "blar".to_string()]);
+        let with_inputs =
+            estimator.estimate(password.clone(), vec!["michael".to_string(), "1985".to_string()]);
+        let with_nonmatching_inputs =
+            estimator.estimate(password, vec!["foo".to_string(), "blar".to_string()]);
 
         assert!(
             with_inputs.score <= without_inputs.score,
