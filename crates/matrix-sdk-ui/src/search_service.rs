@@ -104,12 +104,19 @@ impl MessageResult {
 
 /// A global, reactive, paginated search across all the user's data.
 pub struct SearchService {
+    /// The client used to run searches and resolve their results.
     client: Client,
 
+    /// The current query's result stream, set by [`Self::set_query`] and pulled
+    /// one page at a time by [`Self::paginate`]. `None` until a query is set.
     stream: AsyncMutex<Option<ResultsStream>>,
 
+    /// The current pagination state, observable via
+    /// [`Self::subscribe_to_pagination_state_updates`].
     pagination_state: SharedObservable<PaginationState>,
 
+    /// The accumulated results across the pages loaded so far, observable via
+    /// [`Self::subscribe_to_results`].
     results: AsyncMutex<ObservableVector<ResultType>>,
 }
 
