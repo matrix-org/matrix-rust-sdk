@@ -17,9 +17,9 @@ use std::{fmt::Debug, sync::Arc};
 use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
-use matrix_sdk_ui::search::{
-    SearchService as UISearchService, SearchServiceMessageResult as UISearchServiceMessageResult,
-    SearchServicePaginationState, SearchServiceResult as UISearchServiceResult,
+use matrix_sdk_ui::search_service::{
+    MessageResult as UIMessageResult, PaginationState as UIPaginationState,
+    ResultType as UIResultType, SearchService as UISearchService,
 };
 
 use crate::{
@@ -67,7 +67,7 @@ impl SearchService {
 
     /// Returns the current pagination state.
     pub fn pagination_state(&self) -> SearchServicePaginationState {
-        self.inner.pagination_state()
+        self.inner.pagination_state().into()
     }
 
     /// Subscribe to pagination state updates.
@@ -81,7 +81,7 @@ impl SearchService {
             pin_mut!(pagination_state);
 
             while let Some(state) = pagination_state.next().await {
-                listener.on_update(state);
+                listener.on_update(state.into());
             }
         })))
     }
@@ -105,6 +105,25 @@ impl SearchService {
     }
 }
 
+/// Whether the search service is currently loading a page of results.
+#[derive(uniffi::Enum)]
+pub enum SearchServicePaginationState {
+    /// Not currently paginating. `end_reached` is `true` once every source has
+    /// been exhausted for the current query.
+    Idle { end_reached: bool },
+    /// A page of results is currently being loaded.
+    Loading,
+}
+
+impl From<UIPaginationState> for SearchServicePaginationState {
+    fn from(state: UIPaginationState) -> Self {
+        match state {
+            UIPaginationState::Idle { end_reached } => Self::Idle { end_reached },
+            UIPaginationState::Loading => Self::Loading,
+        }
+    }
+}
+
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait SearchServicePaginationStateListener: SendOutsideWasm + SyncOutsideWasm + Debug {
     fn on_update(&self, pagination_state: SearchServicePaginationState);
@@ -122,10 +141,10 @@ pub enum SearchServiceResult {
     Message { room_id: String, result: MessageSearchResult },
 }
 
-impl From<UISearchServiceResult> for SearchServiceResult {
-    fn from(result: UISearchServiceResult) -> Self {
+impl From<UIResultType> for SearchServiceResult {
+    fn from(result: UIResultType) -> Self {
         match result {
-            UISearchServiceResult::Message(message) => {
+            UIResultType::Message(message) => {
                 let room_id = message.room_id.to_string();
                 Self::Message { room_id, result: message.into() }
             }
@@ -143,8 +162,8 @@ pub struct MessageSearchResult {
     timestamp: Timestamp,
 }
 
-impl From<UISearchServiceMessageResult> for MessageSearchResult {
-    fn from(result: UISearchServiceMessageResult) -> Self {
+impl From<UIMessageResult> for MessageSearchResult {
+    fn from(result: UIMessageResult) -> Self {
         Self {
             event_id: result.event_id.to_string(),
             sender: result.sender.to_string(),
@@ -170,8 +189,8 @@ pub enum SearchServiceResultsUpdate {
     Reset { values: Vec<SearchServiceResult> },
 }
 
-impl From<VectorDiff<UISearchServiceResult>> for SearchServiceResultsUpdate {
-    fn from(diff: VectorDiff<UISearchServiceResult>) -> Self {
+impl From<VectorDiff<UIResultType>> for SearchServiceResultsUpdate {
+    fn from(diff: VectorDiff<UIResultType>) -> Self {
         match diff {
             VectorDiff::Append { values } => {
                 Self::Append { values: values.into_iter().map(Into::into).collect() }

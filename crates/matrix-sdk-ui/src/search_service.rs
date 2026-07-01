@@ -15,13 +15,13 @@
 //! A global, reactive search service.
 //!
 //! [`SearchService`] aggregates results of different kinds into a single
-//! reactive, paginated list of typed [`SearchServiceResult`]s. Call
+//! reactive, paginated list of typed [`ResultType`]s. Call
 //! [`SearchService::set_query`] to start (or restart) a search, then drive it
 //! page by page with [`SearchService::paginate`], observing the results and the
-//! [`SearchServicePaginationState`] as they change.
+//! [`PaginationState`] as they change.
 //!
 //! Today the only source is the SDK's per-room message search; people, rooms
-//! and other kinds are expected to be added as further [`SearchServiceResult`]
+//! and other kinds are expected to be added as further [`ResultType`]
 //! variants, and a `matrix-sdk` source can be swapped for a server-side one
 //! without changing this interface.
 
@@ -44,9 +44,8 @@ type ResultsStream =
     Pin<Box<dyn Stream<Item = Result<Vec<(OwnedRoomId, TimelineEvent)>, SearchError>> + Send>>;
 
 /// Whether the search service is currently loading a page of results.
-#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum SearchServicePaginationState {
+pub enum PaginationState {
     /// Not currently paginating. `end_reached` is `true` once every source has
     /// been exhausted for the current query.
     Idle { end_reached: bool },
@@ -58,14 +57,14 @@ pub enum SearchServicePaginationState {
 ///
 /// New result kinds will be added as additional variants.
 #[derive(Debug, Clone)]
-pub enum SearchServiceResult {
+pub enum ResultType {
     /// A message (room timeline event) matching the query.
-    Message(SearchServiceMessageResult),
+    Message(MessageResult),
 }
 
 /// A message matching a search query, with its content and sender resolved.
 #[derive(Debug, Clone)]
-pub struct SearchServiceMessageResult {
+pub struct MessageResult {
     /// The room the message belongs to.
     pub room_id: OwnedRoomId,
     /// The event ID of the message.
@@ -80,7 +79,7 @@ pub struct SearchServiceMessageResult {
     pub timestamp: MilliSecondsSinceUnixEpoch,
 }
 
-impl SearchServiceMessageResult {
+impl MessageResult {
     /// Resolve a search hit into a full result by loading its content and
     /// sender profile, returning `None` if the event can't be rendered.
     async fn from_event(room: &Room, event: TimelineEvent) -> Option<Self> {
@@ -109,9 +108,9 @@ pub struct SearchService {
 
     stream: AsyncMutex<Option<ResultsStream>>,
 
-    pagination_state: SharedObservable<SearchServicePaginationState>,
+    pagination_state: SharedObservable<PaginationState>,
 
-    results: AsyncMutex<ObservableVector<SearchServiceResult>>,
+    results: AsyncMutex<ObservableVector<ResultType>>,
 }
 
 impl SearchService {
@@ -120,9 +119,7 @@ impl SearchService {
         Self {
             client,
             stream: AsyncMutex::new(None),
-            pagination_state: SharedObservable::new(SearchServicePaginationState::Idle {
-                end_reached: false,
-            }),
+            pagination_state: SharedObservable::new(PaginationState::Idle { end_reached: false }),
             results: AsyncMutex::new(ObservableVector::new()),
         }
     }
@@ -134,32 +131,30 @@ impl SearchService {
         let stream = self.client.search_messages(query).build_events();
         *self.stream.lock().await = Some(Box::pin(stream));
         self.results.lock().await.clear();
-        self.pagination_state.set(SearchServicePaginationState::Idle { end_reached: false });
+        self.pagination_state.set(PaginationState::Idle { end_reached: false });
 
         self.paginate().await
     }
 
     /// Returns the current pagination state.
-    pub fn pagination_state(&self) -> SearchServicePaginationState {
+    pub fn pagination_state(&self) -> PaginationState {
         self.pagination_state.get()
     }
 
     /// Subscribe to pagination state updates.
-    pub fn subscribe_to_pagination_state_updates(
-        &self,
-    ) -> Subscriber<SearchServicePaginationState> {
+    pub fn subscribe_to_pagination_state_updates(&self) -> Subscriber<PaginationState> {
         self.pagination_state.subscribe()
     }
 
     /// Return the current list of results.
-    pub async fn results(&self) -> Vec<SearchServiceResult> {
+    pub async fn results(&self) -> Vec<ResultType> {
         self.results.lock().await.iter().cloned().collect()
     }
 
     /// Subscribe to result list updates.
     pub async fn subscribe_to_results(
         &self,
-    ) -> (Vector<SearchServiceResult>, VectorSubscriberBatchedStream<SearchServiceResult>) {
+    ) -> (Vector<ResultType>, VectorSubscriberBatchedStream<ResultType>) {
         self.results.lock().await.subscribe().into_values_and_batched_stream()
     }
 
@@ -169,27 +164,26 @@ impl SearchService {
             let mut pagination_state = self.pagination_state.write();
 
             match *pagination_state {
-                SearchServicePaginationState::Idle { end_reached } if end_reached => return Ok(()),
-                SearchServicePaginationState::Loading => return Ok(()),
+                PaginationState::Idle { end_reached } if end_reached => return Ok(()),
+                PaginationState::Loading => return Ok(()),
                 _ => {}
             }
 
-            ObservableWriteGuard::set(&mut pagination_state, SearchServicePaginationState::Loading);
+            ObservableWriteGuard::set(&mut pagination_state, PaginationState::Loading);
         }
 
         let mut stream = self.stream.lock().await;
         let Some(stream) = stream.as_mut() else {
-            self.pagination_state.set(SearchServicePaginationState::Idle { end_reached: true });
+            self.pagination_state.set(PaginationState::Idle { end_reached: true });
             return Ok(());
         };
 
         match stream.next().await {
             None => {
-                self.pagination_state.set(SearchServicePaginationState::Idle { end_reached: true });
+                self.pagination_state.set(PaginationState::Idle { end_reached: true });
             }
             Some(Err(err)) => {
-                self.pagination_state
-                    .set(SearchServicePaginationState::Idle { end_reached: false });
+                self.pagination_state.set(PaginationState::Idle { end_reached: false });
                 return Err(err);
             }
             Some(Ok(page)) => {
@@ -198,19 +192,17 @@ impl SearchService {
                     let Some(room) = self.client.get_room(&room_id) else {
                         continue;
                     };
-                    let Some(result) = SearchServiceMessageResult::from_event(&room, event).await
-                    else {
+                    let Some(result) = MessageResult::from_event(&room, event).await else {
                         continue;
                     };
-                    resolved.push_back(SearchServiceResult::Message(result));
+                    resolved.push_back(ResultType::Message(result));
                 }
 
                 if !resolved.is_empty() {
                     self.results.lock().await.append(resolved);
                 }
 
-                self.pagination_state
-                    .set(SearchServicePaginationState::Idle { end_reached: false });
+                self.pagination_state.set(PaginationState::Idle { end_reached: false });
             }
         }
 
@@ -231,7 +223,7 @@ mod tests {
     use stream_assert::{assert_next_matches, assert_pending};
     use tokio::time::sleep;
 
-    use super::{SearchService, SearchServicePaginationState, SearchServiceResult};
+    use super::{PaginationState, ResultType, SearchService};
 
     #[async_test]
     async fn test_search_pagination() {
@@ -260,22 +252,16 @@ mod tests {
         let search = SearchService::new(client);
 
         // Starts idle and empty.
-        assert_eq!(
-            search.pagination_state(),
-            SearchServicePaginationState::Idle { end_reached: false }
-        );
+        assert_eq!(search.pagination_state(), PaginationState::Idle { end_reached: false });
         assert!(search.results().await.is_empty());
 
         // Setting the query loads the first page automatically.
         search.set_query("world".to_owned()).await.unwrap();
 
-        assert_eq!(
-            search.pagination_state(),
-            SearchServicePaginationState::Idle { end_reached: false }
-        );
+        assert_eq!(search.pagination_state(), PaginationState::Idle { end_reached: false });
         let results = search.results().await;
         assert_eq!(results.len(), 1);
-        assert_let!(SearchServiceResult::Message(message) = &results[0]);
+        assert_let!(ResultType::Message(message) = &results[0]);
         assert_eq!(message.event_id, event_id);
 
         // Subscribing now yields the loaded results as the current state.
@@ -288,10 +274,7 @@ mod tests {
         search.paginate().await.unwrap();
 
         assert_pending!(results_stream);
-        assert_eq!(
-            search.pagination_state(),
-            SearchServicePaginationState::Idle { end_reached: true }
-        );
+        assert_eq!(search.pagination_state(), PaginationState::Idle { end_reached: true });
         assert_eq!(search.results().await.len(), 1);
     }
 
@@ -332,7 +315,7 @@ mod tests {
 
         let (initial, results_stream) = search.subscribe_to_results().await;
         assert_eq!(initial.len(), 1);
-        assert_let!(SearchServiceResult::Message(message) = &initial[0]);
+        assert_let!(ResultType::Message(message) = &initial[0]);
         assert_eq!(message.event_id, apple_event);
         pin_mut!(results_stream);
         assert_pending!(results_stream);
@@ -344,13 +327,13 @@ mod tests {
         assert_next_matches!(results_stream, diffs => {
             assert_let!([VectorDiff::Clear, VectorDiff::Append { values }] = diffs.as_slice());
             assert_eq!(values.len(), 1);
-            assert_let!(SearchServiceResult::Message(message) = &values[0]);
+            assert_let!(ResultType::Message(message) = &values[0]);
             assert_eq!(message.event_id, banana_event);
         });
 
         let results = search.results().await;
         assert_eq!(results.len(), 1);
-        assert_let!(SearchServiceResult::Message(message) = &results[0]);
+        assert_let!(ResultType::Message(message) = &results[0]);
         assert_eq!(message.event_id, banana_event);
     }
 }
