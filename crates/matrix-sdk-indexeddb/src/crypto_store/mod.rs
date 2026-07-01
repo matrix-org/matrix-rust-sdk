@@ -62,6 +62,7 @@ use tracing::{debug, warn};
 use wasm_bindgen::JsValue;
 
 use crate::{
+    connection::IndexeddbConnection,
     crypto_store::migrations::open_and_upgrade_db,
     error::GenericError,
     serializer::{MaybeEncrypted, SafeEncodeSerializer, SafeEncodeSerializerError},
@@ -136,8 +137,9 @@ mod keys {
 /// [IndexedDB]: https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API
 pub struct IndexeddbCryptoStore {
     static_account: RwLock<Option<StaticAccountData>>,
-    name: String,
-    pub(crate) inner: Database,
+    // A reopenable handle to the IndexedDB database. See [`IndexeddbConnection`]
+    // for why the handle must be reopenable rather than a plain `Database`.
+    pub(crate) connection: IndexeddbConnection,
 
     serializer: SafeEncodeSerializer,
     save_changes_lock: Arc<Mutex<()>>,
@@ -146,7 +148,34 @@ pub struct IndexeddbCryptoStore {
 #[cfg(not(tarpaulin_include))]
 impl std::fmt::Debug for IndexeddbCryptoStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("IndexeddbCryptoStore").field("name", &self.name).finish()
+        f.debug_struct("IndexeddbCryptoStore").field("name", &self.connection.name()).finish()
+    }
+}
+
+impl IndexeddbCryptoStore {
+    /// Run `f` against a fresh transaction over `stores`, reopening the
+    /// connection and retrying once if the browser has closed it.
+    ///
+    /// Without this, a transient connection loss would permanently brick the
+    /// crypto store — key reads/writes would keep failing until the app is
+    /// restarted.
+    async fn with_transaction<R, F>(
+        &self,
+        stores: &[&str],
+        mode: TransactionMode,
+        f: F,
+    ) -> Result<R>
+    where
+        F: AsyncFnOnce(Transaction<'_>) -> Result<R>,
+    {
+        self.connection
+            .with_transaction(
+                stores,
+                mode,
+                |name| async move { open_and_upgrade_db(&name, &self.serializer).await },
+                f,
+            )
+            .await
     }
 }
 
@@ -317,7 +346,7 @@ impl PendingIndexeddbChanges {
     /// Returns the list of stores that have pending operations.
     /// Should be used as the list of store names when starting the indexeddb
     /// transaction (`transaction_on_multi_with_mode`).
-    fn touched_stores(&self) -> Vec<&str> {
+    fn touched_stores(&self) -> Vec<&'static str> {
         self.store_to_key_values
             .iter()
             .filter_map(
@@ -373,8 +402,7 @@ impl IndexeddbCryptoStore {
         let db = open_and_upgrade_db(&name, &serializer).await?;
 
         Ok(Self {
-            name,
-            inner: db,
+            connection: IndexeddbConnection::new(name, db),
             serializer,
             static_account: RwLock::new(None),
             save_changes_lock: Default::default(),
@@ -843,25 +871,26 @@ impl_crypto_store! {
             return Ok(());
         }
 
-        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
+        self.with_transaction(&stores, TransactionMode::Readwrite, async move |tx| {
+            let account_pickle = if let Some(account) = changes.account {
+                *self.static_account.write().unwrap() = Some(account.static_data().clone());
+                Some(account.pickle())
+            } else {
+                None
+            };
 
-        let account_pickle = if let Some(account) = changes.account {
-            *self.static_account.write().unwrap() = Some(account.static_data().clone());
-            Some(account.pickle())
-        } else {
-            None
-        };
+            if let Some(a) = &account_pickle {
+                tx.object_store(keys::CORE)?
+                    .put(&self.serializer.serialize_value(&a)?)
+                    .with_key(JsValue::from_str(keys::ACCOUNT))
+                    .build()?;
+            }
 
-        if let Some(a) = &account_pickle {
-            tx.object_store(keys::CORE)?
-                .put(&self.serializer.serialize_value(&a)?)
-                .with_key(JsValue::from_str(keys::ACCOUNT))
-                .build()?;
-        }
+            tx.commit().await?;
 
-        tx.commit().await?;
-
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn save_changes(&self, changes: Changes) -> Result<()> {
@@ -880,13 +909,14 @@ impl_crypto_store! {
             return Ok(());
         }
 
-        let tx = self.inner.transaction(stores).with_mode(TransactionMode::Readwrite).build()?;
+        self.with_transaction(&stores, TransactionMode::Readwrite, async move |tx| {
+            indexeddb_changes.apply(&tx).await?;
 
-        indexeddb_changes.apply(&tx).await?;
+            tx.commit().await?;
 
-        tx.commit().await?;
-
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn save_inbound_group_sessions(
@@ -912,28 +942,28 @@ impl_crypto_store! {
     }
 
     async fn load_tracked_users(&self) -> Result<Vec<TrackedUser>> {
-        let tx = self
-            .inner
-            .transaction(keys::TRACKED_USERS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?;
-        let os = tx.object_store(keys::TRACKED_USERS)?;
-        let user_ids = os.get_all_keys::<JsValue>().await?;
+        self.with_transaction(&[keys::TRACKED_USERS], TransactionMode::Readonly, async move |tx| {
+            let os = tx.object_store(keys::TRACKED_USERS)?;
+            let user_ids = os.get_all_keys::<JsValue>().await?;
 
-        let mut users = Vec::new();
+            let mut users = Vec::new();
 
-        for result in user_ids {
-            let user_id = result?;
-            let dirty: bool = !matches!(
-                os.get(&user_id).await?.map(|v: JsValue| v.into_serde()),
-                Some(Ok(false))
-            );
-            let Some(Ok(user_id)) = user_id.as_string().map(UserId::parse) else { continue };
+            for result in user_ids {
+                let user_id = result?;
+                let dirty: bool = !matches!(
+                    os.get(&user_id).await?.map(|v: JsValue| v.into_serde()),
+                    Some(Ok(false))
+                );
+                let Some(Ok(user_id)) = user_id.as_string().map(UserId::parse) else {
+                    continue;
+                };
 
-            users.push(TrackedUser { user_id, dirty });
-        }
+                users.push(TrackedUser { user_id, dirty });
+            }
 
-        Ok(users)
+            Ok(users)
+        })
+        .await
     }
 
     async fn get_outbound_group_session(
@@ -941,15 +971,19 @@ impl_crypto_store! {
         room_id: &RoomId,
     ) -> Result<Option<OutboundGroupSession>> {
         let account_info = self.get_static_account().ok_or(CryptoStoreError::AccountUnset)?;
-        if let Some(value) = self
-            .inner
-            .transaction(keys::OUTBOUND_GROUP_SESSIONS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::OUTBOUND_GROUP_SESSIONS)?
-            .get(&self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id))
-            .await?
-        {
+        let value = self
+            .with_transaction(
+                &[keys::OUTBOUND_GROUP_SESSIONS],
+                TransactionMode::Readonly,
+                async move |tx| {
+                    tx.object_store(keys::OUTBOUND_GROUP_SESSIONS)?
+                        .get(&self.serializer.encode_key(keys::OUTBOUND_GROUP_SESSIONS, room_id))
+                        .await
+                        .map_err(Into::into)
+                },
+            )
+            .await?;
+        if let Some(value) = value {
             Ok(Some(
                 OutboundGroupSession::from_pickle(
                     account_info.device_id,
@@ -968,27 +1002,26 @@ impl_crypto_store! {
         request_id: &TransactionId,
     ) -> Result<Option<GossipRequest>> {
         let jskey = self.serializer.encode_key(keys::GOSSIP_REQUESTS, request_id.as_str());
-        self.inner
-            .transaction(keys::GOSSIP_REQUESTS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::GOSSIP_REQUESTS)?
-            .get(jskey)
-            .await?
-            .map(|val| self.deserialize_gossip_request(val))
-            .transpose()
+        self.with_transaction(&[keys::GOSSIP_REQUESTS], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::GOSSIP_REQUESTS)?
+                .get(jskey)
+                .await?
+                .map(|val| self.deserialize_gossip_request(val))
+                .transpose()
+        })
+        .await
     }
 
     async fn load_account(&self) -> Result<Option<Account>> {
-        if let Some(pickle) = self
-            .inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::ACCOUNT))
-            .await?
-        {
+        let pickle = self
+            .with_transaction(&[keys::CORE], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::CORE)?
+                    .get(&JsValue::from_str(keys::ACCOUNT))
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
+        if let Some(pickle) = pickle {
             let pickle = self.serializer.deserialize_value(pickle)?;
 
             let account = Account::from_pickle(pickle).map_err(CryptoStoreError::from)?;
@@ -1002,15 +1035,15 @@ impl_crypto_store! {
     }
 
     async fn next_batch_token(&self) -> Result<Option<String>> {
-        if let Some(serialized) = self
-            .inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::NEXT_BATCH_TOKEN))
-            .await?
-        {
+        let serialized = self
+            .with_transaction(&[keys::CORE], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::CORE)?
+                    .get(&JsValue::from_str(keys::NEXT_BATCH_TOKEN))
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
+        if let Some(serialized) = serialized {
             let token = self.serializer.deserialize_value(serialized)?;
             Ok(Some(token))
         } else {
@@ -1019,15 +1052,15 @@ impl_crypto_store! {
     }
 
     async fn load_identity(&self) -> Result<Option<PrivateCrossSigningIdentity>> {
-        if let Some(pickle) = self
-            .inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::PRIVATE_IDENTITY))
-            .await?
-        {
+        let pickle = self
+            .with_transaction(&[keys::CORE], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::CORE)?
+                    .get(&JsValue::from_str(keys::PRIVATE_IDENTITY))
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
+        if let Some(pickle) = pickle {
             let pickle = self.serializer.deserialize_value(pickle)?;
 
             Ok(Some(
@@ -1044,23 +1077,24 @@ impl_crypto_store! {
 
         let range = self.serializer.encode_to_range(keys::SESSION, sender_key);
         let sessions: Vec<Session> = self
-            .inner
-            .transaction(keys::SESSION)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::SESSION)?
-            .get_all()
-            .with_query(&range)
-            .await?
-            .filter_map(Result::ok)
-            .filter_map(|f| {
-                self.serializer.deserialize_value(f).ok().map(|p| {
-                    Session::from_pickle(device_keys.clone(), p).map_err(|_| {
-                        IndexeddbCryptoStoreError::CryptoStoreError(CryptoStoreError::AccountUnset)
+            .with_transaction(&[keys::SESSION], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::SESSION)?
+                    .get_all()
+                    .with_query(&range)
+                    .await?
+                    .filter_map(Result::ok)
+                    .filter_map(|f| {
+                        self.serializer.deserialize_value(f).ok().map(|p| {
+                            Session::from_pickle(device_keys.clone(), p).map_err(|_| {
+                                IndexeddbCryptoStoreError::CryptoStoreError(
+                                    CryptoStoreError::AccountUnset,
+                                )
+                            })
+                        })
                     })
-                })
+                    .collect::<Result<Vec<Session>>>()
             })
-            .collect::<Result<Vec<Session>>>()?;
+            .await?;
 
         if sessions.is_empty() {
             Ok(None)
@@ -1076,15 +1110,16 @@ impl_crypto_store! {
     ) -> Result<Option<InboundGroupSession>> {
         let key =
             self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
-        if let Some(value) = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
-            .get(&key)
-            .await?
-        {
+        let value = self
+            .with_transaction(
+                &[keys::INBOUND_GROUP_SESSIONS_V3],
+                TransactionMode::Readonly,
+                async move |tx| {
+                    tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.get(&key).await.map_err(Into::into)
+                },
+            )
+            .await?;
+        if let Some(value) = value {
             Ok(Some(self.deserialize_inbound_group_session(value)?))
         } else {
             Ok(None)
@@ -1094,18 +1129,20 @@ impl_crypto_store! {
     async fn get_inbound_group_sessions(&self) -> Result<Vec<InboundGroupSession>> {
         const INBOUND_GROUP_SESSIONS_BATCH_SIZE: usize = 1000;
 
-        let transaction = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readonly)
-            .build()?;
+        self.with_transaction(
+            &[keys::INBOUND_GROUP_SESSIONS_V3],
+            TransactionMode::Readonly,
+            async move |transaction| {
+                let object_store =
+                    transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
-        let object_store = transaction.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-
-        fetch_from_object_store_batched(
-            object_store,
-            |value| self.deserialize_inbound_group_session(value),
-            INBOUND_GROUP_SESSIONS_BATCH_SIZE,
+                fetch_from_object_store_batched(
+                    object_store,
+                    |value| self.deserialize_inbound_group_session(value),
+                    INBOUND_GROUP_SESSIONS_BATCH_SIZE,
+                )
+                .await
+            },
         )
         .await
     }
@@ -1115,24 +1152,27 @@ impl_crypto_store! {
         room_id: &RoomId,
     ) -> Result<Vec<InboundGroupSession>> {
         let range = self.serializer.encode_to_range(keys::INBOUND_GROUP_SESSIONS_V3, room_id);
-        Ok(self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
-            .get_all()
-            .with_query(&range)
-            .await?
-            .filter_map(Result::ok)
-            .filter_map(|v| match self.deserialize_inbound_group_session(v) {
-                Ok(session) => Some(session),
-                Err(e) => {
-                    warn!("Failed to deserialize inbound group session: {e}");
-                    None
-                }
-            })
-            .collect::<Vec<InboundGroupSession>>())
+        self.with_transaction(
+            &[keys::INBOUND_GROUP_SESSIONS_V3],
+            TransactionMode::Readonly,
+            async move |tx| {
+                Ok(tx
+                    .object_store(keys::INBOUND_GROUP_SESSIONS_V3)?
+                    .get_all()
+                    .with_query(&range)
+                    .await?
+                    .filter_map(Result::ok)
+                    .filter_map(|v| match self.deserialize_inbound_group_session(v) {
+                        Ok(session) => Some(session),
+                        Err(e) => {
+                            warn!("Failed to deserialize inbound group session: {e}");
+                            None
+                        }
+                    })
+                    .collect::<Vec<InboundGroupSession>>())
+            },
+        )
+        .await
     }
 
     async fn get_inbound_group_sessions_for_device_batch(
@@ -1158,16 +1198,21 @@ impl_crypto_store! {
             [sender_key, ((sender_data_type as u8) + 1).into()].iter().collect();
         let key = KeyRange::Bound(lower_bound, true, upper_bound, true);
 
-        let tx = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readonly)
-            .build()?;
-
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-        let idx = store.index(keys::INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX)?;
-        let serialized_sessions =
-            idx.get_all().with_query::<Array, _>(key).with_limit(limit as u32).await?;
+        let serialized_sessions = self
+            .with_transaction(
+                &[keys::INBOUND_GROUP_SESSIONS_V3],
+                TransactionMode::Readonly,
+                async move |tx| {
+                    let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+                    let idx = store.index(keys::INBOUND_GROUP_SESSIONS_SENDER_KEY_INDEX)?;
+                    idx.get_all()
+                        .with_query::<Array, _>(key)
+                        .with_limit(limit as u32)
+                        .await
+                        .map_err(Into::into)
+                },
+            )
+            .await?;
 
         // Deserialize and decrypt after the transaction is complete.
         let result = serialized_sessions
@@ -1188,17 +1233,21 @@ impl_crypto_store! {
         &self,
         _backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts> {
-        let tx = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readonly)
-            .build()?;
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-        let all = store.count().await? as usize;
-        let not_backed_up =
-            store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?.count().await? as usize;
-        tx.commit().await?;
-        Ok(RoomKeyCounts { total: all, backed_up: all - not_backed_up })
+        self.with_transaction(
+            &[keys::INBOUND_GROUP_SESSIONS_V3],
+            TransactionMode::Readonly,
+            async move |tx| {
+                let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+                let all = store.count().await? as usize;
+                let not_backed_up = store
+                    .index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?
+                    .count()
+                    .await? as usize;
+                tx.commit().await?;
+                Ok(RoomKeyCounts { total: all, backed_up: all - not_backed_up })
+            },
+        )
+        .await
     }
 
     async fn inbound_group_sessions_for_backup(
@@ -1206,31 +1255,34 @@ impl_crypto_store! {
         _backup_version: &str,
         limit: usize,
     ) -> Result<Vec<InboundGroupSession>> {
-        let tx = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readonly)
-            .build()?;
+        let serialized_sessions = self
+            .with_transaction(
+                &[keys::INBOUND_GROUP_SESSIONS_V3],
+                TransactionMode::Readonly,
+                async move |tx| {
+                    let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+                    let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
 
-        let store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
-        let idx = store.index(keys::INBOUND_GROUP_SESSIONS_BACKUP_INDEX)?;
+                    // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't
+                    // appear to be   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
+                    //   the behaviour with a cursor.
+                    let Some(mut cursor) = idx.open_cursor().await? else {
+                        return Ok(Vec::new());
+                    };
 
-        // XXX ideally we would use `get_all_with_key_and_limit`, but that doesn't
-        // appear to be   exposed (https://github.com/Alorel/rust-indexed-db/issues/31). Instead we replicate
-        //   the behaviour with a cursor.
-        let Some(mut cursor) = idx.open_cursor().await? else {
-            return Ok(vec![]);
-        };
+                    let mut serialized_sessions = Vec::with_capacity(limit);
+                    for _ in 0..limit {
+                        let Some(value) = cursor.next_record().await? else {
+                            break;
+                        };
+                        serialized_sessions.push(value)
+                    }
 
-        let mut serialized_sessions = Vec::with_capacity(limit);
-        for _ in 0..limit {
-            let Some(value) = cursor.next_record().await? else {
-                break;
-            };
-            serialized_sessions.push(value)
-        }
-
-        tx.commit().await?;
+                    tx.commit().await?;
+                    Ok(serialized_sessions)
+                },
+            )
+            .await?;
 
         // Deserialize and decrypt after the transaction is complete.
         let result = serialized_sessions
@@ -1252,74 +1304,80 @@ impl_crypto_store! {
         _backup_version: &str,
         room_and_session_ids: &[(&RoomId, &str)],
     ) -> Result<()> {
-        let tx = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
+        self.with_transaction(
+            &[keys::INBOUND_GROUP_SESSIONS_V3],
+            TransactionMode::Readwrite,
+            async move |tx| {
+                let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
 
-        let object_store = tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?;
+                for (room_id, session_id) in room_and_session_ids {
+                    let key = self
+                        .serializer
+                        .encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
+                    if let Some(idb_object_js) = object_store.get(&key).await? {
+                        let mut idb_object: InboundGroupSessionIndexedDbObject =
+                            serde_wasm_bindgen::from_value(idb_object_js)?;
+                        idb_object.needs_backup = false;
+                        object_store
+                            .put(&serde_wasm_bindgen::to_value(&idb_object)?)
+                            .with_key(key)
+                            .build()?;
+                    } else {
+                        warn!(
+                            ?key,
+                            "Could not find inbound group session to mark it as backed up."
+                        );
+                    }
+                }
 
-        for (room_id, session_id) in room_and_session_ids {
-            let key =
-                self.serializer.encode_key(keys::INBOUND_GROUP_SESSIONS_V3, (room_id, session_id));
-            if let Some(idb_object_js) = object_store.get(&key).await? {
-                let mut idb_object: InboundGroupSessionIndexedDbObject =
-                    serde_wasm_bindgen::from_value(idb_object_js)?;
-                idb_object.needs_backup = false;
-                object_store
-                    .put(&serde_wasm_bindgen::to_value(&idb_object)?)
-                    .with_key(key)
-                    .build()?;
-            } else {
-                warn!(?key, "Could not find inbound group session to mark it as backed up.");
-            }
-        }
-
-        Ok(tx.commit().await?)
+                Ok(tx.commit().await?)
+            },
+        )
+        .await
     }
 
     async fn reset_backup_state(&self) -> Result<()> {
-        let tx = self
-            .inner
-            .transaction(keys::INBOUND_GROUP_SESSIONS_V3)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-
-        if let Some(mut cursor) =
-            tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.open_cursor().await?
-        {
-            while let Some(value) = cursor.next_record().await? {
-                let mut idb_object: InboundGroupSessionIndexedDbObject =
-                    serde_wasm_bindgen::from_value(value)?;
-                if !idb_object.needs_backup {
-                    idb_object.needs_backup = true;
-                    // We don't bother to update the encrypted `InboundGroupSession` object stored
-                    // inside `idb_object.data`, since that would require decryption and encryption.
-                    // Instead, it will be patched up by `deserialize_inbound_group_session`.
-                    let idb_object = serde_wasm_bindgen::to_value(&idb_object)?;
-                    cursor.update(&idb_object).await?;
+        self.with_transaction(
+            &[keys::INBOUND_GROUP_SESSIONS_V3],
+            TransactionMode::Readwrite,
+            async move |tx| {
+                if let Some(mut cursor) =
+                    tx.object_store(keys::INBOUND_GROUP_SESSIONS_V3)?.open_cursor().await?
+                {
+                    while let Some(value) = cursor.next_record().await? {
+                        let mut idb_object: InboundGroupSessionIndexedDbObject =
+                            serde_wasm_bindgen::from_value(value)?;
+                        if !idb_object.needs_backup {
+                            idb_object.needs_backup = true;
+                            // We don't bother to update the encrypted `InboundGroupSession` object stored
+                            // inside `idb_object.data`, since that would require decryption and encryption.
+                            // Instead, it will be patched up by `deserialize_inbound_group_session`.
+                            let idb_object = serde_wasm_bindgen::to_value(&idb_object)?;
+                            cursor.update(&idb_object).await?;
+                        }
+                    }
                 }
-            }
-        }
 
-        Ok(tx.commit().await?)
+                Ok(tx.commit().await?)
+            },
+        )
+        .await
     }
 
     async fn save_tracked_users(&self, users: &[(&UserId, bool)]) -> Result<()> {
-        let tx = self
-            .inner
-            .transaction(keys::TRACKED_USERS)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        let os = tx.object_store(keys::TRACKED_USERS)?;
+        self.with_transaction(&[keys::TRACKED_USERS], TransactionMode::Readwrite, async move |tx| {
+            let os = tx.object_store(keys::TRACKED_USERS)?;
 
-        for (user, dirty) in users {
-            os.put(&JsValue::from(*dirty)).with_key(JsValue::from_str(user.as_str())).build()?;
-        }
+            for (user, dirty) in users {
+                os.put(&JsValue::from(*dirty))
+                    .with_key(JsValue::from_str(user.as_str()))
+                    .build()?;
+            }
 
-        tx.commit().await?;
-        Ok(())
+            tx.commit().await?;
+            Ok(())
+        })
+        .await
     }
 
     async fn get_device(
@@ -1328,15 +1386,14 @@ impl_crypto_store! {
         device_id: &DeviceId,
     ) -> Result<Option<DeviceData>> {
         let key = self.serializer.encode_key(keys::DEVICES, (user_id, device_id));
-        self.inner
-            .transaction(keys::DEVICES)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::DEVICES)?
-            .get(&key)
-            .await?
-            .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
-            .transpose()
+        self.with_transaction(&[keys::DEVICES], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::DEVICES)?
+                .get(&key)
+                .await?
+                .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
+                .transpose()
+        })
+        .await
     }
 
     async fn get_user_devices(
@@ -1344,21 +1401,20 @@ impl_crypto_store! {
         user_id: &UserId,
     ) -> Result<HashMap<OwnedDeviceId, DeviceData>> {
         let range = self.serializer.encode_to_range(keys::DEVICES, user_id);
-        Ok(self
-            .inner
-            .transaction(keys::DEVICES)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::DEVICES)?
-            .get_all()
-            .with_query(&range)
-            .await?
-            .filter_map(Result::ok)
-            .filter_map(|d| {
-                let d: DeviceData = self.serializer.deserialize_value(d).ok()?;
-                Some((d.device_id().to_owned(), d))
-            })
-            .collect::<HashMap<_, _>>())
+        self.with_transaction(&[keys::DEVICES], TransactionMode::Readonly, async move |tx| {
+            Ok(tx
+                .object_store(keys::DEVICES)?
+                .get_all()
+                .with_query(&range)
+                .await?
+                .filter_map(Result::ok)
+                .filter_map(|d| {
+                    let d: DeviceData = self.serializer.deserialize_value(d).ok()?;
+                    Some((d.device_id().to_owned(), d))
+                })
+                .collect::<HashMap<_, _>>())
+        })
+        .await
     }
 
     async fn get_own_device(&self) -> Result<DeviceData> {
@@ -1367,29 +1423,27 @@ impl_crypto_store! {
     }
 
     async fn get_user_identity(&self, user_id: &UserId) -> Result<Option<UserIdentityData>> {
-        self.inner
-            .transaction(keys::IDENTITIES)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::IDENTITIES)?
-            .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))
-            .await?
-            .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
-            .transpose()
+        self.with_transaction(&[keys::IDENTITIES], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::IDENTITIES)?
+                .get(&self.serializer.encode_key(keys::IDENTITIES, user_id))
+                .await?
+                .map(|i| self.serializer.deserialize_value(i).map_err(Into::into))
+                .transpose()
+        })
+        .await
     }
 
     async fn is_message_known(&self, hash: &OlmMessageHash) -> Result<bool> {
-        Ok(self
-            .inner
-            .transaction(keys::OLM_HASHES)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::OLM_HASHES)?
-            .get::<JsValue, _, _>(
-                &self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
-            )
-            .await?
-            .is_some())
+        self.with_transaction(&[keys::OLM_HASHES], TransactionMode::Readonly, async move |tx| {
+            Ok(tx
+                .object_store(keys::OLM_HASHES)?
+                .get::<JsValue, _, _>(
+                    &self.serializer.encode_key(keys::OLM_HASHES, (&hash.sender_key, &hash.hash)),
+                )
+                .await?
+                .is_some())
+        })
+        .await
     }
 
     async fn get_secrets_from_inbox(
@@ -1398,35 +1452,32 @@ impl_crypto_store! {
     ) -> Result<Vec<zeroize::Zeroizing<String>>> {
         let range = self.serializer.encode_to_range(keys::SECRETS_INBOX_V2, secret_name.as_str());
 
-        self.inner
-            .transaction(keys::SECRETS_INBOX_V2)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::SECRETS_INBOX_V2)?
-            .get_all()
-            .with_query(&range)
-            .await?
-            .map(|result| {
-                let d = result?;
-                let secret: String = self.serializer.deserialize_value(d)?;
-                Ok(secret.into())
-            })
-            .collect()
+        self.with_transaction(&[keys::SECRETS_INBOX_V2], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::SECRETS_INBOX_V2)?
+                .get_all()
+                .with_query(&range)
+                .await?
+                .map(|result| {
+                    let d = result?;
+                    let secret: String = self.serializer.deserialize_value(d)?;
+                    Ok(secret.into())
+                })
+                .collect()
+        })
+        .await
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn delete_secrets_from_inbox(&self, secret_name: &SecretName) -> Result<()> {
         let range = self.serializer.encode_to_range(keys::SECRETS_INBOX_V2, secret_name.as_str());
 
-        let transaction = self
-            .inner
-            .transaction(keys::SECRETS_INBOX_V2)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        transaction.object_store(keys::SECRETS_INBOX_V2)?.delete(&range).build()?;
-        transaction.commit().await?;
+        self.with_transaction(&[keys::SECRETS_INBOX_V2], TransactionMode::Readwrite, async move |transaction| {
+            transaction.object_store(keys::SECRETS_INBOX_V2)?.delete(&range).build()?;
+            transaction.commit().await?;
 
-        Ok(())
+            Ok(())
+        })
+        .await
     }
 
     async fn get_secret_request_by_info(
@@ -1436,13 +1487,13 @@ impl_crypto_store! {
         let key = self.serializer.encode_key(keys::GOSSIP_REQUESTS, key_info.as_key());
 
         let val = self
-            .inner
-            .transaction(keys::GOSSIP_REQUESTS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::GOSSIP_REQUESTS)?
-            .index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX)?
-            .get(key)
+            .with_transaction(&[keys::GOSSIP_REQUESTS], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::GOSSIP_REQUESTS)?
+                    .index(keys::GOSSIP_REQUESTS_BY_INFO_INDEX)?
+                    .get(key)
+                    .await
+                    .map_err(Into::into)
+            })
             .await?;
 
         if let Some(val) = val {
@@ -1454,40 +1505,30 @@ impl_crypto_store! {
     }
 
     async fn get_unsent_secret_requests(&self) -> Result<Vec<GossipRequest>> {
-        let results = self
-            .inner
-            .transaction(keys::GOSSIP_REQUESTS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::GOSSIP_REQUESTS)?
-            .index(keys::GOSSIP_REQUESTS_UNSENT_INDEX)?
-            .get_all()
-            .await?
-            .filter_map(Result::ok)
-            .filter_map(|val| self.deserialize_gossip_request(val).ok())
-            .collect();
-
-        Ok(results)
+        self.with_transaction(&[keys::GOSSIP_REQUESTS], TransactionMode::Readonly, async move |tx| {
+            Ok(tx
+                .object_store(keys::GOSSIP_REQUESTS)?
+                .index(keys::GOSSIP_REQUESTS_UNSENT_INDEX)?
+                .get_all()
+                .await?
+                .filter_map(Result::ok)
+                .filter_map(|val| self.deserialize_gossip_request(val).ok())
+                .collect())
+        })
+        .await
     }
 
     async fn delete_outgoing_secret_requests(&self, request_id: &TransactionId) -> Result<()> {
         let jskey = self.serializer.encode_key(keys::GOSSIP_REQUESTS, request_id);
-        let tx = self
-            .inner
-            .transaction(keys::GOSSIP_REQUESTS)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        tx.object_store(keys::GOSSIP_REQUESTS)?.delete(jskey).build()?;
-        tx.commit().await.map_err(|e| e.into())
+        self.with_transaction(&[keys::GOSSIP_REQUESTS], TransactionMode::Readwrite, async move |tx| {
+            tx.object_store(keys::GOSSIP_REQUESTS)?.delete(jskey).build()?;
+            tx.commit().await.map_err(|e| e.into())
+        })
+        .await
     }
 
     async fn load_backup_keys(&self) -> Result<BackupKeys> {
-        let key = {
-            let tx = self
-                .inner
-                .transaction(keys::BACKUP_KEYS)
-                .with_mode(TransactionMode::Readonly)
-                .build()?;
+        self.with_transaction(&[keys::BACKUP_KEYS], TransactionMode::Readonly, async move |tx| {
             let store = tx.object_store(keys::BACKUP_KEYS)?;
 
             let backup_version = store
@@ -1502,22 +1543,21 @@ impl_crypto_store! {
                 .map(|i| self.serializer.deserialize_value(i))
                 .transpose()?;
 
-            BackupKeys { backup_version, decryption_key }
-        };
-
-        Ok(key)
+            Ok(BackupKeys { backup_version, decryption_key })
+        })
+        .await
     }
 
     async fn load_dehydrated_device_pickle_key(&self) -> Result<Option<DehydratedDeviceKey>> {
-        if let Some(pickle) = self
-            .inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::CORE)?
-            .get(&JsValue::from_str(keys::DEHYDRATION_PICKLE_KEY))
-            .await?
-        {
+        let pickle = self
+            .with_transaction(&[keys::CORE], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::CORE)?
+                    .get(&JsValue::from_str(keys::DEHYDRATION_PICKLE_KEY))
+                    .await
+                    .map_err(Into::into)
+            })
+            .await?;
+        if let Some(pickle) = pickle {
             let pickle: DehydratedDeviceKey = self.serializer.deserialize_value(pickle)?;
 
             Ok(Some(pickle))
@@ -1537,15 +1577,12 @@ impl_crypto_store! {
         session_id: &str,
     ) -> Result<Option<RoomKeyWithheldEntry>> {
         let key = self.serializer.encode_key(keys::WITHHELD_SESSIONS, (room_id, session_id));
-        if let Some(pickle) = self
-            .inner
-            .transaction(keys::WITHHELD_SESSIONS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::WITHHELD_SESSIONS)?
-            .get(&key)
-            .await?
-        {
+        let pickle = self
+            .with_transaction(&[keys::WITHHELD_SESSIONS], TransactionMode::Readonly, async move |tx| {
+                tx.object_store(keys::WITHHELD_SESSIONS)?.get(&key).await.map_err(Into::into)
+            })
+            .await?;
+        if let Some(pickle) = pickle {
             let info = self.serializer.deserialize_value(pickle)?;
             Ok(Some(info))
         } else {
@@ -1559,30 +1596,27 @@ impl_crypto_store! {
     ) -> Result<Vec<RoomKeyWithheldEntry>> {
         let range = self.serializer.encode_to_range(keys::WITHHELD_SESSIONS, room_id);
 
-        self
-            .inner
-            .transaction(keys::WITHHELD_SESSIONS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::WITHHELD_SESSIONS)?
-            .get_all()
-            .with_query(&range)
-            .await?
-            .map(|val| self.serializer.deserialize_value(val?).map_err(Into::into))
-            .collect()
+        self.with_transaction(&[keys::WITHHELD_SESSIONS], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::WITHHELD_SESSIONS)?
+                .get_all()
+                .with_query(&range)
+                .await?
+                .map(|val| self.serializer.deserialize_value(val?).map_err(Into::into))
+                .collect()
+        })
+        .await
     }
 
     async fn get_room_settings(&self, room_id: &RoomId) -> Result<Option<RoomSettings>> {
         let key = self.serializer.encode_key(keys::ROOM_SETTINGS, room_id);
-        self.inner
-            .transaction(keys::ROOM_SETTINGS)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::ROOM_SETTINGS)?
-            .get(&key)
-            .await?
-            .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
-            .transpose()
+        self.with_transaction(&[keys::ROOM_SETTINGS], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::ROOM_SETTINGS)?
+                .get(&key)
+                .await?
+                .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
+                .transpose()
+        })
+        .await
     }
 
     async fn get_received_room_key_bundle_data(
@@ -1591,100 +1625,106 @@ impl_crypto_store! {
         user_id: &UserId,
     ) -> Result<Option<StoredRoomKeyBundleData>> {
         let key = self.serializer.encode_key(keys::RECEIVED_ROOM_KEY_BUNDLES, (room_id, user_id));
-        let result = self
-            .inner
-            .transaction(keys::RECEIVED_ROOM_KEY_BUNDLES)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?
-            .get(&key)
-            .await?
-            .map(|v| self.serializer.deserialize_value(v))
-            .transpose()?;
-
-        Ok(result)
+        self.with_transaction(
+            &[keys::RECEIVED_ROOM_KEY_BUNDLES],
+            TransactionMode::Readonly,
+            async move |tx| {
+                tx.object_store(keys::RECEIVED_ROOM_KEY_BUNDLES)?
+                    .get(&key)
+                    .await?
+                    .map(|v| self.serializer.deserialize_value(v))
+                    .transpose()
+                    .map_err(Into::into)
+            },
+        )
+        .await
     }
 
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
         let key = self.serializer.encode_key(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED, room_id);
-        let result = self
-            .inner
-            .transaction(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED)?
-            .get::<JsValue, _, _>(&key)
-            .await?
-            .is_some();
-
-        Ok(result)
+        self.with_transaction(
+            &[keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED],
+            TransactionMode::Readonly,
+            async move |tx| {
+                Ok(tx
+                    .object_store(keys::ROOM_KEY_BACKUPS_FULLY_DOWNLOADED)?
+                    .get::<JsValue, _, _>(&key)
+                    .await?
+                    .is_some())
+            },
+        )
+        .await
     }
 
     async fn get_pending_key_bundle_details_for_room(&self, room_id: &RoomId) -> Result<Option<RoomPendingKeyBundleDetails >> {
         let key = self.serializer.encode_key(keys::ROOMS_PENDING_KEY_BUNDLE, room_id);
-        let result = self
-            .inner
-            .transaction(keys::ROOMS_PENDING_KEY_BUNDLE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::ROOMS_PENDING_KEY_BUNDLE)?
-            .get(&key)
-            .await?
-            .map(|v| self.serializer.deserialize_value(v))
-            .transpose()?;
-        Ok(result)
+        self.with_transaction(
+            &[keys::ROOMS_PENDING_KEY_BUNDLE],
+            TransactionMode::Readonly,
+            async move |tx| {
+                tx.object_store(keys::ROOMS_PENDING_KEY_BUNDLE)?
+                    .get(&key)
+                    .await?
+                    .map(|v| self.serializer.deserialize_value(v))
+                    .transpose()
+                    .map_err(Into::into)
+            },
+        )
+        .await
     }
 
     async fn get_all_rooms_pending_key_bundles(&self) -> Result<Vec<RoomPendingKeyBundleDetails>> {
-        let result = self
-            .inner
-            .transaction(keys::ROOMS_PENDING_KEY_BUNDLE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::ROOMS_PENDING_KEY_BUNDLE)?
-            .get_all()
-            .await?
-            .map(|result| {
-                result
-                    .map_err(Into::into)
-                    .and_then(|v| self.serializer.deserialize_value(v).map_err(Into::into))
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(result)
+        self.with_transaction(
+            &[keys::ROOMS_PENDING_KEY_BUNDLE],
+            TransactionMode::Readonly,
+            async move |tx| {
+                tx.object_store(keys::ROOMS_PENDING_KEY_BUNDLE)?
+                    .get_all()
+                    .await?
+                    .map(|result| {
+                        result
+                            .map_err(Into::into)
+                            .and_then(|v| self.serializer.deserialize_value(v).map_err(Into::into))
+                    })
+                    .collect::<Result<Vec<_>>>()
+            },
+        )
+        .await
     }
 
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
-        self.inner
-            .transaction(keys::CORE)
-            .with_mode(TransactionMode::Readonly)
-            .build()?
-            .object_store(keys::CORE)?
-            .get(&JsValue::from_str(key))
-            .await?
-            .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
-            .transpose()
+        self.with_transaction(&[keys::CORE], TransactionMode::Readonly, async move |tx| {
+            tx.object_store(keys::CORE)?
+                .get(&JsValue::from_str(key))
+                .await?
+                .map(|v| self.serializer.deserialize_value(v).map_err(Into::into))
+                .transpose()
+        })
+        .await
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn set_custom_value(&self, key: &str, value: Vec<u8>) -> Result<()> {
-        let transaction =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
-        transaction
-            .object_store(keys::CORE)?
-            .put(&self.serializer.serialize_value(&value)?)
-            .with_key(JsValue::from_str(key))
-            .build()?;
-        transaction.commit().await?;
-        Ok(())
+        self.with_transaction(&[keys::CORE], TransactionMode::Readwrite, async move |transaction| {
+            transaction
+                .object_store(keys::CORE)?
+                .put(&self.serializer.serialize_value(&value)?)
+                .with_key(JsValue::from_str(key))
+                .build()?;
+            transaction.commit().await?;
+            Ok(())
+        })
+        .await
     }
 
     #[allow(clippy::unused_async)] // Mandated by trait on wasm.
     async fn remove_custom_value(&self, key: &str) -> Result<()> {
-        let transaction =
-            self.inner.transaction(keys::CORE).with_mode(TransactionMode::Readwrite).build()?;
-        transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(key)).build()?;
-        transaction.commit().await?;
-        Ok(())
+        self.with_transaction(&[keys::CORE], TransactionMode::Readwrite, async move |transaction| {
+            transaction.object_store(keys::CORE)?.delete(&JsValue::from_str(key)).build()?;
+            transaction.commit().await?;
+            Ok(())
+        })
+        .await
     }
 
     async fn try_take_leased_lock(
@@ -1695,65 +1735,66 @@ impl_crypto_store! {
     ) -> Result<Option<CrossProcessLockGeneration>> {
         // As of 2023-06-23, the code below hasn't been tested yet.
         let key = JsValue::from_str(key);
-        let txn = self
-            .inner
-            .transaction(keys::LEASE_LOCKS)
-            .with_mode(TransactionMode::Readwrite)
-            .build()?;
-        let object_store = txn.object_store(keys::LEASE_LOCKS)?;
+        self.with_transaction(&[keys::LEASE_LOCKS], TransactionMode::Readwrite, async move |txn| {
+            let object_store = txn.object_store(keys::LEASE_LOCKS)?;
 
-        #[derive(Deserialize, Serialize)]
-        struct Lease {
-            holder: String,
-            expiration: u64,
-            generation: CrossProcessLockGeneration,
-        }
+            #[derive(Deserialize, Serialize)]
+            struct Lease {
+                holder: String,
+                expiration: u64,
+                generation: CrossProcessLockGeneration,
+            }
 
-        let now: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
-        let expiration = now + lease_duration_ms as u64;
+            let now: u64 = MilliSecondsSinceUnixEpoch::now().get().into();
+            let expiration = now + lease_duration_ms as u64;
 
-        let lease = match object_store.get(&key).await? {
-            Some(entry) => {
-                let mut lease: Lease = self.serializer.deserialize_value(entry)?;
+            let lease = match object_store.get(&key).await? {
+                Some(entry) => {
+                    let mut lease: Lease = self.serializer.deserialize_value(entry)?;
 
-                if lease.holder == holder {
-                    // We had the lease before, extend it.
-                    lease.expiration = expiration;
-
-                    Some(lease)
-                } else {
-                    // We didn't have it.
-                    if lease.expiration < now {
-                        // Steal it!
-                        lease.holder = holder.to_owned();
+                    if lease.holder == holder {
+                        // We had the lease before, extend it.
                         lease.expiration = expiration;
-                        lease.generation += 1;
 
                         Some(lease)
                     } else {
-                        // We tried our best.
-                        None
+                        // We didn't have it.
+                        if lease.expiration < now {
+                            // Steal it!
+                            lease.holder = holder.to_owned();
+                            lease.expiration = expiration;
+                            lease.generation += 1;
+
+                            Some(lease)
+                        } else {
+                            // We tried our best.
+                            None
+                        }
                     }
                 }
-            }
-            None => {
-                let lease = Lease {
-                    holder: holder.to_owned(),
-                    expiration,
-                    generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
-                };
+                None => {
+                    let lease = Lease {
+                        holder: holder.to_owned(),
+                        expiration,
+                        generation: FIRST_CROSS_PROCESS_LOCK_GENERATION,
+                    };
 
-                Some(lease)
-            }
-        };
+                    Some(lease)
+                }
+            };
 
-        Ok(if let Some(lease) = lease {
-            object_store.put(&self.serializer.serialize_value(&lease)?).with_key(key).build()?;
+            Ok(if let Some(lease) = lease {
+                object_store
+                    .put(&self.serializer.serialize_value(&lease)?)
+                    .with_key(key)
+                    .build()?;
 
-            Some(lease.generation)
-        } else {
-            None
+                Some(lease.generation)
+            } else {
+                None
+            })
         })
+        .await
     }
 
     #[allow(clippy::unused_async)]
@@ -1766,9 +1807,10 @@ impl_crypto_store! {
         Ok(())
     }
 
-    #[allow(clippy::unused_async)]
     async fn reopen(&self) -> Result<()> {
-        Ok(())
+        self.connection
+            .reopen(|name| async move { open_and_upgrade_db(&name, &self.serializer).await })
+            .await
     }
 }
 
@@ -1776,7 +1818,7 @@ impl Drop for IndexeddbCryptoStore {
     fn drop(&mut self) {
         // Must release the database access manually as it's not done when
         // dropping it.
-        self.inner.as_sys().close();
+        self.connection.database().as_sys().close();
     }
 }
 

@@ -52,6 +52,12 @@ impl From<web_sys::DomException> for IndexeddbMediaStoreError {
     }
 }
 
+impl From<indexed_db_futures::error::Error> for IndexeddbMediaStoreError {
+    fn from(value: indexed_db_futures::error::Error) -> Self {
+        TransactionError::from(value).into()
+    }
+}
+
 impl From<indexed_db_futures::error::OpenDbError> for IndexeddbMediaStoreError {
     fn from(value: indexed_db_futures::error::OpenDbError) -> Self {
         use indexed_db_futures::error::OpenDbError::*;
