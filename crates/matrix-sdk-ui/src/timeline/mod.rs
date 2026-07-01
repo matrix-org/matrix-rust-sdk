@@ -46,7 +46,7 @@ use ruma::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
-        relation::Thread,
+        relation::{RelationType, Thread},
         room::message::{
             AddMentions, Relation, RelationWithoutReplacement, ReplyWithinThread,
             RoomMessageEventContentWithoutRelation, TextMessageEventContent,
@@ -89,7 +89,7 @@ pub use self::{
     error::*,
     event_filter::{TimelineEventCondition, TimelineEventFilter},
     event_item::{
-        AnyOtherStateEventContentChange, BeaconInfo, EmbeddedEvent, EncryptedMessage,
+        AnyOtherStateEventContentChange, BeaconInfo, EditRevision, EmbeddedEvent, EncryptedMessage,
         EventItemOrigin, EventSendState, EventTimelineItem, InReplyToDetails, LiveLocationState,
         MediaUploadProgress, MemberProfileChange, MembershipChange, Message, MsgLikeContent,
         MsgLikeKind, OtherMessageLike, OtherState, PollResult, PollState, Profile, ReactionInfo,
@@ -281,6 +281,29 @@ impl Timeline {
         let items = self.controller.items().await;
         let (_, item) = rfind_event_by_id(&items, event_id)?;
         Some(item.to_owned())
+    }
+
+    /// Get the edit history for the given event.
+    ///
+    /// Returns all revisions of the event, in chronological order.
+    /// The first entry is the original event content, followed by each
+    /// edit in the order they were applied.
+    ///
+    /// This looks up the event and all `m.replace` relations targeting it,
+    /// first in the event cache and falling back to the homeserver if needed.
+    /// This works regardless of the timeline's focus kind (live, thread,
+    /// permalink, or pinned events).
+    pub async fn edit_revisions(&self, event_id: &EventId) -> Result<Vec<EditRevision>, Error> {
+        let Ok((original_event, edit_events)) = self
+            .controller
+        for event in iter::once(original_event).chain(edit_events) {
+            let timestamp = event.timestamp();
+            if let Some(content) = TimelineItemContent::from_event(room, event).await {
+                revisions.push(EditRevision { content, timestamp });
+            }
+        }
+
+        Ok(revisions)
     }
 
     /// Get the latest of the timeline's remote event ids.

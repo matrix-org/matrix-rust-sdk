@@ -28,6 +28,7 @@ use ruma::{
         AnyMessageLikeEventContent,
         fully_read::FullyReadEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
+        relation::RelationType,
     },
     room_version_rules::RoomVersionRules,
 };
@@ -149,6 +150,13 @@ pub(super) trait RoomDataProvider:
         &'a self,
         event_id: &'a EventId,
     ) -> impl Future<Output = Result<TimelineEvent>> + SendOutsideWasm + 'a;
+
+    /// Load an event and its relations from cache or network.
+    fn load_or_fetch_event_with_relations<'a>(
+        &'a self,
+        event_id: &'a EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> impl Future<Output = Result<(TimelineEvent, Vec<TimelineEvent>)>> + SendOutsideWasm + 'a;
 }
 
 impl RoomDataProvider for Room {
@@ -248,5 +256,13 @@ impl RoomDataProvider for Room {
 
     async fn load_event<'a>(&'a self, event_id: &'a EventId) -> Result<TimelineEvent> {
         self.load_or_fetch_event(event_id, None).await
+    }
+
+    async fn load_or_fetch_event_with_relations<'a>(
+        &'a self,
+        event_id: &'a EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> Result<(TimelineEvent, Vec<TimelineEvent>)> {
+        self.load_or_fetch_event_with_relations(event_id, filter, None).await
     }
 }
