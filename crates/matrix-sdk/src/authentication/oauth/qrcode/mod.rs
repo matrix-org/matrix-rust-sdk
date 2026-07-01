@@ -329,7 +329,7 @@ pub struct QrProgress {
 ///
 /// We have established the secure channel, but we need to let the
 /// other device know about the [`QrCodeData`] so they can connect to the
-/// channel and let us know about the checkcode so we can verify that the
+/// channel and let us know about the check code so we can verify that the
 /// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub enum GeneratedQrProgress {
@@ -337,45 +337,81 @@ pub enum GeneratedQrProgress {
     /// device to scan it.
     QrReady(QrCodeData),
     /// The QR code has been scanned by the other device and this device is
-    /// waiting for the user to put in the checkcode displayed on the
+    /// waiting for the user to put in the check code displayed on the
     /// other device.
     QrScanned(CheckCodeSender),
 }
 
-/// Used to pass back the checkcode entered by the user to verify that the
-/// secure channel is indeed secure.
-#[derive(Clone, Debug)]
-pub struct CheckCodeSender {
-    inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<u8>>>>,
-}
+/// A oneshot sender used to send the check code back to the device that
+/// generated the QR code.
+pub type CheckCodeSender = CloneableSender<u8>;
 
 impl CheckCodeSender {
-    pub(crate) fn new(tx: tokio::sync::oneshot::Sender<u8>) -> Self {
-        Self { inner: Arc::new(Mutex::new(Some(tx))) }
-    }
-
-    /// Send the checkcode.
+    /// Send the check code.
     ///
     /// Calling this method more than once will result in an error.
     ///
     /// # Arguments
     ///
     /// * `check_code` - The check code in digits representation.
-    pub async fn send(&self, check_code: u8) -> Result<(), CheckCodeSenderError> {
+    pub async fn send(&self, check_code: u8) -> Result<(), SenderError> {
+        self.send_impl(check_code).await
+    }
+}
+
+/// The internal message of the [`ContinuationMessageSender`] to either continue
+/// the login granting process or to cancel it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ContinuationMessage {
+    Confirm,
+    Cancel,
+}
+
+/// Struct used to let the QR code granting logic know that it can continue with
+/// the process since applications might suspend things while the verification
+/// URI is open.
+#[derive(Clone, Debug)]
+pub struct ContinuationMessageSender(CloneableSender<ContinuationMessage>);
+
+impl ContinuationMessageSender {
+    /// Confirm the continuation of the login granting process.
+    pub async fn confirm(&self) -> Result<(), SenderError> {
+        self.0.send_impl(ContinuationMessage::Confirm).await
+    }
+
+    /// Cancel the login granting process.
+    pub async fn cancel(&self) -> Result<(), SenderError> {
+        self.0.send_impl(ContinuationMessage::Cancel).await
+    }
+}
+
+/// A oneshot sender we are able to clone so we can put it into a
+/// [`SharedObservable`].
+#[derive(Clone, Debug)]
+pub struct CloneableSender<T> {
+    inner: Arc<Mutex<Option<tokio::sync::oneshot::Sender<T>>>>,
+}
+
+impl<T> CloneableSender<T> {
+    pub(crate) fn new(tx: tokio::sync::oneshot::Sender<T>) -> Self {
+        Self { inner: Arc::new(Mutex::new(Some(tx))) }
+    }
+
+    async fn send_impl(&self, message: T) -> Result<(), SenderError> {
         match self.inner.lock().await.take() {
-            Some(tx) => tx.send(check_code).map_err(|_| CheckCodeSenderError::CannotSend),
-            None => Err(CheckCodeSenderError::AlreadySent),
+            Some(tx) => tx.send(message).map_err(|_| SenderError::CannotSend),
+            None => Err(SenderError::AlreadySent),
         }
     }
 }
 
-/// Possible errors when calling [`CheckCodeSender::send`].
+/// Possible errors when calling [`CloneableSender::send`].
 #[derive(Debug, thiserror::Error)]
-pub enum CheckCodeSenderError {
-    /// The check code has already been sent.
-    #[error("check code already sent.")]
+pub enum SenderError {
+    /// The message has already been sent.
+    #[error("message already sent.")]
     AlreadySent,
-    /// The check code cannot be sent.
-    #[error("check code cannot be sent.")]
+    /// The message cannot be sent.
+    #[error("message cannot be sent.")]
     CannotSend,
 }

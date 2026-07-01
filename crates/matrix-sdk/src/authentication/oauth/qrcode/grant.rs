@@ -36,8 +36,9 @@ use super::{
 use crate::{
     Client,
     authentication::oauth::qrcode::{
-        CheckCodeSender, GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError,
-        QrProgress, SecureChannelError,
+        CheckCodeSender, CloneableSender, ContinuationMessage, ContinuationMessageSender,
+        GeneratedQrProgress, LoginFailureReason, QRCodeGrantLoginError, QrProgress,
+        SecureChannelError,
     },
 };
 
@@ -116,8 +117,29 @@ async fn finish_login_grant<Q>(
             .as_str(),
     )
     .map_err(|e| QRCodeGrantLoginError::Unknown(e.to_string()))?;
-    state.set(GrantLoginProgress::WaitingForAuth { verification_uri });
 
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    state.set(GrantLoginProgress::WaitingForAuth {
+        verification_uri,
+        continuation_sender: ContinuationMessageSender(CloneableSender::new(sender)),
+    });
+
+    // We wait for this device to confirm that the authorization using the
+    // verification URI has succeeded.
+    match receiver.await {
+        Ok(ContinuationMessage::Confirm) => {}
+        Ok(ContinuationMessage::Cancel) | Err(_) => {
+            channel
+                .send_json(QrAuthMessage::LoginFailure {
+                    reason: LoginFailureReason::UserCancelled,
+                    homeserver: None,
+                })
+                .await?;
+            return Err(QRCodeGrantLoginError::LoginFailure {
+                reason: LoginFailureReason::UserCancelled,
+            });
+        }
+    }
     // We send the new device the m.login.protocol_accepted message to let it know
     // that the consent process is in progress.
     // -- MSC4108 OAuth 2.0 login step 4 continued
@@ -196,6 +218,12 @@ pub enum GrantLoginProgress<Q> {
     WaitingForAuth {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: Url,
+        /// A sender to confirm that the authorization using the verification
+        /// URI has been started in the browser and that the application is
+        /// ready to proceed. This allows applications that suspend or navigate
+        /// away while the verification URI is open to resume the process
+        /// explicitly.
+        continuation_sender: ContinuationMessageSender,
     },
     /// The new device has been granted access and this device is sending the
     /// secrets to it.
@@ -875,7 +903,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -883,6 +914,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     GrantLoginProgress::SyncingSecrets => {
                         assert_matches!(state, GrantLoginProgress::WaitingForAuth { .. });
@@ -1003,12 +1035,16 @@ mod test {
                             .send(check_code.to_digit())
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     GrantLoginProgress::SyncingSecrets => {
                         assert_matches!(state, GrantLoginProgress::WaitingForAuth { .. });
@@ -1132,12 +1168,16 @@ mod test {
                             .send(check_code.to_digit())
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     GrantLoginProgress::SyncingSecrets => {
                         assert_matches!(state, GrantLoginProgress::WaitingForAuth { .. });
@@ -1755,7 +1795,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -1763,6 +1806,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -1879,12 +1923,16 @@ mod test {
                             .send(check_code.to_digit())
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2405,7 +2453,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -2413,6 +2464,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2534,12 +2586,16 @@ mod test {
                             .send(check_code.to_digit())
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2678,7 +2734,10 @@ mod test {
                             .await
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(
@@ -2686,6 +2745,7 @@ mod test {
                             )
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
@@ -2808,12 +2868,16 @@ mod test {
                             .send(check_code.to_digit())
                             .expect("Alice should be able to forward the checkcode");
                     }
-                    GrantLoginProgress::WaitingForAuth { verification_uri } => {
+                    GrantLoginProgress::WaitingForAuth {
+                        verification_uri,
+                        continuation_sender,
+                    } => {
                         assert_matches!(
                             state,
                             GrantLoginProgress::EstablishingSecureChannel(QrProgress { .. })
                         );
                         assert_eq!(verification_uri.as_str(), verification_uri_complete);
+                        continuation_sender.confirm().await.expect("should be able to confirm");
                     }
                     _ => {
                         panic!("Alice should abort the process");
