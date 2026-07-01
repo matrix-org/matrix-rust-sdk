@@ -18,7 +18,7 @@ use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, pin_mut};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::search_service::{
-    MessageResult as UIMessageResult, PaginationState as UIPaginationState,
+    MessageResult as UIMessageResult, PaginationState as SearchServicePaginationState,
     ResultType as UIResultType, SearchService as UISearchService,
 };
 
@@ -67,7 +67,7 @@ impl SearchService {
 
     /// Returns the current pagination state.
     pub fn pagination_state(&self) -> SearchServicePaginationState {
-        self.inner.pagination_state().into()
+        self.inner.pagination_state()
     }
 
     /// Subscribe to pagination state updates.
@@ -81,7 +81,7 @@ impl SearchService {
             pin_mut!(pagination_state);
 
             while let Some(state) = pagination_state.next().await {
-                listener.on_update(state.into());
+                listener.on_update(state);
             }
         })))
     }
@@ -102,25 +102,6 @@ impl SearchService {
                 listener.on_update(diffs.into_iter().map(Into::into).collect());
             }
         })))
-    }
-}
-
-/// Whether the search service is currently loading a page of results.
-#[derive(uniffi::Enum)]
-pub enum SearchServicePaginationState {
-    /// Not currently paginating. `end_reached` is `true` once every source has
-    /// been exhausted for the current query.
-    Idle { end_reached: bool },
-    /// A page of results is currently being loaded.
-    Loading,
-}
-
-impl From<UIPaginationState> for SearchServicePaginationState {
-    fn from(state: UIPaginationState) -> Self {
-        match state {
-            UIPaginationState::Idle { end_reached } => Self::Idle { end_reached },
-            UIPaginationState::Loading => Self::Loading,
-        }
     }
 }
 

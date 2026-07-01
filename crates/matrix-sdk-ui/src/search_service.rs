@@ -44,6 +44,7 @@ type ResultsStream =
     Pin<Box<dyn Stream<Item = Result<Vec<(OwnedRoomId, TimelineEvent)>, SearchError>> + Send>>;
 
 /// Whether the search service is currently loading a page of results.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum), uniffi(name = "SearchServicePaginationState"))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PaginationState {
     /// Not currently paginating. `end_reached` is `true` once every source has
