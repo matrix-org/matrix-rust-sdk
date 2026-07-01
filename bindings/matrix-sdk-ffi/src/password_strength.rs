@@ -311,7 +311,7 @@ mod tests {
         ];
 
         for (pw, expected_ranking) in cases {
-            let result = estimator.estimate(pw.to_string(), vec![]);
+            let result = estimator.estimate((*pw).to_owned(), vec![]);
             assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
         }
     }
@@ -342,7 +342,7 @@ mod tests {
         ];
 
         for (pw, expected_ranking) in cases {
-            let result = lenient_estimator.estimate(pw.to_string(), vec![]);
+            let result = lenient_estimator.estimate((*pw).to_owned(), vec![]);
             assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
         }
     }
@@ -373,7 +373,7 @@ mod tests {
         ];
 
         for (pw, expected_ranking) in cases {
-            let result = strict_estimator.estimate(pw.to_string(), vec![]);
+            let result = strict_estimator.estimate((*pw).to_owned(), vec![]);
             assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
             println!("{pw}, {0}", result.score);
         }
@@ -382,13 +382,13 @@ mod tests {
     #[test]
     fn test_user_inputs_lower_score() {
         let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
-        let password = "michael1985".to_string();
+        let password = "michael1985".to_owned();
 
         let without_inputs = estimator.estimate(password.clone(), vec![]);
         let with_inputs =
-            estimator.estimate(password.clone(), vec!["michael".to_string(), "1985".to_string()]);
+            estimator.estimate(password.clone(), vec!["michael".to_owned(), "1985".to_owned()]);
         let with_nonmatching_inputs =
-            estimator.estimate(password, vec!["foo".to_string(), "blar".to_string()]);
+            estimator.estimate(password, vec!["foo".to_owned(), "blar".to_owned()]);
 
         assert!(
             with_inputs.score <= without_inputs.score,
@@ -405,12 +405,12 @@ mod tests {
     fn test_feedback_present_for_weak_passwords() {
         let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
 
-        let weak = estimator.estimate("password".to_string(), vec![]);
+        let weak = estimator.estimate("password".to_owned(), vec![]);
         let weak_feedback = weak.feedback.as_ref().expect("expected feedback for a weak password");
         assert!(weak_feedback.warning.is_some(), "expected a warning for a weak password");
         assert!(!weak_feedback.suggestions.is_empty(), "expected suggestions for a weak password");
 
-        let strong = estimator.estimate("correct horse battery staple".to_string(), vec![]);
+        let strong = estimator.estimate("correct horse battery staple".to_owned(), vec![]);
         assert!(strong.feedback.is_none(), "expected no feedback for a strong password");
     }
 }
