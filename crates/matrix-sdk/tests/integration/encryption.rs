@@ -1,5 +1,6 @@
 mod backups;
 mod cross_signing;
+mod dehydrated_devices;
 mod recovery;
 mod secret_storage;
 mod shared_history;

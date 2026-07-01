@@ -105,6 +105,7 @@ use crate::{
 };
 
 pub mod backups;
+pub mod dehydrated_devices;
 pub mod futures;
 pub mod identities;
 pub mod recovery;
@@ -206,6 +207,10 @@ pub(crate) struct EncryptionData {
 
     /// All state related to secret storage recovery.
     pub recovery_state: SharedObservable<RecoveryState>,
+
+    /// State for the dehydrated-devices manager (event channel, scheduled
+    /// rotation task).
+    pub dehydrated_devices_state: dehydrated_devices::DehydratedDevicesState,
 }
 
 impl EncryptionData {
@@ -216,6 +221,7 @@ impl EncryptionData {
             tasks: StdMutex::new(Default::default()),
             backup_state: Default::default(),
             recovery_state: Default::default(),
+            dehydrated_devices_state: Default::default(),
         }
     }
 
@@ -1798,6 +1804,17 @@ impl Encryption {
     /// Get the recovery manager of the client.
     pub fn recovery(&self) -> Recovery {
         Recovery { client: self.client.to_owned() }
+    }
+
+    /// Get the dehydrated-devices manager of the client.
+    ///
+    /// A dehydrated device is a virtual device that the homeserver holds on
+    /// the user's behalf and that can receive end-to-end encrypted to-device
+    /// events while the user is offline. See the
+    /// [`dehydrated_devices`] module
+    /// for the full lifecycle and an example.
+    pub fn dehydrated_devices(&self) -> dehydrated_devices::DehydratedDevices {
+        dehydrated_devices::DehydratedDevices { client: self.client.to_owned() }
     }
 
     /// Enables the crypto-store cross-process lock.
