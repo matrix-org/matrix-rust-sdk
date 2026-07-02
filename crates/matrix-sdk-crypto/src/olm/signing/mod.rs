@@ -792,10 +792,7 @@ mod tests {
     #[cfg(feature = "experimental-x509-identity-verification")]
     #[async_test]
     async fn test_private_identity_signed_by_x509() {
-        use crate::x509::{
-            X509Signer, X509Verifier, rust_raw_x509_signer::RustRawX509Signer,
-            rust_raw_x509_verifier::RustRawX509Verifier,
-        };
+        use crate::x509::{RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier};
 
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
         let (cert, signing_key) =

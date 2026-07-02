@@ -19,8 +19,8 @@
 
 mod errors;
 mod raw_x509_signature;
-pub(crate) mod rust_raw_x509_signer;
-pub(crate) mod rust_raw_x509_verifier;
+mod rust_raw_x509_signer;
+mod rust_raw_x509_verifier;
 mod x509_signer;
 mod x509_verify;
 

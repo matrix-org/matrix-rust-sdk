@@ -1502,9 +1502,7 @@ pub(crate) mod tests {
     use crate::{
         store::Store,
         x509::{
-            X509Signer, X509Verifier,
-            rust_raw_x509_signer::RustRawX509Signer,
-            rust_raw_x509_verifier::RustRawX509Verifier,
+            RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier,
             tests::{
                 cert_and_key_with_email_in_subject_distinguished_name,
                 subject_key_identifier_extension,
