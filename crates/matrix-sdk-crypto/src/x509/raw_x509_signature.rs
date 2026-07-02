@@ -180,7 +180,13 @@ impl<T: der::DerOrd> IntoSetOfVec<T> for Vec<T> {
     }
 }
 
-impl TryFrom<&X509Signature> for RawX509Signature {
+#[derive(Debug, Clone)]
+pub(crate) struct RawX509SignatureAndFirstCertificate {
+    pub raw_x509signature: RawX509Signature,
+    pub leaf_cert: Certificate,
+}
+
+impl TryFrom<&X509Signature> for RawX509SignatureAndFirstCertificate {
     type Error = RawX509SignatureParseError;
 
     fn try_from(value: &X509Signature) -> Result<Self, Self::Error> {
@@ -198,7 +204,7 @@ impl TryFrom<&X509Signature> for RawX509Signature {
     }
 }
 
-impl TryFrom<SignedData> for RawX509Signature {
+impl TryFrom<SignedData> for RawX509SignatureAndFirstCertificate {
     type Error = RawX509SignatureParseError;
 
     fn try_from(data: SignedData) -> Result<Self, Self::Error> {
@@ -209,10 +215,10 @@ impl TryFrom<SignedData> for RawX509Signature {
 
         let certificates: Vec<_> = data
             .certificates
-            .as_ref()
             .ok_or(RawX509SignatureParseError::NoCertificateChainInSignedData)?
             .0
-            .iter()
+            .into_vec()
+            .into_iter()
             .map(|cert| match cert {
                 CertificateChoices::Certificate(c) => Ok(c),
                 CertificateChoices::Other(_) => {
@@ -221,16 +227,6 @@ impl TryFrom<SignedData> for RawX509Signature {
             })
             .collect::<Result<_, _>>()?;
 
-        let leaf_cert = certificates
-            .get(0)
-            .ok_or(RawX509SignatureParseError::EmptyCertificateChainInSignedData)?;
-        let leaf_ski = leaf_cert
-            .tbs_certificate
-            .get::<SubjectKeyIdentifier>()
-            .map_err(RawX509SignatureParseError::LeafCertificateExtensionParseError)?
-            .ok_or(RawX509SignatureParseError::LeafCertificateMissingSubjectKeyIdentifier)?
-            .1;
-
         let cert_pems = certificates
             .iter()
             .map(|cert| {
@@ -238,6 +234,18 @@ impl TryFrom<SignedData> for RawX509Signature {
             })
             .collect::<Vec<_>>()
             .join("");
+
+        let leaf_cert = certificates
+            .into_iter()
+            .next()
+            .ok_or(RawX509SignatureParseError::EmptyCertificateChainInSignedData)?;
+
+        let leaf_ski = leaf_cert
+            .tbs_certificate
+            .get::<SubjectKeyIdentifier>()
+            .map_err(RawX509SignatureParseError::LeafCertificateExtensionParseError)?
+            .ok_or(RawX509SignatureParseError::LeafCertificateMissingSubjectKeyIdentifier)?
+            .1;
 
         if data.crls.is_some() {
             return Err(RawX509SignatureParseError::SignedDataContainsCrls);
@@ -250,7 +258,9 @@ impl TryFrom<SignedData> for RawX509Signature {
         }
 
         let (signature_scheme, signature_bytes) = parse_signer_info(signer_info, &leaf_ski)?;
-        Ok(RawX509Signature { signature_bytes, certificate_chain: cert_pems, signature_scheme })
+        let raw_x509signature =
+            RawX509Signature { signature_bytes, certificate_chain: cert_pems, signature_scheme };
+        Ok(RawX509SignatureAndFirstCertificate { raw_x509signature, leaf_cert })
     }
 }
 
@@ -425,13 +435,15 @@ mod test {
 
     use super::*;
 
-    /// Test parsing a known CMS structure into a [`RawX509Signature`], and
-    /// compare it against a snapshot.
+    /// Test parsing a known CMS structure into a
+    /// [`RawX509SignatureAndFirstCertificate`], and compare it against a
+    /// snapshot.
     #[test]
     fn test_sig_to_raw() {
         const SIG: &str = include_str!("test_cms.pem");
         let x509signature = X509Signature::from_str(SIG).unwrap();
-        let raw_signature: RawX509Signature = (&x509signature).try_into().unwrap();
+        let raw_signature: RawX509SignatureAndFirstCertificate =
+            (&x509signature).try_into().unwrap();
         assert_debug_snapshot!(raw_signature);
     }
 
@@ -441,8 +453,10 @@ mod test {
     fn test_roundtrip_sig_to_raw_and_back() {
         const SIG: &str = include_str!("test_cms.pem");
         let x509signature = X509Signature::from_str(SIG).unwrap();
-        let raw_signature: RawX509Signature = (&x509signature).try_into().unwrap();
-        let (device_id, roundtripped) = raw_signature.into_x509_signature().unwrap();
+        let raw_and_certs: RawX509SignatureAndFirstCertificate =
+            (&x509signature).try_into().unwrap();
+        let (device_id, roundtripped) =
+            raw_and_certs.raw_x509signature.into_x509_signature().unwrap();
         assert_eq!(roundtripped.to_string(), x509signature.to_string());
 
         // The SKI of the CA cert is

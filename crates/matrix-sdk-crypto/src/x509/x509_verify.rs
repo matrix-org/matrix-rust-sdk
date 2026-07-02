@@ -24,7 +24,11 @@ use cms::cert::x509::{
 use ruma::{MatrixUri, OwnedUserId, UserId, matrix_uri::MatrixId};
 use tracing::info;
 
-use crate::{olm::SignedJsonObject, types::Signature, x509::raw_x509_signature::RawX509Signature};
+use crate::{
+    olm::SignedJsonObject,
+    types::Signature,
+    x509::raw_x509_signature::{RawX509Signature, RawX509SignatureAndFirstCertificate},
+};
 
 /// Hold one of these if you want to verify X.509 signatures, and call
 /// [`Self::verify_x509_signature`] to do it.
@@ -89,8 +93,8 @@ impl X509Verifier {
             return false;
         };
 
-        let sig: RawX509Signature = match sig.try_into() {
-            Ok(sig) => sig,
+        let res: RawX509SignatureAndFirstCertificate = match sig.try_into() {
+            Ok(res) => res,
             Err(e) => {
                 tracing::warn!(
                     "X509: verify_x509_signature(): unable to parse X509 signature: {}",
@@ -102,23 +106,12 @@ impl X509Verifier {
 
         // Before we pass over to the X.509 certificate verifier, check that the leaf
         // certificate is valid for the given user_id.
-        let certs = Certificate::load_pem_chain(sig.certificate_chain.as_bytes());
-        let Ok(certs) = certs else {
-            tracing::warn!("Could not parse certificate chain");
-            return false;
-        };
-
-        let Some(first_cert) = certs.get(0) else {
-            tracing::warn!("Missing first certificate");
-            return false;
-        };
-
-        if !cert_contains_user_id_or_equivalent_email(user_id, first_cert) {
+        if !cert_contains_user_id_or_equivalent_email(user_id, &res.leaf_cert) {
             tracing::warn!("Verifying certificate user ID or email failed");
             return false;
         }
 
-        self.x509_verify.verify(message.as_bytes(), &sig)
+        self.x509_verify.verify(message.as_bytes(), &res.raw_x509signature)
     }
 }
 
