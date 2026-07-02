@@ -43,7 +43,9 @@ testing = ["matrix-sdk-test"]
 # Enable experimental support for pushing secrets; see
 # https://github.com/matrix-org/matrix-spec-proposals/pull/4385
 experimental-push-secrets = []
-experimental-x509-identity-verification = []
+
+# Enable experirmental support for verifying user identities via X.509 certificates
+experimental-x509-identity-verification = ["dep:cms", "dep:rsa", "sha2/oid", "dep:rustls", "dep:rustls-webpki"]
 
 [dependencies]
 aes = { version = "0.8.4", default-features = false }
@@ -53,7 +55,7 @@ async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
 cfg-if.workspace = true
-cms = { version = "0.2.3", features = ["std"] }
+cms = { version = "0.2.3", default-features = false, features = ["std"], optional = true }
 ctr = { version = "0.9.2", default-features = false }
 eyeball.workspace = true
 futures-core.workspace = true
@@ -68,13 +70,13 @@ matrix-sdk-test = { workspace = true, optional = true }  # feature = testing onl
 pbkdf2.workspace = true
 rand.workspace = true
 rmp-serde.workspace = true
-rsa = { version = "0.9.10" }
+rsa = { version = "0.9.10", default-features = false, optional = true }
 ruma = { workspace = true, features = ["rand", "unstable-msc3814"] }
-rustls = "0.23.40"
-rustls-webpki = "0.103.13"
+rustls = { version = "0.23.40", optional = true }
+rustls-webpki = { version = "0.103.13", default-features = false, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
-sha2 = { workspace = true, features = ["oid"] }
+sha2 = { workspace = true }
 subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
 time = { version = "0.3.47", default-features = false, features = ["std", "formatting"] }
@@ -87,7 +89,7 @@ url.workspace = true
 vodozemac.workspace = true
 zeroize = { workspace = true, features = ["zeroize_derive"] }
 
-[target.'cfg(not(taret_family = "wasm"))'.dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { workspace = true, features = ["time"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
