@@ -17,7 +17,10 @@ use cms::{
         CertificateChoices,
         x509::{
             Certificate, der,
-            der::{EncodePem, asn1::SetOfVec, pem::LineEnding, referenced::OwnedToRef},
+            der::{
+                EncodePem, asn1::SetOfVec, oid as const_oid, pem::LineEnding,
+                referenced::OwnedToRef,
+            },
             ext::pkix::{AuthorityKeyIdentifier, SubjectKeyIdentifier},
             spki::{AlgorithmIdentifierOwned, ObjectIdentifier},
         },
@@ -30,7 +33,6 @@ use cms::{
 };
 use rsa::pkcs1::RsaPssParams;
 use ruma::OwnedDeviceId;
-use sha2::digest::const_oid;
 use vodozemac::base64_encode;
 
 #[cfg(doc)]
