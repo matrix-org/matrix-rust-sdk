@@ -34,7 +34,8 @@ pub use x509_verify::{RawX509Verifier, X509Verifier};
 pub(crate) mod tests {
     use rcgen::{Certificate, CertificateParams, CustomExtension, KeyPair, PublicKeyData, SanType};
     use ruma::OwnedUserId;
-    use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
+
+    pub(crate) const OID_PKCS9_EMAIL_ADDRESS: &[u64] = &[1, 2, 840, 113549, 1, 9, 1];
 
     /// Create a certificate that contains the supplied email address in its
     /// Subject Distinguished Name
@@ -57,10 +58,9 @@ pub(crate) mod tests {
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
         cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
-        cert_params.distinguished_name.push(
-            rcgen::DnType::CustomDnType(OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect()),
-            email,
-        );
+        cert_params
+            .distinguished_name
+            .push(rcgen::DnType::from_oid(&OID_PKCS9_EMAIL_ADDRESS), email);
 
         let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
 

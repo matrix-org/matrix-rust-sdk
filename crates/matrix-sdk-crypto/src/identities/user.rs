@@ -1497,6 +1497,7 @@ pub(crate) mod tests {
         store::{CryptoStoreWrapper, MemoryStore},
         types::{CrossSigningKey, MasterPubkey, SelfSigningPubkey, Signatures, UserSigningPubkey},
         verification::VerificationMachine,
+        x509::tests::OID_PKCS9_EMAIL_ADDRESS,
     };
     #[cfg(feature = "experimental-x509-identity-verification")]
     use crate::{
@@ -2209,9 +2210,7 @@ pub(crate) mod tests {
             KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
         let mut cert_params = cert_params(&format!("Cert for {email}"));
-        let email_address_oid =
-            x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect();
-        cert_params.distinguished_name.push(DnType::CustomDnType(email_address_oid), email);
+        cert_params.distinguished_name.push(DnType::from_oid(OID_PKCS9_EMAIL_ADDRESS), email);
         cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
 
         let issuer = Issuer::from_ca_cert_pem(&ca_cert.pem(), ca_signing_key)

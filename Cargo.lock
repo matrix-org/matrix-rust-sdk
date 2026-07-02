@@ -3649,7 +3649,6 @@ dependencies = [
  "uniffi",
  "url",
  "vodozemac",
- "x509-parser",
  "zeroize",
 ]
 
