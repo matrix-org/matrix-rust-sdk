@@ -108,8 +108,8 @@ pub enum RawX509SignatureParseError {
     #[error("could not parse SignatureAlgorithm.parameters")]
     SignatureAlgorithmParametersParseError(#[source] der::Error),
 
-    #[error("SignatureAlgorithm hash type does not match digest algorithm")]
-    UnexpectedSignatureAlgorithmHash,
+    #[error("unsupported SignatureAlgorithm hash algorithm: {}", .0.actual)]
+    UnsupportedSignatureAlgorithmHash(OidMismatch),
 
     #[error("unsupported SignatureAlgorithm mask generation function: {}", .0.actual)]
     UnsupportedSignatureAlgorithmMaskGen(OidMismatch),
@@ -118,9 +118,9 @@ pub enum RawX509SignatureParseError {
     SignatureAlgorithmMaskGenParametersNotSet,
 
     #[error(
-        "SignatureAlgorithm mask generation function hash type does not match digest algorithm"
+        "unsupported SignatureAlgorithm mask generation function hash algorithm: {}", .0.actual
     )]
-    UnexpectedSignatureAlgorithmMaskGenHash,
+    UnsupportedSignatureAlgorithmMaskGenHash(OidMismatch),
 
     #[error("SignatureAlgorithm salt length is not 64: {0}")]
     UnsupportedSignatureAlgorithmSaltLen(u8),

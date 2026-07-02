@@ -333,7 +333,7 @@ fn map_signer_info_algorithms_to_signature_scheme(
         .map_err(RawX509SignatureParseError::SignatureAlgorithmParametersParseError)?;
 
     assert_oid_matches(&signature_algorithm_params.hash.oid, &const_oid::db::rfc5912::ID_SHA_512)
-        .map_err(RawX509SignatureParseError::UnsupportedDigestAlgorithm)?;
+        .map_err(RawX509SignatureParseError::UnsupportedSignatureAlgorithmHash)?;
     assert_digest_alg_params_null_or_absent(&signature_algorithm_params.hash.parameters)?;
 
     assert_oid_matches(&signature_algorithm_params.mask_gen.oid, &const_oid::db::rfc5912::ID_MGF_1)
@@ -345,7 +345,7 @@ fn map_signer_info_algorithms_to_signature_scheme(
         .ok_or(RawX509SignatureParseError::SignatureAlgorithmMaskGenParametersNotSet)?;
 
     assert_oid_matches(&mask_gen_params.oid, &const_oid::db::rfc5912::ID_SHA_512)
-        .map_err(RawX509SignatureParseError::UnsupportedDigestAlgorithm)?;
+        .map_err(RawX509SignatureParseError::UnsupportedSignatureAlgorithmMaskGenHash)?;
     assert_digest_alg_params_null_or_absent(&mask_gen_params.parameters)?;
 
     if signature_algorithm_params.salt_len != 64 {
