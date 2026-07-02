@@ -34,7 +34,7 @@ use super::{
         event_item::RemoteEventOrigin,
         traits::RoomDataProvider,
     },
-    DateDividerMode, TimelineMetadata, TimelineSettings, TimelineStateTransaction,
+    ActiveCallInfo, DateDividerMode, TimelineMetadata, TimelineSettings, TimelineStateTransaction,
     observable_items::ObservableItems,
 };
 use crate::{timeline::controller::TimelineFocusKind, unable_to_decrypt_hook::UtdHookManager};
@@ -59,6 +59,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         internal_id_prefix: Option<String>,
         unable_to_decrypt_hook: Option<Arc<UtdHookManager>>,
         is_room_encrypted: bool,
+        active_call: Option<ActiveCallInfo>,
     ) -> Self {
         Self {
             items: ObservableItems::new(),
@@ -68,7 +69,8 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 internal_id_prefix,
                 unable_to_decrypt_hook,
                 is_room_encrypted,
-            ),
+            )
+            .with_active_call_info(active_call),
             focus,
             _phantom: std::marker::PhantomData,
         }

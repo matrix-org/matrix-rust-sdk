@@ -80,7 +80,10 @@ pub use self::{
     reply::{EmbeddedEvent, InReplyToDetails},
 };
 use super::ReactionsByKeyBySender;
-use crate::timeline::event_handler::{HandleAggregationKind, TimelineAction};
+use crate::timeline::{
+    controller::ActiveCallInfo,
+    event_handler::{HandleAggregationKind, TimelineAction},
+};
 
 /// The content of an [`EventTimelineItem`][super::EventTimelineItem].
 #[allow(clippy::large_enum_variant)]
@@ -127,6 +130,9 @@ pub enum TimelineItemContent {
         call_intent: Option<CallIntent>,
         /// Users who have declined this call notification
         declined_by: Vec<OwnedUserId>,
+        /// Information about the active call, if this notification is about an
+        /// active call.
+        active_call_info: Option<ActiveCallInfo>,
     },
 }
 
