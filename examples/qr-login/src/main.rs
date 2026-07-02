@@ -11,6 +11,7 @@ use matrix_sdk::{
     },
     ruma::serde::Raw,
 };
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 /// A command line example showcasing how to login using a QR code.
@@ -117,7 +118,8 @@ async fn login(proxy: Option<Url>) -> Result<()> {
     let registration_data = client_metadata().into();
     let oauth = client.oauth();
 
-    let login_client = oauth.login_with_qr_code(Some(&registration_data)).scan(&data);
+    let cancel = CancellationToken::new();
+    let login_client = oauth.login_with_qr_code(Some(&registration_data), cancel).scan(&data);
     let mut subscriber = login_client.subscribe_to_progress();
 
     let task = tokio::spawn(async move {

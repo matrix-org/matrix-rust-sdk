@@ -25,6 +25,7 @@ use matrix_sdk_base::{
 };
 use oauth2::VerificationUriComplete;
 use ruma::time::Instant;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 #[cfg(doc)]
 use vodozemac::ecies::CheckCode;
@@ -212,6 +213,7 @@ pub struct GrantLoginWithScannedQrCode<'a> {
     qr_code_data: &'a QrCodeData,
     device_creation_timeout: Duration,
     state: SharedObservable<GrantLoginProgress<QrProgress>>,
+    cancel: CancellationToken,
 }
 
 impl<'a> GrantLoginWithScannedQrCode<'a> {
@@ -219,12 +221,14 @@ impl<'a> GrantLoginWithScannedQrCode<'a> {
         client: &'a Client,
         qr_code_data: &'a QrCodeData,
         device_creation_timeout: Duration,
+        cancel: CancellationToken,
     ) -> GrantLoginWithScannedQrCode<'a> {
         GrantLoginWithScannedQrCode {
             client,
             qr_code_data,
             device_creation_timeout,
             state: Default::default(),
+            cancel,
         }
     }
 }
@@ -248,54 +252,66 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            // Before we get here, the other device has created a new rendezvous session
-            // and presented a QR code which this device has scanned.
-            // -- MSC4108 Secure channel setup steps 1-3
+            let cancel = self.cancel.clone();
+            let grant = async move {
+                // Before we get here, the other device has created a new rendezvous session
+                // and presented a QR code which this device has scanned.
+                // -- MSC4108 Secure channel setup steps 1-3
 
-            // First things first, export the secrets bundle and establish the secure
-            // channel. Since we're the one that scanned the QR code, we're
-            // certain that the secure channel is secure, under the assumption
-            // that we didn't scan the wrong QR code. -- MSC4108 Secure channel
-            // setup steps 3-5
-            let secrets_bundle = export_secrets_bundle(self.client).await?;
+                // First things first, export the secrets bundle and establish the secure
+                // channel. Since we're the one that scanned the QR code, we're
+                // certain that the secure channel is secure, under the assumption
+                // that we didn't scan the wrong QR code. -- MSC4108 Secure channel
+                // setup steps 3-5
+                let secrets_bundle = export_secrets_bundle(self.client).await?;
 
-            let mut channel = EstablishedSecureChannel::from_qr_code(
-                self.client.inner.http_client.inner.clone(),
-                self.qr_code_data,
-                QrCodeIntent::Reciprocate,
-            )
-            .await?;
+                let mut channel = EstablishedSecureChannel::from_qr_code(
+                    self.client.inner.http_client.inner.clone(),
+                    self.qr_code_data,
+                    QrCodeIntent::Reciprocate,
+                )
+                .await?;
 
-            // The other side isn't yet sure that it's talking to the right device, show
-            // a check code so they can confirm.
-            // -- MSC4108 Secure channel setup step 6
-            let check_code = channel.check_code().to_owned();
-            self.state
-                .set(GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
+                // The other side isn't yet sure that it's talking to the right device, show
+                // a check code so they can confirm.
+                // -- MSC4108 Secure channel setup step 6
+                let check_code = channel.check_code().to_owned();
+                self.state
+                    .set(GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }));
 
-            // The user now enters the checkcode on the other device which verifies it
-            // and will only continue requesting the login if the code matches.
-            // -- MSC4108 Secure channel setup step 7
+                // The user now enters the checkcode on the other device which verifies it
+                // and will only continue requesting the login if the code matches.
+                // -- MSC4108 Secure channel setup step 7
 
-            // Inform the other device about the available login protocols and the
-            // homeserver to use.
-            // -- MSC4108 OAuth 2.0 login step 1
-            let message = QrAuthMessage::LoginProtocols {
-                protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
-                homeserver: self.client.homeserver(),
+                // Inform the other device about the available login protocols and the
+                // homeserver to use.
+                // -- MSC4108 OAuth 2.0 login step 1
+                let message = QrAuthMessage::LoginProtocols {
+                    protocols: vec![LoginProtocolType::DeviceAuthorizationGrant],
+                    homeserver: self.client.homeserver(),
+                };
+                channel.send_json(message).await?;
+
+                // Proceed with granting the login.
+                // -- MSC4108 OAuth 2.0 login remaining steps
+                finish_login_grant(
+                    self.client,
+                    &mut channel,
+                    self.device_creation_timeout,
+                    &secrets_bundle,
+                    &self.state,
+                )
+                .await
             };
-            channel.send_json(message).await?;
 
-            // Proceed with granting the login.
-            // -- MSC4108 OAuth 2.0 login remaining steps
-            finish_login_grant(
-                self.client,
-                &mut channel,
-                self.device_creation_timeout,
-                &secrets_bundle,
-                &self.state,
-            )
-            .await
+            tokio::select! {
+                // Give priority to cancellation if both updates occur at the same time.
+                biased;
+                _ = cancel.cancelled() => {
+                    Err(QRCodeGrantLoginError::Cancelled)
+                }
+                result = grant => result
+            }
         })
     }
 }
@@ -307,14 +323,21 @@ pub struct GrantLoginWithGeneratedQrCode<'a> {
     client: &'a Client,
     device_creation_timeout: Duration,
     state: SharedObservable<GrantLoginProgress<GeneratedQrProgress>>,
+    cancel: CancellationToken,
 }
 
 impl<'a> GrantLoginWithGeneratedQrCode<'a> {
     pub(crate) fn new(
         client: &'a Client,
         device_creation_timeout: Duration,
+        cancel: CancellationToken,
     ) -> GrantLoginWithGeneratedQrCode<'a> {
-        GrantLoginWithGeneratedQrCode { client, device_creation_timeout, state: Default::default() }
+        GrantLoginWithGeneratedQrCode {
+            client,
+            device_creation_timeout,
+            state: Default::default(),
+            cancel,
+        }
     }
 }
 
@@ -338,55 +361,68 @@ impl<'a> IntoFuture for GrantLoginWithGeneratedQrCode<'a> {
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(async move {
-            // Create a new ephemeral key pair and a rendezvous session to grant a
-            // login with.
-            // -- MSC4108 Secure channel setup steps 1 & 2
-            let homeserver_url = self.client.homeserver();
-            let http_client = self.client.inner.http_client.clone();
-            let secrets_bundle = export_secrets_bundle(self.client).await?;
-            let channel = SecureChannel::reciprocate(http_client, &homeserver_url).await?;
+            let cancel = self.cancel.clone();
+            let grant = async move {
+                // Create a new ephemeral key pair and a rendezvous session to grant a
+                // login with.
+                // -- MSC4108 Secure channel setup steps 1 & 2
+                let homeserver_url = self.client.homeserver();
+                let http_client = self.client.inner.http_client.clone();
+                let secrets_bundle = export_secrets_bundle(self.client).await?;
+                let channel = SecureChannel::reciprocate(http_client, &homeserver_url).await?;
 
-            // Extract the QR code data and emit an update so that the caller can
-            // present the QR code for scanning by the new device.
-            // -- MSC4108 Secure channel setup step 3
-            self.state.set(GrantLoginProgress::EstablishingSecureChannel(
-                GeneratedQrProgress::QrReady(channel.qr_code_data().clone()),
-            ));
+                // Extract the QR code data and emit an update so that the caller can
+                // present the QR code for scanning by the new device.
+                // -- MSC4108 Secure channel setup step 3
+                self.state.set(GrantLoginProgress::EstablishingSecureChannel(
+                    GeneratedQrProgress::QrReady(channel.qr_code_data().clone()),
+                ));
 
-            // Wait for the secure channel to connect. The other device now needs to scan
-            // the QR code and send us the LoginInitiateMessage which we respond to
-            // with the LoginOkMessage. -- MSC4108 step 4 & 5
-            let channel = channel.connect().await?;
+                // Wait for the secure channel to connect. The other device now needs to scan
+                // the QR code and send us the LoginInitiateMessage which we respond to
+                // with the LoginOkMessage. -- MSC4108 step 4 & 5
+                let channel = channel.connect().await?;
 
-            // The other device now needs to verify our message, compute the checkcode and
-            // display it. We emit a progress update to let the caller prompt the
-            // user to enter the checkcode and feed it back to us.
-            // -- MSC4108 Secure channel setup step 6
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            self.state.set(GrantLoginProgress::EstablishingSecureChannel(
-                GeneratedQrProgress::QrScanned(CheckCodeSender::new(tx)),
-            ));
-            let check_code = rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
+                // The other device now needs to verify our message, compute the checkcode and
+                // display it. We emit a progress update to let the caller prompt the
+                // user to enter the checkcode and feed it back to us.
+                // -- MSC4108 Secure channel setup step 6
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                self.state.set(GrantLoginProgress::EstablishingSecureChannel(
+                    GeneratedQrProgress::QrScanned(CheckCodeSender::new(tx)),
+                ));
+                let check_code =
+                    rx.await.map_err(|_| SecureChannelError::CannotReceiveCheckCode)?;
 
-            // Use the checkcode to verify that the channel is actually secure.
-            // -- MSC4108 Secure channel setup step 7
-            let mut channel = channel.confirm(check_code)?;
+                // Use the checkcode to verify that the channel is actually secure.
+                // -- MSC4108 Secure channel setup step 7
+                let mut channel = channel.confirm(check_code)?;
 
-            // Since the QR code was generated on this existing device, the new device can
-            // derive the homeserver to use for logging in from the QR code and we
-            // don't need to send the m.login.protocols message.
-            // -- MSC4108 OAuth 2.0 login step 1
+                // Since the QR code was generated on this existing device, the new device can
+                // derive the homeserver to use for logging in from the QR code and we
+                // don't need to send the m.login.protocols message.
+                // -- MSC4108 OAuth 2.0 login step 1
 
-            // Proceed with granting the login.
-            // -- MSC4108 OAuth 2.0 login remaining steps
-            finish_login_grant(
-                self.client,
-                &mut channel,
-                self.device_creation_timeout,
-                &secrets_bundle,
-                &self.state,
-            )
-            .await
+                // Proceed with granting the login.
+                // -- MSC4108 OAuth 2.0 login remaining steps
+                finish_login_grant(
+                    self.client,
+                    &mut channel,
+                    self.device_creation_timeout,
+                    &secrets_bundle,
+                    &self.state,
+                )
+                .await
+            };
+
+            tokio::select! {
+                // Give priority to cancellation if both updates occur at the same time.
+                biased;
+                _ = cancel.cancelled() => {
+                    Err(QRCodeGrantLoginError::Cancelled)
+                }
+                result = grant => result
+            }
         })
     }
 }
@@ -822,7 +858,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let secrets_bundle = export_secrets_bundle(&alice)
@@ -973,7 +1009,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let secrets_bundle = export_secrets_bundle(&alice)
@@ -1102,7 +1138,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let secrets_bundle = export_secrets_bundle(&alice)
@@ -1214,7 +1250,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -1347,7 +1383,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -1460,7 +1496,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -1597,7 +1633,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -1705,7 +1741,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -1852,7 +1888,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -1959,7 +1995,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
 
@@ -2041,7 +2077,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
 
@@ -2114,7 +2150,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -2244,7 +2280,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -2355,7 +2391,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -2507,7 +2543,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -2628,7 +2664,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -2781,7 +2817,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();
@@ -2893,7 +2929,7 @@ mod test {
         // Prepare the login granting future.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .generate();
         let (qr_code_tx, qr_code_rx) = oneshot::channel();
@@ -3023,7 +3059,7 @@ mod test {
         // Prepare the login granting future using the QR code.
         let oauth = alice.oauth();
         let grant = oauth
-            .grant_login_with_qr_code()
+            .grant_login_with_qr_code(CancellationToken::new())
             .device_creation_timeout(Duration::from_secs(2))
             .scan(&qr_code_data);
         let (checkcode_tx, checkcode_rx) = oneshot::channel();

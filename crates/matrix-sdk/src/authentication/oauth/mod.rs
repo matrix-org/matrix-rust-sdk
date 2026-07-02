@@ -194,6 +194,8 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use sha2::Digest as _;
 use tokio::sync::Mutex;
+#[cfg(feature = "e2e-encryption")]
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, instrument, trace, warn};
 use url::Url;
 
@@ -378,18 +380,27 @@ impl OAuth {
     ///   the server. If this is not provided, an error will occur unless
     ///   [`OAuth::register_client()`] or [`OAuth::restore_registered_client()`]
     ///   was called previously.
+    /// * `cancel` - A token for requesting the future to abort cooperatively.
     #[cfg(feature = "e2e-encryption")]
     pub fn login_with_qr_code<'a>(
         &'a self,
         registration_data: Option<&'a ClientRegistrationData>,
+        cancel: CancellationToken,
     ) -> LoginWithQrCodeBuilder<'a> {
-        LoginWithQrCodeBuilder { client: &self.client, registration_data }
+        LoginWithQrCodeBuilder::new(&self.client, registration_data, cancel)
     }
 
     /// Grant login to a new device using a QR code.
+    ///
+    /// # Arguments
+    ///
+    /// * `cancel` - A token for requesting the future to abort cooperatively.
     #[cfg(feature = "e2e-encryption")]
-    pub fn grant_login_with_qr_code<'a>(&'a self) -> GrantLoginWithQrCodeBuilder<'a> {
-        GrantLoginWithQrCodeBuilder::new(&self.client)
+    pub fn grant_login_with_qr_code<'a>(
+        &'a self,
+        cancel: CancellationToken,
+    ) -> GrantLoginWithQrCodeBuilder<'a> {
+        GrantLoginWithQrCodeBuilder::new(&self.client, cancel)
     }
 
     /// Restore or register the OAuth 2.0 client for the server with the given
@@ -1357,10 +1368,22 @@ pub struct LoginWithQrCodeBuilder<'a> {
 
     /// The data to restore or register the client with the server.
     registration_data: Option<&'a ClientRegistrationData>,
+
+    /// A token for requesting the future to abort cooperatively.
+    cancel: CancellationToken,
 }
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> LoginWithQrCodeBuilder<'a> {
+    /// Create a new builder.
+    fn new(
+        client: &'a Client,
+        registration_data: Option<&'a ClientRegistrationData>,
+        cancel: CancellationToken,
+    ) -> Self {
+        Self { client, registration_data, cancel }
+    }
+
     /// This method allows you to log in with a scanned QR code.
     ///
     /// The existing device needs to display the QR code which this device can
@@ -1416,7 +1439,8 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///
     /// // Subscribing to the progress is necessary since we need to input the check
     /// // code on the existing device.
-    /// let login = oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data);
+    /// let cancel = CancellationToken::new();
+    /// let login = oauth.login_with_qr_code(Some(&registration_data), cancel).scan(&qr_code_data);
     /// let mut progress = login.subscribe_to_progress();
     ///
     /// // Create a task which will show us the progress and tell us the check
@@ -1445,7 +1469,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn scan(self, data: &'a QrCodeData) -> LoginWithQrCode<'a> {
-        LoginWithQrCode::new(self.client, data, self.registration_data)
+        LoginWithQrCode::new(self.client, data, self.registration_data, self.cancel)
     }
 
     /// This method allows you to log in by generating a QR code.
@@ -1490,7 +1514,8 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     ///
     /// // Subscribing to the progress is necessary since we need to display the
     /// // QR code and prompt for the check code.
-    /// let login = oauth.login_with_qr_code(Some(&registration_data)).generate();
+    /// let cancel = CancellationToken::new();
+    /// let login = oauth.login_with_qr_code(Some(&registration_data), cancel).generate();
     /// let mut progress = login.subscribe_to_progress();
     ///
     /// // Create a task which will show us the progress and allows us to display
@@ -1526,7 +1551,7 @@ impl<'a> LoginWithQrCodeBuilder<'a> {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn generate(self) -> LoginWithGeneratedQrCode<'a> {
-        LoginWithGeneratedQrCode::new(self.client, self.registration_data)
+        LoginWithGeneratedQrCode::new(self.client, self.registration_data, self.cancel)
     }
 }
 
@@ -1539,13 +1564,15 @@ pub struct GrantLoginWithQrCodeBuilder<'a> {
     /// The duration to wait for the homeserver to create the new device after
     /// consenting the login before giving up.
     device_creation_timeout: Duration,
+    /// A token for requesting the future to abort cooperatively.
+    cancel: CancellationToken,
 }
 
 #[cfg(feature = "e2e-encryption")]
 impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// Create a new builder with the default device creation timeout.
-    fn new(client: &'a Client) -> Self {
-        Self { client, device_creation_timeout: Duration::from_secs(10) }
+    fn new(client: &'a Client, cancel: CancellationToken) -> Self {
+        Self { client, device_creation_timeout: Duration::from_secs(10), cancel }
     }
 
     /// Set the device creation timeout.
@@ -1607,7 +1634,8 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// // Subscribing to the progress is necessary to capture
     /// // the checkcode in order to display it to the other device and to obtain the verification URL to
     /// // open it in a browser so the user can consent to the new login.
-    /// let mut grant = oauth.grant_login_with_qr_code().scan(&qr_code_data);
+    /// let cancel = CancellationToken::new()
+    /// let mut grant = oauth.grant_login_with_qr_code(cancel).scan(&qr_code_data);
     /// let mut progress = grant.subscribe_to_progress();
     ///
     /// // Create a task which will show us the progress and allows us to receive
@@ -1636,7 +1664,12 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn scan(self, data: &'a QrCodeData) -> GrantLoginWithScannedQrCode<'a> {
-        GrantLoginWithScannedQrCode::new(self.client, data, self.device_creation_timeout)
+        GrantLoginWithScannedQrCode::new(
+            self.client,
+            data,
+            self.device_creation_timeout,
+            self.cancel,
+        )
     }
 
     /// This method allows you to grant login to a new device by generating a QR
@@ -1677,7 +1710,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// // Subscribing to the progress is necessary since we need to capture the
     /// // QR code, feed the checkcode back in and obtain the verification URL to
     /// // open it in a browser so the user can consent to the new login.
-    /// let mut grant = oauth.grant_login_with_qr_code().generate();
+    /// let mut grant = oauth.grant_login_with_qr_code(CancellationToken::new()).generate();
     /// let mut progress = grant.subscribe_to_progress();
     ///
     /// // Create a task which will show us the progress and allows us to receive
@@ -1713,7 +1746,7 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     /// # anyhow::Ok(()) };
     /// ```
     pub fn generate(self) -> GrantLoginWithGeneratedQrCode<'a> {
-        GrantLoginWithGeneratedQrCode::new(self.client, self.device_creation_timeout)
+        GrantLoginWithGeneratedQrCode::new(self.client, self.device_creation_timeout, self.cancel)
     }
 }
 /// A full session for the OAuth 2.0 API.
