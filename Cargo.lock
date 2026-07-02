@@ -3534,7 +3534,6 @@ dependencies = [
  "proptest",
  "regex",
  "ruma",
- "rustls",
  "serde",
  "serde_json",
  "similar-asserts",

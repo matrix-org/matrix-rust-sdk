@@ -88,7 +88,6 @@ matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
 matrix-sdk-test = { workspace = true, optional = true }
 regex.workspace = true
-rustls = "^0.23.40"
 ruma = { workspace = true, features = [
     "unstable-msc2867",
     "unstable-msc3381",

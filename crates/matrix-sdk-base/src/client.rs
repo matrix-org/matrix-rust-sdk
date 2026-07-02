@@ -411,10 +411,6 @@ impl BaseClient {
         tracing::debug!("regenerating OlmMachine");
         let session_meta = self.session_meta().ok_or(Error::OlmError(OlmError::MissingSession))?;
 
-        // Make aws_lc_rs the default crypto provider for rustls
-        // TODO RAV: move this elsewhere? Or maybe we already have it
-        // let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
         // Recreate the `OlmMachine` and wipe the in-memory cache in the store
         // because we suspect it has stale data.
         let builder = OlmMachineBuilder::new(&session_meta.user_id, &session_meta.device_id)
