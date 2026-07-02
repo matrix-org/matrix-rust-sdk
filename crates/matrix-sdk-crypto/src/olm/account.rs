@@ -1486,7 +1486,6 @@ impl Account {
         decryption_settings: &DecryptionSettings,
     ) -> OlmResult<DecryptionResult> {
         let event: Box<AnyDecryptedOlmEvent> = serde_json::from_str(&plaintext)?;
-
         let identity_keys = &self.static_data.identity_keys;
 
         if event.recipient() != self.static_data.user_id {

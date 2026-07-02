@@ -2046,7 +2046,7 @@ mod tests {
 
         // No secret found
         assert!(alice_machine.inner.outgoing_requests.read().is_empty());
-        alice_machine.receive_incoming_secret_request(&event.clone().into());
+        alice_machine.receive_incoming_secret_request(&event);
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2055,7 +2055,7 @@ mod tests {
 
         // No device found
         alice_machine.inner.store.reset_cross_signing_identity().await;
-        alice_machine.receive_incoming_secret_request(&event.clone().into());
+        alice_machine.receive_incoming_secret_request(&event);
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();
@@ -2066,7 +2066,7 @@ mod tests {
 
         // The device doesn't belong to us
         alice_machine.inner.store.reset_cross_signing_identity().await;
-        alice_machine.receive_incoming_secret_request(&event.clone().into());
+        alice_machine.receive_incoming_secret_request(&event);
         {
             let alice_cache = alice_machine.inner.store.cache().await.unwrap();
             alice_machine.collect_incoming_key_requests(&alice_cache).await.unwrap();

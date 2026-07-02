@@ -184,8 +184,6 @@ impl Session {
             }
         }
 
-        tracing::info!(sender_device_keys=?self.our_device_keys, "X509: olm::Session::encrypt");
-
         let plaintext = {
             let content = serde_json::to_value(content)?;
             let content = Content { event_type, content: Raw::new(&content)? };

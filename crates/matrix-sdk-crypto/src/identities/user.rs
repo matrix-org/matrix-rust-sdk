@@ -1472,11 +1472,11 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
+    #[cfg(feature = "experimental-x509-identity-verification")]
     use rcgen::{Certificate, CertificateParams, DnType, Issuer, KeyPair};
     use ruma::{TransactionId, device_id, user_id};
     use serde_json::{Value, json};
     use tokio::sync::Mutex;
-    use x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 
     use super::{
         OtherUserIdentityDataSerializerV2, OwnUserIdentityData, OwnUserIdentityVerifiedState,
@@ -2211,7 +2211,8 @@ pub(crate) mod tests {
             KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
 
         let mut cert_params = cert_params(&format!("Cert for {email}"));
-        let email_address_oid = OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect();
+        let email_address_oid =
+            x509_parser::oid_registry::OID_PKCS9_EMAIL_ADDRESS.iter().unwrap().collect();
         cert_params.distinguished_name.push(DnType::CustomDnType(email_address_oid), email);
         cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
 

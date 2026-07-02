@@ -338,46 +338,6 @@ pub trait X509Verify: SyncOutsideWasm + SendOutsideWasm + Debug {
     fn verify(&self, message: Vec<u8>, sig: RawX509Signature) -> bool;
 }
 
-/*#[cfg(feature = "experimental-x509-identity-verification")]
-#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
-pub struct X509Signature {
-    /// The PEM-encoded certificate chain, starting with the device's own
-    /// certificate, followed by intermediate certificates.
-    pub certificate_chain: String,
-
-    /// The X.509 signature scheme, from https://www.iana.org/assignments/tls-parameters/tls-parameters.xhtml#tls-signaturescheme
-    ///
-    /// TODO: It might make more sense to use X.509 AlgorithmIdentifiers
-    /// here, as defined in [RFC3279](https://www.rfc-editor.org/rfc/rfc3279),
-    /// [RFC4055](https://www.rfc-editor.org/rfc/rfc4055), etc.
-    pub signature_scheme: u16,
-
-    /// The base64-encoded signature itself
-    pub signature: String,
-}
-
-#[cfg(feature = "experimental-x509-identity-verification")]
-impl From<X509Signature> for matrix_sdk_base::crypto::types::X509Signature {
-    fn from(value: X509Signature) -> Self {
-        Self {
-            certificate_chain: value.certificate_chain,
-            signature_scheme: value.signature_scheme.into(),
-            signature: value.signature,
-        }
-    }
-}
-
-#[cfg(feature = "experimental-x509-identity-verification")]
-impl From<matrix_sdk_base::crypto::types::X509Signature> for X509Signature {
-    fn from(value: matrix_sdk_base::crypto::types::X509Signature) -> Self {
-        Self {
-            certificate_chain: value.certificate_chain,
-            signature_scheme: value.signature_scheme.into(),
-            signature: value.signature,
-        }
-    }
-}*/
-
 #[derive(Clone, Copy, uniffi::Record)]
 pub struct TransmissionProgress {
     pub current: u64,

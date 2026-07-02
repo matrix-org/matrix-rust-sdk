@@ -293,6 +293,7 @@ pub enum SignatureError {
     InvalidKey(#[from] vodozemac::KeyError),
 
     /// The message could not be signed with X.509
+    #[cfg(feature = "experimental-x509-identity-verification")]
     #[error("the message could not be signed with X.509 {0}")]
     X509SigningError(String),
 
