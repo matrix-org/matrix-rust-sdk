@@ -23,6 +23,7 @@ use matrix_sdk::authentication::oauth::{
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     authentication::OAuthConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
@@ -33,11 +34,12 @@ use crate::{
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
     oauth_configuration: OAuthConfiguration,
+    cancel: CancellationToken,
 }
 
 impl LoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth, oauth_configuration: OAuthConfiguration) -> Self {
-        Self { oauth, oauth_configuration }
+        Self { oauth, oauth_configuration, cancel: CancellationToken::new() }
     }
 }
 
@@ -75,8 +77,10 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let login =
-            self.oauth.login_with_qr_code(Some(&registration_data)).scan(&qr_code_data.inner);
+        let login = self
+            .oauth
+            .login_with_qr_code(Some(&registration_data), self.cancel.clone())
+            .scan(&qr_code_data.inner);
 
         let mut progress = login.subscribe_to_progress();
 
@@ -120,7 +124,8 @@ impl LoginWithQrCodeHandler {
             .registration_data()
             .map_err(|_| HumanQrLoginError::OAuthMetadataInvalid)?;
 
-        let login = self.oauth.login_with_qr_code(Some(&registration_data)).generate();
+        let login =
+            self.oauth.login_with_qr_code(Some(&registration_data), self.cancel.clone()).generate();
 
         let mut progress = login.subscribe_to_progress();
 
@@ -136,17 +141,24 @@ impl LoginWithQrCodeHandler {
 
         Ok(())
     }
+
+    /// Request the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then return the `Cancelled` error.
+    pub fn abort(&self) {
+        self.cancel.cancel();
+    }
 }
 
 /// Handler for granting login in with a QR code.
 #[derive(uniffi::Object)]
 pub struct GrantLoginWithQrCodeHandler {
     oauth: OAuth,
+    cancel: CancellationToken,
 }
 
 impl GrantLoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth) -> Self {
-        Self { oauth }
+        Self { oauth, cancel: CancellationToken::new() }
     }
 }
 
@@ -176,7 +188,8 @@ impl GrantLoginWithQrCodeHandler {
         qr_code_data: &QrCodeData,
         progress_listener: Box<dyn GrantQrLoginProgressListener>,
     ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().scan(&qr_code_data.inner);
+        let grant =
+            self.oauth.grant_login_with_qr_code(self.cancel.clone()).scan(&qr_code_data.inner);
 
         let mut progress = grant.subscribe_to_progress();
 
@@ -214,7 +227,7 @@ impl GrantLoginWithQrCodeHandler {
         self: Arc<Self>,
         progress_listener: Box<dyn GrantGeneratedQrLoginProgressListener>,
     ) -> Result<(), HumanQrGrantLoginError> {
-        let grant = self.oauth.grant_login_with_qr_code().generate();
+        let grant = self.oauth.grant_login_with_qr_code(self.cancel.clone()).generate();
 
         let mut progress = grant.subscribe_to_progress();
 
@@ -229,6 +242,12 @@ impl GrantLoginWithQrCodeHandler {
         grant.await?;
 
         Ok(())
+    }
+
+    /// Request the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then return the `Cancelled` error.
+    pub fn abort(&self) {
+        self.cancel.cancel();
     }
 }
 
@@ -386,6 +405,8 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             | QRCodeLoginError::ServerReset(_) => HumanQrLoginError::Unknown,
 
             QRCodeLoginError::NotFound => HumanQrLoginError::NotFound,
+
+            QRCodeLoginError::Cancelled => HumanQrLoginError::Cancelled,
         }
     }
 }
@@ -489,6 +510,7 @@ impl From<qrcode::QRCodeGrantLoginError> for HumanQrGrantLoginError {
                 LoginFailureReason::UserCancelled => Self::Cancelled,
                 _ => Self::Unknown(reason.to_string()),
             },
+            QRCodeGrantLoginError::Cancelled => HumanQrGrantLoginError::Cancelled,
         }
     }
 }

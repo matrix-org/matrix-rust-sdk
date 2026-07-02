@@ -120,6 +120,10 @@ pub enum QRCodeLoginError {
     /// reset the server URL.
     #[error(transparent)]
     ServerReset(crate::Error),
+
+    /// The process was cancelled.
+    #[error("The process was cancelled")]
+    Cancelled,
 }
 
 impl From<SecureChannelError> for QRCodeLoginError {
@@ -187,6 +191,10 @@ pub enum QRCodeGrantLoginError {
         /// The reason, as signaled by the other device, for the login failure.
         reason: LoginFailureReason,
     },
+
+    /// The process was cancelled.
+    #[error("The process was cancelled")]
+    Cancelled,
 }
 
 impl From<SecureChannelError> for QRCodeGrantLoginError {
