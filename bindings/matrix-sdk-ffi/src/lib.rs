@@ -15,6 +15,7 @@ mod identity_status_change;
 mod live_locations_observer;
 mod notification;
 mod notification_settings;
+mod password_strength;
 mod platform;
 mod qr_code;
 mod room;
