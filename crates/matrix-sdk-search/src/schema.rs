@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent, Relation};
 use tantivy::{
     DateTime, TantivyDocument, doc,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
 
-use crate::error::{IndexError, IndexSchemaError};
+use crate::{
+    error::{IndexError, IndexSchemaError},
+    index::IndexableEvent,
+};
 
 pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
@@ -27,7 +29,7 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn deletion_key(&self) -> Field;
     fn get_field_name(&self, field: Field) -> &str;
     fn as_tantivy_schema(&self) -> Schema;
-    fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError>;
+    fn make_doc(&self, event: IndexableEvent) -> Result<TantivyDocument, IndexError>;
 }
 
 #[derive(Debug, Clone)]
@@ -92,28 +94,16 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.inner.clone()
     }
 
-    /// Given an [`OriginalSyncRoomMessageEvent`] return a
-    /// [`TantivyDocument`].
-    fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError> {
-        let body = match &event.content.msgtype {
-            MessageType::Text(content) => Ok(content.body.clone()),
-            _ => Err(IndexError::MessageTypeNotSupported),
-        }?;
-
-        let mut document = doc!(
+    /// Given an [`IndexableEvent`] return a [`TantivyDocument`].
+    fn make_doc(&self, event: IndexableEvent) -> Result<TantivyDocument, IndexError> {
+        let document = doc!(
             self.event_id_field => event.event_id.to_string(),
-            self.body_field => body,
+            self.body_field => event.body,
             self.date_field =>
-                DateTime::from_timestamp_millis(
-                    event.origin_server_ts.get().into()),
+                DateTime::from_timestamp_millis(event.timestamp.get().into()),
             self.sender_field => event.sender.to_string(),
+            self.original_event_id_field => event.original_event_id.to_string(),
         );
-
-        if let Some(Relation::Replacement(replacement_data)) = &event.content.relates_to {
-            document.add_text(self.original_event_id_field, replacement_data.event_id.clone());
-        } else {
-            document.add_text(self.original_event_id_field, event.event_id);
-        }
 
         Ok(document)
     }

@@ -17,9 +17,7 @@ pub mod builder;
 
 use std::{collections::HashSet, fmt};
 
-use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
-};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId};
 use tantivy::{
     Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
     query::QueryParser, schema::Value,
@@ -33,18 +31,37 @@ use crate::{
     writer::SearchIndexWriter,
 };
 
+/// The subset of an event's data required to index it and later retrieve it.
+///
+/// Produced by the matrix-sdk layer, which knows how to extract searchable text
+/// from each event type. This crate stays agnostic to Matrix event content.
+#[derive(Debug, Clone)]
+pub struct IndexableEvent {
+    /// The event's own id (primary key).
+    pub event_id: OwnedEventId,
+    /// The id used as the deletion key: the original event id for edits,
+    /// otherwise the event's own id.
+    pub original_event_id: OwnedEventId,
+    /// The sender of the event.
+    pub sender: OwnedUserId,
+    /// The origin server timestamp of the event.
+    pub timestamp: MilliSecondsSinceUnixEpoch,
+    /// The text to index for this event.
+    pub body: String,
+}
+
 /// A struct to represent the operations on a [`RoomIndex`]
 #[derive(Debug, Clone)]
 pub enum RoomIndexOperation {
     /// Add this event to the index.
-    Add(OriginalSyncRoomMessageEvent),
+    Add(IndexableEvent),
     /// Remove all documents in the index where
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id.
     Remove(OwnedEventId),
     /// Replace all documents in the index where
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id with
     /// the new event.
-    Edit(OwnedEventId, OriginalSyncRoomMessageEvent),
+    Edit(OwnedEventId, IndexableEvent),
     /// Do nothing.
     Noop,
 }
@@ -193,7 +210,7 @@ impl RoomIndex {
     fn add(
         &mut self,
         writer: &mut SearchIndexWriter,
-        event: OriginalSyncRoomMessageEvent,
+        event: IndexableEvent,
     ) -> Result<(), IndexError> {
         if !self.contains(&event.event_id) {
             writer.add(self.schema.make_doc(event.clone())?)?;
@@ -350,15 +367,37 @@ mod tests {
         EventId, event_id,
         events::{
             AnySyncMessageLikeEvent,
-            room::message::{OriginalSyncRoomMessageEvent, RoomMessageEventContentWithoutRelation},
+            room::message::{
+                MessageType, OriginalSyncRoomMessageEvent, Relation,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
         room_id, user_id,
     };
 
     use crate::{
         error::IndexError,
-        index::{RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
+        index::{IndexableEvent, RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
     };
+
+    /// Build an [`IndexableEvent`] from a text room message (tests only handle
+    /// text).
+    fn to_indexable(event: &OriginalSyncRoomMessageEvent) -> IndexableEvent {
+        let MessageType::Text(content) = &event.content.msgtype else {
+            panic!("test helper only supports text messages")
+        };
+        let original_event_id = match &event.content.relates_to {
+            Some(Relation::Replacement(replacement)) => replacement.event_id.clone(),
+            _ => event.event_id.clone(),
+        };
+        IndexableEvent {
+            event_id: event.event_id.clone(),
+            original_event_id,
+            sender: event.sender.clone(),
+            timestamp: event.origin_server_ts,
+            body: content.body.clone(),
+        }
+    }
 
     /// Helper function to add a regular message to the index
     ///
@@ -373,7 +412,7 @@ mod tests {
             && let Some(ev) = ev.as_original()
             && ev.content.relates_to.is_none()
         {
-            return index.execute(RoomIndexOperation::Add(ev.clone()));
+            return index.execute(RoomIndexOperation::Add(to_indexable(ev)));
         }
         panic!("Event was not a relationless OriginalSyncRoomMessageEvent.")
     }
@@ -391,7 +430,7 @@ mod tests {
         event_id: &EventId,
         new: OriginalSyncRoomMessageEvent,
     ) -> Result<(), IndexError> {
-        index.execute(RoomIndexOperation::Edit(event_id.to_owned(), new))
+        index.execute(RoomIndexOperation::Edit(event_id.to_owned(), to_indexable(&new)))
     }
 
     #[test]
