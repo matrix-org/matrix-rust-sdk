@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 #[cfg(any(feature = "experimental-search", feature = "sqlite"))]
 use std::path::PathBuf;
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
 
 #[cfg(feature = "sqlite")]
 use futures_util::try_join;
@@ -133,6 +133,7 @@ pub struct ClientBuilder {
     search_index_store_kind: SearchIndexStoreKind,
     dm_room_definition: DmRoomDefinition,
     media_fetcher: Arc<dyn MediaFetcher>,
+    discovery_cache_timeout: Duration,
 }
 
 impl ClientBuilder {
@@ -171,6 +172,7 @@ impl ClientBuilder {
             search_index_store_kind: SearchIndexStoreKind::InMemory,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: Arc::new(DefaultMediaFetcher),
+            discovery_cache_timeout: Duration::from_secs(60 * 60 * 24),
         }
     }
 
@@ -675,12 +677,23 @@ impl ClientBuilder {
             search_index,
             thread_subscriptions_catchup,
             self.media_fetcher.clone(),
+            self.discovery_cache_timeout,
         )
         .await;
 
         debug!("Done building the Client");
 
         Ok(Client { inner })
+    }
+
+    /// Set the duration after which cached discovery data (e.g. supported
+    /// versions, well-known info) is considered stale and needs to be
+    /// refreshed.
+    ///
+    /// By default, this is 24 hours
+    pub fn discovery_cache_timeout(mut self, stale_timeout: Duration) -> Self {
+        self.discovery_cache_timeout = stale_timeout;
+        self
     }
 }
 

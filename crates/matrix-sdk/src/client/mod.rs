@@ -89,8 +89,9 @@ use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
     authentication::{
-        AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
-        oauth::OAuth,
+        AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
+        matrix::MatrixAuth,
+        oauth::{OAuth, OAuthError, error::OAuthDiscoveryError},
     },
     client::{
         homeserver_capabilities::HomeserverCapabilities,
@@ -439,12 +440,14 @@ impl ClientInner {
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
         media_fetcher: Arc<dyn MediaFetcher>,
+        discovery_cache_timeout: Duration,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
             well_known: Cache::with_value(well_known),
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
+            discovery_cache_timeout,
         };
 
         let client = Self {
@@ -3261,6 +3264,7 @@ impl Client {
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
                 self.inner.media_fetcher.clone(),
+                self.inner.caches.discovery_cache_timeout,
             )
             .await,
         };
@@ -3562,6 +3566,26 @@ impl Client {
     pub fn dm_room_definition(&self) -> &DmRoomDefinition {
         &self.inner.base_client.dm_room_definition
     }
+
+    /// Force a refresh of all the cached discovery data (supported versions,
+    /// well-known info, homeserver capabilities, and OAuth 2.0 server metadata),
+    /// ignoring whether the existing cache is still fresh.
+    ///
+    /// If refreshing the well-known info fails, or if the server doesn't support OAuth 2.0 server metadata, it is silently ignored.
+    /// All other refresh
+    /// failures are returned as an error, and any remaining refreshes that
+    /// haven't run yet are skipped.
+    pub async fn rediscover(&self) -> Result<(), Error> {
+        self.refresh_supported_versions_cache(false).await?;
+        self.refresh_well_known_cache().await;
+        self.homeserver_capabilities().refresh().await?;
+        match self.oauth().server_metadata().await {
+            Ok(_) => {}
+            Err(OAuthDiscoveryError::NotSupported) => {}
+            Err(e) => return Err(Error::from(OAuthError::Discovery(e))),
+        }
+        Ok(())
+    }
 }
 
 /// Contains the disk size of the different stores, if known. It won't be
@@ -3746,6 +3770,27 @@ pub(crate) mod tests {
         assert_eq!(client.server().unwrap(), &Url::parse(&server_url).unwrap());
         assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
         client.server_versions().await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_rediscover() {
+        let server = MatrixMockServer::new().await;
+
+        // Mock the two required endpoints
+        server.mock_versions().ok().mock_once().named("versions").mount().await;
+        server
+            .mock_get_homeserver_capabilities()
+            .ok()
+            .mock_once()
+            .named("capabilities")
+            .mount()
+            .await;
+
+        // Build the client
+        let client = server.client_builder().build().await;
+
+        // Call rediscover and assert it succeeded
+        client.rediscover().await.unwrap();
     }
 
     #[async_test]
