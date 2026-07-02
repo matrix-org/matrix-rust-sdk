@@ -14,10 +14,15 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+use cms::cert::x509::{
+    Certificate,
+    attr::AttributeValue,
+    der,
+    der::oid as const_oid,
+    ext::pkix::{SubjectAltName, name::GeneralName},
+};
 use ruma::{MatrixUri, OwnedUserId, UserId, matrix_uri::MatrixId};
-use rustls::pki_types::{CertificateDer, pem::PemObject};
 use tracing::info;
-use x509_parser::{asn1_rs::FromDer as _, certificate::X509Certificate, extensions::GeneralName};
 
 use crate::{olm::SignedJsonObject, types::Signature, x509::raw_x509_signature::RawX509Signature};
 
@@ -95,18 +100,20 @@ impl X509Verifier {
             }
         };
 
-        // TODO: rewrite these bits to use the rust-crypto stack instead of the rustls
-        // stack.
-
         // Before we pass over to the X.509 certificate verifier, check that the leaf
         // certificate is valid for the given user_id.
-        let mut cert_iter = CertificateDer::pem_slice_iter(sig.certificate_chain.as_bytes());
-        let Some(Ok(end_cert)) = cert_iter.next() else {
-            tracing::warn!("Missing or invalid first certificate");
+        let certs = Certificate::load_pem_chain(sig.certificate_chain.as_bytes());
+        let Ok(certs) = certs else {
+            tracing::warn!("Could not parse certificate chain");
             return false;
         };
 
-        if !cert_contains_user_id_or_equivalent_email(user_id, end_cert) {
+        let Some(first_cert) = certs.get(0) else {
+            tracing::warn!("Missing first certificate");
+            return false;
+        };
+
+        if !cert_contains_user_id_or_equivalent_email(user_id, first_cert) {
             tracing::warn!("Verifying certificate user ID or email failed");
             return false;
         }
@@ -115,18 +122,9 @@ impl X509Verifier {
     }
 }
 
-fn cert_contains_user_id_or_equivalent_email(
-    user_id: &UserId,
-    certificate: CertificateDer<'_>,
-) -> bool {
-    // Parse the certificate
-    let Ok((_, parsed_cert)) = X509Certificate::from_der(certificate.as_ref()) else {
-        tracing::warn!("Unable to parse certificate");
-        return false;
-    };
-
+fn cert_contains_user_id_or_equivalent_email(user_id: &UserId, certificate: &Certificate) -> bool {
     // Check for a user ID in its SAN
-    if let Some(certificate_user_id) = get_user_id_from_certificate(&parsed_cert) {
+    if let Some(certificate_user_id) = get_user_id_from_certificate(certificate) {
         if certificate_user_id == user_id {
             return true;
         } else {
@@ -143,7 +141,7 @@ fn cert_contains_user_id_or_equivalent_email(
 
     tracing::info!("Certificate subject does not contain a user ID. Checking for email address");
 
-    let Some(certificate_email) = get_email_address_from_certificate(&parsed_cert) else {
+    let Some(certificate_email) = get_email_address_from_certificate(certificate) else {
         tracing::warn!("Certificate subject does not contain an email address");
         return false;
     };
@@ -178,19 +176,19 @@ fn map_user_id_to_email(user_id: &UserId) -> String {
 
 /// Search this certificate's Subject Alternative Name for a URI that matches
 /// the format of a Matrix URI that contains a valid Matrix user ID.
-fn get_user_id_from_certificate(certificate: &X509Certificate<'_>) -> Option<OwnedUserId> {
+fn get_user_id_from_certificate(certificate: &Certificate) -> Option<OwnedUserId> {
     // If we have no SAN or SAN is not understood here, we definitely can't find a
     // user ID.
-    let Ok(Some(san)) = certificate.subject_alternative_name() else {
+    let Ok(Some((_, san))) = certificate.tbs_certificate.get::<SubjectAltName>() else {
         return None;
     };
 
     /// Check whether a SAN contains a valid Matrix user ID
-    fn matrix_user_uri(alt_name: &GeneralName<'_>) -> Option<OwnedUserId> {
+    fn matrix_user_uri(alt_name: &GeneralName) -> Option<OwnedUserId> {
         // If it's a URI SAN type
-        if let GeneralName::URI(uri) = alt_name {
+        if let GeneralName::UniformResourceIdentifier(uri) = alt_name {
             // And it parses as a `matrix:...` URI
-            if let Ok(matrix_uri) = MatrixUri::parse(uri) {
+            if let Ok(matrix_uri) = MatrixUri::parse(uri.as_str()) {
                 // And it's a user URI that produces a valid Matrix user ID
                 if let MatrixId::User(user_id) = matrix_uri.id() {
                     // Then return it
@@ -204,35 +202,57 @@ fn get_user_id_from_certificate(certificate: &X509Certificate<'_>) -> Option<Own
     }
 
     // If any name looks right, return it - otherwise None
-    san.value.general_names.iter().find_map(matrix_user_uri)
+    san.0.iter().find_map(matrix_user_uri)
 }
 
-fn get_email_address_from_certificate(certificate: &X509Certificate<'_>) -> Option<String> {
+fn get_email_address_from_certificate(certificate: &Certificate) -> Option<String> {
     // Check for an email address in the Subject Alternative Name
-    if let Ok(Some(san)) = certificate.subject_alternative_name() {
-        if let Some(email) =
-            san.value.general_names.iter().find_map(|n| {
-                if let GeneralName::RFC822Name(email) = n { Some(email) } else { None }
-            })
+    if let Ok(Some((_, san))) = certificate.tbs_certificate.get::<SubjectAltName>() {
+        if let Some(email) = san
+            .0
+            .into_iter()
+            .find_map(|n| if let GeneralName::Rfc822Name(email) = n { Some(email) } else { None })
         {
-            return Some((*email).to_owned());
+            return Some(email.as_str().to_owned());
         }
     }
 
     // Otherwise, check for the (legacy) email address in the Subject
     // Distinguished Name
-    if let Some(email) = certificate.subject.iter_email().next() {
-        return email.as_str().ok().map(ToOwned::to_owned);
+    let subject = &certificate.tbs_certificate.subject;
+    for atav in subject.0.iter().flat_map(|rdn| rdn.0.iter()) {
+        if atav.oid == const_oid::db::rfc3280::EMAIL_ADDRESS {
+            if let Some(e) = get_attribute_value_as_string(&atav.value) {
+                return Some(e.to_owned());
+            }
+        }
     }
 
     // Otherwise, nothing was found
     None
 }
 
+/// Attempt to parse the given X.501 Attribute as a string
+fn get_attribute_value_as_string(value: &AttributeValue) -> Option<&str> {
+    use der::Tagged;
+    match value.tag() {
+        der::Tag::PrintableString => {
+            der::asn1::PrintableStringRef::try_from(value).ok().map(|s| s.as_str())
+        }
+        der::Tag::Utf8String => der::asn1::Utf8StringRef::try_from(value).ok().map(|s| s.as_str()),
+        der::Tag::Ia5String => der::asn1::Ia5StringRef::try_from(value).ok().map(|s| s.as_str()),
+        der::Tag::TeletexString => {
+            der::asn1::TeletexStringRef::try_from(value).ok().map(|s| s.as_str())
+        }
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use std::sync::Arc;
 
+    use cms::cert::x509::der::Decode;
     use rcgen::generate_simple_self_signed;
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
     use vodozemac::Ed25519SecretKey;
@@ -260,9 +280,8 @@ pub(crate) mod tests {
             cert_and_key_with_email_in_subject_distinguished_name("myname@company.co.uk");
 
         // When we extract the email address it contains
-        let email =
-            get_email_address_from_certificate(&X509Certificate::from_der(cert.der()).unwrap().1)
-                .expect("Failed to get email address from cert");
+        let email = get_email_address_from_certificate(&Certificate::from_der(cert.der()).unwrap())
+            .expect("Failed to get email address from cert");
 
         // Then it matches what we put in
         assert_eq!(email, "myname@company.co.uk");
@@ -275,9 +294,8 @@ pub(crate) mod tests {
         let (cert, _) = cert_and_key_with_email_in_subject_alternate_name("myname@company.co.uk");
 
         // When we extract the email address it contains
-        let email =
-            get_email_address_from_certificate(&X509Certificate::from_der(cert.der()).unwrap().1)
-                .expect("Failed to get email address from cert");
+        let email = get_email_address_from_certificate(&Certificate::from_der(cert.der()).unwrap())
+            .expect("Failed to get email address from cert");
 
         // Then it matches what we put in
         assert_eq!(email, "myname@company.co.uk");
@@ -291,9 +309,8 @@ pub(crate) mod tests {
             cert_and_key_with_user_id_in_subject_alternate_name("@myname:company.co.uk");
 
         // When we extract the user ID it contains
-        let user_id =
-            get_user_id_from_certificate(&X509Certificate::from_der(cert.der()).unwrap().1)
-                .expect("Failed to get email address from cert");
+        let user_id = get_user_id_from_certificate(&Certificate::from_der(cert.der()).unwrap())
+            .expect("Failed to get email address from cert");
 
         // Then it matches what we put in
         assert_eq!(user_id, "@myname:company.co.uk");
@@ -305,9 +322,8 @@ pub(crate) mod tests {
         let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
 
         // When we attempt to extract the email address
-        let email = get_email_address_from_certificate(
-            &X509Certificate::from_der(cert.cert.der()).unwrap().1,
-        );
+        let email =
+            get_email_address_from_certificate(&Certificate::from_der(cert.cert.der()).unwrap());
 
         // Then the answer is empty
         assert!(email.is_none());
@@ -320,7 +336,7 @@ pub(crate) mod tests {
 
         // When we attempt to extract the email address
         let user_id =
-            get_user_id_from_certificate(&X509Certificate::from_der(cert.cert.der()).unwrap().1);
+            get_user_id_from_certificate(&Certificate::from_der(cert.cert.der()).unwrap());
 
         // Then the answer is empty
         assert!(user_id.is_none());
