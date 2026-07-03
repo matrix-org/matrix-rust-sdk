@@ -45,7 +45,10 @@ testing = ["matrix-sdk-test"]
 experimental-push-secrets = []
 
 # Enable experirmental support for verifying user identities via X.509 certificates
-experimental-x509-identity-verification = ["dep:cms", "dep:rsa", "sha2/oid", "dep:rustls", "dep:rustls-webpki"]
+experimental-x509-identity-verification = ["dep:cms", "dep:rsa", "sha2/oid"]
+
+# Enable a pure-rust implementation of the X.509 signer and verifier, via `rustls`.
+rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustls", "dep:rustls-webpki"]
 
 [dependencies]
 aes = { version = "0.8.4", default-features = false }
@@ -76,7 +79,7 @@ rustls = { version = "0.23.40", optional = true }
 rustls-webpki = { version = "0.103.13", default-features = false, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
-sha2 = { workspace = true }
+sha2.workspace = true
 subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
 time = { version = "0.3.47", default-features = false, features = ["std", "formatting"] }
@@ -111,6 +114,10 @@ similar-asserts.workspace = true
 # required for async_test macro
 stream_assert.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+# The x509 tests use rust-x509-verifier-impl, so we need its dependencies
+rustls = { version = "0.23.40" }
+rustls-webpki = { version = "0.103.13", default-features = false }
 
 [lints]
 workspace = true

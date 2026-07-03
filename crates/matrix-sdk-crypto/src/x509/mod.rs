@@ -19,16 +19,21 @@
 
 mod errors;
 mod raw_x509_signature;
-mod rust_raw_x509_signer;
-mod rust_raw_x509_verifier;
 mod x509_signer;
 mod x509_verify;
 
 pub use raw_x509_signature::RawX509Signature;
-pub use rust_raw_x509_signer::RustRawX509Signer;
-pub use rust_raw_x509_verifier::RustRawX509Verifier;
 pub use x509_signer::{RawX509Signer, X509Signer};
 pub use x509_verify::{RawX509Verifier, X509Verifier};
+
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+mod rust_raw_x509_signer;
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+mod rust_raw_x509_verifier;
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+pub use rust_raw_x509_signer::RustRawX509Signer;
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+pub use rust_raw_x509_verifier::RustRawX509Verifier;
 
 #[cfg(test)]
 pub(crate) mod tests {
