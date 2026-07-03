@@ -110,6 +110,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { version = "1.4.1", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
+zxcvbn.workspace = true
 oauth2.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]
