@@ -52,11 +52,12 @@ use tokio::runtime::Runtime;
 use zeroize::Zeroize;
 
 use crate::{
-    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningResult, CrossSigningKeyExport,
-    CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists, EncryptionSettings,
-    EventEncryptionAlgorithm, KeyImportError, KeysImportResult, MegolmV1BackupKey,
-    ProgressListener, Request, RequestType, RequestVerificationResult, RoomKeyCounts, RoomSettings,
-    Sas, SignatureUploadRequest, StartSasResult, UserIdentity, Verification, VerificationRequest,
+    BackupKeys, BackupRecoveryKey, BootstrapCrossSigningError, BootstrapCrossSigningResult,
+    CrossSigningKeyExport, CrossSigningStatus, DecodeError, DecryptedEvent, Device, DeviceLists,
+    EncryptionSettings, EventEncryptionAlgorithm, KeyImportError, KeysImportResult,
+    MegolmV1BackupKey, ProgressListener, Request, RequestType, RequestVerificationResult,
+    RoomKeyCounts, RoomSettings, Sas, SignatureUploadRequest, StartSasResult, UserIdentity,
+    Verification, VerificationRequest,
     dehydrated_devices::DehydratedDevices,
     error::{
         CryptoStoreError, DecryptionError, SecretImportError, SecretsBundleExportError,
@@ -1376,7 +1377,9 @@ impl OlmMachine {
 
     /// Create a new private cross signing identity and create a request to
     /// upload the public part of it to the server.
-    pub fn bootstrap_cross_signing(&self) -> Result<BootstrapCrossSigningResult, CryptoStoreError> {
+    pub fn bootstrap_cross_signing(
+        &self,
+    ) -> Result<BootstrapCrossSigningResult, BootstrapCrossSigningError> {
         Ok(self.runtime.block_on(self.inner.bootstrap_cross_signing(true))?.into())
     }
 

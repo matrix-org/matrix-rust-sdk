@@ -564,14 +564,14 @@ impl PrivateCrossSigningIdentity {
      *
      * * `account` - The Olm account that is creating the new identity.
      */
-    pub(crate) fn for_account(account: &Account) -> PrivateCrossSigningIdentity {
+    pub(crate) fn for_account(
+        account: &Account,
+    ) -> Result<PrivateCrossSigningIdentity, SignatureError> {
         let mut master = MasterSigning::new(account.user_id().into());
 
-        account
-            .sign_cross_signing_key(master.public_key_mut().as_mut())
-            .expect("Can't sign our freshly created master key with our account");
+        account.sign_cross_signing_key(master.public_key_mut().as_mut())?;
 
-        Self::new_helper(account.user_id(), master)
+        Ok(Self::new_helper(account.user_id(), master))
     }
 
     #[cfg(any(test, feature = "testing"))]
@@ -749,7 +749,7 @@ mod tests {
     #[async_test]
     async fn test_private_identity_signed_by_account() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
+        let identity = PrivateCrossSigningIdentity::for_account(&account).unwrap();
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 
@@ -772,7 +772,7 @@ mod tests {
     #[async_test]
     async fn test_sign_device() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
+        let identity = PrivateCrossSigningIdentity::for_account(&account).unwrap();
 
         let mut device = DeviceData::from_account(&account);
         let self_signing = identity.self_signing_key.lock().await;
@@ -789,11 +789,11 @@ mod tests {
     #[async_test]
     async fn test_sign_user_identity() {
         let account = Account::with_device_id(user_id(), device_id!("DEVICEID"));
-        let identity = PrivateCrossSigningIdentity::for_account(&account);
+        let identity = PrivateCrossSigningIdentity::for_account(&account).unwrap();
 
         let bob_account =
             Account::with_device_id(user_id!("@bob:localhost"), device_id!("DEVICEID"));
-        let bob_private = PrivateCrossSigningIdentity::for_account(&bob_account);
+        let bob_private = PrivateCrossSigningIdentity::for_account(&bob_account).unwrap();
         let mut bob_public = OtherUserIdentityData::from_private(&bob_private).await;
 
         let user_signing = identity.user_signing_key.lock().await;

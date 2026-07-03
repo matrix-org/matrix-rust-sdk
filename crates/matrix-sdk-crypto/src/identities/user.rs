@@ -2023,7 +2023,7 @@ pub(crate) mod tests {
      * Creates a new private user identity for the account.
      */
     fn get_verification_machine(account: &Account) -> VerificationMachine {
-        let private_identity = PrivateCrossSigningIdentity::for_account(account);
+        let private_identity = PrivateCrossSigningIdentity::for_account(account).unwrap();
         VerificationMachine::new(
             account.static_data().clone(),
             Arc::new(Mutex::new(private_identity)),
