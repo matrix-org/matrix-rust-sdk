@@ -830,12 +830,22 @@ pub(crate) mod tests {
     pub(crate) async fn setup_stores() -> (Account, VerificationStore, Account, VerificationStore) {
         let alice = Account::with_device_id(alice_id(), alice_device_id());
         let alice_store = MemoryStore::new();
-        let alice_private_identity = PrivateCrossSigningIdentity::for_account(&alice).unwrap();
+        let alice_private_identity = PrivateCrossSigningIdentity::for_account(
+            &alice,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+        )
+        .unwrap();
         let alice_private_identity = Mutex::new(alice_private_identity);
 
         let bob = Account::with_device_id(bob_id(), bob_device_id());
         let bob_store = MemoryStore::new();
-        let bob_private_identity = PrivateCrossSigningIdentity::for_account(&bob).unwrap();
+        let bob_private_identity = PrivateCrossSigningIdentity::for_account(
+            &bob,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            None,
+        )
+        .unwrap();
         let bob_private_identity = Mutex::new(bob_private_identity);
 
         let alice_public_identity =

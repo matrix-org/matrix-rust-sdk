@@ -40,6 +40,11 @@ impl X509Signer {
         Self { x509_sign }
     }
 
+    /// Get the [`RawX509Signer`] implementation this signer wraps.
+    pub(crate) fn raw(&self) -> Arc<dyn RawX509Signer> {
+        self.x509_sign.clone()
+    }
+
     /// Add a signature to the given cross-signing key using our private X.509
     /// key.
     pub(crate) fn sign_cross_signing_key(
