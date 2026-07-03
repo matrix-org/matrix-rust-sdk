@@ -1022,7 +1022,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let user_ids_length = user_ids.len();
 
         self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
-            let sql_params = repeat_vars(user_ids.len());
+            let sql_params = repeat_vars(user_ids_length);
             let sql = format!(
                 "SELECT user_id, data FROM profile WHERE room_id = ? AND user_id IN ({sql_params})"
             );
@@ -1042,7 +1042,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         let user_ids_length = user_ids.len();
 
         self.chunk_large_query_over(user_ids, Some(user_ids_length), move |txn, user_ids| {
-            let sql_params = repeat_vars(user_ids.len());
+            let sql_params = repeat_vars(user_ids_length);
             let sql = format!(
                 "SELECT user_id, profile_data FROM global_profiles WHERE user_id IN ({sql_params})"
             );
