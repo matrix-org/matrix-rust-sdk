@@ -616,7 +616,9 @@ pub(crate) async fn split_devices_for_share_strategy(
                         allowed_devices.push(device.clone());
                     }
                 } else {
-                    panic!("Should have verification violation if device_owner_identity is None")
+                    // Device owner has no identity, so the device is considered
+                    // to be unverified
+                    blocked_devices.push((device.clone(), WithheldCode::Unverified));
                 }
             }
         }
@@ -726,7 +728,9 @@ pub(crate) async fn withheld_code_for_device_for_share_strategy(
                     device_owner_identity,
                 ))
             } else {
-                panic!("Should have verification violation if device_owner_identity is None")
+                // Device owner has no identity, so the device is considered
+                // to be unverified
+                Ok(Some(WithheldCode::Unverified))
             }
         }
         CollectStrategy::OnlyTrustedDevices => {

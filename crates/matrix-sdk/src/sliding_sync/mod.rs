@@ -506,6 +506,7 @@ impl SlidingSync {
         let mut request = assign!(http::Request::new(), {
             conn_id: Some(self.inner.id.clone()),
             pos,
+            set_presence: self.inner.client.sync_presence(),
             timeout,
             lists: requests_lists,
         });
@@ -968,7 +969,9 @@ mod tests {
     use ruma::{
         OwnedRoomId, assign,
         events::{direct::DirectEvent, room::member::MembershipState},
-        owned_room_id, room_id,
+        owned_room_id,
+        presence::PresenceState,
+        room_id,
         serde::Raw,
         uint,
     };
@@ -1012,6 +1015,36 @@ mod tests {
         let sliding_sync = sliding_sync_builder.build().await?;
 
         Ok((server, sliding_sync))
+    }
+
+    #[async_test]
+    async fn test_sliding_sync_request_uses_client_sync_presence() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![]).await?;
+        let client = sliding_sync.inner.client.clone();
+
+        {
+            let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;
+
+            assert_eq!(request.set_presence, PresenceState::Online);
+        }
+
+        client.set_presence(PresenceState::Unavailable, None, false).await?;
+
+        {
+            let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;
+
+            assert_eq!(request.set_presence, PresenceState::Unavailable);
+        }
+
+        client.set_presence(PresenceState::Offline, None, false).await?;
+
+        {
+            let (request, _, _position_guard) = sliding_sync.generate_sync_request().await?;
+
+            assert_eq!(request.set_presence, PresenceState::Offline);
+        }
+
+        Ok(())
     }
 
     #[async_test]

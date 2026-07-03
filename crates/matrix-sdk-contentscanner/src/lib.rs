@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{
+    fmt::{Debug, Formatter},
+    sync::Arc,
+};
 
 use api::{
     download::{
@@ -189,13 +192,17 @@ impl EncryptedFileRequest {
 
 /// A media fetcher that uses the content scanner to download and scan media.
 pub struct ContentScannerMediaFetcher {
-    pub content_scanner: ContentScanner,
+    pub content_scanner: Arc<ContentScanner>,
 }
 
 impl ContentScannerMediaFetcher {
     /// Instantiate a new [`MediaFetcher`] using the provided `scanner_url`.
     pub fn new(scanner_url: impl Into<String>) -> Self {
-        Self { content_scanner: ContentScanner::new(scanner_url.into()) }
+        Self { content_scanner: Arc::new(ContentScanner::new(scanner_url.into())) }
+    }
+
+    pub fn with_content_scanner(content_scanner: Arc<ContentScanner>) -> Self {
+        Self { content_scanner }
     }
 }
 
@@ -208,6 +215,12 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         Box::pin(async move {
             Ok(self.content_scanner.get_media(client, &request.source).await?.content)
         })
+    }
+}
+
+impl Debug for ContentScannerMediaFetcher {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ContentScannerMediaFetcher")
     }
 }
 

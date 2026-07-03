@@ -21,7 +21,11 @@ use std::collections::HashMap;
 use std::path::Path;
 #[cfg(any(feature = "experimental-search", feature = "sqlite"))]
 use std::path::PathBuf;
-use std::{collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    collections::BTreeSet,
+    fmt,
+    sync::{Arc, RwLock as StdRwLock},
+};
 
 #[cfg(feature = "sqlite")]
 use futures_util::try_join;
@@ -43,6 +47,7 @@ use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
+    presence::PresenceState,
 };
 use thiserror::Error;
 #[cfg(feature = "experimental-search")]
@@ -679,6 +684,7 @@ impl ClientBuilder {
             server,
             homeserver,
             sliding_sync_version,
+            Arc::new(StdRwLock::new(PresenceState::Online)),
             http_client,
             base_client,
             supported_versions,

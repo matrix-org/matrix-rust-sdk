@@ -24,6 +24,7 @@ pub mod unencrypted;
 
 /// A media scan response containing the result of the scan.
 /// Spec: <https://github.com/element-hq/matrix-content-scanner-python/blob/main/docs/api.md#get-_matrixmedia_proxyunstablescanservernamemediaid>
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 #[derive(Debug, Deserialize)]
 pub struct MediaScanResponse {
     /// Whether the media is clean or contained something dangerous.

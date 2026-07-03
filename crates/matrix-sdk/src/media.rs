@@ -17,7 +17,7 @@
 
 #[cfg(feature = "e2e-encryption")]
 use std::io::Read;
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, time::Duration};
 #[cfg(not(target_family = "wasm"))]
 use std::{fs::File, path::Path};
 
@@ -66,7 +66,6 @@ const LOCAL_MXC_SERVER_NAME: &str = "send-queue.localhost";
 pub struct Media {
     /// The underlying HTTP client.
     client: Client,
-    media_fetcher: Arc<dyn MediaFetcher>,
 }
 
 /// A file handle that takes ownership of a media file on disk. When the handle
@@ -164,7 +163,7 @@ pub enum MediaError {
 }
 
 /// A generic trait for fetching media content.
-pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm {
+pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
     /// Fetches the media content for the given [`MediaRequestParameters`].
     /// Returns either a byte array or an [`crate::Error`].
     fn fetch_media_content<'a>(
@@ -174,15 +173,9 @@ pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm {
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
 }
 
-impl fmt::Debug for dyn MediaFetcher {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("MediaFetcher")
-    }
-}
-
 impl Media {
-    pub(crate) fn new(client: Client, media_fetcher: Arc<dyn MediaFetcher>) -> Self {
-        Self { client, media_fetcher: media_fetcher.clone() }
+    pub(crate) fn new(client: Client) -> Self {
+        Self { client }
     }
 
     /// Upload some media to the server.
@@ -453,7 +446,14 @@ impl Media {
             return Ok(content);
         }
 
-        let content = self.media_fetcher.fetch_media_content(&self.client, request).await?;
+        let content = self
+            .client
+            .inner
+            .media_fetcher
+            .read()
+            .await
+            .fetch_media_content(&self.client, request)
+            .await?;
 
         if use_cache {
             self.client
@@ -729,7 +729,7 @@ impl Media {
 /// A [`MediaFetcher`] that uses the default media/authenticated media endpoints
 /// to fetch new media.
 #[derive(Debug, Clone)]
-pub(crate) struct DefaultMediaFetcher;
+pub struct DefaultMediaFetcher;
 
 impl MediaFetcher for DefaultMediaFetcher {
     fn fetch_media_content<'a>(

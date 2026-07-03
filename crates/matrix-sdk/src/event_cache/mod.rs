@@ -75,14 +75,15 @@ pub use self::{
         pagination::{BackPaginationOutcome, PaginationStatus},
         pinned_events::PinnedEventsCache,
         room::{
-            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
-            RoomEventCacheUpdate, pagination::RoomPagination,
+            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+            pagination::RoomPagination,
         },
+        subscriber::Subscriber,
         thread::{ThreadEventCache, pagination::ThreadPagination},
     },
 };
 use self::{
-    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate},
+    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},
     states::StateLock,
 };
 
@@ -469,9 +470,9 @@ impl EventCache {
 
     /// Subscribe to room _generic_ updates.
     ///
-    /// If one wants to listen what has changed in a specific room, the
-    /// [`RoomEventCache::subscribe`] is recommended. However, the
-    /// [`RoomEventCacheSubscriber`] type triggers side-effects.
+    /// If one wants to listen what has changed in a specific room for example,
+    /// the [`RoomEventCache::subscribe`] is recommended. However, the
+    /// [`Subscriber`] type triggers side-effects.
     ///
     /// If one wants to get a high-overview, generic, updates for rooms, and
     /// without side-effects, this method is recommended. Also, dropping the
@@ -580,8 +581,8 @@ struct EventCacheInner {
     /// It's a `OnceLock` because its initialization is deferred to
     /// [`EventCache::subscribe`].
     ///
-    /// See doc comment of [`EventCache::auto_shrink_linked_chunk_task`].
-    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
+    /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
+    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkMessage>>,
 
     /// A sender for room generic update.
     ///
@@ -614,8 +615,6 @@ struct EventCacheInner {
     /// flag to be set at subscription time.
     automatic_pagination: OnceLock<AutomaticPagination>,
 }
-
-type AutoShrinkChannelPayload = OwnedRoomId;
 
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {

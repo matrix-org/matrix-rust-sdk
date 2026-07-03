@@ -44,7 +44,6 @@ use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
 };
-use matrix_sdk_contentscanner::ContentScannerMediaFetcher;
 use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
@@ -232,12 +231,6 @@ impl ClientBuilder {
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: None,
         })
-    }
-
-    pub fn enable_content_scanner(self: Arc<Self>, scanner_url: String) -> Arc<Self> {
-        let mut builder = unwrap_or_clone_arc(self);
-        builder.media_fetcher = Some(Arc::new(ContentScannerMediaFetcher::new(scanner_url)));
-        Arc::new(builder)
     }
 
     pub fn dm_room_definition(self: Arc<Self>, dm_room_definition: DmRoomDefinition) -> Arc<Self> {

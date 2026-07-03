@@ -33,7 +33,10 @@ use matrix_sdk::{
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
     executor::AbortOnDrop,
-    media::{MediaFormat, MediaRequestParameters, MediaRetentionPolicy, MediaThumbnailSettings},
+    media::{
+        DefaultMediaFetcher, MediaFormat, MediaRequestParameters, MediaRetentionPolicy,
+        MediaThumbnailSettings,
+    },
     ruma::{
         EventEncryptionAlgorithm, RoomId, TransactionId, UInt, UserId,
         api::client::{
@@ -91,7 +94,7 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
-        RoomAccountDataEvent as RumaRoomAccountDataEvent,
+        RoomAccountDataEvent as RumaRoomAccountDataEvent, RoomAccountDataEventType,
         direct::DirectEventContent,
         fully_read::FullyReadEventContent,
         identity_server::IdentityServerEventContent,
@@ -116,7 +119,7 @@ use ruma::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::{RwLock, broadcast::error::RecvError};
 use tracing::{debug, error, warn};
 use url::Url;
 
@@ -130,6 +133,7 @@ use crate::{
         HomeserverLoginDetails, OAuthConfiguration, OAuthError, SsoError, SsoHandler,
     },
     client,
+    content_scanner::ContentScanner,
     encryption::Encryption,
     live_locations_observer::BeaconInfoUpdate,
     notification::{
@@ -143,7 +147,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, RoomAccountDataEvent, RoomAccountDataEventType,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -400,6 +404,8 @@ pub struct Client {
     /// SQLite or IndexedDB).
     #[cfg_attr(not(feature = "sqlite"), allow(unused))]
     store_path: Option<PathBuf>,
+
+    content_scanner: RwLock<Option<Arc<ContentScanner>>>,
 }
 
 impl Client {
@@ -444,6 +450,7 @@ impl Client {
             utd_hook_manager: OnceLock::new(),
             session_verification_controller,
             store_path,
+            content_scanner: Default::default(),
         };
 
         match store_mode {
@@ -1050,6 +1057,13 @@ impl Client {
             RoomAccountDataEventType::UnstableMarkedUnread => {
                 observe!(UnstableMarkedUnreadEventContent)
             }
+            _ => {
+                // TODO: Support the remaining types
+                Err(ClientError::Generic {
+                    msg: "Unsupported room account data type".to_owned(),
+                    details: None,
+                })
+            }
         }
     }
 
@@ -1192,6 +1206,20 @@ impl Client {
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<SlidingSyncVersion> {
         self.inner.available_sliding_sync_versions().await.into_iter().map(Into::into).collect()
+    }
+
+    /// Set the presence state for the current user.
+    ///
+    /// This updates the presence state used by future generated sync requests,
+    /// regardless of `immediate`. The initial default is `Unavailable`. If
+    /// `immediate` is `true`, it also sends an immediate presence update to the
+    /// homeserver.
+    pub async fn set_presence(
+        &self,
+        presence: PresenceState,
+        immediate: bool,
+    ) -> Result<(), ClientError> {
+        Ok(self.inner.set_presence(presence.into(), None, immediate).await?)
     }
 
     /// Sets the [ClientDelegate] which will inform about authentication errors.
@@ -2241,6 +2269,24 @@ impl Client {
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
         HomeserverCapabilities::new(self.inner.homeserver_capabilities())
+    }
+
+    /// Enables or disables the content scanner feature using the provided
+    /// [`ContentScanner`] instance.
+    pub async fn set_content_scanner(&self, content_scanner: Option<Arc<ContentScanner>>) {
+        let media_fetcher = if let Some(content_scanner) = &content_scanner {
+            content_scanner.media_fetcher()
+        } else {
+            Arc::new(DefaultMediaFetcher)
+        };
+        self.inner.set_media_fetcher(media_fetcher).await;
+
+        *self.content_scanner.write().await = content_scanner;
+    }
+
+    /// Returns the currently used [`ContentScanner`] instance, if any.
+    pub async fn content_scanner(&self) -> Option<Arc<ContentScanner>> {
+        self.content_scanner.read().await.clone()
     }
 }
 
@@ -3449,5 +3495,40 @@ mod tests {
         std::thread::spawn(move || drop(ffi_client))
             .join()
             .expect("Client::drop panicked on a non-tokio thread");
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn test_set_content_scanner_sets_media_fetcher() {
+        let client = crate::client_builder::ClientBuilder::new()
+            .homeserver_url("https://example.com".to_owned())
+            .build()
+            .await
+            .expect("build client");
+
+        // No content scanner set, the media fetcher is the default one
+        assert!(client.content_scanner().await.is_none());
+        assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
+
+        // We set a content scanner instance
+        client
+            .set_content_scanner(Some(crate::content_scanner::ContentScanner::new(
+                "https://scanner_url.com".to_owned(),
+            )))
+            .await;
+
+        // Content scanner is present, media fetcher is now based on it
+        assert!(client.content_scanner().await.is_some());
+        assert_eq!(
+            format!("{:?}", client.inner.get_media_fetcher().await),
+            "ContentScannerMediaFetcher"
+        );
+
+        // We remove the content scanner
+        client.set_content_scanner(None).await;
+
+        // We're back to the initial state: no content scanner, default fetcher
+        assert!(client.content_scanner().await.is_none());
+        assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
     }
 }
