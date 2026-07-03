@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::encryption::EncryptionSettings;
-use matrix_sdk_base::crypto::x509::{
-    RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier,
-};
+use matrix_sdk_crypto::x509::{RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier};
 use oid_registry::OID_PKCS9_EMAIL_ADDRESS;
 use rand::RngExt as _;
 use rcgen::{
