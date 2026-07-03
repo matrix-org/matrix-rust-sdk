@@ -222,6 +222,12 @@ lto = true
 # Use binary size optimization, since this is intended for distributed copies of the SDK
 opt-level = "s"
 
+# Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
+# smaller linked code than `release`.
+[profile.apple-release]
+inherits = "release"
+opt-level = "s"
+
 [profile.profiling]
 inherits = "release"
 # LTO is too slow to compile.
