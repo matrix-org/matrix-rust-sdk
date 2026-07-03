@@ -136,7 +136,8 @@ pub(crate) mod tests {
     use std::sync::Arc;
 
     use rcgen::{
-        Certificate, CertificateParams, CustomExtension, DnType, KeyPair, PublicKeyData, SanType,
+        Certificate, CertificateParams, CustomExtension, DnType, Issuer, KeyPair, PublicKeyData,
+        SanType,
     };
     use ruma::OwnedUserId;
 
@@ -144,6 +145,12 @@ pub(crate) mod tests {
 
     pub(crate) const OID_PKCS9_EMAIL_ADDRESS: &[u64] = &[1, 2, 840, 113549, 1, 9, 1];
     pub(crate) const OID_SUBJECT_KEY_IDENTIFIER: &[u64] = &[2, 5, 29, 14];
+
+    /// Generate an RSA key pair suitable for the `io.element.x509` signing
+    /// algorithm (RSASSA-PSS with SHA-512).
+    pub(crate) fn generate_rsa_key() -> KeyPair {
+        KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair")
+    }
 
     /// Create a certificate that contains the supplied email address in its
     /// Subject Distinguished Name
@@ -160,8 +167,7 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_email_in_subject_distinguished_name(
         email: &str,
     ) -> (Certificate, KeyPair) {
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+        let signing_key = generate_rsa_key();
 
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
@@ -178,8 +184,7 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_email_in_subject_alternate_name(
         email: &str,
     ) -> (Certificate, KeyPair) {
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+        let signing_key = generate_rsa_key();
 
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
@@ -198,8 +203,7 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_user_id_in_subject_alternate_name(
         user_id: &str,
     ) -> (Certificate, KeyPair) {
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+        let signing_key = generate_rsa_key();
 
         let user_id_uri =
             OwnedUserId::try_from(user_id).expect("Invalid user ID!").matrix_uri(false);
@@ -218,8 +222,7 @@ pub(crate) mod tests {
 
     /// Create a certificate that does not contain a user ID or email address
     pub(crate) fn cert_and_key_with_no_user_id() -> (Certificate, KeyPair) {
-        let signing_key =
-            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+        let signing_key = generate_rsa_key();
 
         let mut cert_params = CertificateParams::default();
         cert_params.use_authority_key_identifier_extension = true;
@@ -250,6 +253,51 @@ pub(crate) mod tests {
         let ski_der = [&[0x04, ski_bytes.len() as u8], ski_bytes].concat();
 
         CustomExtension::from_oid_content(OID_SUBJECT_KEY_IDENTIFIER, ski_der)
+    }
+
+    /// Create a [`CertificateParams`] (for creating a certificate) where the
+    /// distinguished name has the CommonName provided.
+    pub(crate) fn cert_params(common_name: &str) -> CertificateParams {
+        let mut cert_params = CertificateParams::default();
+        cert_params.distinguished_name.remove(DnType::CommonName);
+        cert_params.distinguished_name.push(DnType::CommonName, common_name);
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params
+    }
+
+    /// Generate a little certificate authority i.e. a key pair and a
+    /// self-signed certificate.
+    pub(crate) fn ca_cert() -> (Certificate, KeyPair) {
+        let cert_params = cert_params("You Can Trust Us Certificate Authority");
+
+        let signing_key = generate_rsa_key();
+
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+
+        (cert, signing_key)
+    }
+
+    /// Generate a key pair and a certificate, containing the supplied email
+    /// address in its Subject Distinguished Name, signed by the supplied
+    /// certificate authority.
+    pub(crate) fn cert_and_key_with_email_signed_by(
+        email: &str,
+        ca_cert: &Certificate,
+        ca_signing_key: &KeyPair,
+    ) -> (Certificate, KeyPair) {
+        let signing_key = generate_rsa_key();
+
+        let mut cert_params = cert_params(&format!("Cert for {email}"));
+        cert_params.distinguished_name.push(DnType::from_oid(OID_PKCS9_EMAIL_ADDRESS), email);
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
+
+        let issuer = Issuer::from_ca_cert_pem(&ca_cert.pem(), ca_signing_key)
+            .expect("Failed to create Issuer from CA cert and key");
+
+        let cert =
+            cert_params.signed_by(&signing_key, &issuer).expect("Failed to generate certificate");
+
+        (cert, signing_key)
     }
 
     /// Create a [`X509Signer`] and [`X509Verifier`] pair from a certificate and
