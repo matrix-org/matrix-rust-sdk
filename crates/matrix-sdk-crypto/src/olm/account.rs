@@ -31,10 +31,7 @@ use ruma::{
     OwnedUserId, RoomId, SecondsSinceUnixEpoch, UInt, UserId,
     api::client::{
         dehydrated_device::{DehydratedDeviceData, DehydratedDeviceV2},
-        keys::{
-            upload_keys,
-            upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
-        },
+        keys::{upload_keys, upload_signatures::v3::Request as SignatureUploadRequest},
     },
     canonical_json::to_canonical_value,
     events::{AnyToDeviceEvent, room::history_visibility::HistoryVisibility},
@@ -70,7 +67,7 @@ use crate::{
         types::{Changes, DeviceChanges},
     },
     types::{
-        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, MasterPubkey, OneTimeKey, SignedKey,
+        CrossSigningKey, DeviceKeys, EventEncryptionAlgorithm, OneTimeKey, SignedKey,
         events::{
             olm_v1::AnyDecryptedOlmEvent,
             room::encrypted::{
@@ -844,25 +841,6 @@ impl Account {
         );
 
         Ok(())
-    }
-
-    /// Sign the given Master Key
-    pub fn sign_master_key(
-        &self,
-        master_key: &MasterPubkey,
-    ) -> Result<SignatureUploadRequest, SignatureError> {
-        let public_key =
-            master_key.get_first_key().ok_or(SignatureError::MissingSigningKey)?.to_base64().into();
-
-        let mut cross_signing_key: CrossSigningKey = master_key.as_ref().clone();
-        cross_signing_key.signatures.clear();
-        self.sign_cross_signing_key(&mut cross_signing_key)?;
-
-        let mut user_signed_keys = SignedKeys::new();
-        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
-
-        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
-        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Convert a JSON value to the canonical representation and sign the JSON

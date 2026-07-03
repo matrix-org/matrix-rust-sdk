@@ -25,7 +25,7 @@ use as_variant::as_variant;
 use matrix_sdk_common::locks::RwLock;
 use ruma::{
     DeviceId, EventId, OwnedDeviceId, OwnedUserId, RoomId, UserId,
-    api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest,
+    api::client::keys::upload_signatures::v3::{Request as SignatureUploadRequest, SignedKeys},
     events::{key::verification::VerificationMethod, room::message::MessageType},
 };
 use serde::{Deserialize, Deserializer, Serialize};
@@ -40,7 +40,8 @@ use crate::{
         types::{Changes, IdentityChanges},
     },
     types::{
-        MasterPubkey, SelfSigningPubkey, UserSigningPubkey, requests::OutgoingVerificationRequest,
+        CrossSigningKey, MasterPubkey, SelfSigningPubkey, UserSigningPubkey,
+        requests::OutgoingVerificationRequest,
     },
     verification::VerificationMachine,
 };
@@ -230,7 +231,23 @@ impl OwnUserIdentity {
 
         let cache = self.store.cache().await?;
         let account = cache.account().await?;
-        account.sign_master_key(&self.master_key)
+
+        let public_key = self
+            .master_key
+            .get_first_key()
+            .ok_or(SignatureError::MissingSigningKey)?
+            .to_base64()
+            .into();
+
+        let mut cross_signing_key: CrossSigningKey = (*self.master_key).as_ref().clone();
+        cross_signing_key.signatures.clear();
+        account.sign_cross_signing_key(&mut cross_signing_key)?;
+
+        let mut user_signed_keys = SignedKeys::new();
+        user_signed_keys.add_cross_signing_keys(public_key, cross_signing_key.to_raw());
+
+        let signed_keys = [(self.user_id().to_owned(), user_signed_keys)].into();
+        Ok(SignatureUploadRequest::new(signed_keys))
     }
 
     /// Send a verification request to our other devices.
