@@ -28,7 +28,7 @@ use wiremock::{Match as _, Mock, MockGuard, MockServer, Request, ResponseTemplat
 use crate::sliding_sync::{PartialSlidingSyncRequest, SlidingSyncMatcher};
 
 /// Sets up a sliding sync server that use different `pos` values for the
-/// encrptyion and the room sync.
+/// encryption and the room sync.
 async fn setup_mocking_sliding_sync_server(
     server: &MockServer,
     encryption_pos: Arc<Mutex<i32>>,
