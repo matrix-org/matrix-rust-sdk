@@ -1625,7 +1625,7 @@ mod test {
     }
 
     /// Add a new secret to the secrets inbox of this client's OlmMachine
-    /// containing the supplied backup decyption key.
+    /// containing the supplied backup decryption key.
     async fn queue_backup_decryption_key_secret(
         client: Client,
         secret_backup_decryption_key: &str,
