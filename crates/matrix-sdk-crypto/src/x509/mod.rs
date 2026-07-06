@@ -121,3 +121,12 @@ pub use x509_signer::RawX509Signer;
 pub(crate) use x509_signer::X509Signer;
 pub use x509_verify::RawX509Verifier;
 pub(crate) use x509_verify::X509Verifier;
+
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+mod rust_raw_x509_signer;
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+mod rust_raw_x509_verifier;
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+pub use rust_raw_x509_signer::RustRawX509Signer;
+#[cfg(any(test, feature = "rust-x509-verifier-impl"))]
+pub use rust_raw_x509_verifier::RustRawX509Verifier;
