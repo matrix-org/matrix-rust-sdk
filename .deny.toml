@@ -10,6 +10,7 @@ exclude = [
 version = 2
 ignore = [
     { id = "RUSTSEC-2024-0388", reason = "Unmaintained derivative crate, not a direct dependency" },
+    { id = "RUSTSEC-2026-0173", reason = "Unmaintained proc-macro2 crate in aquamarine, not a direct dependency" },
 ]
 
 [licenses]
