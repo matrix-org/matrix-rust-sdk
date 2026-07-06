@@ -32,15 +32,18 @@ futures-core.workspace = true
 futures-util.workspace = true
 http.workspace = true
 json-structural-diff = "0.2.0"
-matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
-matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode"] }
+matrix-sdk = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-x509-identity-verification"] }
+matrix-sdk-base = { workspace = true, default-features = true, features = ["testing", "qrcode", "experimental-x509-identity-verification"] }
+matrix-sdk-crypto = { workspace = true, features = ["rust-x509-verifier-impl"] }
 matrix-sdk-common.workspace = true
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 matrix-sdk-ui = { workspace = true, default-features = true }
 rand.workspace = true
+rcgen.workspace = true
 reqwest.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 similar-asserts.workspace = true
 stream_assert.workspace = true
 tempfile.workspace = true

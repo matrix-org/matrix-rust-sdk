@@ -45,6 +45,7 @@ use crate::helpers::{SyncTokenAwareClient, TestClientBuilder};
 mod shared_history;
 #[cfg(feature = "experimental-encrypted-state-events")]
 mod state_events;
+mod x509;
 
 // This test reproduces a bug seen on clients that use the same `Client`
 // instance for both the usual sliding sync loop and for getting the event for a
