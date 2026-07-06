@@ -128,12 +128,21 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// TODO: move this over to the event cache (see also #3058).
     pub(super) read_receipts: ReadReceipts,
 
-    /// The event ID of the active RTC notification item that should have
-    /// active_members populated
+    /// The event ID of the active RtcNotification item that should have
+    /// active_members populated.
+    ///
+    /// There is no real link to the active room call and a rtc notification
+    /// event. For example there could be several rtc notifications events for the same call,
+    /// but we only want to have a single active call tile in the timeline.
+    /// We achieve this by keeping a link to the latest notification event in the timeline
+    /// and the `active_call` info will be attached to it.
     pub(crate) active_rtc_notification_event_id: Option<OwnedEventId>,
 
-    /// Current active call info for the room (used to update the last
-    /// RtcNotification event content)
+    /// Current active call info for the room.
+    ///
+    /// This info is updated everytime the active call membership and intent change.
+    /// It is cached to be attached dynamically to the latest RtcNotification event
+    /// inserted in the timeline.
     pub(crate) active_call: Option<ActiveCallInfo>,
 }
 
