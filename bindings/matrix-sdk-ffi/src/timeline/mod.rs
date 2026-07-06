@@ -61,6 +61,8 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 pub use self::{content::TimelineItemContent, msg_like::MessageContent};
+#[cfg(feature = "unstable-msc4426")]
+use crate::ruma::{UserCall, UserStatus};
 use crate::{
     error::{ClientError, RoomError},
     event::EventOrTransactionId,
@@ -1075,8 +1077,18 @@ pub struct EventTimelineItemDebugInfo {
 pub enum ProfileDetails {
     Unavailable,
     Pending,
-    Ready { display_name: Option<String>, display_name_ambiguous: bool, avatar_url: Option<String> },
-    Error { message: String },
+    Ready {
+        display_name: Option<String>,
+        display_name_ambiguous: bool,
+        avatar_url: Option<String>,
+        #[cfg(feature = "unstable-msc4426")]
+        status: Option<UserStatus>,
+        #[cfg(feature = "unstable-msc4426")]
+        call: Option<UserCall>,
+    },
+    Error {
+        message: String,
+    },
 }
 
 impl From<TimelineDetails<Profile>> for ProfileDetails {
@@ -1088,6 +1100,10 @@ impl From<TimelineDetails<Profile>> for ProfileDetails {
                 display_name: profile.display_name,
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+                #[cfg(feature = "unstable-msc4426")]
+                status: profile.status.map(UserStatus::from),
+                #[cfg(feature = "unstable-msc4426")]
+                call: profile.call.map(UserCall::from),
             },
             TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
         }
@@ -1103,6 +1119,10 @@ impl From<&TimelineDetails<Profile>> for ProfileDetails {
                 display_name: profile.display_name.clone(),
                 display_name_ambiguous: profile.display_name_ambiguous,
                 avatar_url: profile.avatar_url.as_ref().map(ToString::to_string),
+                #[cfg(feature = "unstable-msc4426")]
+                status: profile.status.clone().map(UserStatus::from),
+                #[cfg(feature = "unstable-msc4426")]
+                call: profile.call.clone().map(UserCall::from),
             },
             TimelineDetails::Error(e) => Self::Error { message: e.to_string() },
         }
