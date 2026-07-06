@@ -25,7 +25,7 @@ crate-type = [
 
 [features]
 default = ["bundled-sqlite", "unstable-msc4274", "experimental-element-recent-emojis", "experimental-push-secrets", "experimental-search"]
-experimental-search = ["matrix-sdk/experimental-search"]
+experimental-search = ["matrix-sdk/experimental-search", "matrix-sdk-ui/experimental-search"]
 # Use SQLite for the session storage.
 sqlite = ["matrix-sdk/sqlite"]
 # Use an embedded version of SQLite.
@@ -110,6 +110,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url.workspace = true
 uuid = { version = "1.4.1", default-features = false, features = ["std", "v4"] }
 zeroize.workspace = true
+zxcvbn.workspace = true
 oauth2.workspace = true
 
 [target.'cfg(target_family = "wasm")'.dependencies]

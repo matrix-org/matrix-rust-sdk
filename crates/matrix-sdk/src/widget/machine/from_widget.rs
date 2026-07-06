@@ -252,15 +252,15 @@ impl From<delayed_state_event::unstable::Response> for SendEventResponse {
 }
 
 /// A wrapper type for the empty okay response from
-/// [`update_delayed_event`](update_delayed_event::unstable::Response)
+/// [`update_delayed_event`](update_delayed_event::unstable_v1::Response)
 /// which derives Serialize. (The response struct from Ruma does not derive
 /// serialize)
 /// This is intentionally an empty tuple struct (not a unit struct), so that it
 /// serializes to `{}` instead of `Null` when returned to the widget as json.
 #[derive(Serialize, Debug)]
 pub(crate) struct UpdateDelayedEventResponse {}
-impl From<update_delayed_event::unstable::Response> for UpdateDelayedEventResponse {
-    fn from(_: update_delayed_event::unstable::Response) -> Self {
+impl From<update_delayed_event::unstable_v1::Response> for UpdateDelayedEventResponse {
+    fn from(_: update_delayed_event::unstable_v1::Response) -> Self {
         Self {}
     }
 }

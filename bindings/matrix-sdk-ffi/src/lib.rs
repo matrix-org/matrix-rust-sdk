@@ -15,6 +15,7 @@ mod identity_status_change;
 mod live_locations_observer;
 mod notification;
 mod notification_settings;
+mod password_strength;
 mod platform;
 mod qr_code;
 mod room;
@@ -26,7 +27,7 @@ mod room_preview;
 mod ruma;
 mod runtime;
 #[cfg(feature = "experimental-search")]
-mod search;
+mod search_service;
 mod session_verification;
 mod spaces;
 mod store;

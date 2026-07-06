@@ -53,6 +53,7 @@ use ruma::{
     html::RemoveReplyFallback,
     room_version_rules::RedactionRules,
 };
+use tracing::warn;
 
 mod live_location;
 mod message;
@@ -168,7 +169,7 @@ impl TimelineItemContent {
         let raw_event = timeline_event.into_raw();
         let deserialized_event = raw_event.deserialize().ok()?;
 
-        match TimelineAction::from_event(
+        let actions = TimelineAction::from_event(
             deserialized_event,
             &raw_event,
             room,
@@ -177,30 +178,33 @@ impl TimelineItemContent {
             None,
             None,
         )
-        .await
-        {
-            Some(TimelineAction::AddItem { content }) => Some(content),
-
+        .await;
+        match actions.as_slice() {
+            [TimelineAction::AddItem { content }] => Some(content.clone()),
             // Aggregated event: only edits and beacon stop are supported at the moment.
-            Some(TimelineAction::HandleAggregation {
-                kind: HandleAggregationKind::BeaconStop { content },
-                ..
-            }) => Some(TimelineItemContent::MsgLike(MsgLikeContent {
-                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content)),
+            [
+                TimelineAction::HandleAggregation {
+                    kind: HandleAggregationKind::BeaconStop { content, .. },
+                    ..
+                },
+            ] => Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(content.clone())),
                 reactions: Default::default(),
                 thread_root: None,
                 in_reply_to: None,
                 thread_summary: None,
             })),
-
-            Some(TimelineAction::HandleAggregation {
-                kind: HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
-                ..
-            }) => {
+            [
+                TimelineAction::HandleAggregation {
+                    kind:
+                        HandleAggregationKind::Edit { replacement: Replacement { new_content, .. } },
+                    ..
+                },
+            ] => {
                 // Map the edit to a regular message.
                 match TimelineAction::from_content(
                     AnyMessageLikeEventContent::RoomMessage(RoomMessageEventContent::new(
-                        new_content.msgtype,
+                        new_content.msgtype.clone(),
                     )),
                     None,
                     None,
@@ -210,7 +214,17 @@ impl TimelineItemContent {
                     _ => None,
                 }
             }
-
+            [] => {
+                warn!("No action for event content processing");
+                None
+            }
+            [_, _, ..] => {
+                // Multiple actions can happen e.g. when a beacon_info with prev_content
+                // is processed: it produces both an AddItem and a HandleAggregation.
+                // There is no meaningful single content to extract in that case.
+                warn!("Ignoring event that produced multiple timeline actions");
+                None
+            }
             _ => None,
         }
     }

@@ -10,6 +10,7 @@ exclude = [
 version = 2
 ignore = [
     { id = "RUSTSEC-2024-0388", reason = "Unmaintained derivative crate, not a direct dependency" },
+    { id = "RUSTSEC-2026-0173", reason = "Unmaintained proc-macro2 crate in aquamarine, not a direct dependency" },
 ]
 
 [licenses]
@@ -47,5 +48,8 @@ allow-git = [
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
     "https://github.com/element-hq/async-compat",
-    "https://github.com/mozilla/uniffi-rs"
+    "https://github.com/mozilla/uniffi-rs",
+    # Pinned one commit past 3.1.1 for the unreleased guess-magnitude
+    # overflow fix, needed by the bindings' password strength estimation.
+    "https://github.com/shssoichiro/zxcvbn-rs",
 ]

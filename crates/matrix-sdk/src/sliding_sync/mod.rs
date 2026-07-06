@@ -175,6 +175,55 @@ impl SlidingSync {
         }
     }
 
+    /// Add subscriptions to the specified rooms if they don't already exist and
+    /// remove any existing subscriptions to other rooms.
+    ///
+    /// This is similar to [`Self::clear_and_subscribe_to_rooms`] but doesn't
+    /// clear and then recreate all subscriptions. Instead, it will perform
+    /// a delta-like update which involves:
+    ///
+    /// - leaving existing subscriptions untouched if the room is contained  in
+    ///   `room_ids`
+    /// - adding new subscriptions for rooms in `room_ids` that are currently
+    ///   unsubscribed
+    /// - removing existing subscriptions for rooms that are not contained in
+    ///   `room_ids`
+    ///
+    /// Note that unlike [`Self::clear_and_subscribe_to_rooms`], this method
+    /// will not mark members as unsynced (which would cause them to be
+    /// refetched) for subscriptions that already exist.
+    pub fn resubscribe_to_rooms(
+        &self,
+        room_ids: &[&RoomId],
+        settings: Option<http::request::RoomSubscription>,
+        cancel_in_flight_request: bool,
+    ) {
+        let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
+        let mut skip_over_current_sync_loop_iteration = false;
+
+        // Remove rooms that are no longer subscribed.
+        room_subscriptions.retain(|room_id, _| {
+            if room_ids.contains(&room_id.as_ref()) {
+                true
+            } else {
+                skip_over_current_sync_loop_iteration = true;
+                false
+            }
+        });
+
+        if subscribe_to_rooms(
+            room_subscriptions,
+            &self.inner.client,
+            room_ids,
+            settings,
+            cancel_in_flight_request && skip_over_current_sync_loop_iteration,
+        ) {
+            self.inner.internal_channel_send_if_possible(
+                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+            );
+        }
+    }
+
     /// Replace all subscriptions to rooms by other ones.
     ///
     /// If the associated `Room`s exist, they will be marked as members are
@@ -1235,6 +1284,136 @@ mod tests {
             assert!(room_subscriptions.contains_key(room_id_3));
         }
 
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_resubscribe_to_rooms() -> Result<()> {
+        let (server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
+        .await?;
+
+        let stream = sliding_sync.sync();
+        pin_mut!(stream);
+
+        let room_id_0 = room_id!("!r0:bar.org");
+        let room_id_1 = room_id!("!r1:bar.org");
+        let room_id_2 = room_id!("!r2:bar.org");
+
+        {
+            let _mock_guard = Mock::given(SlidingSyncMatcher)
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "pos": "1",
+                    "lists": {},
+                    "rooms": {
+                        room_id_0: {
+                            "name": "Room #0",
+                            "initial": true,
+                        },
+                        room_id_1: {
+                            "name": "Room #1",
+                            "initial": true,
+                        },
+                        room_id_2: {
+                            "name": "Room #2",
+                            "initial": true,
+                        },
+                    }
+                })))
+                .mount_as_scoped(&server)
+                .await;
+
+            let _ = stream.next().await.unwrap()?;
+        }
+
+        let room0 = sliding_sync.inner.client.get_room(room_id_0).unwrap();
+
+        // Members aren't synced.
+        // We need to make them synced, so that we can test that subscribing to a room
+        // make members not synced. That's a desired feature.
+        assert!(room0.are_members_synced().not());
+
+        {
+            struct MemberMatcher(OwnedRoomId);
+
+            impl Match for MemberMatcher {
+                fn matches(&self, request: &Request) -> bool {
+                    request.url.path()
+                        == format!("/_matrix/client/r0/rooms/{room_id}/members", room_id = self.0)
+                        && request.method == Method::GET
+                }
+            }
+
+            let _mock_guard = Mock::given(MemberMatcher(room_id_0.to_owned()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "chunk": [],
+                })))
+                .mount_as_scoped(&server)
+                .await;
+
+            assert_matches!(room0.request_members().await, Ok(()));
+        }
+
+        // Members are now synced! We can start subscribing and see how it goes.
+        assert!(room0.are_members_synced());
+
+        sliding_sync.resubscribe_to_rooms(&[room_id_0, room_id_1], None, true);
+
+        // OK, we have subscribed to some rooms. Let's check on `room0` if members are
+        // now marked as not synced.
+        assert!(room0.are_members_synced().not());
+
+        // Both resubscribed rooms are subscribed.
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(room_subscriptions.contains_key(room_id_1));
+            assert!(!room_subscriptions.contains_key(room_id_2));
+        }
+
+        // Subscribing to the same room doesn't reset the member sync state.
+
+        {
+            struct MemberMatcher(OwnedRoomId);
+
+            impl Match for MemberMatcher {
+                fn matches(&self, request: &Request) -> bool {
+                    request.url.path()
+                        == format!("/_matrix/client/r0/rooms/{room_id}/members", room_id = self.0)
+                        && request.method == Method::GET
+                }
+            }
+
+            let _mock_guard = Mock::given(MemberMatcher(room_id_0.to_owned()))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                    "chunk": [],
+                })))
+                .mount_as_scoped(&server)
+                .await;
+
+            assert_matches!(room0.request_members().await, Ok(()));
+        }
+
+        // Members are synced, good, good.
+        assert!(room0.are_members_synced());
+
+        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, false);
+
+        // Members are still synced: because we have already subscribed to the
+        // room, the members aren't marked as unsynced.
+        assert!(room0.are_members_synced());
+
+        // Only the resubscribed room is subscribed.
+        {
+            let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
+
+            assert!(room_subscriptions.contains_key(room_id_0));
+            assert!(!room_subscriptions.contains_key(room_id_1));
+            assert!(!room_subscriptions.contains_key(room_id_2));
+        }
         Ok(())
     }
 

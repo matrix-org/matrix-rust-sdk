@@ -474,7 +474,8 @@ impl RoomListService {
     /// room in `room_ids`, so that the [`LatestEventValue`] will automatically
     /// be calculated and updated for these rooms, for free.
     ///
-    /// All previous room subscriptions will be forgotten.
+    /// Previous room subscriptions that are not contained in the specified room
+    /// IDs will be forgotten.
     ///
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
@@ -516,11 +517,7 @@ impl RoomListService {
         }
 
         // Subscribe to the rooms.
-        self.sliding_sync.clear_and_subscribe_to_rooms(
-            room_ids,
-            Some(settings),
-            cancel_in_flight_request,
-        )
+        self.sliding_sync.resubscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
     }
 
     #[cfg(test)]
