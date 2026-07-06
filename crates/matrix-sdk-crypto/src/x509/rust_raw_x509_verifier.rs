@@ -134,3 +134,50 @@ impl RawX509Verifier for RustRawX509Verifier {
             .map_err(|e| X509SignatureVerificationError::Custom(e.into()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use assert_matches2::assert_let;
+
+    use crate::x509::{
+        RawX509Signer, RawX509Verifier, X509SignatureVerificationError,
+        rust_raw_x509_signer::RustRawX509Signer, rust_raw_x509_verifier::RustRawX509Verifier,
+        tests::cert_and_key_with_email_in_subject_distinguished_name,
+    };
+
+    #[test]
+    fn test_can_verify() {
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
+
+        let cert_pem = cert.pem();
+        let key_pem = signing_key.serialize_pem();
+
+        let x509_sign = RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
+
+        // After we sign a text
+        let sig = x509_sign.sign(b"hello world").unwrap();
+
+        let x509_verify = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
+
+        // checking the signature on the same string should succeed
+        assert_let!(Ok(()) = x509_verify.verify(b"hello world", &sig));
+
+        // checking the signature on a different string should fail
+        assert_let!(
+            Err(X509SignatureVerificationError::Custom(e)) =
+                x509_verify.verify(b"Hello World", &sig)
+        );
+        assert_let!(
+            webpki::Error::InvalidSignatureForPublicKey = *e.downcast::<webpki::Error>().unwrap()
+        );
+
+        // checking the signature with a bad certificate should fail
+        let sig_with_bad_certificate_chain = {
+            let mut sig = sig;
+            sig.certificate_chain = "".to_owned();
+            sig
+        };
+        assert_let!(Err(_) = x509_verify.verify(b"hello world", &sig_with_bad_certificate_chain));
+    }
+}

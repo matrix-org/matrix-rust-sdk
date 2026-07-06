@@ -240,3 +240,244 @@ fn get_attribute_value_as_string(value: &AttributeValue) -> Option<&str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+pub(crate) mod tests {
+
+    use cms::cert::x509::der::Decode;
+    use rcgen::generate_simple_self_signed;
+    use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
+    use vodozemac::Ed25519SecretKey;
+
+    use super::*;
+    use crate::{
+        types::{CrossSigningKey, SigningKeys},
+        x509::tests::{
+            cert_and_key_with_email_in_subject_alternate_name,
+            cert_and_key_with_email_in_subject_distinguished_name, cert_and_key_with_no_user_id,
+            cert_and_key_with_user_id_in_subject_alternate_name, create_rust_signer_and_verifier,
+        },
+    };
+
+    #[test]
+    fn test_can_extract_email_address_from_a_cert_sdn() {
+        // Given a certificate containing an email address in the Subject
+        // Distinguished Name
+        let (cert, _) =
+            cert_and_key_with_email_in_subject_distinguished_name("myname@company.co.uk");
+
+        // When we extract the email address it contains
+        let email = get_email_address_from_certificate(&Certificate::from_der(cert.der()).unwrap())
+            .expect("Failed to get email address from cert");
+
+        // Then it matches what we put in
+        assert_eq!(email, "myname@company.co.uk");
+    }
+
+    #[test]
+    fn test_can_extract_email_address_from_a_cert_san() {
+        // Given a certificate containing an email address in the Subject
+        // Alternative Name
+        let (cert, _) = cert_and_key_with_email_in_subject_alternate_name("myname@company.co.uk");
+
+        // When we extract the email address it contains
+        let email = get_email_address_from_certificate(&Certificate::from_der(cert.der()).unwrap())
+            .expect("Failed to get email address from cert");
+
+        // Then it matches what we put in
+        assert_eq!(email, "myname@company.co.uk");
+    }
+
+    #[test]
+    fn test_can_extract_user_id_from_a_cert_san() {
+        // Given a certificate containing a user ID in the Subject Alternative
+        // Name
+        let (cert, _) =
+            cert_and_key_with_user_id_in_subject_alternate_name("@myname:company.co.uk");
+
+        // When we extract the user ID it contains
+        let user_id = get_user_id_from_certificate(&Certificate::from_der(cert.der()).unwrap())
+            .expect("Failed to get email address from cert");
+
+        // Then it matches what we put in
+        assert_eq!(user_id, "@myname:company.co.uk");
+    }
+
+    #[test]
+    fn test_extract_email_address_from_a_cert_that_does_not_contain_one_returns_none() {
+        // Given a certificate not containing an email address
+        let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
+
+        // When we attempt to extract the email address
+        let email =
+            get_email_address_from_certificate(&Certificate::from_der(cert.cert.der()).unwrap());
+
+        // Then the answer is empty
+        assert!(email.is_none());
+    }
+
+    #[test]
+    fn test_extract_user_id_from_a_cert_that_does_not_contain_one_returns_none() {
+        // Given a certificate not containing an email address
+        let cert = generate_simple_self_signed(&[]).expect("Failed to generate cert");
+
+        // When we attempt to extract the email address
+        let user_id =
+            get_user_id_from_certificate(&Certificate::from_der(cert.cert.der()).unwrap());
+
+        // Then the answer is empty
+        assert!(user_id.is_none());
+    }
+
+    #[test]
+    fn test_can_verify_cert_containing_email_in_dn() {
+        // Given a cert containing the email address in the Subject Distinguished Name
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
+
+        // And a cross-signing key
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        // When we attempt to verify it without signing, then it fails
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+
+        // But when we sign it
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it verifies correctly
+        assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_can_verify_cert_containing_email_in_san() {
+        // Given a cert containing the email address in the Subject Alternative
+        // Name
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_alternate_name("alice@localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it verifies correctly.
+        assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_can_verify_cert_containing_username_in_san() {
+        // Given a cert containing the Matrix user ID in the Subject Alternative
+        // Name
+        let (cert, signing_key) =
+            cert_and_key_with_user_id_in_subject_alternate_name("@alice:localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it verifies correctly.
+        assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_verification_fails_if_dn_email_is_wrong() {
+        // Given a cert containing an incorrect email address in the Subject
+        // Distinguished Name
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_distinguished_name("bob@localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it fails to verify because the supplied email address translates
+        // to a different user ID.
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_verification_fails_if_san_email_is_wrong() {
+        // Given a cert containing an incorrect email address in the Subject
+        // Alternative Name
+        let (cert, signing_key) =
+            cert_and_key_with_email_in_subject_alternate_name("bob@localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it fails to verify because the supplied email address translates
+        // to a different user ID.
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_verification_fails_if_cert_user_id_is_wrong() {
+        // Given a cert containing an incorrect email address in the Subject
+        // Alternative Name
+        let (cert, signing_key) =
+            cert_and_key_with_user_id_in_subject_alternate_name("@bob:localhost");
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it fails to verify because the supplied user ID does not match
+        // the signing user.
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    #[test]
+    fn test_verification_fails_if_cert_user_id_is_missing() {
+        // Given a cert with no email or user ID at all
+        let (cert, signing_key) = cert_and_key_with_no_user_id();
+
+        // When we sign a cross-signing key using it
+        let (x509_signer, x509_verifier) = create_rust_signer_and_verifier(cert, signing_key);
+
+        let user_id = user_id!("@alice:localhost").to_owned();
+        let mut cross_signing_key = create_cross_signing_key(&user_id);
+
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+
+        // Then it fails to verify because there is no user ID to check against
+        // the user's ID.
+        assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
+    }
+
+    fn create_cross_signing_key(user_id: &UserId) -> CrossSigningKey {
+        let secret_key = Ed25519SecretKey::new();
+        let public_key = secret_key.public_key();
+        let keys = SigningKeys::from([(
+            DeviceKeyId::from_parts(
+                DeviceKeyAlgorithm::Ed25519,
+                public_key.to_base64().as_str().into(),
+            ),
+            public_key.into(),
+        )]);
+
+        CrossSigningKey::new(user_id.to_owned(), vec![KeyUsage::Master], keys, Default::default())
+    }
+}
