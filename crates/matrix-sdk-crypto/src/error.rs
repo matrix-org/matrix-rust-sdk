@@ -292,6 +292,11 @@ pub enum SignatureError {
     #[error(transparent)]
     InvalidKey(#[from] vodozemac::KeyError),
 
+    /// The message could not be signed with X.509
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[error("the message could not be signed with X.509 {0}")]
+    X509SigningError(crate::x509::X509SignatureSigningError),
+
     /// The signature could not be decoded.
     #[error("the given signature is not valid and can't be decoded")]
     InvalidSignature,
