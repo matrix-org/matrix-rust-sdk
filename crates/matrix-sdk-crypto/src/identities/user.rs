@@ -32,6 +32,8 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use tracing::{error, info};
 
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::X509Verifier;
 use crate::{
     CryptoStoreError, DeviceData, VerificationRequest,
     error::SignatureError,
@@ -87,7 +89,18 @@ impl UserIdentity {
                 Self::Own(OwnUserIdentity { inner: i, verification_machine, store })
             }
             UserIdentityData::Other(i) => {
-                Self::Other(OtherUserIdentity { inner: i, own_identity, verification_machine })
+                // X509Verifier holds an Arc so cloning it gives us a reference to the single
+                // underlying RustRawX509Verifier
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                let x509_verifier = store.x509_verifier().cloned();
+
+                Self::Other(OtherUserIdentity {
+                    inner: i,
+                    own_identity,
+                    #[cfg(feature = "experimental-x509-identity-verification")]
+                    x509_verifier,
+                    verification_machine,
+                })
             }
         }
     }
@@ -335,6 +348,9 @@ pub struct OtherUserIdentity {
     pub(crate) inner: OtherUserIdentityData,
     pub(crate) own_identity: Option<OwnUserIdentityData>,
     pub(crate) verification_machine: VerificationMachine,
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) x509_verifier: Option<X509Verifier>,
 }
 
 impl Deref for OtherUserIdentity {
@@ -352,11 +368,27 @@ impl DerefMut for OtherUserIdentity {
 }
 
 impl OtherUserIdentity {
-    /// Is this user identity verified.
+    /// Is this user identity verified?
     pub fn is_verified(&self) -> bool {
-        self.own_identity
+        let is_cross_signed = self
+            .own_identity
             .as_ref()
-            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner))
+            .is_some_and(|own_identity| own_identity.is_identity_verified(&self.inner));
+
+        // If we have an X.509 verifier, we can use that to verify the user
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        {
+            let is_x509_signed = || {
+                self.x509_verifier.as_ref().is_some_and(|verifier| {
+                    verifier.verify_signed_object(&self.user_id, self.inner.master_key().as_ref())
+                })
+            };
+
+            is_cross_signed || is_x509_signed()
+        }
+
+        #[cfg(not(feature = "experimental-x509-identity-verification"))]
+        is_cross_signed
     }
 
     /// Manually verify this user.
@@ -1439,6 +1471,8 @@ pub(crate) mod tests {
 
     use assert_matches::assert_matches;
     use matrix_sdk_test::{async_test, test_json};
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use rcgen::{Certificate, KeyPair};
     use ruma::{TransactionId, device_id, user_id};
     use serde_json::{Value, json};
     use tokio::sync::Mutex;
@@ -1469,8 +1503,8 @@ pub(crate) mod tests {
         x509::{
             RustRawX509Signer, RustRawX509Verifier, X509Signer, X509Verifier,
             tests::{
-                cert_and_key_with_email_in_subject_distinguished_name,
-                create_rust_signer_and_verifier,
+                ca_cert, cert_and_key_with_email_in_subject_distinguished_name,
+                cert_and_key_with_email_signed_by, create_rust_signer_and_verifier,
             },
         },
     };
@@ -2070,14 +2104,78 @@ pub(crate) mod tests {
         assert!(x509_verifier.verify_signed_object(user_id!("@own_user:localhost"), &signed_key));
     }
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    #[async_test]
+    async fn test_verify_other_identity_with_x509() {
+        // Given that a CA exists
+        let (ca_cert, ca_signing_key) = ca_cert();
+
+        // And Alice has an X.509-signed identity
+        let alice_identity_data = signed_other_identity(&ca_cert, &ca_signing_key).await;
+
+        // (And Bob exists)
+        let bob_account = Account::with_device_id(user_id!("@bob:hs.co"), device_id!("DEV123"));
+        let bob_verification_machine = get_verification_machine(&bob_account);
+
+        let bob_identity_data =
+            bob_verification_machine.get_own_user_identity_data().await.unwrap();
+
+        // When Bob checks Alice's identity without using X.509
+        let mut bobs_view_of_alice = OtherUserIdentity {
+            inner: alice_identity_data.clone(),
+            own_identity: Some(bob_identity_data),
+            verification_machine: bob_verification_machine.clone(),
+            x509_verifier: None,
+        };
+
+        // Then Alice is not verified
+        assert!(!bobs_view_of_alice.is_verified());
+
+        // But when Bob checks Alice's identity with a proper X.509 verifier
+        bobs_view_of_alice.x509_verifier = Some(X509Verifier::new(Arc::new(
+            RustRawX509Verifier::new_from_pem_data(&ca_cert.pem()).unwrap(),
+        )));
+
+        // Then Alice is verified
+        assert!(bobs_view_of_alice.is_verified());
+    }
+
+    /// Generate a key pair and cert, signed by the supplied certificate
+    /// authority, and return a new user's [`OtherUserIdentityData`] whose
+    /// master signing key is signed by them.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn signed_other_identity(
+        ca_cert: &Certificate,
+        ca_signing_key: &KeyPair,
+    ) -> OtherUserIdentityData {
+        let (cert, signing_key) =
+            cert_and_key_with_email_signed_by("alice@hs.co", ca_cert, ca_signing_key);
+
+        let x509_signer = X509Signer::new(Arc::new(
+            RustRawX509Signer::new_from_pem_data(&cert.pem(), &signing_key.serialize_pem())
+                .unwrap(),
+        ));
+
+        let account = Account::with_device_id(user_id!("@alice:hs.co"), device_id!("DEV123"));
+
+        let private_identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
+
+        let public_identity = private_identity.to_public_identity().await.unwrap();
+
+        OtherUserIdentityData::new(
+            public_identity.master_key().clone(),
+            public_identity.self_signing_key().clone(),
+        )
+        .unwrap()
+    }
+
     /// Create an [`OtherUserIdentity`] for use in tests
     async fn other_user_identity() -> OtherUserIdentity {
-        use ruma::owned_device_id;
-
         let other_user_identity_data = get_other_identity();
 
         let account =
-            Account::with_device_id(user_id!("@own_user:localhost"), &owned_device_id!("DEV123"));
+            Account::with_device_id(user_id!("@own_user:localhost"), device_id!("DEV123"));
 
         let verification_machine = get_verification_machine(&account);
         let own_identity_data = verification_machine.get_own_user_identity_data().await.unwrap();
@@ -2086,6 +2184,8 @@ pub(crate) mod tests {
             inner: other_user_identity_data,
             own_identity: Some(own_identity_data),
             verification_machine,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         }
     }
 

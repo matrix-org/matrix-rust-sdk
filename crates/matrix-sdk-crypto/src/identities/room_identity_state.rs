@@ -1137,6 +1137,8 @@ mod tests {
                     MemoryStore::new(),
                 )),
             ),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
         })
     }
 
