@@ -53,6 +53,7 @@ use matrix_sdk_base::{
         },
     },
     sleep::sleep,
+    timeout::timeout,
 };
 use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex};
 use ruma::{
@@ -361,43 +362,46 @@ impl CrossSigningResetHandle {
         // Give up after two minutes of polling.
         const TIMEOUT: Duration = Duration::from_mins(2);
 
-        tokio::time::timeout(TIMEOUT, async {
-            let mut upload_request = self.upload_request.clone();
-            upload_request.auth = auth;
-
-            debug!(
-                "Repeatedly PUTting to keys/device_signing/upload until it works \
-                or we hit a permanent failure."
-            );
-            while let Err(e) = self.client.send(upload_request.clone()).await {
-                if *self.is_cancelled.lock().await {
-                    return Ok(());
-                }
-
-                match e.as_uiaa_response() {
-                    Some(uiaa_info) => {
-                        // Return the error except if we are at the `m.oauth` stage where we want to
-                        // keep polling.
-                        if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
-                            && uiaa_info.auth_error.is_some()
-                        {
-                            return Err(e.into());
-                        }
-                    }
-                    None => return Err(e.into()),
-                }
+        timeout(
+            async {
+                let mut upload_request = self.upload_request.clone();
+                upload_request.auth = auth;
 
                 debug!(
-                    "PUT to keys/device_signing/upload failed with 401. Retrying after \
-                    a short delay."
+                    "Repeatedly PUTting to keys/device_signing/upload until it works \
+                    or we hit a permanent failure."
                 );
-                sleep(RETRY_EVERY).await;
-            }
+                while let Err(e) = self.client.send(upload_request.clone()).await {
+                    if *self.is_cancelled.lock().await {
+                        return Ok(());
+                    }
 
-            self.client.send(self.signatures_request.clone()).await?;
+                    match e.as_uiaa_response() {
+                        Some(uiaa_info) => {
+                            // Return the error except if we are at the `m.oauth` stage where we
+                            // want to keep polling.
+                            if !matches!(self.auth_type, CrossSigningResetAuthType::OAuth(_))
+                                && uiaa_info.auth_error.is_some()
+                            {
+                                return Err(e.into());
+                            }
+                        }
+                        None => return Err(e.into()),
+                    }
 
-            Ok(())
-        })
+                    debug!(
+                        "PUT to keys/device_signing/upload failed with 401. Retrying after \
+                        a short delay."
+                    );
+                    sleep(RETRY_EVERY).await;
+                }
+
+                self.client.send(self.signatures_request.clone()).await?;
+
+                Ok(())
+            },
+            TIMEOUT,
+        )
         .await
         .unwrap_or_else(|_| {
             warn!("Timed out waiting for keys/device_signing/upload to succeed.");
