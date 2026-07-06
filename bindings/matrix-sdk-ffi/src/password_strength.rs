@@ -175,7 +175,7 @@ pub struct PasswordStrengthEstimate {
 
 /// Minimum `score` (log₁₀ of estimated guesses) required to achieve each
 /// ranking level. Any score below `weak` is ranked `VeryWeak`.
-#[derive(uniffi::Record)]
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct PasswordStrengthThresholds {
     /// Minimum score to achieve `Weak`.
     pub weak: f64,
@@ -217,6 +217,11 @@ impl PasswordStrengthEstimator {
     #[uniffi::constructor]
     pub fn new(thresholds: PasswordStrengthThresholds) -> Self {
         Self { thresholds }
+    }
+
+    /// Returns the thresholds this estimator was configured with.
+    pub fn thresholds(&self) -> PasswordStrengthThresholds {
+        self.thresholds.clone()
     }
 
     /// Creates an estimator using zxcvbn's original thresholds.
@@ -412,5 +417,17 @@ mod tests {
 
         let strong = estimator.estimate("correct horse battery staple".to_owned(), vec![]);
         assert!(strong.feedback.is_none(), "expected no feedback for a strong password");
+    }
+
+    #[test]
+    fn test_thresholds_roundtrip() {
+        let thresholds = PasswordStrengthThresholds {
+            weak: 1.0,
+            fair: 2.0,
+            strong: 3.0,
+            very_strong: 4.0,
+        };
+        let estimator = PasswordStrengthEstimator::new(thresholds.clone());
+        assert_eq!(estimator.thresholds(), thresholds);
     }
 }
