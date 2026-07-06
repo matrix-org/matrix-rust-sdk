@@ -161,7 +161,7 @@ pub struct PasswordStrengthFeedback {
 /// The full result of a password strength estimation.
 #[derive(uniffi::Record)]
 pub struct PasswordStrengthEstimate {
-    /// Overall strength ranking from VeryWeak to VeryStrong.
+    /// Overall strength ranking from `VeryWeak` to `VeryStrong`.
     pub ranking: PasswordStrengthRanking,
     /// Estimated number of guesses needed to crack the password.
     pub guesses: u64,
@@ -178,16 +178,19 @@ pub struct PasswordStrengthEstimate {
 }
 
 /// Minimum `score` (log₁₀ of estimated guesses) required to achieve each
-/// ranking level. Any score below `weak` is ranked `VeryWeak`.
+/// ranking level. In [`PasswordStrengthEstimator`], any score below `weak` is
+/// ranked [`PasswordStrengthRanking::VeryWeak`]. Each value is assumed to be
+/// greater than the previous — if a lesser threshold carries a greater value
+/// than a higher threshold, ranking calculations will break.
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct PasswordStrengthThresholds {
-    /// Minimum score to achieve `Weak`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::Weak`].
     pub weak: f64,
-    /// Minimum score to achieve `Fair`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::Fair`].
     pub fair: f64,
-    /// Minimum score to achieve `Strong`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::Strong`].
     pub strong: f64,
-    /// Minimum score to achieve `VeryStrong`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::VeryStrong`].
     pub very_strong: f64,
 }
 
