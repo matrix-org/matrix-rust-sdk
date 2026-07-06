@@ -22,7 +22,10 @@ impl Package {
     fn values(self) -> PackageValues {
         match self {
             Package::CryptoSDK => PackageValues { name: "matrix-sdk-crypto-ffi", features: "" },
-            Package::FullSDK => PackageValues { name: "matrix-sdk-ffi", features: "sentry" },
+            Package::FullSDK => PackageValues {
+                name: "matrix-sdk-ffi",
+                features: "sentry,experimental-x509-identity-verification",
+            },
         }
     }
 }

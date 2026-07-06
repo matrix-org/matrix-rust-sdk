@@ -62,6 +62,8 @@ use matrix_sdk::{
     sync::Notification,
     task_monitor::BackgroundTaskFailureReason,
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::x509::RawX509Signature;
 use matrix_sdk_common::{
     SendOutsideWasm, SyncOutsideWasm, cross_process_lock::CrossProcessLockConfig, stream::StreamExt,
 };
@@ -325,6 +327,30 @@ pub trait RoomAccountDataListener: SyncOutsideWasm + SendOutsideWasm {
 pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
     /// Called when a notifying event is received during sync.
     fn on_notification(&self, notification: NotificationItem, room_id: String);
+}
+
+/// A foreign trait for low-level types which can sign messages using an
+/// X.509-certified key pair.
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export(with_foreign)]
+pub trait RawX509Signer: SyncOutsideWasm + SendOutsideWasm + Debug {
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    fn sign(&self, message: Vec<u8>) -> Result<RawX509Signature, ClientError>;
+}
+
+/// A foreign trait for low-level types which can verify messages which were
+/// signed using an X.509-certified key pair.
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export(with_foreign)]
+pub trait RawX509Verifier: SyncOutsideWasm + SendOutsideWasm + Debug {
+    /// Check if the given signature is a valid X.509 signature for the given
+    /// message.
+    ///
+    /// Also validates that the certificate used for the signature is issued via
+    /// one of our trusted CAs.
+    fn verify(&self, message: Vec<u8>, sig: RawX509Signature) -> bool;
 }
 
 #[derive(Clone, Copy, uniffi::Record)]
