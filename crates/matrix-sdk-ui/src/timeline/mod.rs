@@ -885,6 +885,8 @@ impl Timeline {
 #[derive(Debug)]
 struct TimelineDropHandle {
     _room_update_join_handle: BackgroundTaskHandle,
+    #[cfg(feature = "unstable-msc4426")]
+    _global_profile_updates_handle: BackgroundTaskHandle,
     _local_echo_listener_handle: BackgroundTaskHandle,
     _rtc_membership_listener_handle: BackgroundTaskHandle,
     _event_cache_drop_handle: Arc<EventCacheDropHandles>,

@@ -219,6 +219,14 @@ impl BaseClient {
         )
         .await?;
 
+        // Notify subscribers (e.g. open timelines) about global profile updates, which
+        // don't otherwise touch any room and so trigger no other broadcast.
+        if !extensions.profiles.is_empty() {
+            let _ = self
+                .global_profile_updates_sender
+                .send(extensions.profiles.keys().cloned().collect());
+        }
+
         let mut context = processors::Context::default();
 
         // Now that all the rooms information have been saved, update the display name
@@ -518,6 +526,64 @@ mod tests {
             .expect("Bob's profile should still be saved");
         let bob_map: BTreeMap<String, serde_json::Value> = bob_profile.into_iter().collect();
         assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
+    }
+
+    #[async_test]
+    async fn test_profiles_extension_broadcasts_global_profile_updates() {
+        let client = logged_in_base_client(None).await;
+
+        let alice = user_id!("@alice:e.uk");
+        let bob = user_id!("@bob:e.uk");
+
+        // Given a subscriber to global profile updates.
+        let mut global_profile_updates = client.subscribe_to_global_profile_updates();
+
+        // When a sliding sync response carries the profiles extension for two users.
+        let mut response = http::Response::new("0".to_owned());
+        response.extensions.profiles.insert(
+            alice.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
+        );
+        response.extensions.profiles.insert(
+            bob.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Bob"))]),
+        );
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then the changed user IDs are broadcast.
+        let users =
+            global_profile_updates.recv().await.expect("should receive a global profile update");
+        assert_eq!(users.len(), 2);
+        assert!(users.contains(alice));
+        assert!(users.contains(bob));
+
+        // When a subsequent response only carries an update for Alice.
+        let mut response = http::Response::new("1".to_owned());
+        response.extensions.profiles.insert(
+            alice.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice Updated"))]),
+        );
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then only Alice is broadcast.
+        let users =
+            global_profile_updates.recv().await.expect("should receive a global profile update");
+        assert_eq!(users.len(), 1);
+        assert!(users.contains(alice));
     }
 
     #[async_test]

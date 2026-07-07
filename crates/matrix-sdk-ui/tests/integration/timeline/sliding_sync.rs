@@ -649,3 +649,109 @@ async fn test_timeline_read_receipts_are_updated_live() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(feature = "unstable-msc4426")]
+#[async_test]
+async fn test_timeline_refreshes_sender_profile_on_global_profile_update() -> Result<()> {
+    use matrix_sdk_ui::timeline::TimelineDetails;
+    use ruma::profile::StatusProfileField;
+
+    let (client, server, sliding_sync) = new_sliding_sync(vec![
+        SlidingSyncList::builder("foo")
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+    ])
+    .await?;
+
+    let stream = sliding_sync.sync();
+    pin_mut!(stream);
+
+    let room_id = room_id!("!foo:bar.org");
+
+    create_one_room(&server, &mut stream, room_id, "Room Name".to_owned()).await?;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let sdk_room = client.get_room(room_id).context("room should exist")?;
+    let timeline = TimelineBuilder::new(&sdk_room)
+        .track_read_marker_and_receipts(TimelineReadReceiptTracking::AllEvents)
+        .build()
+        .await?;
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    // Alice is a member of the room and has sent a message.
+    receive_response! {
+        [server.server(), stream]
+        {
+            "pos": "1",
+            "lists": {},
+            "rooms": {
+                room_id: {
+                    "required_state": [
+                        {
+                            "type": "m.room.member",
+                            "state_key": "@alice:bar.org",
+                            "sender": "@alice:bar.org",
+                            "content": { "membership": "join", "displayname": "Alice" },
+                            "event_id": "$alice_member:bar.org",
+                            "origin_server_ts": 0
+                        }
+                    ],
+                    "timeline": [ timeline_event!("$msg:bar.org" at 1 sec) ]
+                }
+            }
+        }
+    };
+
+    // Consume the initial updates for Alice's message.
+    assert_timeline_stream! {
+        [timeline_stream]
+        append  "$msg:bar.org";
+        prepend --- date divider ---;
+    };
+
+    // Baseline: Alice's profile is known, but carries no status yet.
+    let items = timeline.items().await;
+    let alice_message = items
+        .iter()
+        .filter_map(|item| item.as_event())
+        .find(|event| event.event_id().map(|id| id.as_str()) == Some("$msg:bar.org"))
+        .context("Alice's message should be in the timeline")?;
+    assert_let!(TimelineDetails::Ready(profile) = alice_message.sender_profile());
+    assert!(profile.status.is_none(), "The status should be unset before the profile update.");
+
+    // A sync carrying only a global profiles update for Alice with a new status.
+    receive_response! {
+        [server.server(), stream]
+        {
+            "pos": "2",
+            "lists": {},
+            "rooms": {},
+            "extensions": {
+                "users": {
+                    "@alice:bar.org": {
+                        "org.matrix.msc4426.status": { "text": "Away", "emoji": "🌴" }
+                    }
+                }
+            }
+        }
+    };
+
+    // Wait for the sync response to be processed.
+    assert_let_timeout!(Some(_) = timeline_stream.next());
+
+    // The same message now carries Alice's new status.
+    let items = timeline.items().await;
+    let alice_message = items
+        .iter()
+        .filter_map(|item| item.as_event())
+        .find(|event| event.event_id().map(|id| id.as_str()) == Some("$msg:bar.org"))
+        .context("Alice's message should be in the timeline")?;
+    assert_let!(TimelineDetails::Ready(profile) = alice_message.sender_profile());
+    assert_eq!(
+        profile.status.as_ref(),
+        Some(&StatusProfileField::new("Away".to_owned(), "🌴".to_owned())),
+        "The timeline should refresh Alice's sender profile with the new status."
+    );
+
+    Ok(())
+}

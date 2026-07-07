@@ -709,6 +709,17 @@ impl Client {
         self.base_client().room_info_notable_update_receiver()
     }
 
+    /// Returns a receiver of the user IDs whose global profile changed during a
+    /// sync. Consumers can use this as a trigger to e.g. merge any global
+    /// fields into a user's room profile.
+    ///
+    /// Requires the Profiles sliding sync extension to be enabled.
+    pub fn subscribe_to_global_profile_updates(
+        &self,
+    ) -> broadcast::Receiver<BTreeSet<ruma::OwnedUserId>> {
+        self.base_client().subscribe_to_global_profile_updates()
+    }
+
     /// Performs a search for users.
     /// The search is performed case-insensitively on user IDs and display names
     ///
