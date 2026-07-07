@@ -385,7 +385,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
             |row| row.get(0),
         )?;
         let prev_token_bytes = store.decode_value(&encoded_prev_token)?;
-        let prev_token = serde_json::from_slice(&prev_token_bytes)?;
+        let prev_token = String::from_utf8(prev_token_bytes.into_owned())?;
         Ok(Gap { token: prev_token })
     }
 
@@ -670,8 +670,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::NewGapChunk { previous, new, next, gap } => {
-                        let serialized = serde_json::to_vec(&gap.token)?;
-                        let prev_token = this.encode_value(serialized)?;
+                        let hashed_prev_token = this.encode_value(gap.token)?;
 
                         let previous = previous.as_ref().map(ChunkIdentifier::index);
                         let new = new.index();
@@ -698,7 +697,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             INSERT INTO gap_chunks(chunk_id, linked_chunk_id, prev_token)
                             VALUES (?, ?, ?)
                         "#,
-                            (new, &hashed_linked_chunk_id, prev_token),
+                            (new, &hashed_linked_chunk_id, hashed_prev_token),
                         )?;
                     }
 
