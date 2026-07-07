@@ -1,0 +1,9 @@
+Accept `impl Into<Signature>` in `Signatures::add_signature`.
+
+[**breaking**] Make `OlmMachine::bootstrap_cross_signing` fallible to
+allow future signing implementations to produce errors. Further
+introduces `CrossSigningBootstrapError` to enumerate possible failure
+cases.
+
+[**breaking**] Removed `Account::sign_master_key`, as the master key
+is signed automatically when calling `OwnUserIdentity::verify`

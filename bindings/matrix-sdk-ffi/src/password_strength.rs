@@ -161,29 +161,36 @@ pub struct PasswordStrengthFeedback {
 /// The full result of a password strength estimation.
 #[derive(uniffi::Record)]
 pub struct PasswordStrengthEstimate {
-    /// Overall strength ranking from VeryWeak to VeryStrong.
+    /// Overall strength ranking from `VeryWeak` to `VeryStrong`.
     pub ranking: PasswordStrengthRanking,
     /// Estimated number of guesses needed to crack the password.
     pub guesses: u64,
     /// A numeric score derived from the order of magnitude of `guesses`
     /// (i.e. log base 10).
     pub score: f64,
+    /// A normalized score from 0 to 1.0 derived from `score` and the
+    /// estimator's `very_strong` threshold (`score / very_strong`).
+    /// Scores above the `VeryStrong` threshold *can* exceed 1.0.
+    pub normal_score: f64,
     /// Verbal feedback to help choose a better password. Only set when the
     /// ranking is Fair or below.
     pub feedback: Option<PasswordStrengthFeedback>,
 }
 
 /// Minimum `score` (log₁₀ of estimated guesses) required to achieve each
-/// ranking level. Any score below `weak` is ranked `VeryWeak`.
-#[derive(uniffi::Record)]
+/// ranking level. In [`PasswordStrengthEstimator`], any score below `weak` is
+/// ranked [`PasswordStrengthRanking::VeryWeak`]. Each value is assumed to be
+/// greater than the previous — if a lesser threshold carries a greater value
+/// than a higher threshold, ranking calculations will break.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct PasswordStrengthThresholds {
-    /// Minimum score to achieve `Weak`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::Weak`].
     pub weak: f64,
-    /// Minimum score to achieve `Fair`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::Fair`].
     pub fair: f64,
-    /// Minimum score to achieve `Strong`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::Strong`].
     pub strong: f64,
-    /// Minimum score to achieve `VeryStrong`.
+    /// Minimum score to achieve [`PasswordStrengthRanking::VeryStrong`].
     pub very_strong: f64,
 }
 
@@ -217,6 +224,11 @@ impl PasswordStrengthEstimator {
     #[uniffi::constructor]
     pub fn new(thresholds: PasswordStrengthThresholds) -> Self {
         Self { thresholds }
+    }
+
+    /// Returns the thresholds this estimator was configured with.
+    pub fn thresholds(&self) -> PasswordStrengthThresholds {
+        self.thresholds.clone()
     }
 
     /// Creates an estimator using zxcvbn's original thresholds.
@@ -275,6 +287,7 @@ impl PasswordStrengthEstimator {
             ranking,
             guesses: entropy.guesses(),
             score: entropy.guesses_log10(),
+            normal_score: entropy.guesses_log10() / self.thresholds.very_strong,
             feedback,
         }
     }
@@ -288,6 +301,8 @@ impl PasswordStrengthEstimator {
 // behavior. We do not test zxcvbn's pattern detection or scoring logic.
 mod tests {
     use super::*;
+
+    const SCORE_TOLERANCE: f64 = 1e-6;
 
     // Known-output tests: confirm specific passwords produce expected rankings
     // using zxcvbn default thresholds.
@@ -375,7 +390,6 @@ mod tests {
         for (pw, expected_ranking) in cases {
             let result = strict_estimator.estimate((*pw).to_owned(), vec![]);
             assert_eq!(result.ranking, *expected_ranking, "unexpected ranking for {:?}", pw);
-            println!("{pw}, {0}", result.score);
         }
     }
 
@@ -412,5 +426,71 @@ mod tests {
 
         let strong = estimator.estimate("correct horse battery staple".to_owned(), vec![]);
         assert!(strong.feedback.is_none(), "expected no feedback for a strong password");
+    }
+
+    // The same thresholds values passed into the constructor are retrievable via
+    // `thresholds()`
+    #[test]
+    fn test_thresholds_roundtrip() {
+        let thresholds =
+            PasswordStrengthThresholds { weak: 1.0, fair: 2.0, strong: 3.0, very_strong: 4.0 };
+        let estimator = PasswordStrengthEstimator::new(thresholds.clone());
+        assert_eq!(estimator.thresholds(), thresholds);
+    }
+
+    // Normalized scoring is calculated as guesses_log10 / very_strong_threshold
+    #[test]
+    fn test_normalized_scores() {
+        let estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
+
+        let cases: &[(&str, f64)] = &[
+            ("password", 0.047712),
+            ("123456", 0.030103),
+            ("15", 0.139794),
+            ("154", 0.295472),
+            ("hunter2", 0.390509),
+            ("qwerty2025", 0.417609),
+            ("foo bar", 0.7),
+            ("March212024!", 0.834931),
+            ("Tr0ub4dor&3", 1.1),
+            ("correct horse battery staple", 2.033003),
+            ("correcthorsebatterystaple!extra", 2.022556),
+            ("xK#9mP$2nL@7qR!4vZ^6wT&5yU*8sA", 3.0),
+        ];
+
+        for (pw, expected_normal_score) in cases {
+            let result = estimator.estimate((*pw).to_owned(), vec![]);
+            assert!(
+                (result.normal_score - expected_normal_score).abs() < SCORE_TOLERANCE,
+                "unexpected normal score for {:?}: got {}, expected {}",
+                pw,
+                result.normal_score,
+                expected_normal_score
+            );
+        }
+    }
+
+    // Verify normalized scoring is based on the dynamic value of the input
+    // thresholds
+    #[test]
+    fn test_normalized_scores_relative_to_thresholds() {
+        let zxcvbn_estimator = PasswordStrengthEstimator::with_zxcvbn_defaults();
+        let modern_estimator = PasswordStrengthEstimator::with_modern_defaults2025();
+
+        let zxcvbn_estimate = zxcvbn_estimator.estimate("foo bar".to_owned(), vec![]);
+        let modern_estimate = modern_estimator.estimate("foo bar".to_owned(), vec![]);
+
+        assert!(
+            (zxcvbn_estimate.normal_score - 0.7).abs() < SCORE_TOLERANCE,
+            "unexpected normal score for zxcvbn estimator. got {}, expected {}",
+            zxcvbn_estimate.normal_score,
+            0.7
+        );
+        assert!(
+            (modern_estimate.normal_score - 0.27451).abs() < SCORE_TOLERANCE,
+            "unexpected normal score for modern estimator. got {}, expected {}",
+            modern_estimate.normal_score,
+            0.27451
+        );
     }
 }

@@ -52,7 +52,7 @@ impl Signatures {
         &mut self,
         signer: OwnedUserId,
         key_id: OwnedDeviceKeyId,
-        signature: Ed25519Signature,
+        signature: impl Into<Signature>,
     ) -> Option<Result<Signature, InvalidSignature>> {
         self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
     }
