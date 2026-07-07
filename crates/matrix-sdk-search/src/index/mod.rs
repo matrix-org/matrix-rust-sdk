@@ -317,6 +317,7 @@ impl RoomIndex {
         }
 
         self.commit_and_reload(&mut writer)?;
+        writer.wait_merging_threads()?;
 
         Ok(())
     }

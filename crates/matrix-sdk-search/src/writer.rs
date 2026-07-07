@@ -46,4 +46,8 @@ impl SearchIndexWriter {
         self.last_commit_opstamp = self.inner.commit()?; // TODO: This is blocking. Handle it.
         Ok(self.last_commit_opstamp)
     }
+
+    pub(crate) fn wait_merging_threads(self) -> Result<(), TantivyError> {
+        self.inner.wait_merging_threads()
+    }
 }
