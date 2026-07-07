@@ -24,7 +24,7 @@ pub use bytes;
 pub use matrix_sdk_base::{
     CallIntentConsensus, ComposerDraft, ComposerDraftType, DraftAttachment, DraftAttachmentContent,
     DraftThumbnail, EncryptionState, PredecessorRoom, QueueWedgeError, Room as BaseRoom,
-    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomInfo,
+    RoomCreateWithCreatorEventContent, RoomDisplayName, RoomHero, RoomHeroWithProfile, RoomInfo,
     RoomMember as BaseRoomMember, RoomMemberships, RoomRecencyStamp, RoomState, SessionMeta,
     StateChanges, StateStore, StoreError, SuccessorRoom, ThreadingSupport, deserialized_responses,
     store::{self, DynStateStore, MemoryStore, StateStoreExt},

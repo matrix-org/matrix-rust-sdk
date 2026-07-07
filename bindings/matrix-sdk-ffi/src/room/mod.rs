@@ -19,8 +19,8 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
-    PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
-    SuccessorRoom as SdkSuccessorRoom,
+    PredecessorRoom as SdkPredecessorRoom, RoomHeroWithProfile as SdkRoomHeroWithProfile,
+    RoomMemberships, RoomState, SuccessorRoom as SdkSuccessorRoom,
     encryption::LocalTrust,
     room::{
         Room as SdkRoom, RoomMemberRole, edit::EditedContent, power_levels::RoomPowerLevelChanges,
@@ -49,6 +49,8 @@ use ruma::{
 use tracing::error;
 
 use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
+#[cfg(feature = "unstable-msc4426")]
+use crate::ruma::{UserCall, UserStatus};
 use crate::{
     TaskHandle,
     chunk_iterator::ChunkIterator,
@@ -196,8 +198,8 @@ impl Room {
     }
 
     /// Returns the room heroes for this room.
-    pub fn heroes(&self) -> Vec<RoomHero> {
-        self.inner.heroes().into_iter().map(Into::into).collect()
+    pub async fn heroes(&self) -> Vec<RoomHero> {
+        self.inner.heroes().await.into_iter().map(Into::into).collect()
     }
 
     /// Is there a non expired membership with application "m.call" and scope
@@ -1404,14 +1406,24 @@ pub struct RoomHero {
     display_name: Option<String>,
     /// The avatar URL of the hero.
     avatar_url: Option<String>,
+    /// The hero's user-set status, taken from their global profile.
+    #[cfg(feature = "unstable-msc4426")]
+    status: Option<UserStatus>,
+    /// The hero's call indicator, taken from their global profile.
+    #[cfg(feature = "unstable-msc4426")]
+    call: Option<UserCall>,
 }
 
-impl From<SdkRoomHero> for RoomHero {
-    fn from(value: SdkRoomHero) -> Self {
+impl From<SdkRoomHeroWithProfile> for RoomHero {
+    fn from(value: SdkRoomHeroWithProfile) -> Self {
         Self {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(ToString::to_string),
+            #[cfg(feature = "unstable-msc4426")]
+            status: value.status.map(UserStatus::from),
+            #[cfg(feature = "unstable-msc4426")]
+            call: value.call.map(UserCall::from),
         }
     }
 }

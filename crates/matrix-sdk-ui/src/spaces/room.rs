@@ -14,7 +14,7 @@
 
 use std::cmp::Ordering;
 
-use matrix_sdk::{Room, RoomHero, RoomState};
+use matrix_sdk::{Room, RoomHero, RoomHeroWithProfile, RoomState};
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName,
     OwnedSpaceChildOrder, RoomId,
@@ -62,7 +62,7 @@ pub struct SpaceRoom {
     /// Whether this room is joined, left etc.
     pub state: Option<RoomState>,
     /// A list of room members considered to be heroes.
-    pub heroes: Option<Vec<RoomHero>>,
+    pub heroes: Option<Vec<RoomHeroWithProfile>>,
     /// The via parameters of the room.
     pub via: Vec<OwnedServerName>,
     /// Whether the room is suggested by the space administrators.
@@ -91,11 +91,14 @@ impl SpaceRoom {
             0
         };
 
+        let heroes =
+            if let Some(known_room) = &known_room { Some(known_room.heroes().await) } else { None };
+
         let num_joined_members: u64 = summary.num_joined_members.into();
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             summary.name.clone(),
             summary.canonical_alias.as_deref(),
-            known_room.as_ref().map(|r| r.heroes().to_vec()).unwrap_or_default(),
+            heroes.iter().flatten().map(RoomHero::from).collect(),
             num_joined_members - num_joined_service_members,
         )
         .to_string();
@@ -115,7 +118,7 @@ impl SpaceRoom {
             is_direct: known_room.as_ref().map(|r| r.direct_targets_length() != 0),
             children_count,
             state: known_room.as_ref().map(|r| r.state()),
-            heroes: known_room.as_ref().map(|r| r.heroes()),
+            heroes,
             via,
             suggested,
             is_dm: known_room.as_ref().map(|r| r.is_dm()),
@@ -129,10 +132,12 @@ impl SpaceRoom {
         let name = room_info.name().map(ToOwned::to_owned);
         let joined_service_members_count = num_joined_service_members_or_default(known_room).await;
 
+        let heroes = known_room.heroes().await;
+
         let display_name = matrix_sdk_base::Room::compute_display_name_with_fields(
             name.clone(),
             room_info.canonical_alias(),
-            known_room.heroes(),
+            heroes.iter().map(RoomHero::from).collect(),
             known_room.joined_members_count() - joined_service_members_count,
         )
         .to_string();
@@ -154,7 +159,7 @@ impl SpaceRoom {
             is_direct: Some(known_room.direct_targets_length() != 0),
             children_count,
             state: Some(known_room.state()),
-            heroes: Some(known_room.heroes()),
+            heroes: Some(heroes),
             via: vec![],
             suggested: false,
             is_dm: known_room.compute_is_dm().await.ok(),
