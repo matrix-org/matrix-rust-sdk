@@ -91,6 +91,9 @@ pub enum Error {
     Decode(rmp_serde::decode::Error),
 
     #[error(transparent)]
+    DecodeString(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
     Json(#[from] serde_json::Error),
 
     #[error(transparent)]
