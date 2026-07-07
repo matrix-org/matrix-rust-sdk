@@ -1820,7 +1820,7 @@ impl EventBuilder<RtcNotificationEventContent> {
 
 impl EventBuilder<CallMemberEventContent> {
     /// Sets the livekit focus to the call membership event
-    pub fn lk_focus(mut self, alias: String, service_url: String) -> Self {
+    pub fn set_livekit_focus(mut self, alias: String, service_url: String) -> Self {
         if let CallMemberEventContent::SessionContent(session_data) = &mut self.content {
             session_data.foci_preferred =
                 vec![Focus::Livekit(LivekitFocus::new(alias, service_url))];

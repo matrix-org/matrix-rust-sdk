@@ -183,12 +183,12 @@ async fn test_active_call_info() {
                 )
                 .add_state_event(
                     f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
-                        .lk_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                        .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                         .event_id(bob_membership),
                 )
                 .add_state_event(
                     f.call_membership_state(CAROL.to_owned(), "CAROL_DEVICE".to_owned())
-                        .lk_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                        .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                         .event_id(carol_membership),
                 ),
         )
@@ -224,7 +224,7 @@ async fn test_active_call_info() {
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
                 f.call_membership_state(ALICE.to_owned(), "ALICE_DEVICE".to_owned())
-                    .lk_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                    .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                     .event_id(alice_membership),
             ),
         )
@@ -327,7 +327,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
                 f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
-                    .lk_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                    .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                     .event_id(event_id!("$bob-joined")),
             ),
         )
@@ -405,7 +405,7 @@ async fn test_only_update_notification_after_it_has_been_marked_as_last() {
             &client,
             JoinedRoomBuilder::new(room_id).add_state_event(
                 f.call_membership_state(CAROL.to_owned(), "CAROL_DEVICE".to_owned())
-                    .lk_focus(room_id.into(), "https://livekit.localhow".to_owned())
+                    .set_livekit_focus(room_id.into(), "https://livekit.localhow".to_owned())
                     .event_id(event_id!("$carol-joined")),
             ),
         )
