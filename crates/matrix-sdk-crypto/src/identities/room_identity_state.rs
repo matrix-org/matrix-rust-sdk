@@ -1112,7 +1112,7 @@ mod tests {
         let account = Account::with_device_id(user_id, &device_id);
 
         let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account).unwrap()));
 
         let other_user_identity_data =
             OtherUserIdentityData::from_private(&*private_identity.lock().await).await;
@@ -1152,7 +1152,7 @@ mod tests {
         let account = Account::with_device_id(user_id, &device_id);
 
         let private_identity =
-            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account)));
+            Arc::new(Mutex::new(PrivateCrossSigningIdentity::for_account(&account).unwrap()));
 
         let own_user_identity_data =
             OwnUserIdentityData::from_private(&*private_identity.lock().await).await;
