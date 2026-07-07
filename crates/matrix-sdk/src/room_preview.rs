@@ -19,7 +19,7 @@
 //! well.
 
 use futures_util::future::join_all;
-use matrix_sdk_base::{RawStateEventWithKeys, RoomHero, RoomInfo, RoomState};
+use matrix_sdk_base::{RawStateEventWithKeys, RoomHeroWithProfile, RoomInfo, RoomState};
 use ruma::{
     OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedServerName, RoomId, RoomOrAliasId, ServerName,
     api::client::{membership::joined_members, state::get_state_events},
@@ -77,7 +77,7 @@ pub struct RoomPreview {
     pub is_direct: Option<bool>,
 
     /// Room heroes.
-    pub heroes: Option<Vec<RoomHero>>,
+    pub heroes: Option<Vec<RoomHeroWithProfile>>,
 }
 
 impl RoomPreview {
@@ -108,7 +108,9 @@ impl RoomPreview {
             num_active_members,
             state,
             is_direct,
-            heroes: Some(room_info.heroes().to_vec()),
+            heroes: Some(
+                room_info.heroes().iter().cloned().map(RoomHeroWithProfile::from).collect(),
+            ),
         }
     }
 
@@ -264,6 +266,12 @@ impl RoomPreview {
             None
         };
 
+        let heroes = if let Some(cached_room) = &cached_room {
+            Some(cached_room.heroes().await)
+        } else {
+            None
+        };
+
         let summary = response.summary;
 
         Ok(RoomPreview {
@@ -279,7 +287,7 @@ impl RoomPreview {
             is_world_readable: Some(summary.world_readable),
             state,
             is_direct,
-            heroes: cached_room.map(|r| r.heroes()),
+            heroes,
         })
     }
 

@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 pub use call::CallIntentConsensus;
 pub use create::*;
-pub use display_name::{RoomDisplayName, RoomHero};
+pub use display_name::{RoomDisplayName, RoomHero, RoomHeroWithProfile};
 pub(crate) use display_name::{RoomSummary, UpdatedRoomDisplayName};
 pub use encryption::EncryptionState;
 use eyeball::{AsyncLock, SharedObservable};
@@ -41,6 +41,8 @@ pub use room_info::{
     BaseRoomInfo, RoomInfo, RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, RoomRecencyStamp,
     apply_redaction,
 };
+#[cfg(feature = "unstable-msc4426")]
+use ruma::profile::{Call, Status};
 use ruma::{
     EventId, OwnedEventId, OwnedMxcUri, OwnedRoomAliasId, OwnedRoomId, OwnedUserId, RoomId,
     RoomVersionId, UserId,
@@ -471,14 +473,62 @@ impl Room {
     ///
     /// This also filters out possible service members from the list of heroes
     /// returned by the homeserver.
-    pub fn heroes(&self) -> Vec<RoomHero> {
-        let guard = self.info.read();
-        let heroes = guard.heroes();
+    #[cfg_attr(not(feature = "unstable-msc4426"), allow(clippy::unused_async))]
+    pub async fn heroes(&self) -> Vec<RoomHeroWithProfile> {
+        let heroes: Vec<RoomHero> = {
+            let guard = self.info.read();
+            let heroes = guard.heroes();
 
-        if let Some(service_members) = guard.service_members() {
-            heroes.iter().filter(|hero| !service_members.contains(&hero.user_id)).cloned().collect()
-        } else {
-            heroes.to_vec()
+            if let Some(service_members) = guard.service_members() {
+                heroes
+                    .iter()
+                    .filter(|hero| !service_members.contains(&hero.user_id))
+                    .cloned()
+                    .collect()
+            } else {
+                heroes.to_vec()
+            }
+        };
+
+        // Return with empty profile fields when the user status feature is disabled.
+        #[cfg(not(feature = "unstable-msc4426"))]
+        {
+            heroes.into_iter().map(RoomHeroWithProfile::from).collect()
+        }
+
+        // Merge any fields from the user's persisted global profile.
+        #[cfg(feature = "unstable-msc4426")]
+        {
+            let user_ids = heroes.iter().map(|hero| hero.user_id.clone()).collect::<Vec<_>>();
+
+            let mut global_profiles =
+                self.store.get_global_profiles(&user_ids).await.unwrap_or_else(|error| {
+                    tracing::warn!(?error, "Failed to load global profiles for room heroes");
+                    Default::default()
+                });
+
+            heroes
+                .into_iter()
+                .map(|hero| {
+                    let (status, call) = global_profiles
+                        .remove(&*hero.user_id)
+                        .map(|profile| {
+                            (
+                                profile.get_static::<Status>().ok().flatten(),
+                                profile.get_static::<Call>().ok().flatten(),
+                            )
+                        })
+                        .unwrap_or_default();
+
+                    RoomHeroWithProfile {
+                        user_id: hero.user_id,
+                        display_name: hero.display_name,
+                        avatar_url: hero.avatar_url,
+                        status,
+                        call,
+                    }
+                })
+                .collect()
         }
     }
 
@@ -705,8 +755,69 @@ mod tests {
         client.receive_sync_response(response).await.unwrap();
 
         // The service member should be filtered out.
-        let heroes = room.heroes();
+        let heroes = room.heroes().await;
         assert_eq!(heroes.len(), 1);
         assert_eq!(heroes[0].user_id, alice_id);
+    }
+
+    #[cfg(feature = "unstable-msc4426")]
+    #[async_test]
+    async fn test_room_heroes_carry_global_profile() {
+        use ruma::{
+            SecondsSinceUnixEpoch,
+            profile::{CallProfileField, ProfileFieldValue, StatusProfileField, UserProfileUpdate},
+        };
+
+        use crate::store::StateChanges;
+
+        let client = logged_in_base_client(None).await;
+        let alice_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id).set_room_summary(json!({
+                "m.joined_member_count": 2,
+                "m.invited_member_count": 0,
+                "m.heroes": [alice_id.to_owned()],
+            })))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        // Without a stored global profile, the hero carries no status or call.
+        let heroes = room.heroes().await;
+        assert_eq!(heroes.len(), 1);
+        assert_eq!(heroes[0].user_id, alice_id);
+        assert!(heroes[0].status.is_none());
+        assert!(heroes[0].call.is_none());
+
+        // Store a global profile carrying an `m.status` and `m.call` for the hero.
+        let mut call = CallProfileField::new();
+        call.call_joined_ts = Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()));
+        let mut changes = StateChanges::default();
+        changes.global_profiles.insert(
+            alice_id.to_owned(),
+            UserProfileUpdate::from_iter([
+                ProfileFieldValue::Status(StatusProfileField::new(
+                    "Working".to_owned(),
+                    "💻".to_owned(),
+                )),
+                ProfileFieldValue::Call(call),
+            ]),
+        );
+        client.state_store().save_changes(&changes).await.unwrap();
+
+        // The hero now surfaces the status and call from the global profile.
+        let heroes = room.heroes().await;
+        let hero = &heroes[0];
+        let status = hero.status.as_ref().expect("status is set");
+        assert_eq!(status.text, "Working");
+        assert_eq!(status.emoji, "💻");
+        assert_eq!(
+            hero.call.as_ref().expect("call is set").call_joined_ts,
+            Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()))
+        );
     }
 }
