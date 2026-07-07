@@ -119,6 +119,10 @@ pub struct BaseClient {
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
+    /// Broadcasts the user IDs whose global profile changed during a sync.
+    /// Requires the Profiles sliding sync extension to be enabled.
+    pub(crate) global_profile_updates_sender: broadcast::Sender<BTreeSet<OwnedUserId>>,
+
     /// The strategy to use for picking recipient devices, when sending an
     /// encrypted message.
     #[cfg(feature = "e2e-encryption")]
@@ -198,6 +202,7 @@ impl BaseClient {
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
             ignore_user_list_changes: Default::default(),
+            global_profile_updates_sender: broadcast::Sender::new(16),
             #[cfg(feature = "e2e-encryption")]
             room_key_recipient_strategy: Default::default(),
             #[cfg(feature = "e2e-encryption")]
@@ -235,6 +240,7 @@ impl BaseClient {
             crypto_store: self.crypto_store.clone(),
             olm_machine: self.olm_machine.clone(),
             ignore_user_list_changes: Default::default(),
+            global_profile_updates_sender: broadcast::Sender::new(16),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
             decryption_settings: self.decryption_settings.clone(),
             handle_verification_events,
@@ -1112,6 +1118,17 @@ impl BaseClient {
     /// Learn more by reading the [`RoomInfoNotableUpdate`] type.
     pub fn room_info_notable_update_receiver(&self) -> broadcast::Receiver<RoomInfoNotableUpdate> {
         self.state_store.room_info_notable_update_sender.subscribe()
+    }
+
+    /// Returns a receiver of the user IDs whose global profile changed during a
+    /// sync. Consumers can use this as a trigger to e.g. merge any global
+    /// fields into a user's room profile.
+    ///
+    /// Requires the Profiles sliding sync extension to be enabled.
+    pub fn subscribe_to_global_profile_updates(
+        &self,
+    ) -> broadcast::Receiver<BTreeSet<OwnedUserId>> {
+        self.global_profile_updates_sender.subscribe()
     }
 
     /// Checks whether the provided `user_id` belongs to an ignored user.
