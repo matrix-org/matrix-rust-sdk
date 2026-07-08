@@ -8,7 +8,10 @@ license = "Apache-2.0"
 rust-version.workspace = true
 
 [features]
+default = ["rustls-aws-lc-rs"]
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi"]
+
+rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs"]
 
 [dependencies]
 assert_matches2.workspace = true
