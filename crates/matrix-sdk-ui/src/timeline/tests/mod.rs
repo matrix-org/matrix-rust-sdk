@@ -69,6 +69,7 @@ mod polls;
 mod reactions;
 mod read_receipts;
 mod redaction;
+mod rtc;
 mod shields;
 mod virt;
 
