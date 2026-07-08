@@ -469,6 +469,13 @@ impl Room {
         self.store.get_user_ids(self.room_id(), RoomMemberships::JOIN).await
     }
 
+    /// The user IDs of this room's heroes, as stored, for cheaply checking
+    /// hero membership without loading their global profiles.
+    #[cfg(feature = "unstable-msc4426")]
+    pub(crate) fn hero_user_ids(&self) -> Vec<OwnedUserId> {
+        self.info.read().heroes().iter().map(|hero| hero.user_id.clone()).collect()
+    }
+
     /// Get the heroes for this room.
     ///
     /// This also filters out possible service members from the list of heroes

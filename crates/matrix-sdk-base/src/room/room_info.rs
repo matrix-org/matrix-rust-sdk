@@ -1458,6 +1458,9 @@ bitflags! {
 
         /// The user's `m.fully_read` marker has changed.
         const FULLY_READ = 0b0000_0001_0000_0000;
+
+        /// A room hero's global profile changed (e.g. their status or call).
+        const HEROES = 0b0000_0010_0000_0000;
     }
 }
 
