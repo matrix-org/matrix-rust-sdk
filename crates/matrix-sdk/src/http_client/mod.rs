@@ -258,8 +258,7 @@ async fn response_to_http_response(
 /// Marker trait to identify the authentication schemes that the
 /// [`Client`](crate::Client) supports.
 ///
-/// This trait can also be implemented for custom
-/// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
+/// This trait can also be implemented for custom [`AuthScheme`]s if necessary.
 pub trait SupportedAuthScheme: AuthScheme {
     fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_>;
 }
