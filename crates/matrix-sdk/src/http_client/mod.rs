@@ -260,6 +260,7 @@ async fn response_to_http_response(
 ///
 /// This trait can also be implemented for custom [`AuthScheme`]s if necessary.
 pub trait SupportedAuthScheme: AuthScheme {
+    /// Get the [`AuthScheme::Input`] from the access token.
     fn authentication_input(access_token: SendAccessToken<'_>) -> Self::Input<'_>;
 }
 
@@ -303,6 +304,8 @@ impl SupportedAuthScheme for auth_scheme::NoAuthentication {
 /// This trait can also be implemented for custom
 /// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
 pub trait SupportedPathBuilder: path_builder::PathBuilder {
+    /// Get the [`PathBuilder::Input`](path_builder::Pathbuilder::Input) from
+    /// the [`Client`](crate::Client).
     fn get_path_builder_input(
         client: &crate::Client,
         skip_auth: bool,
