@@ -304,7 +304,7 @@ impl SupportedAuthScheme for auth_scheme::NoAuthentication {
 /// This trait can also be implemented for custom
 /// [`PathBuilder`](path_builder::PathBuilder)s if necessary.
 pub trait SupportedPathBuilder: path_builder::PathBuilder {
-    /// Get the [`PathBuilder::Input`](path_builder::Pathbuilder::Input) from
+    /// Get the [`PathBuilder::Input`](path_builder::PathBuilder::Input) from
     /// the [`Client`](crate::Client).
     fn get_path_builder_input(
         client: &crate::Client,
