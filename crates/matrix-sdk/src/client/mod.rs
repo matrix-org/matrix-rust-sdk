@@ -93,7 +93,7 @@ use crate::{
     authentication::{
         AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
         matrix::MatrixAuth,
-        oauth::{OAuth, OAuthError, error::OAuthDiscoveryError},
+        oauth::OAuth,
     },
     client::{
         homeserver_capabilities::HomeserverCapabilities,
