@@ -206,6 +206,9 @@ impl BaseClient {
 
         context.state_changes.ambiguity_maps = ambiguity_cache.cache;
 
+        // Persist any global profile updates received through the profiles extension.
+        context.state_changes.global_profiles = extensions.profiles.clone();
+
         // Save the changes and apply them.
         processors::changes::save_and_apply(
             context,
@@ -298,7 +301,9 @@ mod tests {
                 pinned_events::RoomPinnedEventsEventContent,
             },
         },
-        mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id, room_alias_id, room_id,
+        mxc_uri, owned_event_id, owned_mxc_uri, owned_user_id,
+        profile::UserProfileUpdate,
+        room_alias_id, room_id,
         serde::Raw,
         uint, user_id,
     };
@@ -431,6 +436,88 @@ mod tests {
             )
             .await
             .expect("Failed to process sync");
+    }
+
+    #[async_test]
+    async fn test_profiles_extension_is_persisted_from_sliding_sync() {
+        let client = logged_in_base_client(None).await;
+
+        let alice = user_id!("@alice:e.uk");
+        let bob = user_id!("@bob:e.uk");
+
+        // Given a sliding sync response carrying the profiles extension (MSC4262)
+        // for two users, and no rooms.
+        let mut response = http::Response::new("0".to_owned());
+        response.extensions.profiles.insert(
+            alice.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
+        );
+        response.extensions.profiles.insert(
+            bob.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Bob"))]),
+        );
+
+        // When the response is processed.
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then both users' global profiles are persisted in the store.
+        let store = client.state_store();
+
+        let alice_profile = store
+            .get_global_profile(alice)
+            .await
+            .expect("Failed to read profile")
+            .expect("Alice's profile should be saved");
+        let alice_map: BTreeMap<String, serde_json::Value> = alice_profile.into_iter().collect();
+        assert_eq!(alice_map.get("displayname"), Some(&json!("Alice")));
+
+        let bob_profile = store
+            .get_global_profile(bob)
+            .await
+            .expect("Failed to read profile")
+            .expect("Bob's profile should be saved");
+        let bob_map: BTreeMap<String, serde_json::Value> = bob_profile.into_iter().collect();
+        assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
+
+        // When a subsequent response only carries an update for Alice.
+        let mut response = http::Response::new("1".to_owned());
+        response.extensions.profiles.insert(
+            alice.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice Updated"))]),
+        );
+
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        // Then Alice's profile is updated, and Bob's remains unchanged.
+        let alice_profile = store
+            .get_global_profile(alice)
+            .await
+            .expect("Failed to read profile")
+            .expect("Alice's profile should be saved");
+        let alice_map: BTreeMap<String, serde_json::Value> = alice_profile.into_iter().collect();
+        assert_eq!(alice_map.get("displayname"), Some(&json!("Alice Updated")));
+
+        let bob_profile = store
+            .get_global_profile(bob)
+            .await
+            .expect("Failed to read profile")
+            .expect("Bob's profile should still be saved");
+        let bob_map: BTreeMap<String, serde_json::Value> = bob_profile.into_iter().collect();
+        assert_eq!(bob_map.get("displayname"), Some(&json!("Bob")));
     }
 
     #[async_test]

@@ -60,7 +60,8 @@ use super::{
 };
 use crate::{
     timeline::{
-        TimelineUniqueId, controller::aggregations::PendingEdit, event_item::OtherMessageLike,
+        TimelineUniqueId, algorithms::rfind_event_item, controller::aggregations::PendingEdit,
+        event_item::OtherMessageLike,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -165,7 +166,7 @@ pub(super) enum HandleAggregationKind {
     /// Sent when the user stops sharing their location. Unlike [`BeaconUpdate`]
     /// this does not carry a `relates_to` event ID; instead the target live
     /// item is found by matching the sender.
-    BeaconStop { content: BeaconInfoEventContent },
+    BeaconStop { own_id: TimelineEventItemId, content: BeaconInfoEventContent },
 
     /// A decline for an `m.rtc.notification` call.
     CallDeclined,
@@ -221,9 +222,9 @@ impl TimelineAction {
         Self::AddItem { content }
     }
 
-    /// Create a new [`TimelineAction`] from a given remote event.
+    /// Create all timeline actions from a given remote event.
     ///
-    /// The return value may be `None` if the event was a redacted reaction.
+    /// The return value may be empty if the event was a redacted reaction.
     #[allow(clippy::too_many_arguments)]
     pub async fn from_event<P: RoomDataProvider>(
         event: AnySyncTimelineEvent,
@@ -233,7 +234,7 @@ impl TimelineAction {
         in_reply_to: Option<InReplyToDetails>,
         thread_root: Option<OwnedEventId>,
         thread_summary: Option<ThreadSummary>,
-    ) -> Option<Self> {
+    ) -> Vec<TimelineAction> {
         let redaction_rules = room_data_provider.room_version_rules().redaction;
 
         let redacted_message_or_none = |event_type: MessageLikeEventType| {
@@ -241,15 +242,18 @@ impl TimelineAction {
                 .then_some(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
         };
 
-        Some(match event {
+        match event {
             AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomRedaction(ev)) => {
                 if let Some(redacts) = ev.redacts(&redaction_rules).map(ToOwned::to_owned) {
-                    Self::HandleAggregation {
+                    vec![Self::HandleAggregation {
                         related_event: redacts,
                         kind: HandleAggregationKind::Redaction,
-                    }
+                    }]
                 } else {
-                    Self::add_item(redacted_message_or_none(ev.event_type())?)
+                    redacted_message_or_none(ev.event_type())
+                        .map(Self::add_item)
+                        .into_iter()
+                        .collect()
                 }
             }
 
@@ -277,50 +281,53 @@ impl TimelineAction {
                             .await;
                         }
 
-                        Self::add_item(TimelineItemContent::MsgLike(
+                        vec![Self::add_item(TimelineItemContent::MsgLike(
                             MsgLikeContent::unable_to_decrypt(EncryptedMessage::from_content(
                                 content, utd_cause,
                             )),
-                        ))
+                        ))]
                     } else {
                         // If we get here, it means that some part of the code has created a
                         // `TimelineEvent` containing an `m.room.encrypted` event without
                         // decrypting it. Possibly this means that encryption has not been
                         // configured. We treat it the same as any other message-like event.
-                        Self::from_content(
+                        vec![Self::from_content(
                             AnyMessageLikeEventContent::RoomEncrypted(content),
                             in_reply_to,
                             thread_root,
                             thread_summary,
-                        )
+                        )]
                     }
                 }
 
                 Some(content) => {
-                    Self::from_content(content, in_reply_to, thread_root, thread_summary)
+                    vec![Self::from_content(content, in_reply_to, thread_root, thread_summary)]
                 }
 
-                None => Self::add_item(redacted_message_or_none(ev.event_type())?),
+                None => redacted_message_or_none(ev.event_type())
+                    .map(Self::add_item)
+                    .into_iter()
+                    .collect(),
             },
 
             AnySyncTimelineEvent::State(ev) => match ev {
                 AnySyncStateEvent::RoomMember(ev) => match ev {
                     SyncStateEvent::Original(ev) => {
-                        Self::add_item(TimelineItemContent::room_member(
+                        vec![Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
                             StateEventContentChange::Original {
                                 content: ev.content,
                                 prev_content: ev.unsigned.prev_content,
                             },
                             ev.sender,
-                        ))
+                        ))]
                     }
                     SyncStateEvent::Redacted(ev) => {
-                        Self::add_item(TimelineItemContent::room_member(
+                        vec![Self::add_item(TimelineItemContent::room_member(
                             ev.state_key,
                             StateEventContentChange::Redacted(ev.content),
                             ev.sender,
-                        ))
+                        ))]
                     }
                 },
                 AnySyncStateEvent::BeaconInfo(ev) => match ev {
@@ -330,37 +337,66 @@ impl TimelineAction {
                         // beacon_info that was started as live, regardless of whether
                         // the timeout has since expired.
                         if ev.content.live {
-                            Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
-                                kind: MsgLikeKind::LiveLocation(LiveLocationState::new(ev.content)),
-                                reactions: Default::default(),
-                                thread_root: None,
-                                in_reply_to: None,
-                                thread_summary: None,
-                            }))
+                            let add_item_action =
+                                Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent {
+                                    kind: MsgLikeKind::LiveLocation(LiveLocationState::new(
+                                        ev.content,
+                                    )),
+                                    reactions: Default::default(),
+                                    thread_root: None,
+                                    in_reply_to: None,
+                                    thread_summary: None,
+                                }));
+                            let handle_aggregation_action = ev.unsigned.prev_content.map(|prev| {
+                                let prev_content = BeaconInfoEventContent::new(
+                                    prev.description,
+                                    prev.timeout,
+                                    false,
+                                    prev.ts,
+                                );
+                                Self::HandleAggregation {
+                                    related_event: ev.event_id.clone(),
+                                    kind: HandleAggregationKind::BeaconStop {
+                                        own_id: TimelineEventItemId::TransactionId(
+                                            TransactionId::new(),
+                                        ),
+                                        content: prev_content,
+                                    },
+                                }
+                            });
+                            let mut actions = vec![add_item_action];
+                            actions.extend(handle_aggregation_action);
+                            actions
                         } else {
                             // A non-live beacon_info is a stop event: it should update the
                             // existing live item from the same sender rather than creating a
                             // new timeline item.
-                            Self::HandleAggregation {
+                            let event_id = ev.event_id.clone();
+                            vec![Self::HandleAggregation {
                                 // There is no explicit relates_to on a beacon_info state event;
                                 // the target is identified by sender in handle_beacon_stop.
-                                related_event: ev.event_id,
-                                kind: HandleAggregationKind::BeaconStop { content: ev.content },
-                            }
+                                related_event: event_id.clone(),
+                                kind: HandleAggregationKind::BeaconStop {
+                                    own_id: TimelineEventItemId::EventId(event_id),
+                                    content: ev.content,
+                                },
+                            }]
                         }
                     }
                     SyncStateEvent::Redacted(_) => {
-                        Self::add_item(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
+                        vec![Self::add_item(TimelineItemContent::MsgLike(
+                            MsgLikeContent::redacted(),
+                        ))]
                     }
                 },
-                ev => Self::add_item(TimelineItemContent::OtherState(OtherState {
+                ev => vec![Self::add_item(TimelineItemContent::OtherState(OtherState {
                     state_key: ev.state_key().to_owned(),
                     content: AnyOtherStateEventContentChange::with_event_content(
                         ev.content_change(),
                     ),
-                })),
+                }))],
             },
-        })
+        }
     }
 
     /// Create a new [`TimelineAction`] from a given event's content.
@@ -419,6 +455,7 @@ impl TimelineAction {
                 Self::add_item(TimelineItemContent::RtcNotification {
                     call_intent: c.call_intent,
                     declined_by: Vec::new(),
+                    active_call_info: None,
                 })
             }
 
@@ -563,13 +600,13 @@ pub(super) type RemovedItem = bool;
 pub(super) struct TimelineEventHandler<'a, 'o> {
     items: &'a mut ObservableItemsTransaction<'o>,
     meta: &'a mut TimelineMetadata,
-    ctx: TimelineEventContext,
+    ctx: &'a TimelineEventContext,
 }
 
 impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     pub(super) fn new<P: RoomDataProvider>(
         state: &'a mut TimelineStateTransaction<'o, P>,
-        ctx: TimelineEventContext,
+        ctx: &'a TimelineEventContext,
     ) -> Self {
         let TimelineStateTransaction { items, meta, .. } = state;
         Self { items, meta, ctx }
@@ -615,64 +652,75 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
-        let mut added_item = false;
+        self.handle_timeline_action(timeline_action, recycled_timeline_id)
+    }
 
+    fn handle_timeline_action(
+        &mut self,
+        timeline_action: TimelineAction,
+        recycled_timeline_id: Option<TimelineUniqueId>,
+    ) -> bool {
         match timeline_action {
             TimelineAction::AddItem { content } => {
                 if self.ctx.should_add_new_items {
                     self.add_item(content, recycled_timeline_id);
-                    added_item = true;
+                    true
+                } else {
+                    false
                 }
             }
-
-            TimelineAction::HandleAggregation { related_event, kind } => match kind {
-                HandleAggregationKind::Reaction { key } => {
-                    self.handle_reaction(related_event, key);
-                }
-                HandleAggregationKind::Redaction => {
-                    self.handle_redaction(related_event);
-                }
-                HandleAggregationKind::Edit { replacement } => {
-                    self.handle_edit(
-                        replacement.event_id.clone(),
-                        PendingEditKind::RoomMessage(replacement),
-                    );
-                }
-                HandleAggregationKind::PollResponse { answers } => {
-                    self.handle_poll_response(related_event, answers);
-                }
-                HandleAggregationKind::PollEdit { replacement } => {
-                    self.handle_edit(
-                        replacement.event_id.clone(),
-                        PendingEditKind::Poll(replacement),
-                    );
-                }
-                HandleAggregationKind::PollEnd => {
-                    self.handle_poll_end(related_event);
-                }
-                HandleAggregationKind::BeaconUpdate { mut location } => {
-                    // Propagate the encryption info from the event context into
-                    // the beacon location update so it can be inspected later
-                    // (e.g. for shield state computation).
-                    let encryption_info = as_variant!(
-                        &self.ctx.flow,
-                        Flow::Remote { encryption_info, .. } => encryption_info.clone()
-                    )
-                    .flatten();
-                    location.encryption_info = encryption_info;
-
-                    self.handle_beacon_update(related_event, location);
-                }
-                HandleAggregationKind::BeaconStop { content } => {
-                    self.handle_beacon_stop(content);
-                }
-                HandleAggregationKind::CallDeclined => {
-                    self.handle_call_declined(related_event);
-                }
-            },
+            TimelineAction::HandleAggregation { related_event, kind } => {
+                self.handle_aggregation_action(related_event, kind);
+                false
+            }
         }
+    }
 
-        added_item
+    fn handle_aggregation_action(
+        &mut self,
+        related_event: OwnedEventId,
+        kind: HandleAggregationKind,
+    ) {
+        match kind {
+            HandleAggregationKind::Reaction { key } => {
+                self.handle_reaction(related_event, key);
+            }
+            HandleAggregationKind::Redaction => {
+                self.handle_redaction(related_event);
+            }
+            HandleAggregationKind::Edit { replacement } => {
+                self.handle_edit(
+                    replacement.event_id.clone(),
+                    PendingEditKind::RoomMessage(replacement),
+                );
+            }
+            HandleAggregationKind::PollResponse { answers } => {
+                self.handle_poll_response(related_event, answers);
+            }
+            HandleAggregationKind::PollEdit { replacement } => {
+                self.handle_edit(replacement.event_id.clone(), PendingEditKind::Poll(replacement));
+            }
+            HandleAggregationKind::PollEnd => {
+                self.handle_poll_end(related_event);
+            }
+            HandleAggregationKind::BeaconUpdate { mut location } => {
+                // Propagate the encryption info from the event context into the
+                // beacon location update so it can be inspected later.
+                let encryption_info = as_variant!(
+                    &self.ctx.flow,
+                    Flow::Remote { encryption_info, .. } => encryption_info.clone()
+                )
+                .flatten();
+                location.encryption_info = encryption_info;
+                self.handle_beacon_update(related_event, location);
+            }
+            HandleAggregationKind::BeaconStop { own_id, content } => {
+                self.handle_beacon_stop(own_id, content);
+            }
+            HandleAggregationKind::CallDeclined => {
+                self.handle_call_declined(related_event);
+            }
+        }
     }
 
     #[instrument(skip(self, edit_kind))]
@@ -793,20 +841,17 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
     /// The stop event's content must match the start item's content (except for
     /// the `live` field) to ensure we apply the stop to the correct session.
     #[instrument(skip(self, content))]
-    fn handle_beacon_stop(&mut self, content: BeaconInfoEventContent) {
+    fn handle_beacon_stop(&mut self, own_id: TimelineEventItemId, content: BeaconInfoEventContent) {
         let sender = &self.ctx.sender;
 
         // Find the live start item by sender and matching content.
-        let target_event_id = super::algorithms::rfind_event_item(self.items, |item| {
+        let target_event_id = rfind_event_item(self.items, |item| {
             item.sender() == sender
                 && item.content().as_live_location_state().is_some_and(|s| s.matches_stop(&content))
         })
         .and_then(|(_, event_item)| event_item.inner.event_id().map(ToOwned::to_owned));
 
-        let aggregation = Aggregation::new(
-            self.ctx.flow.timeline_item_id(),
-            AggregationKind::BeaconStop { content },
-        );
+        let aggregation = Aggregation::new(own_id, AggregationKind::BeaconStop { content });
 
         let Some(target_event_id) = target_event_id else {
             // The live start item hasn't arrived yet (or the content doesn't match).
@@ -961,6 +1006,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             .map(|_| TimelineDetails::from_initial_value(self.ctx.forwarder_profile.clone()));
 
         let timestamp = self.ctx.timestamp;
+        let is_rtc_notification = matches!(content, TimelineItemContent::RtcNotification { .. });
 
         let kind: EventTimelineItemKind = match &self.ctx.flow {
             Flow::Local { txn_id, send_handle } => LocalEventTimelineItem {
@@ -1194,9 +1240,89 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             }
         }
 
+        // Handle RTC notification active members population and cleanup
+        if is_rtc_notification {
+            self.apply_active_call_to_last_rtc_notification();
+        }
+
         // If we don't have a read marker item, look if we need to add one now.
         if !self.meta.has_up_to_date_read_marker_item {
             self.meta.update_read_marker(self.items);
+        }
+    }
+
+    /// Ensures that the last RtcNotification in the timeline has the current
+    /// active call info, and cleans up any previous notification that had
+    /// active members.
+    fn apply_active_call_to_last_rtc_notification(&mut self) {
+        let last_notification = rfind_event_item(self.items, |it| {
+            matches!(it.content(), TimelineItemContent::RtcNotification { .. })
+        })
+        .map(|(a, b)| (a, b.internal_id.clone(), b.clone()));
+
+        if let Some((idx, internal_id, last_notification)) = last_notification {
+            // Is this the same as previously?
+            if let Some(prev_event_id) = &self.meta.active_rtc_notification_event_id {
+                if Some(prev_event_id.as_ref()) == last_notification.event_id() {
+                    // then no changes, the newest rtc_notification event have not change
+                    return;
+                }
+
+                // They are different, clean the old event
+                // Find the previous notification item and clear its active_members
+                if let Some((idx, prev_item)) =
+                    rfind_event_item(self.items, |it: &EventTimelineItem| {
+                        it.event_id() == Some(prev_event_id)
+                    })
+                    && let TimelineItemContent::RtcNotification {
+                        call_intent,
+                        declined_by,
+                        active_call_info,
+                    } = prev_item.content()
+                {
+                    // Only clear if it has active members (not already empty)
+                    if active_call_info.is_some() {
+                        let new_content = TimelineItemContent::RtcNotification {
+                            call_intent: call_intent.clone(),
+                            declined_by: declined_by.clone(),
+                            active_call_info: None,
+                        };
+                        let new_event_item = prev_item.inner.with_content(new_content);
+                        let new_timeline_item =
+                            TimelineItem::new(new_event_item, prev_item.internal_id.clone());
+                        self.items.replace(idx, new_timeline_item);
+                    }
+                }
+            }
+
+            // Update the new last notification if needed
+            if self.meta.active_call.is_some() {
+                let TimelineItemContent::RtcNotification { call_intent, declined_by, .. } =
+                    last_notification.content()
+                else {
+                    // Nothing to update
+                    return;
+                };
+
+                let new_content = TimelineItemContent::RtcNotification {
+                    call_intent: call_intent.clone(),
+                    declined_by: declined_by.clone(),
+                    active_call_info: self
+                        .meta
+                        .active_call
+                        .clone()
+                        .map(|c| c.with_start_time(Some(self.ctx.timestamp))),
+                };
+
+                let updated_event_item = last_notification.with_content(new_content);
+                let new_timeline_item = TimelineItem::new(updated_event_item, internal_id);
+                self.items.replace(idx, new_timeline_item);
+
+                // Update the active_rtc_notification_event_id so that this event gets any new
+                // updates of call membership
+                self.meta.active_rtc_notification_event_id =
+                    last_notification.event_id().map(ToOwned::to_owned);
+            }
         }
     }
 

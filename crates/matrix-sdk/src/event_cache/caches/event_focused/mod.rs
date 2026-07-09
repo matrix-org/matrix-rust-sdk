@@ -31,6 +31,7 @@
 
 use std::sync::Arc;
 
+use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{Event, Gap},
@@ -38,20 +39,23 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_common::{linked_chunk::ChunkIdentifier, serde_helpers::extract_thread_root};
 use ruma::{OwnedEventId, UInt, api::Direction};
-use tokio::sync::{
-    RwLock,
-    broadcast::{Receiver, Sender},
-};
+use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
-use crate::event_cache::redecryptor::ResolvedUtd;
+use super::super::redecryptor::ResolvedUtd;
+use super::{
+    super::{
+        EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
+        states::{
+            CacheStateLock, ReloadPreprocessing, StateLock, selectors::EventFocusedStateSelector,
+        },
+    },
+    TimelineVectorDiffs,
+    event_linked_chunk::EventLinkedChunk,
+};
 use crate::{
     Room,
-    event_cache::{
-        EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
-        caches::{TimelineVectorDiffs, event_linked_chunk::EventLinkedChunk},
-    },
     paginators::{PaginationResult, Paginator, StartFromResult, thread::PaginableThread},
     room::{IncludeRelations, MessagesOptions, RelationsOptions, WeakRoom},
 };
@@ -90,7 +94,7 @@ pub(crate) enum EventFocusedPaginationMode {
     },
 }
 
-struct EventFocusedCacheInner {
+pub struct EventFocusedCacheState {
     /// The room owning this event-focused cache.
     room: WeakRoom,
 
@@ -103,14 +107,22 @@ struct EventFocusedCacheInner {
     /// The linked chunk for this event-focused cache.
     chunk: EventLinkedChunk,
 
+    /// The `num_context_events` given to [`Self::start_from`].
+    ///
+    /// This is useful for [`Self::reload`] to load the same amount of events.
+    initial_num_context_events: u16,
+
+    /// The thread mode.
+    thread_mode: EventFocusThreadMode,
+
     /// A sender of timeline updates.
-    sender: Sender<TimelineVectorDiffs>,
+    pub update_sender: EventFocusedCacheUpdateSender,
 
     /// A sender for globally observable linked chunk updates.
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
 }
 
-impl EventFocusedCacheInner {
+impl EventFocusedCacheState {
     /// Initialize the cache from a focused event.
     ///
     /// This uses `/context` to fetch the event with surrounding context.
@@ -121,13 +133,51 @@ impl EventFocusedCacheInner {
     /// Pagination tokens are stored as gaps in the linked chunk:
     /// - Backward token (start): Gap at the front of the linked chunk.
     /// - Forward token (end): Gap at the back of the linked chunk.
-    #[instrument(skip(self, room), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
+    #[instrument(skip(self), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
     async fn start_from(
         &mut self,
-        room: Room,
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
+        self.initial_num_context_events = num_context_events;
+        self.thread_mode = thread_mode;
+
+        let result = self.reload_impl().await?;
+
+        // Empty the updates_as_vector_diffs(), since it's impossible for an observer to
+        // have subscribed to this cache yet, since this code is part of the constructor
+        // flow.
+        //
+        // If we didn't empty those, such initial updates would be duplicated, since the
+        // subscriber would get the full initial list of events as diffs and as a set of
+        // initial events.
+        let _ = self.chunk.updates_as_vector_diffs();
+
+        Ok(result)
+    }
+
+    /// Reload the event-focused cache: only the last events will be reloaded,
+    /// shrinking the in-memory size of the cache.
+    ///
+    /// Since there is no persistent storage for this cache, `preprocessing` is
+    /// ignored.
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn reload(
+        &mut self,
+        _preprocessing: ReloadPreprocessing,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        let _ = self.reload_impl().await?;
+
+        Ok(self.chunk.updates_as_vector_diffs())
+    }
+
+    /// Replace existing events, then load and store fresh events from
+    /// `/context`.
+    async fn reload_impl(&mut self) -> Result<StartFromResult> {
+        let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
+        let num_context_events = self.initial_num_context_events;
+        let thread_mode = self.thread_mode;
+
         trace!(num_context_events, "fetching event with context via /context");
 
         let paginator = Paginator::new(room);
@@ -142,7 +192,7 @@ impl EventFocusedCacheInner {
                 let focused_event = result
                     .events
                     .iter()
-                    .find(|event| event.event_id().as_ref() == Some(&self.focused_event_id));
+                    .find(|event| event.event_id() == Some(&self.focused_event_id));
 
                 // If the focused event has a thread root, use it.
                 let mut thread_root =
@@ -165,7 +215,7 @@ impl EventFocusedCacheInner {
                 result
                     .events
                     .iter()
-                    .find(|event| event.event_id().as_ref() == Some(&self.focused_event_id))
+                    .find(|event| event.event_id() == Some(&self.focused_event_id))
                     .and_then(|event| extract_thread_root(event.raw()))
             }
         };
@@ -180,7 +230,7 @@ impl EventFocusedCacheInner {
             // beginning, since it's more likely to be around there, in that
             // case.
             let includes_root =
-                result.events.iter().any(|event| event.event_id().as_ref() == Some(&root_id));
+                result.events.iter().any(|event| event.event_id() == Some(&root_id));
 
             self.pagination_mode =
                 EventFocusedPaginationMode::Thread { thread_root: root_id.clone() };
@@ -191,7 +241,7 @@ impl EventFocusedCacheInner {
                 .iter()
                 .filter(|event| {
                     extract_thread_root(event.raw()).as_ref() == Some(&root_id)
-                        || event.event_id().as_ref() == Some(&root_id)
+                        || event.event_id() == Some(&root_id)
                 })
                 .cloned()
                 .collect();
@@ -235,15 +285,6 @@ impl EventFocusedCacheInner {
 
         self.propagate_changes();
 
-        // Empty the updates_as_vector_diffs(), since it's impossible for an observer to
-        // have subscribed to this cache yet, since this code is part of the constructor
-        // flow.
-        //
-        // If we didn't empty those, such initial updates would be duplicated, since the
-        // subscriber would get the full initial list of events as diffs and as a set of
-        // initial events.
-        let _ = self.chunk.updates_as_vector_diffs();
-
         Ok(result)
     }
 
@@ -254,6 +295,9 @@ impl EventFocusedCacheInner {
         prev_gap_token: Option<String>,
         next_gap_token: Option<String>,
     ) {
+        // Clear all existing events as we are about to insert initial events.
+        self.chunk.reset();
+
         // Insert backward gap at the back if we have a token, and the events
         // themselves.
         self.chunk
@@ -284,7 +328,7 @@ impl EventFocusedCacheInner {
     fn notify_subscribers(&mut self, origin: EventsOrigin) {
         let diffs = self.chunk.updates_as_vector_diffs();
         if !diffs.is_empty() {
-            let _ = self.sender.send(TimelineVectorDiffs { diffs, origin });
+            let _ = self.update_sender.send(TimelineVectorDiffs { diffs, origin });
         }
     }
 
@@ -506,7 +550,7 @@ impl EventFocusedCacheInner {
 
 /// A cache for an event-focused timeline.
 ///
-/// This represents a timeline centered around a specific event (e.g., from a
+/// This represents a timeline centred around a specific event (e.g., from a
 /// permalink), supporting both forward and backward pagination. The focused
 /// event may be part of a thread, in which case pagination will use the
 /// `/relations` API instead of `/messages`.
@@ -520,89 +564,113 @@ impl EventFocusedCacheInner {
 /// This is a shallow data structure, and can be cloned cheaply.
 #[derive(Clone)]
 pub struct EventFocusedCache {
-    inner: Arc<RwLock<EventFocusedCacheInner>>,
+    inner: Arc<CacheStateLock<EventFocusedStateSelector>>,
 }
 
 impl EventFocusedCache {
     /// Create a new empty event-focused cache.
-    pub(super) fn new(
+    pub(super) async fn new(
         room: WeakRoom,
-        focused_event_id: OwnedEventId,
+        key: EventFocusedCacheKey,
+        state: &StateLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(RwLock::new(EventFocusedCacheInner {
-                room,
-                focused_event_id,
-                pagination_mode: EventFocusedPaginationMode::Room { hide_thread_events: false },
-                chunk: EventLinkedChunk::new(),
-                sender: Sender::new(32),
-                linked_chunk_update_sender,
-            })),
-        }
+    ) -> Result<Self> {
+        let cache_state = state
+            .try_insert_once_with(
+                EventFocusedStateSelector::new(room.room_id().to_owned(), key.clone()),
+                |_store_guard| async {
+                    Ok(EventFocusedCacheState {
+                        room,
+                        focused_event_id: key.focused_event_id,
+                        pagination_mode: EventFocusedPaginationMode::Room {
+                            hide_thread_events: false,
+                        },
+                        chunk: EventLinkedChunk::new(),
+                        initial_num_context_events: 0, // dummy value
+                        thread_mode: EventFocusThreadMode::Automatic, // dummy value
+                        update_sender: Sender::new(32),
+                        linked_chunk_update_sender,
+                    })
+                },
+            )
+            .await?;
+
+        Ok(Self { inner: Arc::new(cache_state) })
+    }
+
+    /// Read all current events.
+    ///
+    /// Use [`EventFocusedCache::subscribe`] to get all current events, plus a
+    /// subscriber.
+    pub async fn events(&self) -> Result<Vec<Event>> {
+        let state = self.inner.read().await?;
+
+        Ok(state.chunk.events().map(|(_position, item)| item.clone()).collect())
     }
 
     /// Subscribe to updates from this event-focused timeline.
-    pub async fn subscribe(&self) -> (Vec<Event>, Receiver<TimelineVectorDiffs>) {
-        let inner = self.inner.read().await;
-        let events = inner.chunk.events().map(|(_position, item)| item.clone()).collect();
-        let recv = inner.sender.subscribe();
-        (events, recv)
+    pub async fn subscribe(&self) -> Result<(Vec<Event>, Receiver<TimelineVectorDiffs>)> {
+        let state = self.inner.read().await?;
+        let events = state.chunk.events().map(|(_position, item)| item.clone()).collect();
+        let recv = state.update_sender.subscribe();
+        Ok((events, recv))
     }
 
     /// Check if we've hit the start of the timeline (no more backward
     /// pagination possible).
-    pub async fn hit_timeline_start(&self) -> bool {
-        self.inner.read().await.first_chunk_as_gap().is_none()
+    pub async fn hit_timeline_start(&self) -> Result<bool> {
+        Ok(self.inner.read().await?.first_chunk_as_gap().is_none())
     }
 
     /// Check if we've hit the end of the timeline (no more forward pagination
     /// possible).
-    pub async fn hit_timeline_end(&self) -> bool {
-        self.inner.read().await.last_chunk_as_gap().is_none()
+    pub async fn hit_timeline_end(&self) -> Result<bool> {
+        Ok(self.inner.read().await?.last_chunk_as_gap().is_none())
     }
 
     /// Start the event-focused timeline from the focused event, fetching
     /// context events and detecting thread membership.
     pub(super) async fn start_from(
         &self,
-        room: Room,
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
-        self.inner.write().await.start_from(room, num_context_events, thread_mode).await
+        self.inner.write().await?.start_from(num_context_events, thread_mode).await
     }
 
     /// Paginate backwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<PaginationResult> {
-        self.inner.write().await.paginate_backwards(num_events).await
+        self.inner.write().await?.paginate_backwards(num_events).await
     }
 
     /// Paginate forwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_forwards(&self, num_events: u16) -> Result<PaginationResult> {
-        self.inner.write().await.paginate_forwards(num_events).await
+        self.inner.write().await?.paginate_forwards(num_events).await
     }
 
     /// Get the thread root event ID if this linked chunk is in thread mode.
-    pub async fn thread_root(&self) -> Option<OwnedEventId> {
-        match &self.inner.read().await.pagination_mode {
+    pub async fn thread_root(&self) -> Result<Option<OwnedEventId>> {
+        Ok(match &self.inner.read().await?.pagination_mode {
             EventFocusedPaginationMode::Thread { thread_root } => Some(thread_root.clone()),
             _ => None,
-        }
+        })
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn replace_utds(&self, events: &[ResolvedUtd]) {
-        let mut guard = self.inner.write().await;
+    pub async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+        let mut guard = self.inner.write().await?;
+
         if guard.chunk.replace_utds(events) {
             guard.propagate_changes();
             guard.notify_subscribers(EventsOrigin::Cache);
         }
+
+        Ok(())
     }
 }
 
@@ -612,3 +680,15 @@ impl std::fmt::Debug for EventFocusedCache {
         f.debug_struct("EventFocusedCache").finish_non_exhaustive()
     }
 }
+
+/// Key for the event-focused caches.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct EventFocusedCacheKey {
+    /// The event ID that the cache is focused on.
+    pub focused_event_id: OwnedEventId,
+    /// The thread mode for this cache.
+    pub thread_mode: EventFocusThreadMode,
+}
+
+/// A small type to send updates in all channels.
+pub type EventFocusedCacheUpdateSender = Sender<TimelineVectorDiffs>;

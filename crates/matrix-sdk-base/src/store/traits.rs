@@ -45,6 +45,7 @@ use ruma::{
         presence::PresenceEvent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
     },
+    profile::UserProfile,
     serde::Raw,
 };
 use serde::{Deserialize, Serialize};
@@ -518,6 +519,28 @@ pub trait StateStore: AsyncTraitDeps {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error>;
 
+    /// Get a user's global profile from the store.
+    ///
+    /// Global profiles are persisted as part of [`StateStore::save_changes`],
+    /// from the [`StateChanges::global_profiles`] field, following the MSC4262
+    /// update pattern: fields with an explicit `null` value are removed, while
+    /// fields not present are left unchanged.
+    ///
+    /// Returns `None` if there was no stored global profile for the given user.
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error>;
+
+    /// Get the global profiles for the given users from the store.
+    ///
+    /// See [`StateStore::get_global_profile`] for more details. Users without a
+    /// stored global profile are absent from the returned map.
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error>;
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -832,6 +855,20 @@ impl<T: StateStore> StateStore for &T {
         (*self).load_thread_subscription(room, thread_id).await
     }
 
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        (*self).get_global_profile(user_id).await
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        (*self).get_global_profiles(user_ids).await
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         (*self).close().await
     }
@@ -1138,6 +1175,20 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         thread_id: &EventId,
     ) -> Result<Option<StoredThreadSubscription>, Self::Error> {
         self.deref().load_thread_subscription(room, thread_id).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.deref().get_global_profile(user_id).await
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        self.deref().get_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1471,6 +1522,20 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.0.remove_thread_subscription(room, thread_id).await.map_err(Into::into)
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.0.get_global_profile(user_id).await.map_err(Into::into)
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        self.0.get_global_profiles(user_ids).await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {
@@ -1849,6 +1914,20 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         thread_id: &EventId,
     ) -> Result<(), Self::Error> {
         self.store.remove_thread_subscription(room, thread_id).await
+    }
+
+    async fn get_global_profile(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Option<UserProfile>, Self::Error> {
+        self.store.get_global_profile(user_id).await
+    }
+
+    async fn get_global_profiles<'a>(
+        &self,
+        user_ids: &'a [OwnedUserId],
+    ) -> Result<BTreeMap<&'a UserId, UserProfile>, Self::Error> {
+        self.store.get_global_profiles(user_ids).await
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

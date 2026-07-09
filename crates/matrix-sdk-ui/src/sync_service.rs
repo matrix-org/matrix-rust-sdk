@@ -775,6 +775,13 @@ pub struct SyncServiceBuilder {
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     with_share_pos: bool,
 
+    /// Whether to enable the Profiles sliding sync extension for the room list
+    /// service.
+    ///
+    /// Required to merge the global `m.status` and `m.call` fields into the
+    /// room members and profiles read from this crate.
+    with_profiles_extension: bool,
+
     /// Custom connection ID for the room list service.
     /// Defaults to [`room_list_service::DEFAULT_CONNECTION_ID`]. Use a
     /// different value for secondary processes such as iOS share extensions
@@ -799,6 +806,7 @@ impl SyncServiceBuilder {
             client,
             with_offline_mode: false,
             with_share_pos: true,
+            with_profiles_extension: false,
             room_list_conn_id: DEFAULT_CONNECTION_ID.to_owned(),
             room_list_timeline_limit: DEFAULT_LIST_TIMELINE_LIMIT,
             parent_span: Span::none(),
@@ -819,6 +827,15 @@ impl SyncServiceBuilder {
     /// [`SlidingSyncBuilder::share_pos`]: matrix_sdk::sliding_sync::SlidingSyncBuilder::share_pos
     pub fn with_share_pos(mut self, enable: bool) -> Self {
         self.with_share_pos = enable;
+        self
+    }
+
+    /// Enable the Profiles sliding sync extension for the room list service.
+    ///
+    /// Required to merge the global `m.status` and `m.call` fields into the
+    /// room members and profiles read from this crate.
+    pub fn with_profiles_extension(mut self) -> Self {
+        self.with_profiles_extension = true;
         self
     }
 
@@ -851,6 +868,7 @@ impl SyncServiceBuilder {
             client,
             with_offline_mode,
             with_share_pos,
+            with_profiles_extension,
             room_list_conn_id,
             room_list_timeline_limit,
             parent_span,
@@ -863,6 +881,7 @@ impl SyncServiceBuilder {
             with_share_pos,
             &room_list_conn_id,
             room_list_timeline_limit,
+            with_profiles_extension,
         )
         .await?;
 

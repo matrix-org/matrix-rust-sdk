@@ -37,6 +37,60 @@ use tracing::{debug, error, warn};
 use crate::helpers::{TestClientBuilder, wait_for_room};
 
 #[tokio::test]
+async fn test_empty_room_decline_invite() -> Result<()> {
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(e) = bob.sync(Default::default()).await {
+                error!("bob sync error: {e}");
+            }
+        }
+    });
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let a = alice.clone();
+    spawn(async move {
+        let alice = a;
+        loop {
+            if let Err(e) = alice.sync(Default::default()).await {
+                error!("alice sync error: {e}");
+            }
+        }
+    });
+
+    let room_id = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    let room = alice.get_room(&room_id).expect("Alice should see the room");
+    room.leave().await?;
+
+    let mut bob_declined = false;
+    for i in 1..=5 {
+        if let Some(room) = bob.get_room(&room_id)
+            && matches!(room.state(), RoomState::Invited)
+        {
+            room.leave().await?;
+            bob_declined = true;
+            break;
+        }
+        sleep(Duration::from_millis(500 * i)).await;
+    }
+    anyhow::ensure!(bob_declined, "bob couldn't find the invite after ~8 seconds");
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_event_with_context() -> Result<()> {
     let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
 
@@ -370,7 +424,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // point.
     loop {
         if let LatestEventValue::Remote(timeline_event) = room1.latest_event() {
-            if timeline_event.event_id().as_ref() == Some(&edit_event_id) {
+            if timeline_event.event_id() == Some(edit_event_id.as_ref()) {
                 let message_event = timeline_event
                     .raw()
                     .deserialize_as_unchecked::<OriginalSyncRoomMessageEvent>()?;
@@ -422,9 +476,9 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // Last two events in the room cache should be UTDs.
     let timeline_tail = events.iter().rev().take(2).collect::<Vec<_>>();
     // Note: events are reverted, because of .rev().
-    assert_eq!(timeline_tail[0].event_id().as_ref(), Some(&edit_event_id));
+    assert_eq!(timeline_tail[0].event_id(), Some(edit_event_id.as_ref()));
     assert!(timeline_tail[0].kind.is_utd());
-    assert_eq!(timeline_tail[1].event_id().as_ref(), Some(&original_event_id));
+    assert_eq!(timeline_tail[1].event_id(), Some(original_event_id.as_ref()));
     assert!(timeline_tail[1].kind.is_utd());
 
     // The unread counts should be incorrect.
@@ -452,8 +506,8 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
     // Last two events in the room cache should now be decrypted!
     let timeline_tail = events.iter().rev().take(2).collect::<Vec<_>>();
     // Note: events are reverted, because of .rev().
-    assert_eq!(timeline_tail[0].event_id().as_ref(), Some(&edit_event_id));
-    assert_eq!(timeline_tail[1].event_id().as_ref(), Some(&original_event_id));
+    assert_eq!(timeline_tail[0].event_id(), Some(edit_event_id.as_ref()));
+    assert_eq!(timeline_tail[1].event_id(), Some(original_event_id.as_ref()));
     assert!(timeline_tail[0].kind.is_utd().not());
     assert!(timeline_tail[1].kind.is_utd().not());
 
@@ -557,7 +611,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
         if run_loop {
             loop {
                 assert_let_timeout!(Duration::from_secs(5), Some(latest_event) = room_sub.next());
-                if matches!(latest_event, LatestEventValue::Remote(event) if event.event_id().as_deref() == Some(event_id))
+                if matches!(latest_event, LatestEventValue::Remote(event) if event.event_id() == Some(event_id))
                 {
                     break;
                 }
@@ -573,7 +627,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     sleep(Duration::from_secs(1)).await;
     while let Some(Some(up)) = room2_sub.next().now_or_never() {
         assert_let!(LatestEventValue::Remote(event) = up);
-        assert_eq!(event.event_id().as_ref(), Some(&room2_msg_event_id));
+        assert_eq!(event.event_id(), Some(room2_msg_event_id.as_ref()));
     }
 
     bob_sync_service.stop().await;

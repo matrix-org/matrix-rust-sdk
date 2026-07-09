@@ -21,7 +21,7 @@ use imbl::Vector;
 use matrix_sdk::{
     Result, Room,
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCacheSubscriber, RoomEventCacheUpdate},
+    event_cache::{RoomEventCacheUpdate, Subscriber as EventCacheSubscriber},
     locks::Mutex,
     paginators::PaginationToken,
     room::ListThreadsOptions,
@@ -366,7 +366,7 @@ impl ThreadListService {
         room: &Room,
         timeline_event: TimelineEvent,
     ) -> Option<ThreadListItemEvent> {
-        let event_id = timeline_event.event_id()?;
+        let event_id = timeline_event.event_id()?.to_owned();
         let timestamp = timeline_event.timestamp()?;
         let sender = timeline_event.sender()?;
         let is_own = room.own_user_id() == sender;
@@ -383,7 +383,7 @@ impl ThreadListService {
     /// [`ThreadListItem`]'s `latest_event` and `num_replies`.
     async fn event_cache_listener_loop(
         room: &Room,
-        subscriber: &mut RoomEventCacheSubscriber,
+        subscriber: &mut EventCacheSubscriber<RoomEventCacheUpdate>,
         items: Arc<Mutex<ObservableVector<ThreadListItem>>>,
     ) {
         use tokio::sync::broadcast::error::RecvError;

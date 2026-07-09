@@ -11,15 +11,21 @@ rust-version.workspace = true
 rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
-default = []
+default = ["rustls-aws-lc-rs"]
 js = ["matrix-sdk/js"]
 uniffi = ["dep:uniffi", "matrix-sdk/uniffi", "matrix-sdk-base/uniffi"]
+
+rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs"]
 
 # Add support for encrypted extensible events.
 unstable-msc3956 = ["ruma/unstable-msc3956"]
 
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["matrix-sdk/unstable-msc4274"]
+
+# Enable the global, reactive search service built on top of the SDK's
+# message search.
+experimental-search = ["matrix-sdk/experimental-search"]
 
 # Enable experimental support for encrypting state events; see
 # https://github.com/matrix-org/matrix-rust-sdk/issues/5397.
@@ -68,7 +74,7 @@ assert-json-diff.workspace = true
 assert_matches.workspace = true
 assert_matches2.workspace = true
 eyeball-im-util.workspace = true
-matrix-sdk = { workspace = true, features = ["testing", "sqlite"] }
+matrix-sdk = { workspace = true, features = ["testing", "sqlite", "rustls-aws-lc-rs"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 proptest.workspace = true

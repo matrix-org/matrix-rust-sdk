@@ -23,8 +23,10 @@ use ruma::{
     EventId, OwnedEventId, OwnedUserId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        BundledMessageLikeRelations, poll::unstable_start::UnstablePollStartEventContent,
-        relation::Replacement, room::message::RelationWithoutReplacement,
+        BundledMessageLikeRelations,
+        poll::unstable_start::UnstablePollStartEventContent,
+        relation::Replacement,
+        room::{encrypted::Relation, message::RelationWithoutReplacement},
     },
     room_version_rules::RoomVersionRules,
     serde::Raw,
@@ -33,8 +35,8 @@ use tracing::trace;
 
 use super::{
     super::{TimelineItem, TimelineItemKind, TimelineUniqueId, subscriber::skip::SkipCount},
-    Aggregation, AggregationKind, Aggregations, AllRemoteEvents, ObservableItemsTransaction,
-    PendingEdit, PendingEditKind,
+    ActiveCallInfo, Aggregation, AggregationKind, Aggregations, AllRemoteEvents,
+    ObservableItemsTransaction, PendingEdit, PendingEditKind,
     read_receipts::ReadReceipts,
 };
 use crate::{
@@ -125,6 +127,24 @@ pub(in crate::timeline) struct TimelineMetadata {
     ///
     /// TODO: move this over to the event cache (see also #3058).
     pub(super) read_receipts: ReadReceipts,
+
+    /// The event ID of the active RtcNotification item that should have
+    /// active_members populated.
+    ///
+    /// There is no real link to the active room call and a rtc notification
+    /// event. For example there could be several rtc notifications events for
+    /// the same call, but we only want to have a single active call tile in
+    /// the timeline. We achieve this by keeping a link to the latest
+    /// notification event in the timeline and the `active_call` info will
+    /// be attached to it.
+    pub(crate) active_rtc_notification_event_id: Option<OwnedEventId>,
+
+    /// Current active call info for the room.
+    ///
+    /// This info is updated everytime the active call membership and intent
+    /// change. It is cached to be attached dynamically to the latest
+    /// RtcNotification event inserted in the timeline.
+    pub(crate) active_call: Option<ActiveCallInfo>,
 }
 
 impl TimelineMetadata {
@@ -150,7 +170,13 @@ impl TimelineMetadata {
             unable_to_decrypt_hook,
             internal_id_prefix,
             is_room_encrypted,
+            active_rtc_notification_event_id: None,
+            active_call: None,
         }
+    }
+
+    pub(super) fn with_active_call_info(self, active_call_info: Option<ActiveCallInfo>) -> Self {
+        Self { active_call: active_call_info, ..self }
     }
 
     pub(super) fn clear(&mut self) {
@@ -442,6 +468,26 @@ impl TimelineMetadata {
                         );
                     }
 
+                    self.mark_response(ctx.event_id, in_reply_to.as_ref());
+                }
+
+                (in_reply_to, thread_root)
+            }
+
+            AnyMessageLikeEventContent::RoomEncrypted(msg) => {
+                let (in_reply_to, thread_root) = Self::extract_reply_and_thread_root(
+                    msg.relates_to.clone().and_then(|rel| match rel {
+                        Relation::Reply(reply) => Some(RelationWithoutReplacement::Reply(reply)),
+                        Relation::Thread(thread) => {
+                            Some(RelationWithoutReplacement::Thread(thread))
+                        }
+                        _ => None,
+                    }),
+                    timeline_items,
+                    is_thread_focus,
+                );
+
+                if let Some(ctx) = remote_ctx {
                     self.mark_response(ctx.event_id, in_reply_to.as_ref());
                 }
 

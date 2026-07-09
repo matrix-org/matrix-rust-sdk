@@ -67,10 +67,10 @@ proc-macro2 = { version = "1.0.106", default-features = false }
 proptest = { version = "1.9.0", default-features = false, features = ["std"] }
 quote = { version = "1.0.37", default-features = false }
 rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
-regex = { version = "1.12.2", default-features = false }
+regex = { version = "1.12.2", default-features = false, features = ["std", "unicode-perl"] }
 reqwest = { version = "0.13.1", default-features = false }
 rmp-serde = { version = "1.3.0", default-features = false }
-ruma = { version = "0.16.0", features = [
+ruma = { git = "https://github.com/ruma/ruma", rev = "a494c58c541c63042b26380a9238a24bdda4d85c", features = [
     "client-api-c",
     "compat-unset-avatar",
     "compat-upload-signatures",
@@ -114,8 +114,8 @@ tracing-core = { version = "0.1.34", default-features = false }
 tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "smallvec", "fmt"] }
 unicode-normalization = { version = "0.1.25", default-features = false }
 unicode-segmentation = { version = "1.12.0", default-features = false }
-uniffi = { version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
-uniffi_bindgen = { version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
+uniffi = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4821410bea19e71984ea5e06a7bc8b11ed9e5", version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
+uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4821410bea19e71984ea5e06a7bc8b11ed9e5", version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
 url = { version = "2.5.7", default-features = false }
 uuid = { version = "1.18.1", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
@@ -125,6 +125,7 @@ wasm-bindgen-test = { version = "0.3.55", default-features = false, features = [
 web-sys = { version = "0.3.82", default-features = false }
 wiremock = { version = "0.6.5", default-features = false }
 zeroize = { version = "1.8.2", default-features = false }
+zxcvbn = { git = "https://github.com/shssoichiro/zxcvbn-rs", rev = "4e8e784b23541d118800df84feedf8160879d1af", default-features = false }
 
 matrix-sdk = { path = "crates/matrix-sdk", version = "0.18.0", default-features = false }
 matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.18.0" }

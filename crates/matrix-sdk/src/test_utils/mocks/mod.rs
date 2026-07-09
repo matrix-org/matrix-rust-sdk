@@ -2813,6 +2813,18 @@ impl<'a> MockEndpoint<'a, SyncEndpoint> {
         self
     }
 
+    /// Expect the given `set_presence` value in the request.
+    pub fn set_presence(mut self, presence: impl Into<String>) -> Self {
+        self.mock = self.mock.and(query_param("set_presence", presence.into()));
+        self
+    }
+
+    /// Expect no explicit `set_presence` value in the request.
+    pub fn set_presence_missing(mut self) -> Self {
+        self.mock = self.mock.and(query_param_is_missing("set_presence"));
+        self
+    }
+
     /// Mocks the sync endpoint, using the given function to generate the
     /// response.
     pub fn ok<F: FnOnce(&mut SyncResponseBuilder)>(self, func: F) -> MatrixMock<'a> {
@@ -2998,7 +3010,7 @@ impl<'a> MockEndpoint<'a, RoomEventEndpoint> {
     /// event has been sent with the given event id.
     pub fn ok(self, event: TimelineEvent) -> MatrixMock<'a> {
         let event_path = if self.endpoint.match_event_id {
-            let event_id = event.kind.event_id().expect("an event id is required");
+            let event_id = event.event_id().expect("an event id is required");
             // The event id should begin with `$`, which would be taken as the end of the
             // regex so we need to escape it
             event_id.as_str().replace("$", "\\$")

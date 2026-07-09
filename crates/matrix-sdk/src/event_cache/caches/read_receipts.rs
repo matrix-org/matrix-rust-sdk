@@ -22,7 +22,9 @@
 //!
 //! Instead, this module provides facilities to compute the number of unread
 //! messages, unread notifications (based on the push rules) and unread
-//! highlights in a room.
+//! highlights in a room. More precisely, instead of speaking about room, we
+//! will speak about _timeline_ as in _collection of events handled by a cache_
+//! like [`RoomEventCache`] or [`ThreadEventCache`].
 //!
 //! Counting unread messages is performed by looking at the latest receipt of
 //! the current user, and inferring which events are following it, according to
@@ -34,11 +36,11 @@
 //!
 //! Of course, not all events are created equal, and some are less interesting
 //! than others, and shouldn't cause a room to be marked unread. This module's
-//! `marks_as_unread` function shows the opiniated set of rules that will filter
-//! out uninterested events.
+//! [`marks_as_unread`] function shows the opinionated set of rules that will
+//! filter out uninterested events.
 //!
-//! The only `pub(crate)` method in that module is `compute_unread_counts`,
-//! which updates the `RoomInfo` in place according to the new counts.
+//! The only `pub(crate)` method in that module is [`compute_unread_counts`],
+//! which updates the [`RoomInfo`] in place according to the new counts.
 //!
 //! ## Implementation details: How to get the latest receipt?
 //!
@@ -49,9 +51,10 @@
 //!
 //! ### How-to
 //!
-//! When we call `compute_unread_counts`, that's for one of two reasons (and
+//! When we call [`compute_unread_counts`], that's for one of two reasons (and
 //! maybe both at once, or maybe none at all):
-//! - we received a new receipt
+//!
+//! - we received a new receipt,
 //! - new events came in.
 //!
 //! A read receipt is considered _active_ if it's been received from sync
@@ -75,21 +78,26 @@
 //!   maximal compatibility with thread-unaware clients),
 //! - a previously stashed read receipt we've received from a read receipt event
 //!   content, but for which we couldn't find the corresponding event. It's
-//!   possible that a read receipt is received before the corresponding event.
+//!   possible that a read receipt is received before the corresponding event
+//!   (think about limited sync response).
 //!
 //! The read receipt that wins is always the one that points to the most recent
-//! in the linked chunk ordering. In other words, the receipt type (as described
-//! above) doesn't matter; it's the relative position in the linked chunk
-//! ordering which does.
+//! event in the linked chunk ordering. In other words, the receipt type (as
+//! described above) doesn't matter; it's the relative position in the linked
+//! chunk ordering which does.
 //!
 //! Once we have a new *better active receipt*, we'll save it in the
-//! `RoomReadReceipt` data (stored in `RoomInfo`), and we'll compute the counts,
-//! starting from the event the better active receipt was referring to.
+//! [`RoomReadReceipts`] data (stored in [`RoomInfo`]), and we'll compute the
+//! counts, starting from the event the better active receipt was referring to.
 //!
 //! If we *don't* have a better active receipt, that means that all the events
 //! received in that batch aren't referred to by a known read receipt, _and_ we
 //! didn't get a new better receipt that matched known events. In that case, we
 //! can just consider that all the events are new, and count them as such.
+//!
+//! [`RoomInfo`]: crate::RoomInfo
+//! [`RoomEventCache`]: super::room::RoomEventCache
+//! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
 use matrix_sdk_base::{
     read_receipts::{LatestReadReceipt, RoomReadReceipts},
@@ -111,8 +119,8 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use crate::event_cache::{
-    automatic_pagination::AutomaticPagination, caches::event_linked_chunk::EventLinkedChunk,
+use super::{
+    super::automatic_pagination::AutomaticPagination, event_linked_chunk::EventLinkedChunk,
 };
 
 trait RoomReadReceiptsExt {
@@ -202,9 +210,7 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
             // Sliding sync sometimes sends the same event multiple times, so it can be at
             // the beginning and end of a batch, for instance. In that case, just reset
             // every time we see the event matching the receipt.
-            if let Some(event_id) = event.event_id()
-                && event_id == receipt_event_id
-            {
+            if event.event_id() == Some(receipt_event_id) {
                 // Bingo! Switch over to the counting state, after resetting the
                 // previous counts.
                 trace!("Found the event the receipt was referring to! Starting to count.");
@@ -233,7 +239,7 @@ const ALL_RECEIPT_TYPES: [ReceiptType; 2] = [ReceiptType::ReadPrivate, ReceiptTy
 ///
 /// - it's an implicit read receipt (i.e. an event we've sent),
 /// - it's holding onto a new read receipt we've just received,
-/// - it was a pending receipt for which we found the event now,
+/// - it was a pending receipt for which we found the event now.
 ///
 /// A receipt returned in this function **must** point to an event that is in
 /// the linked chunk.
@@ -279,10 +285,10 @@ fn select_best_receipt(
     {
         if receipt.is_none() {
             // Try to see if the latest active receipt is still the most recent receipt.
-            if latest_active == Some(&event_id) {
+            if latest_active == Some(event_id) {
                 // The latest active receipt is still the most recent receipt, so keep it.
                 trace!(active = %event_id, "the latest active receipt is still the most recent; stopping search");
-                receipt = Some(event_id.clone());
+                receipt = Some(event_id.to_owned());
             }
             // Try to find an implicit read receipt (i.e. an event sent by the current
             // user).
@@ -292,7 +298,7 @@ fn select_best_receipt(
                 && (!with_threading_support || extract_thread_root(event.raw()).is_none())
             {
                 trace!(implicit = %event_id, "found an implicit receipt; stopping search");
-                receipt = Some(event_id.clone());
+                receipt = Some(event_id.to_owned());
             }
         }
 
@@ -311,7 +317,7 @@ fn select_best_receipt(
             if *pending == event_id {
                 if receipt.is_none() {
                     trace!(pending = %event_id, "found a pending receipt; stopping search");
-                    receipt = Some(event_id.clone());
+                    receipt = Some(event_id.to_owned());
                 } else {
                     trace!(%event_id, "discarding a pending receipt that wasn't selected");
                 }
@@ -342,7 +348,7 @@ async fn try_find_store_receipts(
     read_receipts: &mut RoomReadReceipts,
 ) {
     for receipt_type in ALL_RECEIPT_TYPES {
-        // Implementation note: we want to prioritize a `Unthreaded` receipt over a
+        // Implementation note: we want to prioritize an `Unthreaded` receipt over a
         // `Main`-threaded one, for better compatibility with thread-unaware clients.
         for receipt_thread in [ReceiptThread::Unthreaded, ReceiptThread::Main] {
             if let Ok(Some((event_id, _receipt))) = store
@@ -370,7 +376,7 @@ async fn try_find_store_receipts(
     }
 }
 
-/// Given a set of events coming from sync, for a room, update the
+/// Given a set of events coming from sync, for a _timeline_, update the
 /// [`RoomReadReceipts`]'s counts of unread messages, notifications and
 /// highlights' in place.
 ///
@@ -389,7 +395,7 @@ pub(crate) async fn compute_unread_counts(
 ) {
     debug!(?read_receipts, "Starting");
 
-    // If we don't have a latest active receipt for this room, try to reload one
+    // If we don't have a latest active receipt for this timeline, try to reload one
     // from the state store into the `RoomReadReceipts`.
     if read_receipts.latest_active.is_none() {
         try_find_store_receipts(state_store, user_id, room_id, read_receipts).await;
@@ -452,7 +458,7 @@ pub(crate) async fn compute_unread_counts(
     debug!(?read_receipts, "no better receipt");
 }
 
-/// Is the event worth marking a room as unread?
+/// Is the event worth marking a timeline as unread?
 fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool {
     // Parse the sender from the raw event.
     if event.get_field::<OwnedUserId>("sender").ok().flatten().as_deref() == Some(user_id) {

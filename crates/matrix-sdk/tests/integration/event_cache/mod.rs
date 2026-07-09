@@ -184,8 +184,10 @@ async fn test_ignored_unignored() {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 room_stream.recv()
         );
-        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs.len(), 2);
         assert_let!(VectorDiff::Clear = &diffs[0]);
+        assert_let!(VectorDiff::Append { values } = &diffs[1]);
+        assert!(values.is_empty());
     }
 
     // We do receive the new event.
@@ -2450,8 +2452,10 @@ async fn test_clear_all_rooms() {
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
             room_updates.recv()
     );
-    assert_eq!(diffs.len(), 1);
+    assert_eq!(diffs.len(), 2);
     assert_let!(VectorDiff::Clear = &diffs[0]);
+    assert_let!(VectorDiff::Append { values } = &diffs[1]);
+    assert!(values.is_empty());
 
     // The sleeping room should have been cleared too.
     let (maybe_last_chunk, _chunk_id_gen) =
@@ -2715,28 +2719,6 @@ async fn test_relations_ordering() {
     assert_eq!(relations[0].event_id().unwrap(), edit2);
     assert_eq!(relations[1].event_id().unwrap(), edit3);
     assert_eq!(relations[2].event_id().unwrap(), edit4);
-
-    // If I save an additional event without storing it in the linked chunk, it will
-    // be present at the start of the relations list.
-    let edit5 = event_id!("$edit5");
-    let ev5 = f
-        .text_msg("* hallo Welt")
-        .edit(target_event_id, RoomMessageEventContentWithoutRelation::text_plain("hallo Welt"))
-        .event_id(edit5)
-        .into_event();
-
-    server.mock_room_event().ok(ev5).mock_once().mount().await;
-
-    // This saves the event, but without a position.
-    room.event(edit5, None).await.unwrap();
-
-    let (_, relations) =
-        room_event_cache.find_event_with_relations(target_event_id, None).await.unwrap().unwrap();
-    assert_eq!(relations.len(), 4);
-    assert_eq!(relations[0].event_id().unwrap(), edit5);
-    assert_eq!(relations[1].event_id().unwrap(), edit2);
-    assert_eq!(relations[2].event_id().unwrap(), edit3);
-    assert_eq!(relations[3].event_id().unwrap(), edit4);
 }
 
 #[async_test]
@@ -2956,7 +2938,7 @@ async fn test_send_queue_does_insert_event_in_the_event_cache() {
             // The event is received via the Send Queue!
             assert_let!(VectorDiff::Append { values } = &diffs[0]);
             assert_eq!(values.len(), 1);
-            assert_eq!(values[0].event_id().as_deref(), Some(event_id_2));
+            assert_eq!(values[0].event_id(), Some(event_id_2));
         }
     );
 

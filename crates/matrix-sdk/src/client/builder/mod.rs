@@ -21,7 +21,12 @@ use std::collections::HashMap;
 use std::path::Path;
 #[cfg(any(feature = "experimental-search", feature = "sqlite"))]
 use std::path::PathBuf;
-use std::{collections::BTreeSet, fmt, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeSet,
+    fmt,
+    sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
+};
 
 #[cfg(feature = "sqlite")]
 use futures_util::try_join;
@@ -41,6 +46,7 @@ use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
+    presence::PresenceState,
 };
 use thiserror::Error;
 #[cfg(feature = "experimental-search")]
@@ -406,16 +412,6 @@ impl ClientBuilder {
         self
     }
 
-    /// Add the given list of certificates in a raw byte format to the
-    /// certificate store of the HTTP client.
-    ///
-    /// Not this will only be used in Android for the webkpi workaround.
-    #[cfg(target_os = "android")]
-    pub fn add_raw_root_certificates(mut self, raw_certificates: Vec<Vec<u8>>) -> Self {
-        self.http_settings().additional_raw_root_certificates = raw_certificates;
-        self
-    }
-
     /// Don't trust any system root certificates, only trust the certificates
     /// provided through
     /// [`add_root_certificates`][ClientBuilder::add_root_certificates].
@@ -660,6 +656,7 @@ impl ClientBuilder {
             server,
             homeserver,
             sliding_sync_version,
+            Arc::new(StdRwLock::new(PresenceState::Online)),
             http_client,
             base_client,
             supported_versions,

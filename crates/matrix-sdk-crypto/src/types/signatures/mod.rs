@@ -18,7 +18,7 @@ mod signature;
 
 use std::collections::{BTreeMap, btree_map::IntoIter};
 
-use ruma::{DeviceKeyAlgorithm, DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
+use ruma::{DeviceKeyId, OwnedDeviceKeyId, OwnedUserId, UserId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use vodozemac::Ed25519Signature;
 
@@ -52,7 +52,7 @@ impl Signatures {
         &mut self,
         signer: OwnedUserId,
         key_id: OwnedDeviceKeyId,
-        signature: Ed25519Signature,
+        signature: impl Into<Signature>,
     ) -> Option<Result<Signature, InvalidSignature>> {
         self.0.entry(signer).or_default().insert(key_id, Ok(signature.into()))
     }
@@ -119,13 +119,7 @@ impl<'de> Deserialize<'de> for Signatures {
                     .into_iter()
                     .map(|(key_id, s)| {
                         let algorithm = key_id.algorithm();
-                        let signature = match algorithm {
-                            DeviceKeyAlgorithm::Ed25519 => Ed25519Signature::from_base64(&s)
-                                .map(|s| s.into())
-                                .map_err(|_| InvalidSignature { source: s }),
-                            _ => Ok(Signature::Other(s)),
-                        };
-
+                        let signature = Signature::from_base64(algorithm, s);
                         Ok((key_id, signature))
                     })
                     .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -171,7 +165,7 @@ impl Serialize for Signatures {
 #[cfg(test)]
 mod test {
     use insta::{assert_json_snapshot, with_settings};
-    use ruma::{device_id, owned_user_id};
+    use ruma::{DeviceKeyAlgorithm, device_id, owned_user_id};
 
     use super::*;
 

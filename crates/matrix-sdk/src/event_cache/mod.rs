@@ -30,21 +30,20 @@
 use std::{
     collections::HashMap,
     fmt,
+    ops::Deref,
     sync::{Arc, OnceLock, RwLock as StdRwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use futures_util::future::try_join_all;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockError,
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock, EventCacheStoreLockState},
+    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
     linked_chunk::lazy_loader::LazyLoaderError,
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
-    timer,
 };
-use ruma::{OwnedRoomId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
-    Mutex, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
+    OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
     mpsc,
 };
@@ -62,23 +61,31 @@ mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
+mod states;
 mod tasks;
 
-use caches::{Caches, room::RoomEventCacheLinkedChunkUpdate};
-pub use caches::{
-    TimelineVectorDiffs,
-    event_focused::EventFocusThreadMode,
-    pagination::{BackPaginationOutcome, PaginationStatus},
-    room::{
-        RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheSubscriber,
-        RoomEventCacheUpdate, pagination::RoomPagination,
-    },
-    thread::pagination::ThreadPagination,
-};
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
-pub use crate::event_cache::automatic_pagination::AutomaticPagination;
+pub use self::{
+    automatic_pagination::AutomaticPagination,
+    caches::{
+        TimelineVectorDiffs,
+        event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
+        pagination::{BackPaginationOutcome, PaginationStatus},
+        pinned_events::PinnedEventsCache,
+        room::{
+            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+            pagination::RoomPagination,
+        },
+        subscriber::Subscriber,
+        thread::{ThreadEventCache, pagination::ThreadPagination},
+    },
+};
+use self::{
+    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},
+    states::StateLock,
+};
 
 /// An error observed in the [`EventCache`].
 #[derive(thiserror::Error, Clone, Debug)]
@@ -90,12 +97,44 @@ pub enum EventCacheError {
     )]
     NotSubscribedYet,
 
-    /// Room is not found.
-    #[error("Room `{room_id}` is not found.")]
+    /// Room cache is not found.
+    #[error("Room cache `{room_id}` is not found.")]
     RoomNotFound {
-        /// The ID of the room not being found.
+        /// The room ID.
         room_id: OwnedRoomId,
     },
+
+    /// Thread cache is not found.
+    #[error("Thread cache `{thread_id}` of room `{room_id}` is not found.")]
+    ThreadNotFound {
+        /// The room ID of the thread.
+        room_id: OwnedRoomId,
+
+        /// The thread root event ID.
+        thread_id: OwnedEventId,
+    },
+
+    /// Pinned-events cache are not found.
+    #[error("Pinned-events cache for room `{room_id}` are not found.")]
+    PinnedEventsNotFound {
+        /// The room ID of the pinned-events.
+        room_id: OwnedRoomId,
+    },
+
+    /// Event-focused cache is not found.
+    #[error("Event-focused cache `{event_focused_id:?}` of room `{room_id}` is not found.")]
+    EventFocusedNotFound {
+        /// The room ID of the thread.
+        room_id: OwnedRoomId,
+
+        /// The thread root event ID.
+        event_focused_id: EventFocusedCacheKey,
+    },
+
+    /// A new cache was inserted at an occupied place, i.e. where an existing
+    /// cache state was present.
+    #[error("The state of a cache is not found")]
+    CacheStateAlreadyExists,
 
     /// An error has been observed while back- or forward- paginating.
     #[error(transparent)]
@@ -217,8 +256,7 @@ impl EventCache {
             inner: Arc::new(EventCacheInner {
                 client: weak_client,
                 config: StdRwLock::new(EventCacheConfig::default()),
-                store: event_cache_store,
-                multiple_room_updates_lock: Default::default(),
+                state: StateLock::new(event_cache_store),
                 by_room: Default::default(),
                 drop_handles: Default::default(),
                 auto_shrink_sender: Default::default(),
@@ -357,7 +395,7 @@ impl EventCache {
     }
 
     /// Return a room-specific view over the [`EventCache`].
-    pub(crate) async fn for_room(
+    pub async fn room(
         &self,
         room_id: &RoomId,
     ) -> Result<(RoomEventCache, Arc<EventCacheDropHandles>)> {
@@ -365,9 +403,62 @@ impl EventCache {
             return Err(EventCacheError::NotSubscribedYet);
         };
 
-        let room = self.inner.all_caches_for_room(room_id).await?.room.clone();
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
-        Ok((room, drop_handles))
+        Ok((caches_for_room.room().clone(), drop_handles))
+    }
+
+    /// Return a thread-specific view over the [`EventCache`].
+    pub async fn thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(ThreadEventCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((caches_for_room.thread(thread_id.to_owned()).await?.deref().clone(), drop_handles))
+    }
+
+    /// Return a pinned-events-specific view over the [`EventCache`].
+    pub async fn pinned_events(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<(PinnedEventsCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
+    }
+
+    /// Return an event-focused view over the [`EventCache`].
+    pub async fn event_focused(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+        thread_mode: EventFocusThreadMode,
+        number_of_initial_events: u16,
+    ) -> Result<(EventFocusedCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((
+            caches_for_room
+                .event_focused(event_id.to_owned(), thread_mode, number_of_initial_events)
+                .await?
+                .deref()
+                .clone(),
+            drop_handles,
+        ))
     }
 
     /// Cleanly clear all the rooms' event caches.
@@ -379,9 +470,9 @@ impl EventCache {
 
     /// Subscribe to room _generic_ updates.
     ///
-    /// If one wants to listen what has changed in a specific room, the
-    /// [`RoomEventCache::subscribe`] is recommended. However, the
-    /// [`RoomEventCacheSubscriber`] type triggers side-effects.
+    /// If one wants to listen what has changed in a specific room for example,
+    /// the [`RoomEventCache::subscribe`] is recommended. However, the
+    /// [`Subscriber`] type triggers side-effects.
     ///
     /// If one wants to get a high-overview, generic, updates for rooms, and
     /// without side-effects, this method is recommended. Also, dropping the
@@ -470,16 +561,9 @@ struct EventCacheInner {
     /// Global configuration for the event cache.
     config: StdRwLock<EventCacheConfig>,
 
-    /// Reference to the underlying store.
-    store: EventCacheStoreLock,
-
-    /// A lock used when many rooms must be updated at once.
-    ///
-    /// [`Mutex`] is “fair”, as it is implemented as a FIFO. It is important to
-    /// ensure that multiple updates will be applied in the correct order, which
-    /// is enforced by taking this lock when handling an update.
-    // TODO: that's the place to add a cross-process lock!
-    multiple_room_updates_lock: Mutex<()>,
+    /// Lock around the state of the Event Cache, containing all the cache
+    /// states.
+    state: StateLock,
 
     /// Lazily-filled cache of live [`RoomEventCache`], once per room.
     //
@@ -497,8 +581,8 @@ struct EventCacheInner {
     /// It's a `OnceLock` because its initialization is deferred to
     /// [`EventCache::subscribe`].
     ///
-    /// See doc comment of [`EventCache::auto_shrink_linked_chunk_task`].
-    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkChannelPayload>>,
+    /// See doc comment of [`tasks::auto_shrink_linked_chunk_task`].
+    auto_shrink_sender: OnceLock<mpsc::Sender<AutoShrinkMessage>>,
 
     /// A sender for room generic update.
     ///
@@ -532,8 +616,6 @@ struct EventCacheInner {
     automatic_pagination: OnceLock<AutomaticPagination>,
 }
 
-type AutoShrinkChannelPayload = OwnedRoomId;
-
 impl EventCacheInner {
     fn client(&self) -> Result<Client> {
         self.client.get().ok_or(EventCacheError::ClientDropped)
@@ -541,63 +623,33 @@ impl EventCacheInner {
 
     /// Clears all the room's data.
     async fn clear_all_rooms(&self) -> Result<()> {
-        // Okay, here's where things get complicated.
+        // Okay, here's where things get delicate.
         //
-        // On the one hand, `by_room` may include storage for *some* rooms that we know
-        // about, but not *all* of them. Any room that hasn't been loaded in the
-        // client, or touched by a sync, will remain unloaded in memory, so it
-        // will be missing from `self.by_room`. As a result, we need to make
-        // sure that we're hitting the storage backend to *really* clear all the
-        // rooms, including those that haven't been loaded yet.
+        // On the one hand, `by_room` may include storage for *some* caches
+        // that we know about, but not *all* of them. Any cache that hasn't been
+        // loaded in the client, or touched by a sync, will remain unloaded in
+        // memory, so it will be missing from `self.by_room`. As a result, we
+        // need to make sure that we're hitting the storage backend to *really*
+        // clear all the caches, including those that haven't been loaded yet.
         //
-        // On the other hand, one must NOT clear the `by_room` map, because if someone
-        // subscribed to a room update, they would never get any new update for
-        // that room, since re-creating the `RoomEventCache` would create a new,
-        // unrelated sender.
+        // On the other hand, one must NOT clear the `by_room` map, because if
+        // someone subscribed to a cache update, they would never get any new
+        // update for that cache, since re-creating the cache would create a
+        // new, unrelated sender.
         //
-        // So we need to *keep* the rooms in `by_room` alive, while clearing them in the
-        // store backend.
+        // So we need to *keep* the caches in `by_room` alive, while clearing
+        // them in the store backend.
         //
-        // As a result, for a short while, the in-memory linked chunks
-        // will be desynchronized from the storage. We need to be careful then. During
-        // that short while, we don't want *anyone* to touch the linked chunk
+        // As a result, for a short while, the in-memory linked chunks will be
+        // desynchronised from the storage. We need to be careful then. During
+        // that short while, we don't want *anyone* to touch the linked chunks
         // (be it in memory or in the storage).
         //
-        // And since that requirement applies to *any* room in `by_room` at the same
-        // time, we'll have to take the locks for *all* the live rooms, so as to
-        // properly clear the underlying storage.
-        //
-        // At this point, you might be scared about the potential for deadlocking. I am
-        // as well, but I'm convinced we're fine:
-        //
-        // 1. the lock for `by_room` is usually held only for a short while, and
-        //    independently of the other two kinds.
-        // 2. the state may acquire the store cross-process lock internally, but only
-        //    while the state's methods are called (so it's always transient). As a
-        //    result, as soon as we've acquired the state locks, the store lock ought to
-        //    be free.
-        // 3. The store lock is held explicitly only in a small scoped area below.
-        // 4. Then the store lock will be held internally when calling `reset_all()`,
-        //    but at this point it's only held for a short while each time, so rooms
-        //    will take turn to acquire it.
+        // And since that requirement applies to *any* cache in `by_room` at the
+        // same time, we'll have to take the lock for *all* the live caches and
+        // for the states, so as to properly clear the underlying storage.
 
-        let mut all_caches = self.by_room.write().await;
-
-        // Prepare to reset all the caches: it ensures nobody is accessing or mutating
-        // them.
-        let resets =
-            try_join_all(all_caches.values_mut().map(|caches| caches.prepare_to_reset())).await?;
-
-        // Clear the storage for all the rooms, using the storage facility.
-        let store_guard = match self.store.lock().await? {
-            EventCacheStoreLockState::Clean(store_guard) => store_guard,
-            EventCacheStoreLockState::Dirty(store_guard) => store_guard,
-        };
-        store_guard.clear_all_linked_chunks().await?;
-
-        // At this point, all the in-memory linked chunks are desynchronized from their
-        // storages. Resynchronize them manually by resetting them.
-        try_join_all(resets.into_iter().map(|reset_cache| reset_cache.reset_all())).await?;
+        self.state.clear_and_reload(self.by_room.write().await).await?;
 
         Ok(())
     }
@@ -605,13 +657,6 @@ impl EventCacheInner {
     /// Handles a single set of room updates at once.
     #[instrument(skip(self, updates))]
     async fn handle_room_updates(&self, updates: RoomUpdates) -> Result<()> {
-        // First, take the lock that indicates we're processing updates, to avoid
-        // handling multiple updates concurrently.
-        let _lock = {
-            let _timer = timer!("Taking the `multiple_room_updates_lock`");
-            self.multiple_room_updates_lock.lock().await
-        };
-
         // NOTE: We tried to make this concurrent at some point, but it turned out to be
         // a performance regression, even for large sync updates. Lacking time
         // to investigate, this code remains sequential for now. See also
@@ -688,7 +733,7 @@ impl EventCacheInner {
                     self.auto_shrink_sender.get().cloned().expect(
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
-                    self.store.clone(),
+                    &self.state,
                     self.automatic_pagination.get().cloned(),
                 )
                 .await?;
@@ -748,7 +793,7 @@ mod tests {
         // If I create a room event subscriber for a room before subscribing the event
         // cache,
         let room_id = room_id!("!omelette:fromage.fr");
-        let result = event_cache.for_room(room_id).await;
+        let result = event_cache.room(room_id).await;
 
         // Then it fails, because one must explicitly call `.subscribe()` on the event
         // cache.
@@ -817,27 +862,6 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_save_event() {
-        let client = logged_in_client(None).await;
-        let room_id = room_id!("!galette:saucisse.bzh");
-
-        let event_cache = client.event_cache();
-        event_cache.subscribe().unwrap();
-
-        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
-        let event_id = event_id!("$1");
-
-        client.base_client().get_or_create_room(room_id, RoomState::Joined);
-        let room = client.get_room(room_id).unwrap();
-
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        room_event_cache.save_events([f.text_msg("hey there").event_id(event_id).into()]).await;
-
-        // Retrieving the event at the room-wide cache works.
-        assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
-    }
-
-    #[async_test]
     async fn test_generic_update_when_loading_rooms() {
         // Create 2 rooms. One of them has data in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
@@ -888,7 +912,7 @@ mod tests {
 
         // Room 0 has initial data, so it must trigger a generic update.
         {
-            let _room_event_cache = event_cache.for_room(room_id_0).await.unwrap();
+            let _room_event_cache = event_cache.room(room_id_0).await.unwrap();
 
             assert_matches!(
                 generic_stream.recv().await,
@@ -900,7 +924,7 @@ mod tests {
 
         // Room 1 has NO initial data, so nothing should happen.
         {
-            let _room_event_cache = event_cache.for_room(room_id_1).await.unwrap();
+            let _room_event_cache = event_cache.room(room_id_1).await.unwrap();
 
             assert!(generic_stream.recv().now_or_never().is_none());
         }
@@ -982,7 +1006,7 @@ mod tests {
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
 
         // Room is initialised, it gets one event in the timeline.
-        let (room_event_cache, _) = event_cache.for_room(room_id).await.unwrap();
+        let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
         assert_matches!(
             generic_stream.recv().await,
@@ -1029,7 +1053,7 @@ mod tests {
 
         // Room doesn't exist. It returns an error.
         assert_matches!(
-            event_cache.for_room(room_id).await,
+            event_cache.room(room_id).await,
             Err(EventCacheError::RoomNotFound { room_id: not_found_room_id }) => {
                 assert_eq!(room_id, not_found_room_id);
             }
@@ -1039,7 +1063,7 @@ mod tests {
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
         // Room exists. Everything fine.
-        assert!(event_cache.for_room(room_id).await.is_ok());
+        assert!(event_cache.room(room_id).await.is_ok());
     }
 
     /// Test that the event cache does not create reference cycles or tasks that

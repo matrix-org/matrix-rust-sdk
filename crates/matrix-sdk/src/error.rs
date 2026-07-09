@@ -22,7 +22,8 @@ use http::StatusCode;
 use matrix_sdk_base::crypto::ScanError;
 #[cfg(feature = "e2e-encryption")]
 use matrix_sdk_base::crypto::{
-    CryptoStoreError, DecryptorError, KeyExportError, MegolmError, OlmError,
+    BootstrapCrossSigningError, CryptoStoreError, DecryptorError, KeyExportError, MegolmError,
+    OlmError, SignatureError,
 };
 use matrix_sdk_base::{
     Error as SdkBaseError, QueueWedgeError, RoomState, StoreError,
@@ -39,8 +40,6 @@ use ruma::{
     events::{room::power_levels::PowerLevelsError, tag::InvalidUserTagName},
     push::{InsertPushRuleError, RemovePushRuleError},
 };
-#[cfg(target_os = "android")]
-use rustls::client::VerifierBuilderError;
 use serde_json::Error as JsonError;
 use thiserror::Error;
 use url::ParseError as UrlParseError;
@@ -89,11 +88,6 @@ pub enum HttpError {
     /// [`HttpError`] into an [`Arc`] to be able to clone it.
     #[error(transparent)]
     Cached(Arc<HttpError>),
-
-    /// Error creating the TLS verifier.
-    #[cfg(target_os = "android")]
-    #[error(transparent)]
-    VerifierBuilder(#[from] VerifierBuilderError),
 }
 
 #[rustfmt::skip] // stop rustfmt breaking the `<code>` in docs across multiple lines
@@ -308,6 +302,11 @@ pub enum Error {
     #[cfg(feature = "e2e-encryption")]
     #[error(transparent)]
     DecryptorError(#[from] DecryptorError),
+
+    /// An error occurred during signing or verifying.
+    #[cfg(feature = "e2e-encryption")]
+    #[error(transparent)]
+    SignatureError(#[from] SignatureError),
 
     /// An error occurred in the state store.
     #[error(transparent)]
@@ -530,6 +529,16 @@ impl From<EventCacheError> for Error {
 impl From<QueueWedgeError> for Error {
     fn from(error: QueueWedgeError) -> Self {
         Error::SendQueueWedgeError(Box::new(error))
+    }
+}
+
+#[cfg(feature = "e2e-encryption")]
+impl From<BootstrapCrossSigningError> for Error {
+    fn from(error: BootstrapCrossSigningError) -> Self {
+        match error {
+            BootstrapCrossSigningError::CryptoStore(e) => e.into(),
+            BootstrapCrossSigningError::Signature(e) => e.into(),
+        }
     }
 }
 

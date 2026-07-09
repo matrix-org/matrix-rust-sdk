@@ -92,156 +92,20 @@ macro_rules! assert_items_eq {
 }
 
 mod as_vector;
+mod identifiers;
 pub mod lazy_loader;
 mod order_tracker;
 pub mod relational;
 mod updates;
 
 use std::{
-    fmt::{self, Display},
+    fmt::{self},
     marker::PhantomData,
     ptr::NonNull,
     sync::atomic::{self, AtomicU64},
 };
 
-pub use as_vector::*;
-pub use order_tracker::OrderTracker;
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
-use serde::{Deserialize, Serialize};
-pub use updates::*;
-
-/// An identifier for a linked chunk; borrowed variant.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum LinkedChunkId<'a> {
-    /// A room's unthreaded timeline.
-    Room(&'a RoomId),
-    /// A room's thread.
-    Thread(&'a RoomId, &'a EventId),
-    /// A room's list of pinned events.
-    PinnedEvents(&'a RoomId),
-    /// An event-focused timeline (e.g., for permalinks).
-    EventFocused(&'a RoomId, &'a EventId),
-}
-
-impl Display for LinkedChunkId<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Room(room_id) => write!(f, "{room_id}"),
-            Self::Thread(room_id, thread_root) => {
-                write!(f, "{room_id}:thread:{thread_root}")
-            }
-            Self::PinnedEvents(room_id) => {
-                write!(f, "{room_id}:pinned")
-            }
-            Self::EventFocused(room_id, event_id) => {
-                write!(f, "{room_id}:event_focused:{event_id}")
-            }
-        }
-    }
-}
-
-impl LinkedChunkId<'_> {
-    pub fn storage_key(&self) -> impl '_ + AsRef<[u8]> {
-        match self {
-            LinkedChunkId::Room(room_id) => room_id.to_string(),
-            LinkedChunkId::Thread(room_id, event_id) => format!("t:{room_id}:{event_id}"),
-            LinkedChunkId::PinnedEvents(room_id) => format!("pinned:{room_id}"),
-            LinkedChunkId::EventFocused(room_id, event_id) => {
-                format!("event_focused:{room_id}:{event_id}")
-            }
-        }
-    }
-
-    pub fn to_owned(&self) -> OwnedLinkedChunkId {
-        match self {
-            LinkedChunkId::Room(room_id) => OwnedLinkedChunkId::Room((*room_id).to_owned()),
-            LinkedChunkId::Thread(room_id, event_id) => {
-                OwnedLinkedChunkId::Thread((*room_id).to_owned(), (*event_id).to_owned())
-            }
-            LinkedChunkId::PinnedEvents(room_id) => {
-                OwnedLinkedChunkId::PinnedEvents((*room_id).to_owned())
-            }
-            LinkedChunkId::EventFocused(room_id, event_id) => {
-                OwnedLinkedChunkId::EventFocused((*room_id).to_owned(), (*event_id).to_owned())
-            }
-        }
-    }
-}
-
-impl<'a> From<&'a OwnedLinkedChunkId> for LinkedChunkId<'a> {
-    fn from(value: &'a OwnedLinkedChunkId) -> Self {
-        value.as_ref()
-    }
-}
-
-impl PartialEq<&OwnedLinkedChunkId> for LinkedChunkId<'_> {
-    fn eq(&self, other: &&OwnedLinkedChunkId) -> bool {
-        match (self, other) {
-            (LinkedChunkId::Room(a), OwnedLinkedChunkId::Room(b)) => *a == b,
-            (LinkedChunkId::PinnedEvents(a), OwnedLinkedChunkId::PinnedEvents(b)) => *a == b,
-            (LinkedChunkId::Thread(r, ev), OwnedLinkedChunkId::Thread(r2, ev2)) => {
-                r == r2 && ev == ev2
-            }
-            (LinkedChunkId::EventFocused(r, ev), OwnedLinkedChunkId::EventFocused(r2, ev2)) => {
-                r == r2 && ev == ev2
-            }
-            _ => false,
-        }
-    }
-}
-
-impl PartialEq<LinkedChunkId<'_>> for OwnedLinkedChunkId {
-    fn eq(&self, other: &LinkedChunkId<'_>) -> bool {
-        other.eq(&self)
-    }
-}
-
-/// An identifier for a linked chunk; owned variant.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum OwnedLinkedChunkId {
-    Room(OwnedRoomId),
-    Thread(OwnedRoomId, OwnedEventId),
-    PinnedEvents(OwnedRoomId),
-    EventFocused(OwnedRoomId, OwnedEventId),
-}
-
-impl Display for OwnedLinkedChunkId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.as_ref().fmt(f)
-    }
-}
-
-impl OwnedLinkedChunkId {
-    pub fn as_ref(&self) -> LinkedChunkId<'_> {
-        match self {
-            OwnedLinkedChunkId::Room(room_id) => LinkedChunkId::Room(room_id.as_ref()),
-            OwnedLinkedChunkId::Thread(room_id, event_id) => {
-                LinkedChunkId::Thread(room_id.as_ref(), event_id.as_ref())
-            }
-            OwnedLinkedChunkId::PinnedEvents(room_id) => {
-                LinkedChunkId::PinnedEvents(room_id.as_ref())
-            }
-            OwnedLinkedChunkId::EventFocused(room_id, event_id) => {
-                LinkedChunkId::EventFocused(room_id.as_ref(), event_id.as_ref())
-            }
-        }
-    }
-
-    pub fn room_id(&self) -> &RoomId {
-        match self {
-            OwnedLinkedChunkId::Room(room_id)
-            | OwnedLinkedChunkId::Thread(room_id, ..)
-            | OwnedLinkedChunkId::PinnedEvents(room_id, ..)
-            | OwnedLinkedChunkId::EventFocused(room_id, ..) => room_id,
-        }
-    }
-}
-
-impl From<LinkedChunkId<'_>> for OwnedLinkedChunkId {
-    fn from(value: LinkedChunkId<'_>) -> Self {
-        value.to_owned()
-    }
-}
+pub use self::{as_vector::*, identifiers::*, order_tracker::OrderTracker, updates::*};
 
 /// Errors of [`LinkedChunk`].
 #[derive(thiserror::Error, Debug)]
@@ -348,9 +212,10 @@ impl<const CAP: usize, Item, Gap> Ends<CAP, Item, Gap> {
     /// Drop all the chunks, leaving the chunk in an uninitialized state,
     /// because `Self::first` is a dangling pointer.
     ///
-    /// SAFETY: the caller is responsible of ensuring that this is the last use
-    /// of the linked chunk, or that first will be re-initialized before any
-    /// other use.
+    /// # Safety
+    ///
+    /// The caller is responsible of ensuring that this is the last use of the
+    /// linked chunk, or that first will be re-initialized before any other use.
     unsafe fn clear(&mut self) {
         // Loop over all chunks, from the last to the first chunk, and drop them.
         // Take the latest chunk.
@@ -1108,6 +973,11 @@ impl<const CAP: usize, Item, Gap> LinkedChunk<CAP, Item, Gap> {
             })
             .flatten()
             .skip(position.index()))
+    }
+
+    /// Return the first chunk.
+    pub fn first_chunk(&self) -> &Chunk<CAP, Item, Gap> {
+        self.links.first_chunk()
     }
 
     /// Get a mutable reference to the `LinkedChunk` updates, aka
