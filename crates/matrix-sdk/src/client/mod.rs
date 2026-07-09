@@ -3627,13 +3627,13 @@ impl Client {
     }
 
     /// Force a refresh of all the cached discovery data (supported versions,
-    /// well-known info, homeserver capabilities, and OAuth 2.0 server metadata),
-    /// ignoring whether the existing cache is still fresh.
+    /// well-known info, homeserver capabilities, and OAuth 2.0 server
+    /// metadata), ignoring whether the existing cache is still fresh.
     ///
-    /// If refreshing the well-known info fails, or if the server doesn't support OAuth 2.0 server metadata, it is silently ignored.
-    /// All other refresh
-    /// failures are returned as an error, and any remaining refreshes that
-    /// haven't run yet are skipped.
+    /// If refreshing the well-known info fails, or if the server doesn't
+    /// support OAuth 2.0 server metadata, it is silently ignored. All other
+    /// refresh failures are returned as an error, and any remaining
+    /// refreshes that haven't run yet are skipped.
     pub async fn rediscover(&self) -> Result<(), Error> {
         self.refresh_supported_versions_cache(false).await?;
         self.refresh_well_known_cache().await;
@@ -3740,7 +3740,11 @@ pub(crate) mod tests {
         RoomId, ServerName, UserId,
         api::{
             FeatureFlag, MatrixVersion,
-            client::{room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport},
+            client::{
+                discovery::get_capabilities::v3::Capabilities,
+                room::create_room::v3::Request as CreateRoomRequest,
+                rtc::RtcTransport,
+            },
         },
         assign,
         events::{
@@ -3972,7 +3976,7 @@ pub(crate) mod tests {
         server.mock_versions().ok().mock_once().named("versions").mount().await;
         server
             .mock_get_homeserver_capabilities()
-            .ok()
+            .ok_with_capabilities(Capabilities::default())
             .mock_once()
             .named("capabilities")
             .mount()
