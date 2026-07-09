@@ -3630,8 +3630,8 @@ impl Client {
     /// well-known info, homeserver capabilities, and OAuth 2.0 server
     /// metadata), ignoring whether the existing cache is still fresh.
     ///
-    /// If refreshing the well-known info fails, or if the server doesn't
-    /// support OAuth 2.0 server metadata, it is silently ignored. All other
+    /// If refreshing the well-known info fails, or if the OAuth 2.0 server
+    /// metadata request fails for any reason, it is silently ignored.
     /// refresh failures are returned as an error, and any remaining
     /// refreshes that haven't run yet are skipped.
     pub async fn rediscover(&self) -> Result<(), Error> {
@@ -3639,9 +3639,7 @@ impl Client {
         self.refresh_well_known_cache().await;
         self.homeserver_capabilities().refresh().await?;
         match self.oauth().server_metadata().await {
-            Ok(_) => {}
-            Err(OAuthDiscoveryError::NotSupported) => {}
-            Err(e) => return Err(Error::from(OAuthError::Discovery(e))),
+            Ok(_) | Err(_) => {}
         }
         Ok(())
     }
