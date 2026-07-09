@@ -76,10 +76,48 @@ const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
 /// database.
 const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 
+/// Type to support (de)encryption of keys and values for the
+/// [`SqliteEventCacheStore`].
+///
+/// See the [`SqliteEventCacheStore::encryption`] field.
+struct Encryption {
+    cipher: Option<StoreCipher>,
+}
+
+impl Encryption {
+    fn encode_event(&self, event: &TimelineEvent) -> Result<EncodedEvent> {
+        let serialized = serde_json::to_vec(event)?;
+
+        // Extract the relationship info here.
+        let raw_event = event.raw();
+        let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
+
+        // The content may be encrypted.
+        let content = self.encode_value(serialized)?;
+
+        Ok(EncodedEvent {
+            content,
+            rel_type,
+            relates_to: relates_to.map(|relates_to| relates_to.to_string()),
+        })
+    }
+
+    fn decode_event(&self, raw_encoded_event: &[u8]) -> Result<Event> {
+        Ok(serde_json::from_slice(&self.decode_value(raw_encoded_event)?)?)
+    }
+}
+
+impl EncryptableStore for Encryption {
+    fn get_cypher(&self) -> Option<&StoreCipher> {
+        self.cipher.as_ref()
+    }
+}
+
 /// An SQLite-based event cache store.
 #[derive(Clone)]
 pub struct SqliteEventCacheStore {
-    store_cipher: Option<Arc<StoreCipher>>,
+    /// Type to encrypt keys and values.
+    encryption: Arc<Encryption>,
 
     /// `Some` when active, `None` when closed.
     connections: Arc<Mutex<Option<SqliteConnections>>>,
@@ -98,12 +136,6 @@ pub struct SqliteEventCacheStore {
 impl fmt::Debug for SqliteEventCacheStore {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SqliteEventCacheStore").finish_non_exhaustive()
-    }
-}
-
-impl EncryptableStore for SqliteEventCacheStore {
-    fn get_cypher(&self) -> Option<&StoreCipher> {
-        self.store_cipher.as_deref()
     }
 }
 
@@ -168,8 +200,8 @@ impl SqliteEventCacheStore {
 
         conn.wal_checkpoint().await;
 
-        let store_cipher = match secret {
-            Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
+        let cipher = match secret {
+            Some(s) => Some(conn.get_or_create_store_cipher(s).await?),
             None => None,
         };
 
@@ -180,7 +212,7 @@ impl SqliteEventCacheStore {
         };
 
         Ok(Self {
-            store_cipher,
+            encryption: Arc::new(Encryption { cipher }),
             connections: Arc::new(Mutex::new(Some(connections))),
             db_path,
             pool_config,
@@ -239,23 +271,6 @@ impl SqliteEventCacheStore {
         ))
     }
 
-    fn encode_event(&self, event: &TimelineEvent) -> Result<EncodedEvent> {
-        let serialized = serde_json::to_vec(event)?;
-
-        // Extract the relationship info here.
-        let raw_event = event.raw();
-        let (relates_to, rel_type) = extract_event_relation(raw_event).unzip();
-
-        // The content may be encrypted.
-        let content = self.encode_value(serialized)?;
-
-        Ok(EncodedEvent {
-            content,
-            rel_type,
-            relates_to: relates_to.map(|relates_to| relates_to.to_string()),
-        })
-    }
-
     pub async fn vacuum(&self) -> Result<()> {
         let write_connection = {
             let guard = self.connections.lock().await;
@@ -307,7 +322,7 @@ struct EncodedEvent {
 trait TransactionExtForLinkedChunks {
     fn rebuild_chunk(
         &self,
-        store: &SqliteEventCacheStore,
+        encryption: &Encryption,
         linked_chunk_id: &Key,
         previous: Option<u64>,
         index: u64,
@@ -317,14 +332,14 @@ trait TransactionExtForLinkedChunks {
 
     fn load_gap_content(
         &self,
-        store: &SqliteEventCacheStore,
+        encryption: &Encryption,
         linked_chunk_id: &Key,
         chunk_id: ChunkIdentifier,
     ) -> Result<Gap>;
 
     fn load_events_content(
         &self,
-        store: &SqliteEventCacheStore,
+        encryption: &Encryption,
         linked_chunk_id: &Key,
         chunk_id: ChunkIdentifier,
     ) -> Result<Vec<Event>>;
@@ -333,7 +348,7 @@ trait TransactionExtForLinkedChunks {
 impl TransactionExtForLinkedChunks for Transaction<'_> {
     fn rebuild_chunk(
         &self,
-        store: &SqliteEventCacheStore,
+        encryption: &Encryption,
         linked_chunk_id: &Key,
         previous: Option<u64>,
         id: u64,
@@ -347,13 +362,13 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         match chunk_type {
             CHUNK_TYPE_GAP_TYPE_STRING => {
                 // It's a gap!
-                let gap = self.load_gap_content(store, linked_chunk_id, id)?;
+                let gap = self.load_gap_content(encryption, linked_chunk_id, id)?;
                 Ok(RawChunk { content: ChunkContent::Gap(gap), previous, identifier: id, next })
             }
 
             CHUNK_TYPE_EVENT_TYPE_STRING => {
                 // It's events!
-                let events = self.load_events_content(store, linked_chunk_id, id)?;
+                let events = self.load_events_content(encryption, linked_chunk_id, id)?;
                 Ok(RawChunk {
                     content: ChunkContent::Items(events),
                     previous,
@@ -373,7 +388,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 
     fn load_gap_content(
         &self,
-        store: &SqliteEventCacheStore,
+        encryption: &Encryption,
         linked_chunk_id: &Key,
         chunk_id: ChunkIdentifier,
     ) -> Result<Gap> {
@@ -384,14 +399,14 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
             (chunk_id.index(), &linked_chunk_id),
             |row| row.get(0),
         )?;
-        let prev_token_bytes = store.decode_value(&encoded_prev_token)?;
+        let prev_token_bytes = encryption.decode_value(&encoded_prev_token)?;
         let prev_token = String::from_utf8(prev_token_bytes.into_owned())?;
         Ok(Gap { token: prev_token })
     }
 
     fn load_events_content(
         &self,
-        store: &SqliteEventCacheStore,
+        encryption: &Encryption,
         linked_chunk_id: &Key,
         chunk_id: ChunkIdentifier,
     ) -> Result<Vec<Event>> {
@@ -409,11 +424,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
             )?
             .query_map((chunk_id.index(), &linked_chunk_id), |row| row.get::<_, Vec<u8>>(0))?
         {
-            let encoded_content = event_data?;
-            let serialized_content = store.decode_value(&encoded_content)?;
-            let event = serde_json::from_slice(&serialized_content)?;
-
-            events.push(event);
+            events.push(encryption.decode_event(&event_data?)?);
         }
 
         Ok(events)
@@ -642,9 +653,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         // Use a single transaction throughout this function, so that either all updates
         // work, or none is taken into account.
         let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
         let linked_chunk_id = linked_chunk_id.to_owned();
-        let this = self.clone();
+        let encryption = self.encryption.clone();
 
         with_immediate_transaction(self, move |txn| {
             for up in updates {
@@ -670,7 +681,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::NewGapChunk { previous, new, next, gap } => {
-                        let hashed_prev_token = this.encode_value(gap.token)?;
+                        let hashed_prev_token = encryption.encode_value(gap.token)?;
 
                         let previous = previous.as_ref().map(ChunkIdentifier::index);
                         let new = new.index();
@@ -765,18 +776,18 @@ impl EventCacheStore for SqliteEventCacheStore {
                         };
 
                         let room_id = linked_chunk_id.room_id();
-                        let hashed_room_id = this.encode_key(keys::LINKED_CHUNKS, room_id);
+                        let hashed_room_id = encryption.encode_key(keys::LINKED_CHUNKS, room_id);
 
                         for (i, (event_id, event_type, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
                             // Insert the location information into the database.
                             let index = at.index() + i;
                             chunk_statement.execute((chunk_id, &hashed_linked_chunk_id, &event_id, index))?;
 
-                            let session_id = event.kind.session_id().map(|s| this.encode_key(keys::EVENTS, s));
-                            let event_type = this.encode_key(keys::EVENTS, event_type);
+                            let session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
+                            let event_type = encryption.encode_key(keys::EVENTS, event_type);
 
                             // Now, insert the event content into the database.
-                            let encoded_event = this.encode_event(&event)?;
+                            let encoded_event = encryption.encode_event(&event)?;
                             content_statement.execute((&hashed_room_id, event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
                         }
                     }
@@ -799,15 +810,15 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
-                        let session_id = event.kind.session_id().map(|s| this.encode_key(keys::EVENTS, s));
-                        let event_type = this.encode_key(keys::EVENTS, event_type);
+                        let session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
+                        let event_type = encryption.encode_key(keys::EVENTS, event_type);
 
                         // Replace the event's content. Really we'd like to update, but in case the
                         // event id changed, we are a bit lenient here and will allow an insertion
                         // of the new event.
-                        let encoded_event = this.encode_event(&event)?;
+                        let encoded_event = encryption.encode_event(&event)?;
                         let room_id = linked_chunk_id.room_id();
-                        let hashed_room_id = this.encode_key(keys::LINKED_CHUNKS, room_id);
+                        let hashed_room_id = encryption.encode_key(keys::LINKED_CHUNKS, room_id);
                         txn.execute(
                             "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
                             (&hashed_room_id, &event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
@@ -985,9 +996,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
-        let this = self.clone();
+        let encryption = self.encryption.clone();
 
         let result = self
             .read()
@@ -1004,7 +1015,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                 {
                     let (id, previous, next, chunk_type) = data?;
                     let new = txn.rebuild_chunk(
-                        &this,
+                        &encryption,
                         &hashed_linked_chunk_id,
                         previous,
                         id,
@@ -1029,7 +1040,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
         self.read()
             .await?
@@ -1127,9 +1138,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
-        let this = self.clone();
+        let encryption = self.encryption.clone();
 
         self
             .read()
@@ -1201,7 +1212,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 // Build the chunk.
                 let last_chunk = txn.rebuild_chunk(
-                    &this,
+                    &encryption,
                     &hashed_linked_chunk_id,
                     previous_chunk,
                     chunk_identifier,
@@ -1223,9 +1234,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
 
-        let this = self.clone();
+        let encryption = self.encryption.clone();
 
         self
             .read()
@@ -1255,7 +1266,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 // Build the chunk.
                 let last_chunk = txn.rebuild_chunk(
-                    &this,
+                    &encryption,
                     &hashed_linked_chunk_id,
                     previous_chunk,
                     chunk_identifier,
@@ -1302,8 +1313,10 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         // Select all events that exist in the store, i.e. the duplicates.
         let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
         let linked_chunk_id = linked_chunk_id.to_owned();
+
+        let encryption = self.encryption.clone();
 
         self.read()
             .await?
@@ -1376,9 +1389,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let event_id = event_id.to_owned();
-        let this = self.clone();
+        let encryption = self.encryption.clone();
 
-        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
 
         self.read()
             .await?
@@ -1392,9 +1405,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     return Ok(None);
                 };
 
-                let event = serde_json::from_slice(&this.decode_value(&event)?)?;
-
-                Ok(Some(event))
+                Ok(Some(encryption.decode_event(&event)?))
             })
             .await
     }
@@ -1408,20 +1419,21 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let _timer = timer!("method");
 
-        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
 
-        let hashed_linked_chunk_id =
-            self.encode_key(keys::LINKED_CHUNKS, LinkedChunkId::Room(room_id).storage_key());
+        let hashed_linked_chunk_id = self
+            .encryption
+            .encode_key(keys::LINKED_CHUNKS, LinkedChunkId::Room(room_id).storage_key());
 
         let event_id = event_id.to_owned();
         let filters = filters.map(ToOwned::to_owned);
-        let store = self.clone();
+        let encryption = self.encryption.clone();
 
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 find_event_relations_transaction(
-                    store,
+                    &encryption,
                     hashed_room_id,
                     hashed_linked_chunk_id,
                     event_id,
@@ -1441,11 +1453,11 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<Vec<Event>, Self::Error> {
         let _timer = timer!("method");
 
-        let this = self.clone();
+        let encryption = self.encryption.clone();
 
-        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
-        let hashed_event_type = event_type.map(|e| self.encode_key(keys::EVENTS, e));
-        let hashed_session_id = session_id.map(|s| self.encode_key(keys::EVENTS, s));
+        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_event_type = event_type.map(|e| self.encryption.encode_key(keys::EVENTS, e));
+        let hashed_session_id = session_id.map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
         self.read()
             .await?
@@ -1473,15 +1485,13 @@ impl EventCacheStore for SqliteEventCacheStore {
                 };
 
                 let mut statement = txn.prepare(query)?;
-                let maybe_events = statement.query_map(keys, |row| row.get::<_, Vec<u8>>(0))?;
 
-                let mut events = Vec::new();
-                for ev in maybe_events {
-                    let event = serde_json::from_slice(&this.decode_value(&ev?)?)?;
-                    events.push(event);
-                }
-
-                Ok(events)
+                statement
+                    .query_map(keys, |row| row.get::<_, Vec<u8>>(0))?
+                    .map(|maybe_encoded_event| {
+                        encryption.decode_event(&maybe_encoded_event?)
+                    })
+                    .collect::<Result<Vec<_>>>()
             })
             .await
     }
@@ -1500,12 +1510,13 @@ impl EventCacheStore for SqliteEventCacheStore {
             return Ok(());
         };
 
-        let event_type = self.encode_key(keys::EVENTS, event_type);
-        let session_id = event.kind.session_id().map(|s| self.encode_key(keys::EVENTS, s));
+        let event_type = self.encryption.encode_key(keys::EVENTS, event_type);
+        let session_id =
+            event.kind.session_id().map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
-        let hashed_room_id = self.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
         let event_id = event_id.to_string();
-        let encoded_event = self.encode_event(&event)?;
+        let encoded_event = self.encryption.encode_event(&event)?;
 
         self.write()
             .await?
@@ -1537,7 +1548,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 }
 
 fn find_event_relations_transaction(
-    store: SqliteEventCacheStore,
+    encryption: &Encryption,
     hashed_room_id: Key,
     hashed_linked_chunk_id: Key,
     event_id: OwnedEventId,
@@ -1559,7 +1570,7 @@ fn find_event_relations_transaction(
         for result in transaction {
             let (event_blob, chunk_id, index): (Vec<u8>, Option<u64>, _) = result?;
 
-            let event: Event = serde_json::from_slice(&store.decode_value(&event_blob)?)?;
+            let event = encryption.decode_event(&event_blob)?;
 
             // Only build the position if both the chunk_id and position were present; in
             // theory, they should either be present at the same time, or not at all.
@@ -1829,7 +1840,7 @@ mod tests {
             .with_transaction(move |txn| {
                 txn.query_row(
                     "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND linked_chunk_id = ? AND position IN (2, 3, 4)",
-                    (store.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key()),),
+                    (store.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key()),),
                     |row| row.get(0),
                 )
             })
