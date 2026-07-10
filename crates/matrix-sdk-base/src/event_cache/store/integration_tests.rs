@@ -1511,7 +1511,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Now let's find the event.
         let event = self
-            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .find_event(room_id, event_comte.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
@@ -1520,7 +1520,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Now let's try to find an event that exists, but not in the expected room.
         assert!(
-            self.find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+            self.find_event(room_id, event_gruyere.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
@@ -1529,7 +1529,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // Clearing the rooms also clears the event's storage.
         self.clear_all_events().await.expect("failed to clear all rooms chunks");
         assert!(
-            self.find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            self.find_event(room_id, event_comte.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
@@ -2042,14 +2042,14 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // Events can be found, when searched in their own rooms.
         let event = self
-            .find_event(room_id, event_comte.event_id().unwrap().as_ref())
+            .find_event(room_id, event_comte.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
         assert_eq!(event.event_id(), event_comte.event_id());
 
         let event = self
-            .find_event(another_room_id, event_gruyere.event_id().unwrap().as_ref())
+            .find_event(another_room_id, event_gruyere.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find an event");
@@ -2057,13 +2057,13 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         // But they won't be returned when searching in the wrong room.
         assert!(
-            self.find_event(another_room_id, event_comte.event_id().unwrap().as_ref())
+            self.find_event(another_room_id, event_comte.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
         );
         assert!(
-            self.find_event(room_id, event_gruyere.event_id().unwrap().as_ref())
+            self.find_event(room_id, event_gruyere.event_id().unwrap())
                 .await
                 .expect("failed to query for finding an event")
                 .is_none()
@@ -2186,22 +2186,22 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // All the events can be found with `find_event()` for the room.
-        self.find_event(room_id, thread2_ev.event_id().unwrap().as_ref())
+        self.find_event(room_id, thread2_ev.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find thread1_ev");
 
-        self.find_event(room_id, thread2_ev.event_id().unwrap().as_ref())
+        self.find_event(room_id, thread2_ev.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find thread2_ev");
 
-        self.find_event(room_id, thread2_ev2.event_id().unwrap().as_ref())
+        self.find_event(room_id, thread2_ev2.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find thread2_ev2");
 
-        self.find_event(room_id, room_ev.event_id().unwrap().as_ref())
+        self.find_event(room_id, room_ev.event_id().unwrap())
             .await
             .expect("failed to query for finding an event")
             .expect("failed to find room_ev");

@@ -415,12 +415,10 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 
         for event_data in self
             .prepare(
-                r#"
-                    SELECT events.content
-                    FROM event_chunks ec, events
-                    WHERE events.event_id = ec.event_id AND ec.chunk_id = ? AND ec.linked_chunk_id = ?
-                    ORDER BY ec.position ASC
-                "#,
+                "SELECT events.content \
+                    FROM event_chunks ec, events \
+                    WHERE events.event_id = ec.event_id AND ec.chunk_id = ? AND ec.linked_chunk_id = ? \
+                    ORDER BY ec.position ASC",
             )?
             .query_map((chunk_id.index(), &linked_chunk_id), |row| row.get::<_, Vec<u8>>(0))?
         {
@@ -615,23 +613,22 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await?
             .with_transaction(move |txn| {
                 txn.query_row(
-                    "INSERT INTO lease_locks (key, holder, expiration)
-                    VALUES (?1, ?2, ?3)
-                    ON CONFLICT (key)
-                    DO
-                        UPDATE SET
-                            holder = excluded.holder,
-                            expiration = excluded.expiration,
-                            generation =
-                                CASE holder
-                                    WHEN excluded.holder THEN generation
-                                    ELSE generation + 1
-                                END
-                        WHERE
-                            holder = excluded.holder
-                            OR expiration < ?4
-                    RETURNING generation
-                    ",
+                    "INSERT INTO lease_locks (key, holder, expiration) \
+                    VALUES (?1, ?2, ?3) \
+                    ON CONFLICT (key) \
+                    DO \
+                        UPDATE SET \
+                            holder = excluded.holder, \
+                            expiration = excluded.expiration, \
+                            generation = \
+                                CASE holder \
+                                    WHEN excluded.holder THEN generation \
+                                    ELSE generation + 1 \
+                                END \
+                        WHERE \
+                            holder = excluded.holder \
+                            OR expiration < ?4 \
+                    RETURNING generation",
                     (key, holder, expiration, now),
                     |row| row.get(0),
                 )
@@ -650,16 +647,16 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
-        // Use a single transaction throughout this function, so that either all updates
-        // work, or none is taken into account.
         let hashed_linked_chunk_id =
             self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
         let linked_chunk_id = linked_chunk_id.to_owned();
         let encryption = self.encryption.clone();
 
+        // Use a single transaction throughout this function, so that either all updates
+        // work, or none is taken into account.
         with_immediate_transaction(self, move |txn| {
-            for up in updates {
-                match up {
+            for update in updates {
+                match update {
                     Update::NewItemsChunk { previous, new, next } => {
                         let previous = previous.as_ref().map(ChunkIdentifier::index);
                         let new = new.index();
@@ -953,6 +950,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                             "#,
                             (&hashed_linked_chunk_id, chunk_id)
                         )?;
+
+                        // We don't remove the events from `events` purposely
+                        // because they can be used by another `LinkedChunkId`.
                     }
 
                     Update::DetachLastItems { at } => {
@@ -963,6 +963,9 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         // Remove these entries.
                         txn.execute("DELETE FROM event_chunks WHERE linked_chunk_id = ? AND chunk_id = ? AND position >= ?", (&hashed_linked_chunk_id, chunk_id, index))?;
+
+                        // We don't remove the events from `events` purposely
+                        // because they can be used by another `LinkedChunkId`.
                     }
 
                     Update::Clear => {
@@ -973,6 +976,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                             "DELETE FROM linked_chunks WHERE linked_chunk_id = ?",
                             (&hashed_linked_chunk_id,),
                         )?;
+
+                        // We don't remove the events from `events` purposely
+                        // because they can be used by another `LinkedChunkId`.
                     }
 
                     Update::StartReattachItems | Update::EndReattachItems => {
@@ -1073,12 +1079,10 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                 let num_events_by_chunk_ids = txn
                     .prepare(
-                        r#"
-                            SELECT ec.chunk_id, COUNT(ec.event_id)
-                            FROM event_chunks as ec
-                            WHERE ec.linked_chunk_id = ?
-                            GROUP BY ec.chunk_id
-                        "#,
+                        "SELECT ec.chunk_id, COUNT(ec.event_id) \
+                        FROM event_chunks as ec \
+                        WHERE ec.linked_chunk_id = ? \
+                        GROUP BY ec.chunk_id",
                     )?
                     .query_map((&hashed_linked_chunk_id,), |row| {
                         Ok((row.get::<_, u64>(0)?, row.get::<_, usize>(1)?))
@@ -1086,15 +1090,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                     .collect::<Result<HashMap<_, _>, _>>()?;
 
                 txn.prepare(
-                    r#"
-                        SELECT
-                            lc.id,
-                            lc.previous,
-                            lc.next,
-                            lc.type
-                        FROM linked_chunks as lc
-                        WHERE lc.linked_chunk_id = ?
-                        ORDER BY lc.id"#,
+                    "SELECT \
+                        lc.id, \
+                        lc.previous, \
+                        lc.next, \
+                        lc.type \
+                    FROM linked_chunks as lc \
+                    WHERE lc.linked_chunk_id = ? \
+                    ORDER BY lc.id",
                 )?
                 .query_map((&hashed_linked_chunk_id,), |row| {
                     Ok((
@@ -1288,7 +1291,8 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| {
                 // Remove all the chunks, and let cascading do its job.
                 txn.execute("DELETE FROM linked_chunks", ())?;
-                // Also clear all the events' contents.
+
+                // Also clear all the events' contents, and let cascading do its job.
                 txn.execute("DELETE FROM events", ())
             })
             .await?;
@@ -1568,9 +1572,8 @@ fn find_event_relations_transaction(
         let mut related = Vec::new();
 
         for result in transaction {
-            let (event_blob, chunk_id, index): (Vec<u8>, Option<u64>, _) = result?;
-
-            let event = encryption.decode_event(&event_blob)?;
+            let (event, chunk_id, index): (Vec<u8>, Option<u64>, _) = result?;
+            let event = encryption.decode_event(&event)?;
 
             // Only build the position if both the chunk_id and position were present; in
             // theory, they should either be present at the same time, or not at all.
@@ -1584,13 +1587,15 @@ fn find_event_relations_transaction(
         Ok(related)
     };
 
-    if let Some(filters) = filters {
-        let question_marks = repeat_vars(filters.len());
+    if let Some(filters) = filters
+        && filters.is_empty().not()
+    {
         let query = format!(
-            "SELECT events.content, event_chunks.chunk_id, event_chunks.position
-            FROM events
-            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
-            WHERE relates_to = ? AND room_id = ? AND rel_type IN ({question_marks})"
+            "SELECT events.content, event_chunks.chunk_id, event_chunks.position \
+            FROM events \
+            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ? \
+            WHERE events.relates_to = ? AND events.room_id = ? AND events.rel_type IN ({})",
+            repeat_vars(filters.len())
         );
 
         // First the filters need to be stringified; because `.to_sql()` will borrow
