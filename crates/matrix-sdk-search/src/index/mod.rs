@@ -452,6 +452,40 @@ mod tests {
     }
 
     #[test]
+    fn test_bulk_execute_indexes_all_events() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+
+        let event_id_1 = event_id!("$event_id_1:localhost");
+        let event_id_2 = event_id!("$event_id_2:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id);
+
+        let ops = vec![
+            RoomIndexOperation::Add(
+                f.text_msg("This is a sentence")
+                    .event_id(event_id_1)
+                    .into_original_sync_room_message_event(),
+            ),
+            RoomIndexOperation::Add(
+                f.text_msg("Another sentence")
+                    .event_id(event_id_2)
+                    .into_original_sync_room_message_event(),
+            ),
+        ];
+
+        index.bulk_execute(ops)?;
+
+        let result: HashSet<_> =
+            index.search("sentence", 10, None)?.into_iter().map(|(_score, id)| id).collect();
+        let expected: HashSet<_> =
+            [event_id_1.to_owned(), event_id_2.to_owned()].into_iter().collect();
+        assert_eq!(result, expected, "bulk_execute did not index all events: {result:?}");
+
+        Ok(())
+    }
+
+    #[test]
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
         let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
