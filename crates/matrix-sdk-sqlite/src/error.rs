@@ -94,6 +94,12 @@ pub enum Error {
     DecodeString(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]
+    DecodeStr(#[from] std::str::Utf8Error),
+
+    #[error(transparent)]
+    DecodeRuma(#[from] ruma::IdParseError),
+
+    #[error(transparent)]
     Json(#[from] serde_json::Error),
 
     #[error(transparent)]

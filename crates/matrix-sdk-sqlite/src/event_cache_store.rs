@@ -18,6 +18,7 @@ use std::{
     collections::HashMap,
     fmt,
     iter::once,
+    ops::{Deref, Not},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -98,12 +99,24 @@ impl Encryption {
         Ok(EncodedEvent {
             content,
             rel_type,
-            relates_to: relates_to.map(|relates_to| relates_to.to_string()),
+            relates_to: relates_to.map(|relates_to| self.encode_event_id(&relates_to)),
         })
     }
 
     fn decode_event(&self, raw_encoded_event: &[u8]) -> Result<Event> {
         Ok(serde_json::from_slice(&self.decode_value(raw_encoded_event)?)?)
+    }
+
+    /// Encode the event ID as a _key_: it cannot be decoded, but this is
+    /// stable.
+    fn encode_event_id(&self, event_id: &EventId) -> Key {
+        self.encode_key(keys::EVENTS, event_id)
+    }
+
+    /// Encode the room ID as a _key_: it cannot be decoded, but this is
+    /// stable.
+    fn encode_room_id(&self, room_id: &RoomId) -> Key {
+        self.encode_key(keys::EVENTS, room_id)
     }
 }
 
@@ -316,7 +329,7 @@ impl SqliteEventCacheStore {
 struct EncodedEvent {
     content: Vec<u8>,
     rel_type: Option<String>,
-    relates_to: Option<String>,
+    relates_to: Option<Key>,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -587,6 +600,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 15 {
+        debug!("Upgrading database to version 15");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/015_event_ids_are_encoded.sql"
+            ))?;
+            txn.set_db_version(15)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -650,6 +674,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let hashed_linked_chunk_id =
             self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
         let linked_chunk_id = linked_chunk_id.to_owned();
+        let hashed_room_id = self.encryption.encode_room_id(linked_chunk_id.room_id());
         let encryption = self.encryption.clone();
 
         // Use a single transaction throughout this function, so that either all updates
@@ -769,35 +794,46 @@ impl EventCacheStore for SqliteEventCacheStore {
                                 return None;
                             };
 
-                            Some((event_id.to_string(), event_type, event))
+                            Some((event_id.to_owned(), event_type, event))
                         };
 
-                        let room_id = linked_chunk_id.room_id();
-                        let hashed_room_id = encryption.encode_key(keys::LINKED_CHUNKS, room_id);
-
                         for (i, (event_id, event_type, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
-                            // Insert the location information into the database.
-                            let index = at.index() + i;
-                            chunk_statement.execute((chunk_id, &hashed_linked_chunk_id, &event_id, index))?;
+                            let hashed_event_id = encryption.encode_event_id(&event_id);
 
-                            let session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
-                            let event_type = encryption.encode_key(keys::EVENTS, event_type);
+                            // Table `event_chunks`.
+                            {
+                                let index = at.index() + i;
 
-                            // Now, insert the event content into the database.
-                            let encoded_event = encryption.encode_event(&event)?;
-                            content_statement.execute((&hashed_room_id, event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                                chunk_statement.execute((chunk_id, &hashed_linked_chunk_id, &hashed_event_id, index))?;
+                            }
+
+                            // Table `events`.
+                            {
+                                let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
+                                let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
+                                let encoded_event = encryption.encode_event(&event)?;
+
+                                content_statement.execute((
+                                    &hashed_room_id,
+                                    &hashed_event_id,
+                                    hashed_event_type,
+                                    hashed_session_id,
+                                    encoded_event.content,
+                                    encoded_event.relates_to,
+                                    encoded_event.rel_type
+                                ))?;
+                            }
                         }
                     }
 
                     Update::ReplaceItem { at, item: event } => {
                         let chunk_id = at.chunk_identifier().index();
-
                         let index = at.index();
 
                         trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
 
-                        // The event id should be the same, but just in case it changed…
-                        let Some(event_id) = event.event_id().map(|event_id| event_id.to_string()) else {
+                        // The event ID should be the same, but just in case it changed…
+                        let Some(event_id) = event.event_id().map(|event_id| event_id.to_owned()) else {
                             error!(%linked_chunk_id, "Trying to replace an event with a new one that has no ID");
                             continue;
                         };
@@ -807,24 +843,41 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
-                        let session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
-                        let event_type = encryption.encode_key(keys::EVENTS, event_type);
+                        let hashed_event_id = encryption.encode_event_id(&event_id);
 
-                        // Replace the event's content. Really we'd like to update, but in case the
-                        // event id changed, we are a bit lenient here and will allow an insertion
-                        // of the new event.
-                        let encoded_event = encryption.encode_event(&event)?;
-                        let room_id = linked_chunk_id.room_id();
-                        let hashed_room_id = encryption.encode_key(keys::LINKED_CHUNKS, room_id);
-                        txn.execute(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (&hashed_room_id, &event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                        // Before updating the event in its chunk, we must ensure the event exists:
+                        // either we insert it, or we update it. Note that it's possible to replace
+                        // an event by itself (with different encryption info for example, or from
+                        // UTD to decrypted, stuff like that).
 
-                        // Replace the event id in the linked chunk, in case it changed.
-                        txn.execute(
-                            r#"UPDATE event_chunks SET event_id = ? WHERE linked_chunk_id = ? AND chunk_id = ? AND position = ?"#,
-                            (event_id, &hashed_linked_chunk_id, chunk_id, index)
-                        )?;
+                        // Table `events`.
+                        {
+                            let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
+                            let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
+                            let encoded_event = encryption.encode_event(&event)?;
+
+                            txn.execute(
+                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                (
+                                    &hashed_room_id,
+                                    &hashed_event_id,
+                                    hashed_event_type,
+                                    hashed_session_id,
+                                    encoded_event.content,
+                                    encoded_event.relates_to,
+                                    encoded_event.rel_type
+                                ),
+                            )?;
+                        }
+
+                        // Table `event_chunks`.
+                        {
+                            // Replace the event at position `index` in chunk `chunk_id` by updating the event ID.
+                            txn.execute(
+                                r#"UPDATE event_chunks SET event_id = ? WHERE linked_chunk_id = ? AND chunk_id = ? AND position = ?"#,
+                                (&hashed_event_id, &hashed_linked_chunk_id, chunk_id, index)
+                            )?;
+                        }
                     }
 
                     Update::RemoveItem { at } => {
@@ -1300,86 +1353,109 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(())
     }
 
-    #[instrument(skip(self, events))]
+    #[instrument(skip(self, event_ids))]
     async fn filter_duplicated_events(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
-        events: Vec<OwnedEventId>,
+        event_ids: Vec<OwnedEventId>,
     ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
         let _timer = timer!("method");
 
         // If there's no events for which we want to check duplicates, we can return
         // early. It's not only an optimization to do so: it's required, otherwise the
         // `repeat_vars` call below will panic.
-        if events.is_empty() {
+        if event_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         // Select all events that exist in the store, i.e. the duplicates.
         let hashed_linked_chunk_id =
             self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
-        let linked_chunk_id = linked_chunk_id.to_owned();
+        let event_ids_and_hashed_event_ids = event_ids
+            .into_iter()
+            .map(|event_id| {
+                let hashed_event_id = self.encryption.encode_event_id(&event_id);
 
-        let encryption = self.encryption.clone();
+                (event_id, hashed_event_id)
+            })
+            .collect::<Vec<_>>();
 
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                txn.chunk_large_query_over(events, None, move |txn, events| {
-                    let query = format!(
-                        r#"
-                            SELECT event_id, chunk_id, position
-                            FROM event_chunks
-                            WHERE linked_chunk_id = ? AND event_id IN ({})
-                            ORDER BY chunk_id ASC, position ASC
-                        "#,
-                        repeat_vars(events.len()),
-                    );
+                txn.chunk_large_query_over(
+                    event_ids_and_hashed_event_ids,
+                    None,
+                    move |txn, event_ids_and_hashed_event_ids| {
+                        let query = format!(
+                            "SELECT event_id, chunk_id, position \
+                            FROM event_chunks \
+                            WHERE linked_chunk_id = ? AND event_id IN ({}) \
+                            ORDER BY chunk_id ASC, position ASC",
+                            repeat_vars(event_ids_and_hashed_event_ids.len()),
+                        );
 
-                    let parameters = params_from_iter(
-                        // parameter for `linked_chunk_id = ?`
-                        once(
-                            hashed_linked_chunk_id
-                                .to_sql()
-                                // SAFETY: it cannot fail since `Key::to_sql` never fails
-                                .unwrap(),
-                        )
-                        // parameters for `event_id IN (…)`
-                        .chain(events.iter().map(|event| {
-                            event
-                                .as_str()
-                                .to_sql()
-                                // SAFETY: it cannot fail since `str::to_sql` never fails
-                                .unwrap()
-                        })),
-                    );
+                        let parameters = params_from_iter(
+                            // parameter for `linked_chunk_id = ?`
+                            once(
+                                hashed_linked_chunk_id
+                                    .to_sql()
+                                    // SAFETY: it cannot fail since `Key::to_sql` never fails
+                                    .unwrap(),
+                            )
+                            // parameters for `event_id IN (…)`
+                            .chain(
+                                event_ids_and_hashed_event_ids.iter().map(
+                                    |(_event_id, hashed_event_id)| {
+                                        hashed_event_id
+                                            .to_sql()
+                                            // SAFETY: it cannot fail since `Vec::<u8>::to_sql`
+                                            // never fails
+                                            .unwrap()
+                                    },
+                                ),
+                            ),
+                        );
 
-                    let mut duplicated_events = Vec::new();
+                        let mut duplicated_events = Vec::new();
 
-                    for duplicated_event in txn.prepare(&query)?.query_map(parameters, |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, u64>(1)?,
-                            row.get::<_, usize>(2)?,
-                        ))
-                    })? {
-                        let (duplicated_event, chunk_identifier, index) = duplicated_event?;
+                        for duplicated_event in
+                            txn.prepare(&query)?.query_map(parameters, |row| {
+                                Ok((
+                                    row.get::<_, Vec<u8>>(0)?,
+                                    row.get::<_, u64>(1)?,
+                                    row.get::<_, usize>(2)?,
+                                ))
+                            })?
+                        {
+                            let (duplicated_hashed_event_id, chunk_identifier, index) =
+                                duplicated_event?;
 
-                        let Ok(duplicated_event) = EventId::parse(duplicated_event.clone()) else {
-                            // Normally unreachable, but the event ID has been stored even if it is
-                            // malformed, let's skip it.
-                            error!(%duplicated_event, %linked_chunk_id, "Reading an malformed event ID");
-                            continue;
-                        };
+                            // The event ID is encoded in the database. We can't decode it. However,
+                            // we can find the original event ID with the `event_ids` parameter of
+                            // this method by comparing the encoded event ID!
+                            let Some(duplicated_event_id) = event_ids_and_hashed_event_ids
+                                .iter()
+                                .find_map(|(event_id, hashed_event_id)| {
+                                    (hashed_event_id.deref() == duplicated_hashed_event_id)
+                                        .then_some(event_id.clone())
+                                })
+                            else {
+                                error!(
+                                    "Unreachable: found a duplicated event that was not requested"
+                                );
+                                continue;
+                            };
 
-                        duplicated_events.push((
-                            duplicated_event,
-                            Position::new(ChunkIdentifier::new(chunk_identifier), index),
-                        ));
-                    }
+                            duplicated_events.push((
+                                duplicated_event_id,
+                                Position::new(ChunkIdentifier::new(chunk_identifier), index),
+                            ));
+                        }
 
-                    Ok(duplicated_events)
-                })
+                        Ok(duplicated_events)
+                    },
+                )
             })
             .await
     }
@@ -1392,17 +1468,17 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<Option<Event>, Self::Error> {
         let _timer = timer!("method");
 
-        let event_id = event_id.to_owned();
         let encryption = self.encryption.clone();
 
-        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_room_id = self.encryption.encode_room_id(room_id);
+        let hashed_event_id = self.encryption.encode_event_id(event_id);
 
         self.read()
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 let Some(event) = txn
                     .prepare("SELECT content FROM events WHERE event_id = ? AND room_id = ?")?
-                    .query_row((event_id.as_str(), hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
+                    .query_row((hashed_event_id, hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
                     .optional()?
                 else {
                     // Event is not found.
@@ -1423,13 +1499,12 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let _timer = timer!("method");
 
-        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
-
+        let hashed_room_id = self.encryption.encode_room_id(room_id);
         let hashed_linked_chunk_id = self
             .encryption
             .encode_key(keys::LINKED_CHUNKS, LinkedChunkId::Room(room_id).storage_key());
+        let hashed_event_id = self.encryption.encode_event_id(event_id);
 
-        let event_id = event_id.to_owned();
         let filters = filters.map(ToOwned::to_owned);
         let encryption = self.encryption.clone();
 
@@ -1440,7 +1515,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     &encryption,
                     hashed_room_id,
                     hashed_linked_chunk_id,
-                    event_id,
+                    hashed_event_id,
                     filters,
                     txn,
                 )
@@ -1459,7 +1534,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let encryption = self.encryption.clone();
 
-        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
+        let hashed_room_id = self.encryption.encode_room_id(room_id);
         let hashed_event_type = event_type.map(|e| self.encryption.encode_key(keys::EVENTS, e));
         let hashed_session_id = session_id.map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
@@ -1514,12 +1589,12 @@ impl EventCacheStore for SqliteEventCacheStore {
             return Ok(());
         };
 
-        let event_type = self.encryption.encode_key(keys::EVENTS, event_type);
-        let session_id =
+        let hashed_event_type = self.encryption.encode_key(keys::EVENTS, event_type);
+        let hashed_session_id =
             event.kind.session_id().map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
-        let hashed_room_id = self.encryption.encode_key(keys::LINKED_CHUNKS, room_id);
-        let event_id = event_id.to_string();
+        let hashed_room_id = self.encryption.encode_room_id(room_id);
+        let hashed_event_id = self.encryption.encode_event_id(event_id);
         let encoded_event = self.encryption.encode_event(&event)?;
 
         self.write()
@@ -1527,7 +1602,16 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 txn.execute(
                     "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (&hashed_room_id, &event_id, event_type, session_id, encoded_event.content, encoded_event.relates_to, encoded_event.rel_type))?;
+                    (
+                        &hashed_room_id,
+                        hashed_event_id,
+                        hashed_event_type,
+                        hashed_session_id,
+                        encoded_event.content,
+                        encoded_event.relates_to,
+                        encoded_event.rel_type
+                    )
+                )?;
 
                 Ok(())
             })
@@ -1555,7 +1639,7 @@ fn find_event_relations_transaction(
     encryption: &Encryption,
     hashed_room_id: Key,
     hashed_linked_chunk_id: Key,
-    event_id: OwnedEventId,
+    hashed_event_id: Key,
     filters: Option<Vec<RelationType>>,
     txn: &Transaction<'_>,
 ) -> Result<Vec<(Event, Option<Position>)>> {
@@ -1613,8 +1697,7 @@ fn find_event_relations_transaction(
                 hashed_linked_chunk_id.to_sql().expect(
                     "We should be able to convert a hashed linked chunk ID to a SQLite value",
                 ),
-                event_id
-                    .as_str()
+                hashed_event_id
                     .to_sql()
                     .expect("We should be able to convert an event ID to a SQLite value"),
                 hashed_room_id
@@ -1630,12 +1713,11 @@ fn find_event_relations_transaction(
 
         collect_results(transaction)
     } else {
-        let query =
-            "SELECT events.content, event_chunks.chunk_id, event_chunks.position
-            FROM events
-            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ?
-            WHERE relates_to = ? AND room_id = ?";
-        let parameters = (hashed_linked_chunk_id, event_id.as_str(), hashed_room_id);
+        let query = "SELECT events.content, event_chunks.chunk_id, event_chunks.position \
+            FROM events \
+            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ? \
+            WHERE events.relates_to = ? AND events.room_id = ?";
+        let parameters = (hashed_linked_chunk_id, hashed_event_id, hashed_room_id);
 
         let mut transaction = txn.prepare(query)?;
         let transaction = transaction.query_map(parameters, get_rows)?;
