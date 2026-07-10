@@ -16,6 +16,22 @@ migration scripts, with the hope that future us won't replicate these errors.
    $ # Enjoy
    ```
 
+2. Writing comments in SQL is great! Every comments outside tables are not part
+   of the schema, but all comments inside the tables _are_ part of the schema.
+   It means that if a column has a comment, it will be displayed with the
+   `.schema` command for example. However, if one needs to add a comment for a
+   table (which is very recommended), the comment must be inside the table, like
+   so:
+
+   ```sql
+   CREATE TABLE IF NOT EXISTS "foo" (
+      --- This table exists to address this and that.
+
+      --- First column!
+      foo BLOB NOT NULL
+   );
+   ```
+
 ## Errors
 
 1. _Identifiers_ can be delimited by double-quotes, while _string literals_ must
