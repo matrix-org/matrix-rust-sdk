@@ -104,6 +104,7 @@ sentry = { workspace = true, optional = true, features = [
   "debug-images",
   "panic",
   "reqwest",
+  "rustls",
   "sentry-debug-images",
 ] }
 sentry-tracing = { workspace = true, optional = true }
