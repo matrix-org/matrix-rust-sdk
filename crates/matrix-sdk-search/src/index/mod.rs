@@ -17,6 +17,7 @@ pub mod builder;
 
 use std::{collections::HashSet, fmt};
 
+use once_cell::sync::OnceCell;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
 };
@@ -58,7 +59,11 @@ pub struct RoomIndex {
     room_id: OwnedRoomId,
     uncommitted_adds: HashSet<OwnedEventId>,
     uncommitted_removes: HashSet<OwnedEventId>,
-    reader: Option<IndexReader>,
+    /// Cached [`IndexReader`].
+    ///
+    /// It is costly to create one, so let's keep it in memory when needed; see
+    /// [`RoomIndex::get_reader`] to learn more.
+    reader: OnceCell<IndexReader>,
 }
 
 impl fmt::Debug for RoomIndex {
@@ -80,7 +85,7 @@ impl RoomIndex {
             room_id: room_id.to_owned(),
             uncommitted_adds: HashSet::new(),
             uncommitted_removes: HashSet::new(),
-            reader: None,
+            reader: OnceCell::new(),
         }
     }
 
@@ -91,14 +96,8 @@ impl RoomIndex {
     }
 
     /// Get or create the cached [`IndexReader`] for this index.
-    fn get_reader(&mut self) -> Result<&IndexReader, IndexError> {
-        Ok(match self.reader {
-            Some(ref reader) => reader,
-            None => {
-                let reader = self.index.reader_builder().try_into()?;
-                self.reader.insert(reader)
-            }
-        })
+    fn get_reader(&self) -> Result<&IndexReader, IndexError> {
+        self.reader.get_or_try_init(|| Ok(self.index.reader_builder().try_into()?))
     }
 
     /// Commit added events to [`RoomIndex`]. The changes are not reflected in
@@ -140,7 +139,7 @@ impl RoomIndex {
     /// (and there are a surplus of results)
     /// then this will return results `11, 12, 13`
     pub fn search(
-        &mut self,
+        &self,
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
@@ -172,7 +171,7 @@ impl RoomIndex {
     }
 
     fn get_events_to_be_removed(
-        &mut self,
+        &self,
         event_id: &EventId,
     ) -> Result<Vec<OwnedEventId>, IndexError> {
         Ok(self
@@ -321,7 +320,7 @@ impl RoomIndex {
         Ok(())
     }
 
-    fn contains(&mut self, event_id: &EventId) -> bool {
+    fn contains(&self, event_id: &EventId) -> bool {
         let search_result = self.search(
             format!("{}:\"{event_id}\"", self.schema.get_field_name(self.schema.primary_key()))
                 .as_str(),
@@ -453,7 +452,7 @@ mod tests {
     #[test]
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+        let index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
 
@@ -465,7 +464,7 @@ mod tests {
     #[test]
     fn test_index_contains_false() {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+        let index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
 
