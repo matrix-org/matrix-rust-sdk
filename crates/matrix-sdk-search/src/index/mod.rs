@@ -62,7 +62,7 @@ pub struct RoomIndex {
     /// Cached [`IndexReader`].
     ///
     /// It is costly to create one, so let's keep it in memory when needed; see
-    /// [`RoomIndex::get_reader`] to learn more.
+    /// [`RoomIndex::reader`] to learn more.
     reader: OnceCell<IndexReader>,
 }
 
@@ -90,13 +90,13 @@ impl RoomIndex {
     }
 
     /// Get a [`SearchIndexWriter`] for this index.
-    fn get_writer(&self) -> Result<SearchIndexWriter, IndexError> {
+    fn writer(&self) -> Result<SearchIndexWriter, IndexError> {
         let writer = self.index.writer(TANTIVY_INDEX_MEMORY_BUDGET)?;
         Ok(SearchIndexWriter::new(writer, self.schema.clone()))
     }
 
     /// Get or create the cached [`IndexReader`] for this index.
-    fn get_reader(&self) -> Result<&IndexReader, IndexError> {
+    fn reader(&self) -> Result<&IndexReader, IndexError> {
         self.reader.get_or_try_init(|| Ok(self.index.reader_builder().try_into()?))
     }
 
@@ -127,7 +127,7 @@ impl RoomIndex {
             self.uncommitted_adds, self.uncommitted_removes
         );
         let last_commit_opstamp = self.commit(writer)?;
-        self.get_reader()?.reload()?;
+        self.reader()?.reload()?;
         Ok(last_commit_opstamp)
     }
 
@@ -145,7 +145,7 @@ impl RoomIndex {
         pagination_offset: Option<usize>,
     ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
         let query = self.query_parser.parse_query(query)?;
-        let searcher = self.get_reader()?.searcher();
+        let searcher = self.reader()?.searcher();
 
         let offset = pagination_offset.unwrap_or(0);
 
@@ -170,10 +170,7 @@ impl RoomIndex {
         Ok(ret)
     }
 
-    fn get_events_to_be_removed(
-        &self,
-        event_id: &EventId,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    fn events_to_be_removed(&self, event_id: &EventId) -> Result<Vec<OwnedEventId>, IndexError> {
         Ok(self
             .search(
                 format!(
@@ -207,7 +204,7 @@ impl RoomIndex {
         writer: &mut SearchIndexWriter,
         event_id: OwnedEventId,
     ) -> Result<(), IndexError> {
-        let events = self.get_events_to_be_removed(&event_id)?;
+        let events = self.events_to_be_removed(&event_id)?;
 
         writer.remove(&event_id);
 
@@ -293,7 +290,7 @@ impl RoomIndex {
     ///
     /// Prefer [`RoomIndex::bulk_execute`] for multiple operations.
     pub fn execute(&mut self, operation: RoomIndexOperation) -> Result<(), IndexError> {
-        let mut writer = self.get_writer()?;
+        let mut writer = self.writer()?;
         self.execute_with_retry(&mut writer, &operation, 5)?;
         self.commit_and_reload(&mut writer)?;
         Ok(())
@@ -306,7 +303,7 @@ impl RoomIndex {
     /// This which will add/remove/edit an events in the index based on the
     /// operations.
     pub fn bulk_execute(&mut self, operations: Vec<RoomIndexOperation>) -> Result<(), IndexError> {
-        let mut writer = self.get_writer()?;
+        let mut writer = self.writer()?;
         let mut operations = operations.into_iter();
         let mut next_operation = operations.next();
 
