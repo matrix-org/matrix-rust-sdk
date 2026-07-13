@@ -124,16 +124,12 @@ impl Display for CoverageOutputFormat {
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
 enum FeatureSet {
+    All,
     NoEncryption,
     NoSqlite,
     NoEncryptionAndSqlite,
     SqliteCryptostore,
     ExperimentalEncryptedStateEvents,
-    Markdown,
-    Socks,
-    SsoLogin,
-    Search,
-    ElementRecentEmojis,
 }
 
 #[derive(Subcommand, PartialEq, Eq, PartialOrd, Ord)]
@@ -282,6 +278,7 @@ fn check_docs() -> Result<()> {
 
 fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
     let args = BTreeMap::from([
+        (FeatureSet::All, "--all-features"),
         (FeatureSet::NoEncryption, "--no-default-features --features sqlite,testing"),
         (FeatureSet::NoSqlite, "--no-default-features --features e2e-encryption,testing"),
         (FeatureSet::NoEncryptionAndSqlite, "--no-default-features --features testing"),
@@ -293,11 +290,6 @@ fn run_feature_tests(cmd: Option<FeatureSet>) -> Result<()> {
             FeatureSet::ExperimentalEncryptedStateEvents,
             "--no-default-features --features experimental-encrypted-state-events,e2e-encryption,sqlite,testing",
         ),
-        (FeatureSet::Markdown, "--features markdown,testing"),
-        (FeatureSet::Socks, "--features socks,testing"),
-        (FeatureSet::SsoLogin, "--features sso-login,testing"),
-        (FeatureSet::Search, "--features experimental-search"),
-        (FeatureSet::ElementRecentEmojis, "--features experimental-element-recent-emojis"),
     ]);
 
     let sh = sh();
