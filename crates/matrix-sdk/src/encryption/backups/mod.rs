@@ -279,9 +279,7 @@ impl Backups {
 
         // Create a future so we can catch errors and go back to the `Unknown` state.
         let future = async {
-            let response = self.get_current_version().await?;
-
-            if let Some(response) = response {
+            while let Some(response) = self.get_current_version().await? {
                 self.delete_backup_from_server(response.version).await?;
             }
 
