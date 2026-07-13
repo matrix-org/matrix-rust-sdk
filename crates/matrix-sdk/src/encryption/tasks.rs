@@ -433,14 +433,17 @@ impl BackupDownloadTaskListenerState {
 pub(crate) struct BundleReceiverTask {
     _startup_handle: JoinHandle<()>,
     _listen_handle: JoinHandle<()>,
+    _room_update_handle: JoinHandle<()>,
 }
 
 impl BundleReceiverTask {
     pub async fn new(client: &Client) -> Self {
         let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
+        let room_updates = client.room_info_notable_update_receiver();
         let weak_client = WeakClient::from_client(client);
         Self {
             _listen_handle: spawn(Self::listen_task(weak_client.clone(), stream)),
+            _room_update_handle: spawn(Self::room_update_task(weak_client.clone(), room_updates)),
             _startup_handle: spawn(Self::startup_task(weak_client)),
         }
     }
@@ -466,6 +469,97 @@ impl BundleReceiverTask {
 
             Self::handle_bundle(&room, &bundle_info).await;
         }
+    }
+
+    /// Listens for room membership updates: if a room we have recorded
+    /// pending key bundle details for becomes joined — e.g. because the
+    /// server joined us to it after our knock was accepted, or another of
+    /// our devices accepted the invite — check whether we already hold the
+    /// corresponding bundle data and, if so, import it.
+    ///
+    /// This is the counterpart of [`Client::finish_join_room`] for joins
+    /// that this client did not itself perform (which therefore only become
+    /// visible via sync).
+    async fn room_update_task(
+        client: WeakClient,
+        mut receiver: tokio::sync::broadcast::Receiver<matrix_sdk_base::RoomInfoNotableUpdate>,
+    ) {
+        use tokio::sync::broadcast::error::RecvError;
+
+        loop {
+            match receiver.recv().await {
+                Ok(update) => {
+                    if !update
+                        .reasons
+                        .contains(matrix_sdk_base::RoomInfoNotableUpdateReasons::MEMBERSHIP)
+                    {
+                        continue;
+                    }
+
+                    let Some(client) = client.get() else {
+                        // The client was dropped: the application has shut down.
+                        break;
+                    };
+
+                    Self::maybe_import_stored_bundle(&client, &update.room_id).await;
+                }
+                Err(RecvError::Lagged(missed)) => {
+                    warn!("Missed {missed} room info updates while looking for key bundles");
+                }
+                Err(RecvError::Closed) => break,
+            }
+        }
+    }
+
+    /// If the given room is joined, has valid pending key bundle details, and
+    /// we already hold the corresponding bundle data in the crypto store,
+    /// import the bundle.
+    async fn maybe_import_stored_bundle(client: &Client, room_id: &ruma::RoomId) {
+        let Some(room) = client.get_room(room_id) else {
+            return;
+        };
+
+        if room.state() != crate::RoomState::Joined {
+            return;
+        }
+
+        let olm_machine = client.olm_machine().await;
+        let Some(olm_machine) = olm_machine.as_ref() else {
+            return;
+        };
+
+        let details =
+            match olm_machine.store().get_pending_key_bundle_details_for_room(room_id).await {
+                Ok(Some(details)) => details,
+                Ok(None) => return,
+                Err(e) => {
+                    warn!(?room_id, "Error while fetching pending key bundle details: {e:?}");
+                    return;
+                }
+            };
+
+        if !shared_room_history::should_process_room_pending_key_bundle_details(&details) {
+            return;
+        }
+
+        let bundle = match olm_machine
+            .store()
+            .get_received_room_key_bundle_data(room_id, &details.inviter)
+            .await
+        {
+            Ok(Some(bundle)) => bundle,
+            Ok(None) => {
+                // No bundle yet: the listener task will handle it when it arrives.
+                trace!(?room_id, "No stored bundle available for newly-joined room");
+                return;
+            }
+            Err(e) => {
+                warn!(?room_id, "Failed to fetch received room key bundle data: {e:?}");
+                return;
+            }
+        };
+
+        Self::handle_bundle(&room, &(&bundle).into()).await;
     }
 
     /// Retrieves a list of all rooms pending key bundles, then cross-references
@@ -587,6 +681,7 @@ impl BundleReceiverTask {
     pub(crate) fn abort(&self) {
         self._startup_handle.abort();
         self._listen_handle.abort();
+        self._room_update_handle.abort();
     }
 }
 

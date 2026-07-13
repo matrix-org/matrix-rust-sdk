@@ -1280,6 +1280,56 @@ mod tests {
         assert!(room_info_notable_update.is_empty());
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_server_initiated_join_records_invite_acceptance_details() {
+        // Given a logged-in client which is invited to a room
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+        let inviter = user_id!("@inviter:e.uk");
+
+        let mut room = http::response::Room::new();
+        set_room_invited(&mut room, inviter, user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_eq!(client.get_room(room_id).expect("No room found").state(), RoomState::Invited);
+
+        // When the server joins us to the room (e.g. auto-accepting our knock, or the
+        // invite was accepted on another of our devices) — i.e. the join arrives via
+        // sync without this client calling join
+        let mut room = http::response::Room::new();
+        set_room_joined(&mut room, user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_eq!(client.get_room(room_id).expect("No room found").state(), RoomState::Joined);
+
+        // Then the invite acceptance details are recorded, so that a shared-history
+        // key bundle (MSC4268) from the inviter can still be accepted.
+        let details = client
+            .get_pending_key_bundle_details_for_room(room_id)
+            .await
+            .expect("We should be able to fetch the pending key bundle details")
+            .expect("Invite acceptance details should be recorded for a server-initiated join");
+        assert_eq!(details.inviter, inviter);
+    }
+
     #[async_test]
     async fn test_knock_room_is_added_to_client_and_knock_list() {
         // Given a logged-in client
