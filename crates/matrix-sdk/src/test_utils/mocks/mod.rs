@@ -1216,7 +1216,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// client.account().fetch_media_preview_config_event_content().await.unwrap();
+    /// client.account().get_recent_emojis(true).await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
@@ -1241,11 +1241,12 @@ impl MatrixMockServer {
     /// let client = mock_server.client_builder().build().await;
     /// let user_id = client.user_id().unwrap();
     ///
-    /// mock.server.mock_get_recent_emojis()
+    /// mock_server.mock_get_recent_emojis()
     /// .ok(user_id, vec![(":D".to_string(), uint!(1))])
     /// .mock_once()
     /// .mount()
     /// .await;
+    ///
     /// mock_server.mock_add_recent_emojis()
     /// .ok(user_id)
     /// .mock_once()
