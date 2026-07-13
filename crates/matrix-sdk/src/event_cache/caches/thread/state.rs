@@ -93,6 +93,84 @@ pub struct ThreadEventCacheState {
 }
 
 impl ThreadEventCacheState {
+    /// Create a new state, or reload it from storage if it's been enabled.
+    ///
+    /// Not all events are going to be loaded. Only a portion of them. The
+    /// [`EventLinkedChunk`] relies on a [`LinkedChunk`] to store all
+    /// events. Only the last chunk will be loaded. It means the
+    /// events are loaded from the most recent to the oldest. To
+    /// load more events, see [`ThreadPagination`].
+    ///
+    /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
+    /// [`ThreadPagination`]: super::pagination::ThreadPagination
+    pub async fn new(
+        room_id: OwnedRoomId,
+        thread_id: OwnedEventId,
+        own_user_id: OwnedUserId,
+        room_version_rules: RoomVersionRules,
+        store_guard: EventCacheStoreLockGuard,
+        update_sender: ThreadEventCacheUpdateSender,
+        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    ) -> Result<Self> {
+        let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
+
+        // Load the full linked chunk's metadata, so as to feed the order tracker.
+        //
+        // If loading the full linked chunk failed, we'll clear the event cache, as it
+        // indicates that at some point, there's some malformed data.
+        let full_linked_chunk_metadata =
+            match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
+                Ok(metas) => metas,
+                Err(err) => {
+                    error!("error when loading a linked chunk's metadata from the store: {err}");
+
+                    // Try to clear storage for this thread.
+                    store_guard
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Restart with an empty linked chunk.
+                    None
+                }
+            };
+
+        let linked_chunk = match store_guard
+            .load_last_chunk(linked_chunk_id)
+            .await
+            .map_err(EventCacheError::from)
+            .and_then(|(last_chunk, chunk_identifier_generator)| {
+                lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
+                    .map_err(EventCacheError::from)
+            }) {
+            Ok(linked_chunk) => linked_chunk,
+            Err(err) => {
+                error!("error when loading a linked chunk's latest chunk from the store: {err}");
+
+                // Try to clear storage for this thread.
+                store_guard
+                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                    .await?;
+
+                None
+            }
+        };
+
+        Ok(ThreadEventCacheState {
+            room_id,
+            thread_id,
+            own_user_id,
+            room_version_rules,
+            thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
+                linked_chunk,
+                full_linked_chunk_metadata,
+            ),
+            update_sender,
+            linked_chunk_update_sender,
+            waited_for_initial_prev_token: false,
+            subscribers_handle: SubscribersHandle::default(),
+        })
+    }
+
     /// If storage is enabled, unload all the chunks, then reloads only the
     /// last one.
     ///
@@ -180,86 +258,6 @@ impl ThreadEventCacheState {
 
         send_updates_to_store(store, linked_chunk_id, &self.linked_chunk_update_sender, updates)
             .await
-    }
-}
-
-impl ThreadEventCacheState {
-    /// Create a new state, or reload it from storage if it's been enabled.
-    ///
-    /// Not all events are going to be loaded. Only a portion of them. The
-    /// [`EventLinkedChunk`] relies on a [`LinkedChunk`] to store all
-    /// events. Only the last chunk will be loaded. It means the
-    /// events are loaded from the most recent to the oldest. To
-    /// load more events, see [`ThreadPagination`].
-    ///
-    /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
-    /// [`ThreadPagination`]: super::pagination::ThreadPagination
-    pub async fn new(
-        room_id: OwnedRoomId,
-        thread_id: OwnedEventId,
-        own_user_id: OwnedUserId,
-        room_version_rules: RoomVersionRules,
-        store_guard: EventCacheStoreLockGuard,
-        update_sender: ThreadEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
-    ) -> Result<Self> {
-        let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
-
-        // Load the full linked chunk's metadata, so as to feed the order tracker.
-        //
-        // If loading the full linked chunk failed, we'll clear the event cache, as it
-        // indicates that at some point, there's some malformed data.
-        let full_linked_chunk_metadata =
-            match load_linked_chunk_metadata(&store_guard, linked_chunk_id).await {
-                Ok(metas) => metas,
-                Err(err) => {
-                    error!("error when loading a linked chunk's metadata from the store: {err}");
-
-                    // Try to clear storage for this thread.
-                    store_guard
-                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                        .await?;
-
-                    // Restart with an empty linked chunk.
-                    None
-                }
-            };
-
-        let linked_chunk = match store_guard
-            .load_last_chunk(linked_chunk_id)
-            .await
-            .map_err(EventCacheError::from)
-            .and_then(|(last_chunk, chunk_identifier_generator)| {
-                lazy_loader::from_last_chunk(last_chunk, chunk_identifier_generator)
-                    .map_err(EventCacheError::from)
-            }) {
-            Ok(linked_chunk) => linked_chunk,
-            Err(err) => {
-                error!("error when loading a linked chunk's latest chunk from the store: {err}");
-
-                // Try to clear storage for this thread.
-                store_guard
-                    .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
-                    .await?;
-
-                None
-            }
-        };
-
-        Ok(ThreadEventCacheState {
-            room_id,
-            thread_id,
-            own_user_id,
-            room_version_rules,
-            thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
-                linked_chunk,
-                full_linked_chunk_metadata,
-            ),
-            update_sender,
-            linked_chunk_update_sender,
-            waited_for_initial_prev_token: false,
-            subscribers_handle: SubscribersHandle::default(),
-        })
     }
 }
 
