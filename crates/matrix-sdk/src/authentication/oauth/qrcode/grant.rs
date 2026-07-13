@@ -155,7 +155,7 @@ async fn finish_login_grant<Q>(
         } else {
             // If the deadline hasn't yet passed, give it some time and retry the request.
             if Instant::now() < deadline {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+                matrix_sdk_common::sleep::sleep(Duration::from_millis(500)).await;
                 continue;
             } else {
                 // The deadline has passed. Let's fail the login process.
