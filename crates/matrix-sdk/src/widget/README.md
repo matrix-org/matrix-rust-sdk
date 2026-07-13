@@ -202,8 +202,18 @@ To use this module, two structs are needed:
     the widget via `postMessage`.
 
 ```rust
+# async {
+use matrix_sdk::widget::{Capabilities, CapabilitiesProvider, WidgetSettings, WidgetDriver};
+use tokio::spawn;
+use url::Url;
+
 #[derive(Clone)]
 struct CapProv {}
+
+async fn prompt_user_for_capabilities(capabilities: Capabilities) -> Capabilities {
+    // Show a prompt to the user requesting capabilities.
+    todo!()
+}
 
 impl CapabilitiesProvider for CapProv {
     async fn acquire_capabilities(&self, requested_capabilities: Capabilities) -> Capabilities {
@@ -213,27 +223,37 @@ impl CapabilitiesProvider for CapProv {
     }
 }
 
-let widget_settings = WidgetSettings {
-    widget_id: "String",
-    init_on_content_load: true,
-    raw_url: "https://Url",
-};
+let widget_settings = WidgetSettings::new(
+    "String".to_owned(),
+    true,
+    "https://example.org",
+).unwrap();
 
 // Create the required structs:
 let (driver, handle) = WidgetDriver::new(widget_settings);
 let cap_provider = CapProv {};
 
-// Set up message routing
-let h = handle.clone();
-spawn(async move {
-    loop {
-        let message = my_platform::postmessage_receiver.recv::<String>().await;
-        h.send(message).await;
+mod my_platform {
+    pub fn eval(script: &str) {}
+    pub async fn receive_post_message() -> String { todo!() }
+}
+
+spawn({
+    // Set up message routing
+    let h = handle.clone();
+
+    async move {
+        loop {
+            let message = my_platform::receive_post_message().await;
+            h.send(message).await;
+        }
     }
 });
 
 spawn(async move {
-    while let Some(msg) = handle.recv().await {
+    let url = "http://example.org";
+
+    while let Some(message) = handle.recv().await {
         let script = format!(
             "document.getElementById('widget').contentWindow.postMessage({}, '{}');",
             message, url,
@@ -242,9 +262,12 @@ spawn(async move {
     }
 });
 
+# let room = todo!();
+
 spawn(async move {
     let _ = driver.run(room, cap_provider).await;
 });
+};
 ```
 
 ## Feature flags
