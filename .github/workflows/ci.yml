@@ -32,15 +32,12 @@ jobs:
       fail-fast: true
       matrix:
         name:
+          - all
           - no-encryption
           - no-sqlite
           - no-encryption-and-sqlite
           - sqlite-cryptostore
           - experimental-encrypted-state-events
-          - markdown
-          - socks
-          - sso-login
-          - search
 
     steps:
       - name: Checkout
