@@ -191,6 +191,9 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that loading a linked chunk's metadata works as intended.
     async fn test_load_all_chunks_metadata(&self);
 
+    /// Test that remembering a thread acts as expected.
+    async fn test_remember_thread(&self);
+
     /// Test that clearing all the rooms' events and linked chunks work.
     async fn test_clear_all_events(&self);
 
@@ -1244,6 +1247,16 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             assert_eq!(events.len(), 1);
             check_test_event(&events[0], "beaufort is the best");
         });
+    }
+
+    async fn test_remember_thread(&self) {
+        let room_id = room_id!("!r0");
+        let thread_id = event_id!("$t0");
+
+        assert!(self.remember_thread(room_id, thread_id).await.is_ok());
+
+        // Remember the same thread does return successfully.
+        assert!(self.remember_thread(room_id, thread_id).await.is_ok());
     }
 
     async fn test_clear_all_events(&self) {
@@ -2455,6 +2468,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_load_all_chunks_metadata().await;
+            }
+
+            #[async_test]
+            async fn test_remember_thread() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_remember_thread().await;
             }
 
             #[async_test]
