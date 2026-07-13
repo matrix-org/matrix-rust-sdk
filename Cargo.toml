@@ -256,4 +256,6 @@ const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a
 [patch."https://github.com/ruma/ruma"]
 # Needed to disable checksums since they're incorrect in 32bit devices.
 # Delete this once https://github.com/mozilla/uniffi-rs/issues/2939 is fixed.
-ruma = { git = "https://github.com/matrix-org/ruma", rev = "bf21677a8fcba04fd01e341809eb5991908441a2" }
+# Also carries the MSC4506 (knock push rules) recipient_permission push
+# condition on top — drop back to matrix-org/ruma once it has the condition.
+ruma = { git = "https://github.com/ara4n/ruma", rev = "8c241430e3ff43e78e4b784ed3200f87ef22c12a" }
