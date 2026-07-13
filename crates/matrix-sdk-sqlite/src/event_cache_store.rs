@@ -674,7 +674,6 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let hashed_linked_chunk_id =
             self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
-        let linked_chunk_id = linked_chunk_id.to_owned();
         let hashed_room_id =
             self.encryption.encode_room_id(keys::EVENTS, linked_chunk_id.room_id());
         let encryption = self.encryption.clone();
