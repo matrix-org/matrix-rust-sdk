@@ -119,6 +119,11 @@ impl Encryption {
     fn encode_room_id(&self, table_name: &str, room_id: &RoomId) -> Key {
         self.encode_key(table_name, room_id)
     }
+
+    /// Encode a [`LinkedChunkId`].
+    fn encode_linked_chunk(&self, table_name: &str, linked_chunk_id: &LinkedChunkId<'_>) -> Key {
+        self.encode_key(table_name, linked_chunk_id.storage_key())
+    }
 }
 
 impl EncryptableStore for Encryption {
@@ -673,7 +678,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let hashed_room_id =
             self.encryption.encode_room_id(keys::EVENTS, linked_chunk_id.room_id());
         let encryption = self.encryption.clone();
@@ -1057,8 +1062,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
-
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let encryption = self.encryption.clone();
 
         let result = self
@@ -1101,7 +1105,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
 
         self.read()
             .await?
@@ -1196,8 +1200,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
-
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let encryption = self.encryption.clone();
 
         self
@@ -1292,8 +1295,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_linked_chunk_id =
-            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
-
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let encryption = self.encryption.clone();
 
         self
@@ -1372,7 +1374,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         // Select all events that exist in the store, i.e. the duplicates.
         let hashed_linked_chunk_id =
-            self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let event_ids_and_hashed_event_ids = event_ids
             .into_iter()
             .map(|event_id| {
@@ -1509,9 +1511,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
-        let hashed_linked_chunk_id = self
-            .encryption
-            .encode_key(keys::LINKED_CHUNKS, LinkedChunkId::Room(room_id).storage_key());
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
         let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
 
         let filters = filters.map(ToOwned::to_owned);
@@ -1852,12 +1853,8 @@ mod tests {
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
     use tempfile::{TempDir, tempdir};
 
-    use super::SqliteEventCacheStore;
-    use crate::{
-        SqliteStoreConfig,
-        event_cache_store::keys,
-        utils::{EncryptableStore as _, SqliteAsyncConnExt},
-    };
+    use super::{SqliteEventCacheStore, keys};
+    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -1926,7 +1923,9 @@ mod tests {
         store.clone().into_event_cache_store().test_linked_chunk_remove_item().await;
 
         let room_id = *DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let hashed_linked_chunk_id = store
+            .encryption
+            .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
 
         // Make sure the position have been updated for the remaining events.
         let num_rows: u64 = store
@@ -1936,7 +1935,7 @@ mod tests {
             .with_transaction(move |txn| {
                 txn.query_row(
                     "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND linked_chunk_id = ? AND position IN (2, 3, 4)",
-                    (store.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key()),),
+                    (hashed_linked_chunk_id,),
                     |row| row.get(0),
                 )
             })
