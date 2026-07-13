@@ -1116,7 +1116,7 @@ impl OAuth {
         let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_device_access_token(device_authorization_response)
-            .request_async(self.http_client(), tokio::time::sleep, None)
+            .request_async(self.http_client(), matrix_sdk_common::sleep::sleep, None)
             .await?;
 
         self.client.auth_ctx().set_session_tokens(SessionTokens {
