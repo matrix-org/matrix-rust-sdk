@@ -35,9 +35,6 @@ use ruma::{
 };
 
 #[cfg(feature = "e2e-encryption")]
-use tracing::warn;
-
-#[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
 use super::{
     super::{Context, notification, state_events, timeline},
@@ -107,38 +104,21 @@ pub async fn update_any_room(
         olm.store().clear_room_pending_key_bundle(room_info.room_id()).await?
     }
 
-    // If the room transitions from invited to joined here, the join happened without
-    // `BaseClient::room_joined` being called — i.e. it was not this client that sent
-    // the join request (e.g. the server auto-joined us after our knock was accepted,
-    // or another of our devices accepted the invite). Record the invite acceptance
-    // details, as `BaseClient::room_joined` would have done, so that a shared-history
-    // room key bundle ([MSC4268]) sent by the inviter can still be accepted.
-    //
-    // (The membership transition is already observable: `own_membership_and_update_room_state`
-    // marks a `MEMBERSHIP` notable update whenever our own member event is in the response.)
-    //
-    // [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    // If the room transitions to joined here without this client having performed the
+    // join (e.g. the server auto-joined us after our knock was accepted — the knocked
+    // state can flip STRAIGHT to joined, with the intermediate invite coalesced away),
+    // record the invite acceptance details so a shared-history key bundle can be
+    // accepted. NB: `room.state()` still holds the pre-response state at this point.
     #[cfg(feature = "e2e-encryption")]
-    if room_info.state() == RoomState::Joined
-        && room.state() == RoomState::Invited
-        && let Some(olm) = e2ee.olm_machine
-    {
-        match room.get_member(user_id).await {
-            Ok(Some(member)) if *member.event().membership() == MembershipState::Invite => {
-                let inviter = member.event().sender().to_owned();
-
-                if let Err(error) =
-                    olm.store().store_room_pending_key_bundle(room_id, &inviter).await
-                {
-                    warn!(?room_id, "Failed to record the acceptance of an invite: {error}");
-                }
-            }
-            Ok(_) => {}
-            Err(error) => {
-                warn!(?room_id, "Failed to fetch our own member event: {error}");
-            }
-        }
-    }
+    e2ee::record_invite_acceptance_for_server_initiated_join(
+        context,
+        e2ee.olm_machine,
+        &room,
+        room.state(),
+        room_info.state(),
+        &raw_state_events,
+    )
+    .await;
 
     room_info.mark_state_partially_synced();
     room_info.handle_encryption_state(requested_required_states.for_room(room_id));

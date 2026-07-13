@@ -1330,6 +1330,75 @@ mod tests {
         assert_eq!(details.inviter, inviter);
     }
 
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_server_initiated_join_of_knocked_room_records_invite_acceptance_details() {
+        // Given a logged-in client which has knocked on a room
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!r:e.uk");
+        let user_id = user_id!("@u:e.uk");
+        let inviter = user_id!("@inviter:e.uk");
+
+        let mut room = http::response::Room::new();
+        set_room_knocked(&mut room, user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_eq!(client.get_room(room_id).expect("No room found").state(), RoomState::Knocked);
+
+        // When the knock is accepted and the server auto-joins us: the room flips
+        // STRAIGHT from knocked to joined, the intermediate invite coalesced away.
+        // The join member event carries the replaced invite in `unsigned`
+        // (`prev_sender` is a Synapse extension).
+        let mut room = http::response::Room::new();
+        room.required_state.push(
+            Raw::new(&json!({
+                "type": "m.room.member",
+                "event_id": "$3",
+                "sender": user_id,
+                "state_key": user_id,
+                "content": {
+                    "membership": "join",
+                },
+                "unsigned": {
+                    "prev_content": {
+                        "membership": "invite",
+                    },
+                    "prev_sender": inviter,
+                },
+            }))
+            .expect("Failed to make raw event")
+            .cast_unchecked(),
+        );
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .expect("Failed to process sync");
+
+        assert_eq!(client.get_room(room_id).expect("No room found").state(), RoomState::Joined);
+
+        // Then the invite acceptance details are recorded, with the inviter taken
+        // from the join event's unsigned data.
+        let details = client
+            .get_pending_key_bundle_details_for_room(room_id)
+            .await
+            .expect("We should be able to fetch the pending key bundle details")
+            .expect("Invite acceptance details should be recorded for an auto-joined knock");
+        assert_eq!(details.inviter, inviter);
+    }
+
     #[async_test]
     async fn test_knock_room_is_added_to_client_and_knock_list() {
         // Given a logged-in client
