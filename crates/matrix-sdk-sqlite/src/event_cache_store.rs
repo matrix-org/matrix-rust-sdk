@@ -689,10 +689,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let new = new.index();
                         let next = next.as_ref().map(ChunkIdentifier::index);
 
-                        trace!(
-                            %linked_chunk_id,
-                            "new events chunk (prev={previous:?}, i={new}, next={next:?})",
-                        );
+                        trace!("new events chunk (prev={previous:?}, i={new}, next={next:?})");
 
                         insert_chunk(
                             txn,
@@ -711,10 +708,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let new = new.index();
                         let next = next.as_ref().map(ChunkIdentifier::index);
 
-                        trace!(
-                            %linked_chunk_id,
-                            "new gap chunk (prev={previous:?}, i={new}, next={next:?})",
-                        );
+                        trace!("new gap chunk (prev={previous:?}, i={new}, next={next:?})");
 
                         // Insert the chunk as a gap.
                         insert_chunk(
@@ -739,7 +733,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     Update::RemoveChunk(chunk_identifier) => {
                         let chunk_id = chunk_identifier.index();
 
-                        trace!(%linked_chunk_id, "removing chunk @ {chunk_id}");
+                        trace!("removing chunk @ {chunk_id}");
 
                         // Find chunk to delete.
                         let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
@@ -771,7 +765,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         let chunk_id = at.chunk_identifier().index();
 
-                        trace!(%linked_chunk_id, "pushing {} items @ {chunk_id}", items.len());
+                        trace!("pushing {} items @ {chunk_id}", items.len());
 
                         let mut chunk_statement = txn.prepare(
                             "INSERT INTO event_chunks(chunk_id, linked_chunk_id, event_id, position) VALUES (?, ?, ?, ?)"
@@ -787,7 +781,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         let invalid_event = |event: TimelineEvent| {
                             let Some(event_id) = event.event_id() else {
-                                error!(%linked_chunk_id, "Trying to push an event with no ID");
+                                error!("Trying to push an event with no ID");
                                 return None;
                             };
 
@@ -839,11 +833,11 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let chunk_id = at.chunk_identifier().index();
                         let index = at.index();
 
-                        trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
+                        trace!("replacing item @ {chunk_id}:{index}");
 
                         // The event ID should be the same, but just in case it changed…
                         let Some(event_id) = event.event_id().map(|event_id| event_id.to_owned()) else {
-                            error!(%linked_chunk_id, "Trying to replace an event with a new one that has no ID");
+                            error!("Trying to replace an event with a new one that has no ID");
                             continue;
                         };
 
@@ -893,7 +887,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let chunk_id = at.chunk_identifier().index();
                         let index = at.index();
 
-                        trace!(%linked_chunk_id, "removing item @ {chunk_id}:{index}");
+                        trace!("removing item @ {chunk_id}:{index}");
 
                         // Remove the entry in the chunk table.
                         txn.execute("DELETE FROM event_chunks WHERE linked_chunk_id = ? AND chunk_id = ? AND position = ?", (&hashed_linked_chunk_id, chunk_id, index))?;
@@ -1021,7 +1015,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         let chunk_id = at.chunk_identifier().index();
                         let index = at.index();
 
-                        trace!(%linked_chunk_id, "truncating items >= {chunk_id}:{index}");
+                        trace!("truncating items >= {chunk_id}:{index}");
 
                         // Remove these entries.
                         txn.execute("DELETE FROM event_chunks WHERE linked_chunk_id = ? AND chunk_id = ? AND position >= ?", (&hashed_linked_chunk_id, chunk_id, index))?;
@@ -1031,7 +1025,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     }
 
                     Update::Clear => {
-                        trace!(%linked_chunk_id, "clearing items");
+                        trace!("clearing items");
 
                         // Remove chunks, and let cascading do its job.
                         txn.execute(
