@@ -14,6 +14,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+#[cfg(feature = "e2e-encryption")]
+use ruma::events::room::member::MembershipState;
 use ruma::{
     OwnedRoomId, OwnedUserId, RoomId, UserId,
     api::client::sync::sync_events::v3::{
@@ -21,6 +23,8 @@ use ruma::{
     },
 };
 use tracing::error;
+#[cfg(feature = "e2e-encryption")]
+use tracing::warn;
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::e2ee;
@@ -49,6 +53,43 @@ pub async fn update_joined_room(
     let state_store = notification.state_store;
 
     let room = state_store.get_or_create_room(room_id, RoomState::Joined);
+
+    // If the room transitions from invited to joined here, the join happened without
+    // `BaseClient::room_joined` being called — i.e. it was not this client that sent
+    // the join request (e.g. the server auto-joined us after our knock was accepted,
+    // or another of our devices accepted the invite). Record the invite acceptance
+    // details, as `BaseClient::room_joined` would have done, so that a shared-history
+    // room key bundle ([MSC4268]) sent by the inviter can still be accepted.
+    //
+    // [MSC4268]: https://github.com/matrix-org/matrix-spec-proposals/pull/4268
+    #[cfg(feature = "e2e-encryption")]
+    if room.state() == RoomState::Invited
+        && let Some(olm_machine) = e2ee.olm_machine
+    {
+        match room.get_member(olm_machine.user_id()).await {
+            Ok(Some(member)) if *member.event().membership() == MembershipState::Invite => {
+                let inviter = member.event().sender().to_owned();
+
+                if let Err(error) =
+                    olm_machine.store().store_room_pending_key_bundle(room_id, &inviter).await
+                {
+                    warn!(?room_id, "Failed to record the acceptance of an invite: {error}");
+                } else {
+                    // Make sure the membership transition is observable, so that any
+                    // already-received key bundle gets another chance to be accepted.
+                    context
+                        .room_info_notable_updates
+                        .entry(room_id.to_owned())
+                        .or_default()
+                        .insert(crate::room::RoomInfoNotableUpdateReasons::MEMBERSHIP);
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                warn!(?room_id, "Failed to fetch our own member event: {error}");
+            }
+        }
+    }
 
     let mut room_info = room.clone_info();
 

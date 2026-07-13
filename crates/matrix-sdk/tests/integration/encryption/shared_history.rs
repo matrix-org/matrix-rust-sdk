@@ -1,6 +1,6 @@
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, assert_decrypted_message_eq, assert_next_matches_with_timeout,
+    Client, RoomState, assert_decrypted_message_eq, assert_next_matches_with_timeout,
     deserialized_responses::{TimelineEvent, UnableToDecryptInfo, UnableToDecryptReason},
     encryption::EncryptionSettings,
     test_utils::mocks::MatrixMockServer,
@@ -40,18 +40,18 @@ struct Test {
     event_receiver: tokio::sync::oneshot::Receiver<Raw<AnySyncTimelineEvent>>,
 }
 
-/// Sets up the shared-history scenario up to the point where Bob has joined the
-/// room and the bundle info to-device event is ready to be delivered.
+/// Sets up the shared-history scenario up to the point where Bob has synced
+/// the invite (but not yet joined) and the bundle info to-device event is
+/// ready to be delivered.
 ///
-/// Both tests below share this identical preamble:
+/// The tests below share this identical preamble:
 ///
 /// - Server + Alice + Bob clients created
 /// - E2EE identities exchanged
 /// - Alice creates an encrypted room and sends a message
 /// - Alice invites Bob, triggering key bundle upload
-/// - Bob syncs the invite and joins
-/// - Bundle details are verified
-async fn setup_shared_history(
+/// - Bob syncs the invite
+async fn setup_shared_history_until_invite(
     bob_builder_fn: impl FnOnce(matrix_sdk::ClientBuilder) -> matrix_sdk::ClientBuilder,
 ) -> Test {
     let room_id = room_id!("!test:localhost");
@@ -165,10 +165,25 @@ async fn setup_shared_history(
 
     let bob_room = bob.get_room(room_id).expect("Bob should have access to the invited room");
 
-    matrix_mock_server.mock_room_join(room_id).ok().mock_once().named("join").mount().await;
-    bob_room.join().await.expect("Bob should be able to join the room");
+    let bundle_info = bundle_info.await;
 
-    let details = bob
+    Test { matrix_mock_server, alice, bob, bob_room, event_id, bundle, bundle_info, event_receiver }
+}
+
+/// [`setup_shared_history_until_invite`], followed by Bob joining the room
+/// himself and the invite acceptance details being verified.
+async fn setup_shared_history(
+    bob_builder_fn: impl FnOnce(matrix_sdk::ClientBuilder) -> matrix_sdk::ClientBuilder,
+) -> Test {
+    let room_id = room_id!("!test:localhost");
+
+    let test = setup_shared_history_until_invite(bob_builder_fn).await;
+
+    test.matrix_mock_server.mock_room_join(room_id).ok().mock_once().named("join").mount().await;
+    test.bob_room.join().await.expect("Bob should be able to join the room");
+
+    let details = test
+        .bob
         .get_pending_key_bundle_details_for_room(room_id)
         .await
         .expect("Bob should be able to get the pending key bundle details for the room")
@@ -176,13 +191,11 @@ async fn setup_shared_history(
 
     assert_eq!(
         details.inviter,
-        alice.user_id().unwrap(),
+        test.alice.user_id().unwrap(),
         "We should have recorded that Alice has invited us"
     );
 
-    let bundle_info = bundle_info.await;
-
-    Test { matrix_mock_server, alice, bob, bob_room, event_id, bundle, bundle_info, event_receiver }
+    test
 }
 
 #[async_test]
@@ -270,6 +283,195 @@ async fn test_shared_history_out_of_order() {
     let forwarder_info = encryption_info.forwarder.as_ref().unwrap();
     assert_eq!(forwarder_info.user_id, alice_user_id);
     assert_eq!(forwarder_info.device_id, alice_device_id);
+
+    assert_decrypted_message_eq!(
+        event,
+        "It's a secret to everybody",
+        "The decrypted event should match the message Alice has sent"
+    );
+}
+
+/// A join initiated by the SERVER (e.g. auto-accepting our knock,
+/// https://github.com/element-hq/synapse/issues/16307, or an invite accepted
+/// on another of our devices) arrives via sync without this client ever
+/// calling join. The invite acceptance details must still be recorded, so
+/// that the shared-history key bundle is accepted when it arrives.
+#[async_test]
+async fn test_shared_history_server_initiated_join() {
+    let room_id = room_id!("!test:localhost");
+    let alice_user_id = user_id!("@alice:localhost");
+    let bob_user_id = user_id!("@bob:localhost");
+
+    let Test {
+        matrix_mock_server,
+        bob,
+        bob_room,
+        event_id,
+        bundle,
+        bundle_info,
+        event_receiver,
+        ..
+    } = setup_shared_history_until_invite(|builder| builder).await;
+
+    // The join arrives via sync: Bob's client never calls join.
+    let event_factory = EventFactory::new().room(room_id);
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_state_event(event_factory.member(bob_user_id)),
+            );
+        })
+        .await;
+
+    assert_eq!(bob_room.state(), RoomState::Joined, "Bob should now be joined to the room");
+
+    let details = bob
+        .get_pending_key_bundle_details_for_room(room_id)
+        .await
+        .expect("Bob should be able to get the pending key bundle details for the room")
+        .expect("Invite acceptance details should be recorded for a server-initiated join");
+
+    assert_eq!(details.inviter, alice_user_id, "We should have recorded that Alice has invited us");
+
+    // Now the bundle arrives, and should be imported as for a client-side join.
+    matrix_mock_server
+        .mock_authed_media_download()
+        .expect_any_access_token()
+        .ok_bytes(bundle)
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
+
+    let mut room_key_stream = bob
+        .encryption()
+        .room_keys_received_stream()
+        .await
+        .expect("We should be able to listen to received room keys");
+
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(
+                bundle_info
+                    .deserialize_as()
+                    .expect("We should be able to deserialize the bundle info"),
+            );
+        })
+        .await;
+
+    assert_next_matches_with_timeout!(room_key_stream, 3000, Ok(room_key_infos) => assert_eq!(room_key_infos.len(), 1));
+
+    let event = event_receiver.await.expect("We should have received Alice's event");
+
+    matrix_mock_server
+        .mock_room_event()
+        .room(room_id)
+        .match_event_id()
+        .ok(TimelineEvent::from_utd(
+            event,
+            UnableToDecryptInfo { session_id: None, reason: UnableToDecryptReason::Unknown },
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    let event = bob_room
+        .event(&event_id, None)
+        .await
+        .expect("Bob should be able to fetch the event Alice has sent");
+
+    assert_decrypted_message_eq!(
+        event,
+        "It's a secret to everybody",
+        "The decrypted event should match the message Alice has sent"
+    );
+}
+
+/// As [`test_shared_history_server_initiated_join`], but the key bundle
+/// arrives while we are still invited, BEFORE the server-initiated join. The
+/// stored bundle must be imported when the join is observed via sync.
+#[async_test]
+async fn test_shared_history_bundle_before_server_initiated_join() {
+    let room_id = room_id!("!test:localhost");
+    let bob_user_id = user_id!("@bob:localhost");
+
+    let Test {
+        matrix_mock_server,
+        bob,
+        bob_room,
+        event_id,
+        bundle,
+        bundle_info,
+        event_receiver,
+        ..
+    } = setup_shared_history_until_invite(|builder| builder).await;
+
+    // The bundle import will happen when the join is observed, so the media
+    // download must be mocked up front.
+    matrix_mock_server
+        .mock_authed_media_download()
+        .expect_any_access_token()
+        .ok_bytes(bundle)
+        .mock_once()
+        .named("media_download")
+        .mount()
+        .await;
+
+    // The bundle arrives while Bob is still invited: it must not be imported
+    // yet, but its data is stored.
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(
+                bundle_info
+                    .deserialize_as()
+                    .expect("We should be able to deserialize the bundle info"),
+            );
+        })
+        .await;
+
+    let mut room_key_stream = bob
+        .encryption()
+        .room_keys_received_stream()
+        .await
+        .expect("We should be able to listen to received room keys");
+
+    // The join arrives via sync: Bob's client never calls join. The stored
+    // bundle should now be imported.
+    let event_factory = EventFactory::new().room(room_id);
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_joined_room(
+                JoinedRoomBuilder::new(room_id).add_state_event(event_factory.member(bob_user_id)),
+            );
+        })
+        .await;
+
+    assert_eq!(bob_room.state(), RoomState::Joined, "Bob should now be joined to the room");
+
+    assert_next_matches_with_timeout!(room_key_stream, 3000, Ok(room_key_infos) => assert_eq!(room_key_infos.len(), 1));
+
+    let event = event_receiver.await.expect("We should have received Alice's event");
+
+    matrix_mock_server
+        .mock_room_event()
+        .room(room_id)
+        .match_event_id()
+        .ok(TimelineEvent::from_utd(
+            event,
+            UnableToDecryptInfo { session_id: None, reason: UnableToDecryptReason::Unknown },
+        ))
+        .mock_once()
+        .mount()
+        .await;
+
+    let event = bob_room
+        .event(&event_id, None)
+        .await
+        .expect("Bob should be able to fetch the event Alice has sent");
 
     assert_decrypted_message_eq!(
         event,
