@@ -1286,7 +1286,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                 // new items on 0
                 Update::PushItems {
                     at: Position::new(CId::new(2), 0),
-                    items: vec![make_test_event(r0, "yummy")],
+                    items: vec![make_test_event(r1, "yummy")],
                 },
             ],
         )
