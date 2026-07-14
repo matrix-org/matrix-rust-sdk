@@ -57,10 +57,12 @@ pub fn from_last_chunk<const CAP: usize, Item, Gap>(
         // SAFETY: Pointer is convertible to a reference.
         unsafe { chunk_ptr.as_mut() }.lazy_previous = lazy_previous;
 
+        let updates = Some(ObservableUpdates::new());
+
         Ok(Some(LinkedChunk {
-            links: Ends { first: chunk_ptr, last: None },
+            links: Ends::new_with_first_chunk(chunk_ptr, &updates),
             chunk_identifier_generator,
-            updates: Some(ObservableUpdates::new()),
+            updates,
             marker: PhantomData,
         }))
     }
@@ -152,10 +154,10 @@ where
         // Update `links`.
         {
             // Remember the pointer to the `first_chunk`.
-            let old_first_chunk = links.first;
+            let old_first_chunk = *links.first_chunk_ptr();
 
             // `new_first_chunk` becomes the new first chunk.
-            links.first = new_first_chunk;
+            *links.first_chunk_mut_ptr() = new_first_chunk;
 
             // Link the other way: `old_first_chunk` becomes the next chunk of the first
             // chunk.
@@ -243,6 +245,8 @@ where
     }
 
     // The last chunk is now valid.
+    //
+    // Be sure to keep in-sync with `linked_chunk.links.replace_with` below.
     linked_chunk.chunk_identifier_generator = chunk_identifier_generator;
 
     // Take the `previous` chunk and consider it becomes the `lazy_previous`.
@@ -257,7 +261,10 @@ where
     unsafe { chunk_ptr.as_mut() }.lazy_previous = lazy_previous;
 
     // Replace the first link with the new pointer.
-    linked_chunk.links.replace_with(chunk_ptr);
+    //
+    // SAFETY: The `linked_chunk.chunk_identifier_generator` has been updated
+    // accordingly a couple lines above.
+    unsafe { linked_chunk.links.replace_with(chunk_ptr) };
 
     if let Some(updates) = linked_chunk.updates.as_mut() {
         // Clear the previous updates, as we're about to insert a clear they would be

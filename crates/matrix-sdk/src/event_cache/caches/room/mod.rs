@@ -1096,10 +1096,8 @@ mod timed_tests {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 stream.recv()
         );
-        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
-        assert_let!(VectorDiff::Append { values } = &diffs[1]);
-        assert!(values.is_empty());
 
         // … same with a generic update.
         assert_let_timeout!(
@@ -1116,16 +1114,13 @@ mod timed_tests {
         assert!(items.is_empty());
 
         // The event cache store is fully empty.
-        let linked_chunk = from_all_chunks::<3, _, _>(
-            event_cache_store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap(),
-        )
-        .unwrap()
-        .unwrap();
-
-        // Note: while the event cache store could return `None` here, clearing it will
-        // reset it to its initial form, maintaining the invariant that it
-        // contains a single items chunk that's empty.
-        assert_eq!(linked_chunk.num_items(), 0);
+        assert!(
+            event_cache_store
+                .load_all_chunks(LinkedChunkId::Room(room_id))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[async_test]

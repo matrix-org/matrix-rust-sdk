@@ -202,6 +202,25 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
 
         last_token
     }
+
+    /// Create a new [`ObservableUpdatesPusher`], privately.
+    pub(super) fn new_pusher(&self) -> ObservableUpdatesPusher<Item, Gap> {
+        ObservableUpdatesPusher { inner: self.inner.clone() }
+    }
+}
+
+/// This type is similar to [`ObservableUpdates`] except it has a single `push`
+/// method which takes a `&self` instead of a `&mut self` to accommodate a
+/// particular need in `Ends` for lazily get the first chunk.
+pub(super) struct ObservableUpdatesPusher<Item, Gap> {
+    inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
+}
+
+impl<Item, Gap> ObservableUpdatesPusher<Item, Gap> {
+    /// Push a new update, even if `&self` while we could expect a `&mut self`.
+    pub fn push(&self, update: Update<Item, Gap>) {
+        self.inner.write().unwrap().push(update);
+    }
 }
 
 /// A token used to represent readers that read the updates in
@@ -451,7 +470,10 @@ mod tests {
             other_token
         };
 
-        // There is an initial update.
+        // Let's trigger the chunk creation to simplify the test.
+        let _ = linked_chunk.first_chunk();
+
+        // There is an update.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -698,16 +720,7 @@ mod tests {
         let updates_subscriber = linked_chunk.updates().unwrap().subscribe();
         pin_mut!(updates_subscriber);
 
-        // Initial update, stream is ready.
-        assert_matches!(
-            updates_subscriber.as_mut().poll_next(&mut context),
-            Poll::Ready(Some(items)) => {
-                assert_eq!(
-                    items,
-                    &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
-                );
-            }
-        );
+        // No initial update, stream is pending.
         assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Pending);
         assert_eq!(*counter_waker.number_of_wakeup.lock().unwrap(), 0);
 
@@ -723,7 +736,10 @@ mod tests {
             Poll::Ready(Some(items)) => {
                 assert_eq!(
                     items,
-                    &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                    &[
+                        NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None },
+                        PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }
+                    ]
                 );
             }
         );
@@ -792,28 +808,10 @@ mod tests {
             let updates_subscriber2 = linked_chunk.updates().unwrap().subscribe();
             pin_mut!(updates_subscriber2);
 
-            // Initial updates, streams are ready.
-            assert_matches!(
-                updates_subscriber1.as_mut().poll_next(&mut context1),
-                Poll::Ready(Some(items)) => {
-                    assert_eq!(
-                        items,
-                        &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
-                    );
-                }
-            );
+            // No initial updates, streams are pending.
             assert_matches!(updates_subscriber1.as_mut().poll_next(&mut context1), Poll::Pending);
             assert_eq!(*counter_waker1.number_of_wakeup.lock().unwrap(), 0);
 
-            assert_matches!(
-                updates_subscriber2.as_mut().poll_next(&mut context2),
-                Poll::Ready(Some(items)) => {
-                    assert_eq!(
-                        items,
-                        &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
-                    );
-                }
-            );
             assert_matches!(updates_subscriber2.as_mut().poll_next(&mut context2), Poll::Pending);
             assert_eq!(*counter_waker2.number_of_wakeup.lock().unwrap(), 0);
 
@@ -830,7 +828,10 @@ mod tests {
                 Poll::Ready(Some(items)) => {
                     assert_eq!(
                         items,
-                        &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                        &[
+                            NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None },
+                            PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }
+                        ]
                     );
                 }
             );
@@ -840,7 +841,10 @@ mod tests {
                 Poll::Ready(Some(items)) => {
                     assert_eq!(
                         items,
-                        &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                        &[
+                            NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None },
+                            PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }
+                        ]
                     );
                 }
             );
