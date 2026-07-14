@@ -190,7 +190,13 @@ jobs:
         run: swift test
 
       - name: Build Framework
-        run: target/debug/xtask swift build-framework --target=aarch64-apple-ios --profile=dev --ios-deployment-target=18.0
+        run: |
+          target/debug/xtask swift build-framework \
+            --target=aarch64-apple-ios \
+            --target=aarch64-apple-darwin \
+            --profile=dev \
+            --ios-deployment-target=18.0 \
+            --macos-deployment-target=12.0
 
   complement-crypto:
     name: "Run Complement Crypto tests"
