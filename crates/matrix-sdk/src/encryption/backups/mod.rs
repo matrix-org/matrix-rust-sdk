@@ -247,16 +247,17 @@ impl Backups {
         result
     }
 
-    /// Completely disable and delete the active backup both locally
-    /// and from the backend no matter if previously setup locally
+    /// Completely disable and delete all backup versions, both locally
+    /// and from the server, no matter if they were previously setup locally
     /// or not.
     ///
     /// ⚠️ This method is mainly used when resetting the crypto identity
     /// and for most other use cases its safer [`Backups::disable`] counterpart
     /// should be used.
     ///
-    /// It will fetch the current backup version from the backend and delete it
-    /// before proceeding to disabling local backups as well
+    /// It will fetch the current backup version from the server, delete it,
+    /// then repeat this until no backups remain, before proceeding to
+    /// disabling local backups as well
     ///
     /// # Examples
     ///
