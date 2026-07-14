@@ -14,9 +14,12 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
-    task::Waker,
+    pin::Pin,
+    sync::{Arc, RwLock, Weak},
+    task::{Context, Poll, Waker},
 };
+
+use futures_core::Stream;
 
 use super::{ChunkIdentifier, Position};
 
@@ -143,6 +146,8 @@ impl<Item, Gap> Update<Item, Gap> {
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
 ///
+/// All clones of this type share the same data.
+///
 /// [`LinkedChunk::updates`]: super::LinkedChunk::updates
 #[derive(Debug)]
 pub struct ObservableUpdates<Item, Gap> {
@@ -177,8 +182,7 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
     }
 
     /// Subscribe to updates by using a [`Stream`].
-    #[cfg(test)]
-    pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
+    pub fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
         // A subscriber is a new update reader, it needs its own token.
         let token = self.new_reader_token();
 
@@ -236,7 +240,7 @@ pub(super) struct UpdatesInner<Item, Gap> {
     last_token: ReaderToken,
 
     /// Pending wakers for [`UpdateSubscriber`]s. A waker is removed
-    /// everytime it is called.
+    /// every time it is called.
     wakers: Vec<Waker>,
 }
 
@@ -349,42 +353,36 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
 
 /// A subscriber to [`ObservableUpdates`]. It is helpful to receive updates via
 /// a [`Stream`].
-#[cfg(test)]
-pub(super) struct UpdatesSubscriber<Item, Gap> {
+#[derive(Debug)]
+pub struct UpdatesSubscriber<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
     ///
     /// Using a weak reference allows [`ObservableUpdates`] to be dropped
     /// freely even if a subscriber exists.
-    updates: std::sync::Weak<RwLock<UpdatesInner<Item, Gap>>>,
+    updates: Weak<RwLock<UpdatesInner<Item, Gap>>>,
 
     /// The token to read the updates.
     token: ReaderToken,
 }
 
-#[cfg(test)]
 impl<Item, Gap> UpdatesSubscriber<Item, Gap> {
     /// Create a new [`Self`].
-    #[cfg(test)]
-    fn new(updates: std::sync::Weak<RwLock<UpdatesInner<Item, Gap>>>, token: ReaderToken) -> Self {
+    fn new(updates: Weak<RwLock<UpdatesInner<Item, Gap>>>, token: ReaderToken) -> Self {
         Self { updates, token }
     }
 }
 
-#[cfg(test)]
-impl<Item, Gap> futures_core::Stream for UpdatesSubscriber<Item, Gap>
+impl<Item, Gap> Stream for UpdatesSubscriber<Item, Gap>
 where
     Item: Clone,
     Gap: Clone,
 {
     type Item = Vec<Update<Item, Gap>>;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        context: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Some(updates) = self.updates.upgrade() else {
             // The `ObservableUpdates` has been dropped. It's time to close this stream.
-            return std::task::Poll::Ready(None);
+            return Poll::Ready(None);
         };
 
         let mut updates = updates.write().unwrap();
@@ -396,15 +394,14 @@ where
             updates.wakers.push(context.waker().clone());
 
             // The stream is pending.
-            return std::task::Poll::Pending;
+            return Poll::Pending;
         }
 
         // There is updates! Let's forward them in this stream.
-        std::task::Poll::Ready(Some(the_updates.to_owned()))
+        Poll::Ready(Some(the_updates.to_owned()))
     }
 }
 
-#[cfg(test)]
 impl<Item, Gap> Drop for UpdatesSubscriber<Item, Gap> {
     fn drop(&mut self) {
         // Remove `Self::token` from `UpdatesInner::last_index_per_reader`.
