@@ -184,10 +184,8 @@ async fn test_ignored_unignored() {
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
                 room_stream.recv()
         );
-        assert_eq!(diffs.len(), 2);
+        assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
-        assert_let!(VectorDiff::Append { values } = &diffs[1]);
-        assert!(values.is_empty());
     }
 
     // We do receive the new event.
@@ -2452,10 +2450,8 @@ async fn test_clear_all_rooms() {
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
             room_updates.recv()
     );
-    assert_eq!(diffs.len(), 2);
+    assert_eq!(diffs.len(), 1);
     assert_let!(VectorDiff::Clear = &diffs[0]);
-    assert_let!(VectorDiff::Append { values } = &diffs[1]);
-    assert!(values.is_empty());
 
     // The sleeping room should have been cleared too.
     let (maybe_last_chunk, _chunk_id_gen) =
