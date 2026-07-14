@@ -334,7 +334,8 @@ async fn test_shared_history_server_initiated_join() {
 
     assert_eq!(details.inviter, alice_user_id, "We should have recorded that Alice has invited us");
 
-    // Now the bundle arrives, and should be imported as for a client-side join.
+    // Now the bundle arrives. This device has not (yet) been designated as
+    // the bundle claimer, so nothing should be downloaded until it is.
     matrix_mock_server
         .mock_authed_media_download()
         .expect_any_access_token()
@@ -358,6 +359,19 @@ async fn test_shared_history_server_initiated_join() {
                     .deserialize_as()
                     .expect("We should be able to deserialize the bundle info"),
             );
+        })
+        .await;
+
+    // MSC4509: the server designates this device as the bundle claimer;
+    // without it, the download stays deferred until an undecryptable event.
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(serde_json::json!({
+                "type": "org.matrix.msc4509.key_bundle_claim",
+                "sender": bob_user_id,
+                "content": { "room_id": room_id },
+            }));
         })
         .await;
 
@@ -439,7 +453,8 @@ async fn test_shared_history_bundle_before_server_initiated_join() {
         .expect("We should be able to listen to received room keys");
 
     // The join arrives via sync: Bob's client never calls join. The stored
-    // bundle should now be imported.
+    // bundle must still not be imported: this device has not been designated
+    // as the claimer (MSC4509).
     let event_factory = EventFactory::new().room(room_id);
     matrix_mock_server
         .mock_sync()
@@ -451,6 +466,19 @@ async fn test_shared_history_bundle_before_server_initiated_join() {
         .await;
 
     assert_eq!(bob_room.state(), RoomState::Joined, "Bob should now be joined to the room");
+
+    // MSC4509: the server designates this device as the bundle claimer;
+    // without it, the download stays deferred until an undecryptable event.
+    matrix_mock_server
+        .mock_sync()
+        .ok_and_run(&bob, |builder| {
+            builder.add_to_device_event(serde_json::json!({
+                "type": "org.matrix.msc4509.key_bundle_claim",
+                "sender": bob_user_id,
+                "content": { "room_id": room_id },
+            }));
+        })
+        .await;
 
     assert_next_matches_with_timeout!(room_key_stream, 3000, Ok(room_key_infos) => assert_eq!(room_key_infos.len(), 1));
 
