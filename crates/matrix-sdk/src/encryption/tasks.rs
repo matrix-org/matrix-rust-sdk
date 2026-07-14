@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use futures_core::Stream;
 use futures_util::{StreamExt, pin_mut};
@@ -26,7 +30,12 @@ use matrix_sdk_common::failures_cache::FailuresCache;
 use ruma::events::room::encrypted::{EncryptedEventScheme, OriginalSyncRoomEncryptedEvent};
 #[cfg(feature = "experimental-encrypted-state-events")]
 use ruma::serde::JsonCastable;
-use ruma::{OwnedEventId, OwnedRoomId, serde::Raw};
+use ruma::{
+    OwnedEventId, OwnedRoomId,
+    events::{ToDeviceEvent, macros::EventContent},
+    serde::Raw,
+};
+use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -430,7 +439,24 @@ impl BackupDownloadTaskListenerState {
     }
 }
 
+/// MSC4509: to-device message by which our server designates this device as
+/// the one which should eagerly download an MSC4268 room key bundle after a
+/// server-initiated join (e.g. an auto-accepted knock). Without a designation,
+/// every one of the user's devices would download the bundle the moment the
+/// join appears in their sync.
+#[derive(Clone, Debug, Deserialize, Serialize, EventContent)]
+#[ruma_event(type = "org.matrix.msc4509.key_bundle_claim", kind = ToDevice)]
+pub(crate) struct KeyBundleClaimEventContent {
+    /// The room whose key bundle this device should claim.
+    pub room_id: OwnedRoomId,
+}
+
+/// The rooms for which this device has been designated (via
+/// [`KeyBundleClaimEventContent`]) to eagerly download the room key bundle.
+pub(crate) type KeyBundleDesignations = Arc<StdMutex<HashSet<OwnedRoomId>>>;
+
 pub(crate) struct BundleReceiverTask {
+    designations: KeyBundleDesignations,
     _startup_handle: JoinHandle<()>,
     _listen_handle: JoinHandle<()>,
     _room_update_handle: JoinHandle<()>,
@@ -441,14 +467,86 @@ impl BundleReceiverTask {
         let stream = client.encryption().historic_room_key_stream().await.expect("E2EE tasks should only be initialized once we have logged in and have access to an OlmMachine");
         let room_updates = client.room_info_notable_update_receiver();
         let weak_client = WeakClient::from_client(client);
+
+        let designations: KeyBundleDesignations = Default::default();
+
+        // MSC4509: listen for the server designating this device as the room
+        // key bundle claimer for a room it joined us to.
+        let handler_designations = designations.clone();
+        client.add_event_handler(
+            move |event: ToDeviceEvent<KeyBundleClaimEventContent>, client: Client| {
+                let designations = handler_designations.clone();
+                async move {
+                    // Only our own homeserver can deliver a to-device message
+                    // with our own user as the sender; distrust anything else.
+                    if Some(event.sender.as_ref()) != client.user_id() {
+                        warn!(
+                            sender = ?event.sender,
+                            "Ignoring a key bundle claim designation from another user"
+                        );
+                        return;
+                    }
+
+                    let room_id = event.content.room_id;
+                    info!(?room_id, "Designated to claim the room key bundle");
+                    designations.lock().unwrap().insert(room_id.clone());
+                    Self::maybe_import_stored_bundle(&client, &room_id).await;
+                }
+            },
+        );
+
         Self {
-            _listen_handle: spawn(Self::listen_task(weak_client.clone(), stream)),
-            _room_update_handle: spawn(Self::room_update_task(weak_client.clone(), room_updates)),
+            designations: designations.clone(),
+            _listen_handle: spawn(Self::listen_task(
+                weak_client.clone(),
+                stream,
+                designations.clone(),
+            )),
+            _room_update_handle: spawn(Self::room_update_task(
+                weak_client.clone(),
+                room_updates,
+                designations,
+            )),
             _startup_handle: spawn(Self::startup_task(weak_client)),
         }
     }
 
-    async fn listen_task(client: WeakClient, stream: impl Stream<Item = RoomKeyBundleInfo>) {
+    /// Whether this device has been designated to eagerly claim the key
+    /// bundle for the given room; if not, the bundle is only imported lazily,
+    /// upon the first undecryptable event in the room.
+    fn is_designated(designations: &KeyBundleDesignations, room_id: &ruma::RoomId) -> bool {
+        designations.lock().unwrap().contains(room_id)
+    }
+
+    /// Designate this device as the key bundle claimer for the given room —
+    /// because we joined the room ourselves, so we would have downloaded the
+    /// bundle eagerly anyway.
+    pub(crate) fn designate_self(&self, room_id: &ruma::RoomId) {
+        self.designations.lock().unwrap().insert(room_id.to_owned());
+    }
+
+    /// An event in the given room failed to decrypt: if we have deferred a
+    /// room key bundle for the room, this is the lazy trigger to import it
+    /// after all.
+    pub(crate) fn claim_bundle_for_utd(&self, client: &Client, room_id: &ruma::RoomId) {
+        if !self.designations.lock().unwrap().insert(room_id.to_owned()) {
+            // Already designated: any pending bundle was already imported (or
+            // is being).
+            return;
+        }
+
+        let client = client.clone();
+        let room_id = room_id.to_owned();
+        spawn(async move {
+            Self::maybe_import_stored_bundle(&client, &room_id).await;
+        });
+    }
+
+    async fn listen_task(
+        client: WeakClient,
+        stream: impl Stream<Item = RoomKeyBundleInfo>,
+        designations: KeyBundleDesignations,
+    ) {
         pin_mut!(stream);
 
         // TODO: Listening to this stream is not enough for iOS due to the NSE killing
@@ -467,6 +565,13 @@ impl BundleReceiverTask {
                 continue;
             };
 
+            // MSC4509: unless designated as the claimer, defer the download —
+            // the first undecryptable event in the room will trigger it.
+            if !Self::is_designated(&designations, &bundle_info.room_id) {
+                trace!(room_id = %bundle_info.room_id, "Deferring key bundle import: not designated");
+                continue;
+            }
+
             Self::handle_bundle(&room, &bundle_info).await;
         }
     }
@@ -483,6 +588,7 @@ impl BundleReceiverTask {
     async fn room_update_task(
         client: WeakClient,
         mut receiver: tokio::sync::broadcast::Receiver<matrix_sdk_base::RoomInfoNotableUpdate>,
+        designations: KeyBundleDesignations,
     ) {
         use tokio::sync::broadcast::error::RecvError;
 
@@ -500,6 +606,16 @@ impl BundleReceiverTask {
                         // The client was dropped: the application has shut down.
                         break;
                     };
+
+                    // MSC4509: a join observed via sync (rather than made by
+                    // this client) happened on all of our user's devices at
+                    // once: don't download the bundle from every one of them.
+                    // Wait to be designated as the claimer, or for the first
+                    // undecryptable event in the room.
+                    if !Self::is_designated(&designations, &update.room_id) {
+                        trace!(room_id = %update.room_id, "Deferring key bundle import: not designated");
+                        continue;
+                    }
 
                     Self::maybe_import_stored_bundle(&client, &update.room_id).await;
                 }

@@ -1704,6 +1704,15 @@ impl Client {
             && let Some(inviter) =
                 pre_join_room_info.as_ref().and_then(|info| info.inviter.as_ref())
         {
+            // We joined the room ourselves, so this device is the natural one
+            // to download the key bundle: designate ourselves, so a bundle
+            // arriving after the join is imported eagerly too (MSC4509).
+            {
+                let tasks = self.inner.e2ee.tasks.lock();
+                if let Some(task) = tasks.receive_historic_room_key_bundles.as_ref() {
+                    task.designate_self(room_id);
+                }
+            }
             crate::room::shared_room_history::maybe_accept_key_bundle(&room, inviter.user_id())
                 .await?;
         }
