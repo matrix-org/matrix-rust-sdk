@@ -181,6 +181,23 @@ impl TimelineItemContent {
         .await;
         match actions.as_slice() {
             [TimelineAction::AddItem { content }] => Some(content.clone()),
+            [
+                TimelineAction::AddItem { content },
+                TimelineAction::HandleAggregation {
+                    kind: HandleAggregationKind::BeaconStop { .. },
+                    ..
+                },
+            ] => {
+                if content.is_live_location_state() {
+                    Some(content.clone())
+                } else {
+                    warn!(
+                        "Unexpected [AddItem, BeaconStop] actions with a non-live-location \
+                         AddItem; ignoring event"
+                    );
+                    None
+                }
+            }
             // Aggregated event: only edits and beacon stop are supported at the moment.
             [
                 TimelineAction::HandleAggregation {
@@ -219,8 +236,6 @@ impl TimelineItemContent {
                 None
             }
             [_, _, ..] => {
-                // Multiple actions can happen e.g. when a beacon_info with prev_content
-                // is processed: it produces both an AddItem and a HandleAggregation.
                 // There is no meaningful single content to extract in that case.
                 warn!("Ignoring event that produced multiple timeline actions");
                 None
@@ -241,6 +256,12 @@ impl TimelineItemContent {
             kind: MsgLikeKind::LiveLocation(state),
             ..
         }) => state)
+    }
+
+    /// Check whether this item's content is a
+    /// [`LiveLocation`][MsgLikeKind::LiveLocation].
+    pub fn is_live_location_state(&self) -> bool {
+        matches!(self, Self::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(_), .. }))
     }
 
     /// If `self` is of the [`MsgLike`][Self::MsgLike] variant, return the
