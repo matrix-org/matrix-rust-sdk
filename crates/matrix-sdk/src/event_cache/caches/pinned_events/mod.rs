@@ -208,10 +208,8 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
     ///
     /// This method should be used only for updates that happen *outside*
     /// the in-memory linked chunk. Such updates must be applied
-    /// onto the ordering tracker as well as to the persistent
-    /// storage.
+    /// onto the persistent storage.
     async fn apply_store_only_updates(&mut self, updates: Vec<Update<Event, Gap>>) -> Result<()> {
-        self.state.chunk.order_tracker.map_updates(&updates);
         self.send_updates_to_store(updates).await
     }
 
