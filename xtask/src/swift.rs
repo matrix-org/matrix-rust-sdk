@@ -91,7 +91,7 @@ impl SwiftArgs {
                 // The dev profile seems to cause crashes on some platforms so we default to
                 // reldbg (https://github.com/matrix-org/matrix-rust-sdk/issues/4009)
                 let profile =
-                    profile.as_deref().unwrap_or(if release { "apple-release" } else { "reldbg" });
+                    profile.as_deref().unwrap_or(if release { "small-release" } else { "reldbg" });
                 build_xcframework(
                     profile,
                     targets,
