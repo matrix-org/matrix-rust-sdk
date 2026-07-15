@@ -312,7 +312,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             ReloadPreprocessing::None => {}
         }
 
-        self.shrink_to_last_chunk().await?;
+        self.shrink_to_last_reloaded_chunk().await?;
 
         Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())
     }
@@ -326,7 +326,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     ///
     /// Otherwise, returns `None`.
     #[instrument(skip(self))]
-    async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
+    async fn shrink_to_last_reloaded_chunk(&mut self) -> Result<(), EventCacheError> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
 
@@ -422,7 +422,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // subscriber could be created, creating a race, except that this method takes a
             // `&mut`, ensuring an exclusive access to the state, ensuring no other
             // subscribers can be created.
-            self.shrink_to_last_chunk().await?;
+            self.shrink_to_last_reloaded_chunk().await?;
 
             Ok(Some(self.state.room_linked_chunk.updates_as_vector_diffs()))
         } else {
@@ -598,7 +598,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             //
             // We must do this *after* persisting these events to storage (in
             // `post_process_new_events`).
-            self.shrink_to_last_chunk().await?;
+            self.shrink_to_last_reloaded_chunk().await?;
         }
 
         let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();
