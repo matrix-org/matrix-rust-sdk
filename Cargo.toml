@@ -223,7 +223,7 @@ opt-level = "s"
 
 # Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
 # smaller linked code than `release`.
-[profile.apple-release]
+[profile.small-release]
 inherits = "release"
 opt-level = "s"
 
