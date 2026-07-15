@@ -35,7 +35,7 @@ use ruma::{
     room_version_rules::RedactionRules,
     user_id,
 };
-use tokio::{spawn, sync::broadcast, time::sleep};
+use tokio::{spawn, sync::broadcast, task::yield_now, time::sleep};
 
 mod read_receipts;
 mod threads;
@@ -3027,4 +3027,103 @@ async fn test_backpaginate_on_a_single_event_inserted_via_send_queue_from_an_emp
     // The event cache can't know whether this is the start or not, and it shouldn't
     // assume so.
     assert!(reached_start.not());
+}
+
+/// Related issues:
+///
+/// - https://github.com/matrix-org/matrix-rust-sdk/issues/5896
+/// - https://github.com/matrix-org/matrix-rust-sdk/issues/5416
+#[async_test]
+async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
+    let server = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!r0");
+    let event_factory = EventFactory::new().room(room_id).sender(*ALICE);
+
+    let event_id_4 = event_id!("$ev4");
+    let event_0 = event_factory.text_msg("foo").event_id(event_id!("$ev0")).into_raw_sync();
+    let event_1 = event_factory.text_msg("bar").event_id(event_id!("$ev1")).into_raw_sync();
+    let event_2 = event_factory.text_msg("baz").event_id(event_id!("$ev2")).into_raw_sync();
+    let event_3 = event_factory.text_msg("qux").event_id(event_id!("$ev3")).into_raw_sync();
+    let event_4 = event_factory.text_msg("wat").event_id(event_id_4).into_raw_sync();
+
+    let event_cache_store = Arc::new(MemoryStore::new());
+
+    // Setup two clients from two simulated “processes”.
+    let client_a = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("process_a"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+    let client_b = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder.store_config(
+                StoreConfig::new(CrossProcessLockConfig::multi_process("process_b"))
+                    .event_cache_store(event_cache_store.clone()),
+            )
+        })
+        .build()
+        .await;
+
+    client_a.event_cache().subscribe().unwrap();
+    client_b.event_cache().subscribe().unwrap();
+
+    // Little dance to force `process_a` to be dirty:
+    // - process A syncs 2 events,
+    // - process B syncs a gap + 1 event (to ensure process A won't be able to
+    //   retrieve an event if something went wrong): it is dirty, it will reload, no
+    //   problem,
+    // - process B syncs a gap + 1 event again: it is not dirty, no problem.
+    // - process A is syncs 3 events: it is dirty, it will reload, but if the
+    //   `OrderTracker` is not reset correctly, it will panic.
+    let room_a = server
+        .sync_room(
+            &client_a,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_0, event_1]),
+        )
+        .await;
+
+    let (room_event_cache_a, _drop_handles_a) = room_a.event_cache().await.unwrap();
+
+    server
+        .sync_room(
+            &client_b,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch-token")
+                .add_timeline_bulk(vec![event_2.clone()]),
+        )
+        .await;
+
+    server
+        .sync_room(
+            &client_b,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev-batch-token-2")
+                .add_timeline_bulk(vec![event_3.clone()]),
+        )
+        .await;
+
+    server
+        .sync_room(
+            &client_a,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![event_2, event_3, event_4]),
+        )
+        .await;
+
+    // Give time to the `RoomEventCache` to do its business.
+    yield_now().await;
+
+    // If the `OrderTracker` didn't panic, process A must be able to fetch
+    // `event_4`.
+    let events = room_event_cache_a.events().await.unwrap();
+
+    assert!(events.iter().any(|ev| ev.event_id() == Some(event_id_4)));
 }
