@@ -336,7 +336,12 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
 
         {
             let mut current_chunk_identifier = last_chunk.identifier;
-            self.state.chunk.replace_with(Some(last_chunk), chunk_id_gen)?;
+            self.state.chunk.shrink_to_last_reloaded_chunk(
+                Some(last_chunk),
+                chunk_id_gen,
+                // This cache doesn't use the `OrderTracker`.
+                None,
+            )?;
 
             // Reload the entire chunk.
             while let Some(previous_chunk) =

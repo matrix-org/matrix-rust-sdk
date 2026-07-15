@@ -565,22 +565,30 @@ impl EventLinkedChunk {
         r
     }
 
-    /// Replace the events with the given last chunk of events and generator.
+    /// Replace all chunks by the last (loaded) one.
     ///
-    /// Happens only during lazy loading.
-    ///
-    /// This clears all the chunks in memory before resetting to the new chunk,
-    /// if provided.
+    /// Since the last chunk has been loaded, it is assumed the metadata of the
+    /// `LinkedChunk` might have changed. That's why
+    /// `full_linked_chunk_metadata` is required if this type has been built
+    /// with [`EventLinkedChunk::with_initial_linked_chunk`].
     #[instrument(err, skip_all, fields(sentry = true))]
-    pub(in super::super) fn replace_with(
+    pub(in super::super) fn shrink_to_last_reloaded_chunk(
         &mut self,
         last_chunk: Option<RawChunk<Event, Gap>>,
         chunk_identifier_generator: ChunkIdentifierGenerator,
+        full_linked_chunk_metadata: Option<Vec<ChunkMetadata>>,
     ) -> Result<(), LazyLoaderError> {
         // Since `replace_with` is used only to unload some chunks, we don't want it to
         // affect the chunk ordering.
         self.inhibit_updates_to_ordering_tracker(move |this| {
-            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)
+            lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)?;
+
+            this.order_tracker = this
+                .chunks
+                .order_tracker(full_linked_chunk_metadata)
+                .expect("`LinkedChunk` must have been built with `new_with_update_history`");
+
+            Ok(())
         })
     }
 

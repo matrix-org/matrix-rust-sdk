@@ -101,9 +101,24 @@ impl ThreadEventCacheState {
     /// pending diff updates with the result of this function.
     ///
     /// Otherwise, returns `None`.
+    #[instrument(skip(self, store))]
     async fn shrink_to_last_chunk(&mut self, store: &EventCacheStoreLockGuard) -> Result<()> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&self.room_id, &self.thread_id);
+
+        let full_linked_chunk_metadata =
+            match load_linked_chunk_metadata(store, linked_chunk_id).await {
+                Ok(metas) => metas,
+                Err(err) => {
+                    error!("error when reloading a linked chunk's metadata from the store: {err}");
+
+                    // Try to clear storage for this thread.
+                    store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
+
+                    // Restart with an empty linked chunk.
+                    None
+                }
+            };
 
         let (last_chunk, chunk_identifier_generator) =
             match store.load_last_chunk(linked_chunk_id).await {
@@ -113,7 +128,7 @@ impl ThreadEventCacheState {
                     // If loading the last chunk failed, clear the entire linked chunk.
                     error!("error when reloading a linked chunk from memory: {err}");
 
-                    // Clear storage for this room.
+                    // Clear storage for this thread.
                     store.handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear]).await?;
 
                     // Restart with an empty linked chunk.
@@ -125,9 +140,11 @@ impl ThreadEventCacheState {
 
         // Remove all the chunks from the linked chunks, except for the last one, and
         // updates the chunk identifier generator.
-        if let Err(err) =
-            self.thread_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
-        {
+        if let Err(err) = self.thread_linked_chunk.shrink_to_last_reloaded_chunk(
+            last_chunk,
+            chunk_identifier_generator,
+            full_linked_chunk_metadata,
+        ) {
             error!("error when replacing the linked chunk: {err}");
 
             self.thread_linked_chunk.reset();
@@ -199,7 +216,7 @@ impl ThreadEventCacheState {
                 Err(err) => {
                     error!("error when loading a linked chunk's metadata from the store: {err}");
 
-                    // Try to clear storage for this room.
+                    // Try to clear storage for this thread.
                     store_guard
                         .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                         .await?;
@@ -221,7 +238,7 @@ impl ThreadEventCacheState {
             Err(err) => {
                 error!("error when loading a linked chunk's latest chunk from the store: {err}");
 
-                // Try to clear storage for this room.
+                // Try to clear storage for this thread.
                 store_guard
                     .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
                     .await?;
