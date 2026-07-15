@@ -102,7 +102,10 @@ impl ThreadEventCacheState {
     ///
     /// Otherwise, returns `None`.
     #[instrument(skip(self, store))]
-    async fn shrink_to_last_chunk(&mut self, store: &EventCacheStoreLockGuard) -> Result<()> {
+    async fn shrink_to_last_reloaded_chunk(
+        &mut self,
+        store: &EventCacheStoreLockGuard,
+    ) -> Result<()> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Thread(&self.room_id, &self.thread_id);
 
@@ -414,6 +417,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         match preprocessing {
             ReloadPreprocessing::ForgetAll => {
                 // Clear the `LinkedChunk` and broadcast the updates to the store.
+
                 self.thread_linked_chunk_mut().reset();
                 self.state.propagate_changes(&self.store).await?;
 
@@ -426,7 +430,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             ReloadPreprocessing::None => {}
         }
 
-        self.state.shrink_to_last_chunk(&self.store).await?;
+        self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
 
         Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())
     }
@@ -485,7 +489,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             // valid gap in between, and observers may not render it (yet).
             //
             // We must do this *after* persisting these events to storage.
-            self.state.shrink_to_last_chunk(&self.store).await?;
+            self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
         }
 
         // Do stuff for each event.
@@ -664,7 +668,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             // subscriber could be created, creating a race, except that this method takes a
             // `&mut`, ensuring an exclusive access to the state, ensuring no other
             // subscribers can be created.
-            self.state.shrink_to_last_chunk(&self.store).await?;
+            self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
 
             Ok(Some(self.state.thread_linked_chunk.updates_as_vector_diffs()))
         } else {
