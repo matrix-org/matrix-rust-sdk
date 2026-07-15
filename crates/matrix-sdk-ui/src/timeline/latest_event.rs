@@ -184,7 +184,10 @@ mod tests {
     use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{
         MilliSecondsSinceUnixEpoch, event_id,
-        events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+        events::{
+            AnyMessageLikeEventContent, beacon_info::BeaconInfoEventContent,
+            room::message::RoomMessageEventContent,
+        },
         owned_event_id, room_id, uint, user_id,
     };
 
@@ -412,6 +415,53 @@ mod tests {
                 TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(state), .. }) => {
                     assert!(!state.is_live(), "stop beacon should not be live");
                     assert_eq!(state.description(), Some("Alice's walk"));
+                }
+            );
+        })
+    }
+
+    #[async_test]
+    async fn test_remote_beacon_start_with_prev_content() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
+        let sender = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new();
+
+        let prev_content = BeaconInfoEventContent::new(
+            Some("Alice's previous walk".to_owned()),
+            Duration::from_secs(30),
+            false,
+            None,
+        );
+        let base_value = BaseLatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            event_factory
+                .server_ts(42)
+                .sender(sender)
+                .beacon_info(
+                    Some("Alice's new walk".to_owned()),
+                    Duration::from_secs(60),
+                    true,
+                    None,
+                )
+                .state_key(sender)
+                .event_id(event_id!("$beacon-start-2"))
+                .prev_content(prev_content)
+                .into_raw_sync(),
+        ));
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(received_sender, sender);
+            assert!(is_own.not());
+            assert_matches!(profile, TimelineDetails::Unavailable);
+            assert_matches!(
+                content,
+                TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::LiveLocation(state), .. }) => {
+                    assert!(state.is_live(), "restart beacon should be live");
+                    assert_eq!(state.description(), Some("Alice's new walk"));
                 }
             );
         })
