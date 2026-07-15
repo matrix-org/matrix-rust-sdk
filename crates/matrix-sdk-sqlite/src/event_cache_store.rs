@@ -99,7 +99,8 @@ impl Encryption {
         Ok(EncodedEvent {
             content,
             rel_type,
-            relates_to: relates_to.map(|relates_to| self.encode_event_id(&relates_to)),
+            relates_to: relates_to
+                .map(|relates_to| self.encode_event_id(keys::EVENTS, &relates_to)),
         })
     }
 
@@ -109,14 +110,14 @@ impl Encryption {
 
     /// Encode the event ID as a _key_: it cannot be decoded, but this is
     /// stable.
-    fn encode_event_id(&self, event_id: &EventId) -> Key {
-        self.encode_key(keys::EVENTS, event_id)
+    fn encode_event_id(&self, table_name: &str, event_id: &EventId) -> Key {
+        self.encode_key(table_name, event_id)
     }
 
     /// Encode the room ID as a _key_: it cannot be decoded, but this is
     /// stable.
-    fn encode_room_id(&self, room_id: &RoomId) -> Key {
-        self.encode_key(keys::EVENTS, room_id)
+    fn encode_room_id(&self, table_name: &str, room_id: &RoomId) -> Key {
+        self.encode_key(table_name, room_id)
     }
 }
 
@@ -674,7 +675,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         let hashed_linked_chunk_id =
             self.encryption.encode_key(keys::LINKED_CHUNKS, linked_chunk_id.storage_key());
         let linked_chunk_id = linked_chunk_id.to_owned();
-        let hashed_room_id = self.encryption.encode_room_id(linked_chunk_id.room_id());
+        let hashed_room_id =
+            self.encryption.encode_room_id(keys::EVENTS, linked_chunk_id.room_id());
         let encryption = self.encryption.clone();
 
         // Use a single transaction throughout this function, so that either all updates
@@ -798,7 +800,14 @@ impl EventCacheStore for SqliteEventCacheStore {
                         };
 
                         for (i, (event_id, event_type, event)) in items.into_iter().filter_map(invalid_event).enumerate() {
-                            let hashed_event_id = encryption.encode_event_id(&event_id);
+                            let hashed_event_id = encryption.encode_event_id(
+                                // For the event ID, we need a stable hash between the `events`
+                                // and `event_chunks` tables. That's why we use `keys::EVENTS`
+                                // even if `hashed_event_id` is sometimes only used in
+                                // `events_chunks`.
+                                keys::EVENTS,
+                                &event_id,
+                            );
 
                             // Table `event_chunks`.
                             {
@@ -843,7 +852,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             continue;
                         };
 
-                        let hashed_event_id = encryption.encode_event_id(&event_id);
+                        let hashed_event_id = encryption.encode_event_id(keys::EVENTS, &event_id);
 
                         // Before updating the event in its chunk, we must ensure the event exists:
                         // either we insert it, or we update it. Note that it's possible to replace
@@ -1374,7 +1383,14 @@ impl EventCacheStore for SqliteEventCacheStore {
         let event_ids_and_hashed_event_ids = event_ids
             .into_iter()
             .map(|event_id| {
-                let hashed_event_id = self.encryption.encode_event_id(&event_id);
+                let hashed_event_id = self.encryption.encode_event_id(
+                    // For the event ID, we need a stable hash between the
+                    // `events` and `event_chunks` tables. That's why we use
+                    // `keys::EVENTS` even if `hashed_event_id` is only used in
+                    // `events_chunks`.
+                    keys::EVENTS,
+                    &event_id,
+                );
 
                 (event_id, hashed_event_id)
             })
@@ -1470,8 +1486,8 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let encryption = self.encryption.clone();
 
-        let hashed_room_id = self.encryption.encode_room_id(room_id);
-        let hashed_event_id = self.encryption.encode_event_id(event_id);
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
 
         self.read()
             .await?
@@ -1499,11 +1515,11 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
         let _timer = timer!("method");
 
-        let hashed_room_id = self.encryption.encode_room_id(room_id);
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let hashed_linked_chunk_id = self
             .encryption
             .encode_key(keys::LINKED_CHUNKS, LinkedChunkId::Room(room_id).storage_key());
-        let hashed_event_id = self.encryption.encode_event_id(event_id);
+        let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
 
         let filters = filters.map(ToOwned::to_owned);
         let encryption = self.encryption.clone();
@@ -1534,7 +1550,7 @@ impl EventCacheStore for SqliteEventCacheStore {
 
         let encryption = self.encryption.clone();
 
-        let hashed_room_id = self.encryption.encode_room_id(room_id);
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let hashed_event_type = event_type.map(|e| self.encryption.encode_key(keys::EVENTS, e));
         let hashed_session_id = session_id.map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
@@ -1593,8 +1609,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         let hashed_session_id =
             event.kind.session_id().map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
-        let hashed_room_id = self.encryption.encode_room_id(room_id);
-        let hashed_event_id = self.encryption.encode_event_id(event_id);
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
         let encoded_event = self.encryption.encode_event(&event)?;
 
         self.write()
