@@ -212,21 +212,20 @@ debug = 2
 inherits = "dbg"
 opt-level = 3
 
-[profile.dist]
-# Use release profile as a base
-inherits = "release"
-# Strip the minimal debug info, while still allowing us to have proper backtraces, but it will affect debuggers
-strip = "debuginfo"
-# Use link time optimizations
-lto = true
-# Use binary size optimization, since this is intended for distributed copies of the SDK
-opt-level = "s"
-
 # Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
 # smaller linked code than `release`.
 [profile.small-release]
 inherits = "release"
 opt-level = "s"
+
+# This is the same as `small-release`, but it also strips debug symbols.
+[profile.small-release-stripped]
+# Use release profile as a base
+inherits = "small-release"
+# Strip the minimal debug info, while still allowing us to have proper backtraces, but it will affect debuggers
+strip = "debuginfo"
+# Use link time optimizations
+lto = true
 
 [profile.profiling]
 inherits = "release"
