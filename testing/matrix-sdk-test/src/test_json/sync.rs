@@ -595,18 +595,6 @@ pub static LEAVE_SYNC: LazyLock<JsonValue> = LazyLock::new(|| {
             ],
             "left": []
         },
-        "account_data": {
-            "events": [
-                {
-                    "content": {
-                        "ignored_users": {
-                            "@someone:example.org": {}
-                        }
-                    },
-                    "type": "m.ignored_user_list"
-                }
-            ]
-        },
         "rooms": {
             "invite": {},
             "join": {},
