@@ -720,6 +720,43 @@ impl Client {
         self.base_client().subscribe_to_global_profile_updates()
     }
 
+    /// Observe updates to the current user's global profile.
+    ///
+    /// Emits the current value immediately, then again whenever the user's
+    /// global profile changes during sync. When no profile is stored (nothing
+    /// received yet) an empty [`UserProfile`] is emitted.
+    ///
+    /// **Note:** Without the Profiles sliding sync extension enabled only an
+    /// empty profile will be emitted and no updates will be published.
+    ///
+    /// [`UserProfile`]: ruma::profile::UserProfile
+    pub fn subscribe_to_own_profile(
+        &self,
+    ) -> Result<impl Stream<Item = ruma::profile::UserProfile> + use<>> {
+        let own_user_id = self.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
+        let mut updates = self.subscribe_to_global_profile_updates();
+        let client = self.clone();
+
+        Ok(async_stream::stream! {
+            // Emit the initial value.
+            match client.state_store().get_global_profile(&own_user_id).await {
+                Ok(profile) => yield profile.unwrap_or_default(),
+                Err(error) => error!(?error, "Failed to load the stored global profile"),
+            }
+
+            while let Ok(updated_user_ids) = updates.recv().await {
+                if !updated_user_ids.contains(&own_user_id) {
+                    continue;
+                }
+
+                match client.state_store().get_global_profile(&own_user_id).await {
+                    Ok(profile) => yield profile.unwrap_or_default(),
+                    Err(error) => error!(?error, "Failed to load the updated global profile"),
+                }
+            }
+        })
+    }
+
     /// Performs a search for users.
     /// The search is performed case-insensitively on user IDs and display names
     ///
