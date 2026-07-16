@@ -397,10 +397,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             .pagination_status
             .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
-        // Don't propagate those updates to the store; this is only for the in-memory
-        // representation that we're doing this. Let's drain those store updates.
-        let _ = self.state.room_linked_chunk.store_updates().take();
-
         Ok(())
     }
 
