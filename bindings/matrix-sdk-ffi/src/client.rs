@@ -285,6 +285,13 @@ pub trait BeaconInfoListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_update(&self, update: BeaconInfoUpdate);
 }
 
+/// A listener for the current user's global profile.
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait ProfileListener: SyncOutsideWasm + SendOutsideWasm {
+    /// Called whenever the current user's global profile changes.
+    fn on_update(&self, profile: UserProfile);
+}
+
 /// Information about the old and new key that caused a duplicate key upload
 /// error in /keys/upload.
 #[derive(uniffi::Record)]
@@ -1368,6 +1375,32 @@ impl Client {
     /// Retrieves an avatar cached from a previous call to [`Self::avatar_url`].
     pub async fn cached_avatar_url(&self) -> Result<Option<String>, ClientError> {
         Ok(self.inner.account().get_cached_avatar_url().await?.map(Into::into))
+    }
+
+    /// Subscribe to the current user's profile.
+    ///
+    /// Emits the current value immediately, if present, then again whenever the
+    /// user's profile changes during sync.
+    ///
+    /// **Note:** Without the Profiles sliding sync extension enabled only an
+    /// empty profile will be emitted and no updates will be published.
+    pub fn subscribe_to_own_profile(
+        &self,
+        listener: Box<dyn ProfileListener>,
+    ) -> Result<Arc<TaskHandle>, ClientError> {
+        let user_id = self.inner.user_id().context("No user ID found")?.to_owned();
+        let stream = self.inner.subscribe_to_own_profile()?;
+
+        Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            pin_mut!(stream);
+
+            while let Some(profile) = stream.next().await {
+                match UserProfile::from_profile(&user_id, &profile) {
+                    Ok(profile) => listener.on_update(profile),
+                    Err(error) => error!("Failed to convert global profile update: {error}"),
+                }
+            }
+        }))))
     }
 
     pub fn device_id(&self) -> Result<String, ClientError> {
@@ -2516,13 +2549,21 @@ impl UserProfile {
     /// API.
     pub(crate) async fn fetch(account: &Account, user_id: &UserId) -> Result<Self, ClientError> {
         let response = account.fetch_user_profile_of(user_id).await?;
-        let display_name = response.get_static::<DisplayName>()?;
-        let avatar_url = response.get_static::<AvatarUrl>()?.map(|url| url.to_string());
+        Self::from_profile(user_id, &response.data)
+    }
+
+    /// Build a [`UserProfile`] from a [`ruma::profile::UserProfile`].
+    fn from_profile(
+        user_id: &UserId,
+        profile: &ruma::profile::UserProfile,
+    ) -> Result<Self, ClientError> {
+        let display_name = profile.get_static::<DisplayName>()?;
+        let avatar_url = profile.get_static::<AvatarUrl>()?.map(|url| url.to_string());
 
         #[cfg(feature = "unstable-msc4426")]
-        let status = response.get_static::<Status>()?.map(UserStatus::from);
+        let status = profile.get_static::<Status>()?.map(UserStatus::from);
         #[cfg(feature = "unstable-msc4426")]
-        let call = response.get_static::<Call>()?.map(UserCall::from);
+        let call = profile.get_static::<Call>()?.map(UserCall::from);
 
         Ok(UserProfile {
             user_id: user_id.to_string(),

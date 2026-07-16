@@ -1020,12 +1020,14 @@ mod tests {
         events::{direct::DirectEvent, room::member::MembershipState},
         owned_room_id,
         presence::PresenceState,
+        profile::{AvatarUrl, DisplayName, UserProfileUpdate},
         room_id,
         serde::Raw,
         uint,
     };
     use serde::Deserialize;
     use serde_json::json;
+    use stream_assert::assert_pending;
     use wiremock::{
         Match, Mock, MockServer, Request, ResponseTemplate, http::Method, matchers::method,
     };
@@ -1064,6 +1066,65 @@ mod tests {
         let sliding_sync = sliding_sync_builder.build().await?;
 
         Ok((server, sliding_sync))
+    }
+
+    #[async_test]
+    async fn test_subscribe_to_own_profile() {
+        let client = logged_in_client(None).await;
+        let own_user_id = client.user_id().expect("client should be logged in").to_owned();
+
+        // Given a stored global profile for the current user, received through a
+        // previous sync.
+        let mut response = http::Response::new("0".to_owned());
+        response.extensions.profiles.insert(
+            own_user_id.clone(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Example"))]),
+        );
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Subscribing emits the currently stored value immediately.
+        let stream = client.subscribe_to_own_profile().expect("client should be logged in");
+        pin_mut!(stream);
+
+        let profile = stream.next().await.expect("should emit the initial profile");
+        assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Example"));
+
+        // An update for another user only is ignored: nothing is emitted.
+        let mut response = http::Response::new("1".to_owned());
+        response.extensions.profiles.insert(
+            ALICE.to_owned(),
+            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
+        );
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        assert_pending!(stream);
+
+        // An update for the current user is emitted with the merged value.
+        let mut response = http::Response::new("2".to_owned());
+        response.extensions.profiles.insert(
+            own_user_id.clone(),
+            UserProfileUpdate::from_iter([(
+                "avatar_url".to_owned(),
+                json!("mxc://example.org/avatar"),
+            )]),
+        );
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        let profile = stream.next().await.expect("should emit the updated profile");
+        assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Example"));
+        assert_eq!(
+            profile.get_static::<AvatarUrl>().unwrap().map(|url| url.to_string()).as_deref(),
+            Some("mxc://example.org/avatar")
+        );
     }
 
     #[async_test]
