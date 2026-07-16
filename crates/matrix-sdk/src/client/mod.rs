@@ -91,8 +91,7 @@ use crate::{
     Account, AuthApi, AuthSession, Error, HttpError, Media, Pusher, RefreshTokenError, Result,
     Room, SessionTokens, TransmissionProgress,
     authentication::{
-        AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback,
-        matrix::MatrixAuth,
+        AuthCtx, AuthData, ReloadSessionCallback, SaveSessionCallback, matrix::MatrixAuth,
         oauth::OAuth,
     },
     client::{
@@ -2314,7 +2313,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = cached_supported_versions.value()
-                    && !value.has_expired()
+                    && !value.has_expired_with_timeout(self.inner.caches.discovery_cache_timeout)
                 {
                     return Ok(value.into_data());
                 }
@@ -2423,7 +2422,9 @@ impl Client {
 
         // Spawn a task to refresh the cache if it has expired and we have a valid
         // access token.
-        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+        if value.has_expired_with_timeout(self.inner.caches.discovery_cache_timeout)
+            && self.auth_ctx().has_valid_access_token()
+        {
             debug!("spawning task to refresh supported versions cache");
 
             let client = self.clone();
@@ -2521,7 +2522,7 @@ impl Client {
         };
 
         // Spawn a task to refresh the cache if it has expired.
-        if value.has_expired() {
+        if value.has_expired_with_timeout(self.inner.caches.discovery_cache_timeout) {
             debug!("spawning task to refresh well-known cache");
 
             let client = self.clone();
@@ -2548,7 +2549,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = well_known_cache.value()
-                    && !value.has_expired()
+                    && !value.has_expired_with_timeout(self.inner.caches.discovery_cache_timeout)
                 {
                     return value.into_data();
                 }
@@ -3632,15 +3633,13 @@ impl Client {
     ///
     /// If refreshing the well-known info fails, or if the OAuth 2.0 server
     /// metadata request fails for any reason, it is silently ignored.
-    /// refresh failures are returned as an error, and any remaining
+    /// Other refresh failures are returned as an error
     /// refreshes that haven't run yet are skipped.
     pub async fn rediscover(&self) -> Result<(), Error> {
         self.refresh_supported_versions_cache(false).await?;
         self.refresh_well_known_cache().await;
         self.homeserver_capabilities().refresh().await?;
-        match self.oauth().server_metadata().await {
-            Ok(_) | Err(_) => {}
-        }
+        let _ = self.oauth().server_metadata().await;
         Ok(())
     }
 }
@@ -3740,8 +3739,7 @@ pub(crate) mod tests {
             FeatureFlag, MatrixVersion,
             client::{
                 discovery::get_capabilities::v3::Capabilities,
-                room::create_room::v3::Request as CreateRoomRequest,
-                rtc::RtcTransport,
+                room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport,
             },
         },
         assign,
@@ -3971,10 +3969,22 @@ pub(crate) mod tests {
         let server = MatrixMockServer::new().await;
 
         // Mock the two required endpoints
-        server.mock_versions().ok().mock_once().named("versions").mount().await;
+        server
+            .mock_versions()
+            .with_versions(vec!["v1.11"])
+            .ok()
+            .mock_once()
+            .named("versions")
+            .mount()
+            .await;
+
+        // Setting the change password feature to be true to assert it in future
+        let mut expected_capabilities = Capabilities::default();
+        expected_capabilities.change_password.enabled = true;
+
         server
             .mock_get_homeserver_capabilities()
-            .ok_with_capabilities(Capabilities::default())
+            .ok_with_capabilities(expected_capabilities)
             .mock_once()
             .named("capabilities")
             .mount()
@@ -3982,9 +3992,15 @@ pub(crate) mod tests {
 
         // Build the client
         let client = server.client_builder().build().await;
+        let capabilities = client.homeserver_capabilities();
 
         // Call rediscover and assert it succeeded
         client.rediscover().await.unwrap();
+        assert!(capabilities.can_change_password().await.expect("checking capabilities failed"));
+
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_11));
+        assert!(!versions.versions.contains(&MatrixVersion::V1_0));
     }
 
     #[async_test]

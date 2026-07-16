@@ -159,7 +159,7 @@ impl HomeserverCapabilities {
         };
 
         // Spawn a task to refresh the cache if it has expired.
-        if value.has_expired() {
+        if value.has_expired_with_timeout(self.client.inner.caches.discovery_cache_timeout) {
             debug!("spawning task to refresh homeserver capabilities cache");
 
             let homeserver_capabilities = self.clone();
@@ -218,7 +218,8 @@ impl HomeserverCapabilities {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = capabilities_cache.value()
-                    && !value.has_expired()
+                    && !value
+                        .has_expired_with_timeout(self.client.inner.caches.discovery_cache_timeout)
                 {
                     return Ok(value.into_data());
                 }

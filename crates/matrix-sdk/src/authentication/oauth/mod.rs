@@ -452,7 +452,7 @@ impl OAuth {
         let server_metadata_cache = &self.client.inner.caches.server_metadata;
 
         if let CachedValue::Cached(metadata) = server_metadata_cache.value() {
-            if metadata.has_expired() {
+            if metadata.has_expired_with_timeout(self.client.inner.caches.discovery_cache_timeout) {
                 debug!("spawning task to refresh OAuth 2.0 server metadata cache");
 
                 let oauth = self.clone();
