@@ -161,10 +161,6 @@ impl ThreadEventCacheState {
             return Ok(());
         }
 
-        // Don't propagate those updates to the store; this is only for the in-memory
-        // representation that we're doing this. Let's drain those store updates.
-        let _ = self.thread_linked_chunk.store_updates().take();
-
         Ok(())
     }
 

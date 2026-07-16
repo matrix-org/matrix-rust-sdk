@@ -583,6 +583,10 @@ impl EventLinkedChunk {
         self.inhibit_updates_to_ordering_tracker(move |this| {
             lazy_loader::replace_with(&mut this.chunks, last_chunk, chunk_identifier_generator)?;
 
+            // Don't propagate those updates to the store; this is only for the in-memory
+            // representation that we're doing this. Let's drain those store updates.
+            let _ = this.store_updates().take();
+
             this.order_tracker = this
                 .chunks
                 .order_tracker(full_linked_chunk_metadata)
