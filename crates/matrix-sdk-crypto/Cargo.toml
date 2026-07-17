@@ -14,10 +14,14 @@ version = "0.18.0"
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
-# `cargo-machete` doesn't consider lib renames unless `--with-metadata`
-# is passed, but this errors CI further.
+# rustls-wbpki: `cargo-machete` doesn't consider lib renames unless
+# `--with-metadata` is passed, but this errors CI further.
+
+# rustls-pki-types: this is an indirect dependency, but we need to add this to
+# control its feature flags.
+# See https://github.com/bnjbvr/cargo-machete/issues/170
 [package.metadata.cargo-machete]
-ignored = ["rustls-webpki"]
+ignored = ["rustls-webpki", "rustls-pki-types"]
 
 [features]
 default = []
@@ -53,7 +57,7 @@ experimental-push-secrets = []
 experimental-x509-identity-verification = ["dep:cms", "dep:pkcs1", "sha2/oid"]
 
 # Enable a pure-rust implementation of the X.509 signer and verifier, via `rustls`.
-rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustls", "dep:rustls-webpki"]
+rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustls", "dep:rustls-pki-types", "dep:rustls-webpki", "dep:ring"]
 
 [dependencies]
 aes = { version = "0.8.4", default-features = false }
@@ -78,9 +82,11 @@ matrix-sdk-test = { workspace = true, optional = true }  # feature = testing onl
 pbkdf2.workspace = true
 pkcs1 = { version = "0.7.5", default-features = false, optional = true }
 rand.workspace = true
+ring = { version = "0.17.14", optional = true, features = ["wasm32_unknown_unknown_js"] }
 rmp-serde.workspace = true
 ruma = { workspace = true, features = ["rand", "unstable-msc3814"] }
-rustls = { version = "0.23.40", default-features = false, optional = true }
+rustls = { version = "0.23.40", optional = true, default-features = false, features = ["std", "ring"] }
+rustls-pki-types = { version = "1.15.0", optional = true, default-features = false, features = ["alloc", "web"] }
 rustls-webpki = { version = "0.103.13", default-features = false, optional = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
@@ -114,15 +120,17 @@ matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 proptest.workspace = true
 rmp-serde.workspace = true
-rcgen.workspace = true
+rcgen = { workspace = true, features = ["ring", "x509-parser"] }
 similar-asserts.workspace = true
 # required for async_test macro
 stream_assert.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 # The x509 tests use rust-x509-verifier-impl, so we need its dependencies
-rustls = { version = "0.23.40" }
+ring = { version = "0.17.14", features = ["wasm32_unknown_unknown_js"] }
+rustls = { version = "0.23.40", default-features = false, features = ["std", "ring"] }
 rustls-webpki = { version = "0.103.13", default-features = false }
+rustls-pki-types = { version = "1.15.0", default-features = false, features = ["alloc", "web"] }
 
 [lints]
 workspace = true
