@@ -167,6 +167,8 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_email_in_subject_distinguished_name(
         email: &str,
     ) -> (Certificate, KeyPair) {
+        set_up_default_crypto_provider();
+
         let signing_key = generate_rsa_key();
 
         let mut cert_params = CertificateParams::default();
@@ -184,6 +186,8 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_email_in_subject_alternate_name(
         email: &str,
     ) -> (Certificate, KeyPair) {
+        set_up_default_crypto_provider();
+
         let signing_key = generate_rsa_key();
 
         let mut cert_params = CertificateParams::default();
@@ -203,6 +207,8 @@ pub(crate) mod tests {
     pub(crate) fn cert_and_key_with_user_id_in_subject_alternate_name(
         user_id: &str,
     ) -> (Certificate, KeyPair) {
+        set_up_default_crypto_provider();
+
         let signing_key = generate_rsa_key();
 
         let user_id_uri =
@@ -222,6 +228,8 @@ pub(crate) mod tests {
 
     /// Create a certificate that does not contain a user ID or email address
     pub(crate) fn cert_and_key_with_no_user_id() -> (Certificate, KeyPair) {
+        set_up_default_crypto_provider();
+
         let signing_key = generate_rsa_key();
 
         let mut cert_params = CertificateParams::default();
@@ -268,6 +276,8 @@ pub(crate) mod tests {
     /// Generate a little certificate authority i.e. a key pair and a
     /// self-signed certificate.
     pub(crate) fn ca_cert() -> (Certificate, KeyPair) {
+        set_up_default_crypto_provider();
+
         let cert_params = cert_params("You Can Trust Us Certificate Authority");
 
         let signing_key = generate_rsa_key();
@@ -320,5 +330,10 @@ pub(crate) mod tests {
             X509Verifier::new(Arc::new(rust_raw_x509_verifier))
         };
         (x509_signer, x509_verifier)
+    }
+
+    fn set_up_default_crypto_provider() {
+        // Ignore errors: they just mean that this method was called before.
+        let _ = rustls::crypto::ring::default_provider().install_default();
     }
 }

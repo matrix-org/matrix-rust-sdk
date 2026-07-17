@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use rustls::{
     SignatureScheme,
-    crypto::aws_lc_rs,
+    crypto::ring,
     pki_types::{PrivateKeyDer, pem::PemObject},
     sign::SigningKey,
 };
@@ -71,7 +71,7 @@ impl RustRawX509Signer {
         certificate_chain_pem: &str,
         private_key_pem: &str,
     ) -> Result<Self, RustX509SignError> {
-        let provider = aws_lc_rs::default_provider();
+        let provider = ring::default_provider();
 
         let private_key = PrivateKeyDer::from_pem_slice(private_key_pem.as_bytes())
             .map_err(RustX509SignError::PrivateKeyParse)?;

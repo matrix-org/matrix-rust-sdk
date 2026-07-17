@@ -158,6 +158,8 @@ async fn create_encryption_enabled_client(
     x509_signer: Option<Arc<dyn RawX509Signer>>,
     x509_verifier: Option<Arc<dyn RawX509Verifier>>,
 ) -> anyhow::Result<SyncTokenAwareClient> {
+    set_up_default_crypto_provider();
+
     let encryption_settings =
         EncryptionSettings { auto_enable_cross_signing: true, ..Default::default() };
 
@@ -178,6 +180,8 @@ async fn create_encryption_enabled_client(
 /// Generate a little certificate authority i.e. a key pair and a
 /// self-signed certificate.
 fn ca_cert() -> (Certificate, KeyPair) {
+    set_up_default_crypto_provider();
+
     let cert_params = cert_params("Delboy Inc Trust Us Certificate Authority");
 
     let signing_key =
@@ -268,4 +272,9 @@ pub(crate) fn subject_key_identifier_extension(
     let ski_der = [&[0x04, ski_bytes.len() as u8], ski_bytes].concat();
 
     CustomExtension::from_oid_content(OID_SUBJECT_KEY_IDENTIFIER, ski_der)
+}
+
+fn set_up_default_crypto_provider() {
+    // Ignore errors: they just mean that this method was called before.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
