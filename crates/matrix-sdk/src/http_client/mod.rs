@@ -36,7 +36,7 @@ use ruma::api::{
     path_builder,
 };
 use tokio::sync::{Semaphore, SemaphorePermit};
-use tracing::{debug, error, field::debug, instrument, trace};
+use tracing::{Instrument, debug, error, field::debug, trace};
 
 use crate::{HttpResult, config::RequestConfig, error::HttpError};
 
@@ -134,21 +134,7 @@ impl HttpClient {
         Ok(request)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    #[instrument(
-        skip(self, request, config, homeserver, access_token, path_builder_input, send_progress),
-        fields(
-            uri,
-            method,
-            request_id,
-            request_size,
-            request_duration,
-            status,
-            response_size,
-            sentry_event_id
-        )
-    )]
-    pub async fn send<R>(
+    pub fn send<R>(
         &self,
         request: R,
         config: Option<RequestConfig>,
@@ -156,7 +142,7 @@ impl HttpClient {
         access_token: Option<&str>,
         path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> impl Future<Output = Result<R::IncomingResponse, HttpError>>
     where
         R: OutgoingRequest + Debug,
         R::Authentication: SupportedAuthScheme,
@@ -164,12 +150,21 @@ impl HttpClient {
     {
         // some functions split out so they only get compiled once,
         // not monomorphized per request type
-        fn span_record_fields_1(client: &HttpClient, config: &RequestConfig) {
-            tracing::Span::current()
-                .record("config", debug(config))
-                .record("request_id", client.get_request_id());
+        fn make_span(client: &HttpClient, config: &RequestConfig) -> tracing::Span {
+            tracing::info_span!(
+                "send",
+                uri = tracing::field::Empty,
+                ?config,
+                method = tracing::field::Empty,
+                request_id = client.get_request_id(),
+                request_size = tracing::field::Empty,
+                request_duration = tracing::field::Empty,
+                status = tracing::field::Empty,
+                response_size = tracing::field::Empty,
+                sentry_event_id = tracing::field::Empty
+            )
         }
-        fn span_record_fields_2(request: &http::Request<Bytes>) {
+        fn record_request_uri_and_size(request: &http::Request<Bytes>) {
             let method = request.method();
 
             let mut uri_parts = request.uri().clone().into_parts();
@@ -210,27 +205,29 @@ impl HttpClient {
             None => self.request_config,
         };
 
-        span_record_fields_1(self, &config);
-        let request = self
-            .serialize_request(request, config, homeserver, access_token, path_builder_input)
-            .map_err(HttpError::IntoHttp)?;
-        span_record_fields_2(&request);
+        async move {
+            let request = self
+                .serialize_request(request, config, homeserver, access_token, path_builder_input)
+                .map_err(HttpError::IntoHttp)?;
+            record_request_uri_and_size(&request);
 
-        // will be automatically dropped at the end of this function
-        let _handle = self.concurrent_request_semaphore.acquire().await;
+            // will be automatically dropped at the end of this function
+            let _handle = self.concurrent_request_semaphore.acquire().await;
 
-        // There's a bunch of state in send_request, factor out a pinned inner
-        // future to reduce the size of futures that await this function.
-        match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
-            Ok(response) => {
-                log_got_response();
-                Ok(response)
-            }
-            Err(e) => {
-                log_error(&e);
-                Err(e)
+            // There's a bunch of state in send_request, factor out a pinned inner
+            // future to reduce the size of futures that await this function.
+            match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
+                Ok(response) => {
+                    log_got_response();
+                    Ok(response)
+                }
+                Err(e) => {
+                    log_error(&e);
+                    Err(e)
+                }
             }
         }
+        .instrument(make_span(self, &config))
     }
 }
 
