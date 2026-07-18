@@ -89,71 +89,89 @@ where
     boxed_into_future!();
 
     fn into_future(self) -> Self::IntoFuture {
+        enum RetryRequest {
+            Yes,
+            No,
+        }
+
+        // split out so this only get compiled once,
+        // not monomorphized per request type
+        async fn handle_unknown_token_error(
+            e: &HttpError,
+            client: &Client,
+        ) -> HttpResult<RetryRequest> {
+            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
+            let Some(ErrorKind::UnknownToken(unknown_token_data)) = e.client_api_error_kind()
+            else {
+                return Ok(RetryRequest::No);
+            };
+
+            trace!("Token refresh: Unknown token error received.");
+
+            // If automatic token refresh isn't supported, there is nothing more to do.
+            if !client.inner.auth_ctx.handle_refresh_tokens {
+                trace!("Token refresh: Automatic refresh disabled.");
+                client.broadcast_unknown_token(unknown_token_data);
+                return Ok(RetryRequest::No);
+            }
+
+            // Try to refresh the token and retry the request.
+            if let Err(refresh_error) = client.refresh_access_token().await {
+                match &refresh_error {
+                    RefreshTokenError::RefreshTokenRequired => {
+                        trace!("Token refresh: The session doesn't have a refresh token.");
+                        // Refreshing access tokens is not supported by this `Session`, ignore.
+                        client.broadcast_unknown_token(unknown_token_data);
+                        Ok(RetryRequest::No)
+                    }
+
+                    RefreshTokenError::OAuth(oauth_error) => {
+                        match &**oauth_error {
+                            OAuthError::RefreshToken(RequestTokenError::ServerResponse(
+                                error_response,
+                            )) if *error_response.error()
+                                == BasicErrorResponseType::InvalidGrant =>
+                            {
+                                error!(
+                                    "Token refresh: OAuth 2.0 refresh_token rejected \
+                                         with invalid grant"
+                                );
+                                // The refresh was denied, signal to sign out the user.
+                                client.broadcast_unknown_token(unknown_token_data);
+                            }
+                            _ => {
+                                trace!("Token refresh: OAuth 2.0 refresh encountered a problem.");
+                                // The refresh failed for other reasons, no
+                                // need to sign out.
+                            }
+                        }
+                        Err(HttpError::RefreshToken(refresh_error))
+                    }
+
+                    _ => {
+                        trace!("Token refresh: Token refresh failed.");
+                        // This isn't necessarily correct, but matches the behaviour when
+                        // implementing OAuth 2.0.
+                        client.broadcast_unknown_token(unknown_token_data);
+                        Err(HttpError::RefreshToken(refresh_error))
+                    }
+                }
+            } else {
+                trace!("Token refresh: Refresh succeeded, retrying request.");
+                Ok(RetryRequest::Yes)
+            }
+        }
+
         let Self { client, request, config, send_progress } = self;
 
         Box::pin(async move {
             let res =
                 Box::pin(client.send_inner(request.clone(), config, send_progress.clone())).await;
 
-            // An `M_UNKNOWN_TOKEN` error can potentially be fixed with a token refresh.
-            if let Err(Some(ErrorKind::UnknownToken(unknown_token_data))) =
-                res.as_ref().map_err(HttpError::client_api_error_kind)
+            if let Err(e) = &res
+                && let RetryRequest::Yes = handle_unknown_token_error(e, &client).await?
             {
-                trace!("Token refresh: Unknown token error received.");
-
-                // If automatic token refresh isn't supported, there is nothing more to do.
-                if !client.inner.auth_ctx.handle_refresh_tokens {
-                    trace!("Token refresh: Automatic refresh disabled.");
-                    client.broadcast_unknown_token(unknown_token_data);
-                    return res;
-                }
-
-                // Try to refresh the token and retry the request.
-                if let Err(refresh_error) = client.refresh_access_token().await {
-                    match &refresh_error {
-                        RefreshTokenError::RefreshTokenRequired => {
-                            trace!("Token refresh: The session doesn't have a refresh token.");
-                            // Refreshing access tokens is not supported by this `Session`, ignore.
-                            client.broadcast_unknown_token(unknown_token_data);
-                        }
-
-                        RefreshTokenError::OAuth(oauth_error) => {
-                            match &**oauth_error {
-                                OAuthError::RefreshToken(RequestTokenError::ServerResponse(
-                                    error_response,
-                                )) if *error_response.error()
-                                    == BasicErrorResponseType::InvalidGrant =>
-                                {
-                                    error!(
-                                        "Token refresh: OAuth 2.0 refresh_token rejected \
-                                         with invalid grant"
-                                    );
-                                    // The refresh was denied, signal to sign out the user.
-                                    client.broadcast_unknown_token(unknown_token_data);
-                                }
-                                _ => {
-                                    trace!(
-                                        "Token refresh: OAuth 2.0 refresh encountered a problem."
-                                    );
-                                    // The refresh failed for other reasons, no
-                                    // need to sign out.
-                                }
-                            }
-                            return Err(HttpError::RefreshToken(refresh_error));
-                        }
-
-                        _ => {
-                            trace!("Token refresh: Token refresh failed.");
-                            // This isn't necessarily correct, but matches the behaviour when
-                            // implementing OAuth 2.0.
-                            client.broadcast_unknown_token(unknown_token_data);
-                            return Err(HttpError::RefreshToken(refresh_error));
-                        }
-                    }
-                } else {
-                    trace!("Token refresh: Refresh succeeded, retrying request.");
-                    return Box::pin(client.send_inner(request, config, send_progress)).await;
-                }
+                return Box::pin(client.send_inner(request, config, send_progress)).await;
             }
 
             res
