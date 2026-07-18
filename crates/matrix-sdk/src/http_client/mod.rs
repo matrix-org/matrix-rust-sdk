@@ -162,25 +162,14 @@ impl HttpClient {
         R::Authentication: SupportedAuthScheme,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        let config = match config {
-            Some(config) => config,
-            None => self.request_config,
-        };
-
-        // Keep some local variables in a separate scope so the compiler doesn't include
-        // them in the future type. https://github.com/rust-lang/rust/issues/57478
-        let request = {
-            let request_id = self.get_request_id();
-            let span = tracing::Span::current();
-
-            // At this point in the code, the config isn't behind an Option anymore, that's
-            // why we record it here, instead of in the #[instrument] macro.
-            span.record("config", debug(config)).record("request_id", request_id);
-
-            let request = self
-                .serialize_request(request, config, homeserver, access_token, path_builder_input)
-                .map_err(HttpError::IntoHttp)?;
-
+        // some functions split out so they only get compiled once,
+        // not monomorphized per request type
+        fn span_record_fields_1(client: &HttpClient, config: &RequestConfig) {
+            tracing::Span::current()
+                .record("config", debug(config))
+                .record("request_id", client.get_request_id());
+        }
+        fn span_record_fields_2(request: &http::Request<Bytes>) {
             let method = request.method();
 
             let mut uri_parts = request.uri().clone().into_parts();
@@ -194,6 +183,7 @@ impl HttpClient {
 
             let uri = http::Uri::from_parts(uri_parts).expect("created from valid URI");
 
+            let span = tracing::Span::current();
             span.record("method", debug(method)).record("uri", uri.to_string());
 
             // POST, PUT, PATCH are the only methods that are reasonably used
@@ -205,22 +195,39 @@ impl HttpClient {
                     ByteSize(request_size).display().si_short().to_string(),
                 );
             }
+        }
+        // these macros expand to a lot of code, also want to skip monomorphization
+        // for them even though they might look super simple
+        fn log_got_response() {
+            debug!("Got response");
+        }
+        fn log_error(e: &HttpError) {
+            error!("Error while sending request: {e:?}");
+        }
 
-            request
+        let config = match config {
+            Some(config) => config,
+            None => self.request_config,
         };
+
+        span_record_fields_1(self, &config);
+        let request = self
+            .serialize_request(request, config, homeserver, access_token, path_builder_input)
+            .map_err(HttpError::IntoHttp)?;
+        span_record_fields_2(&request);
 
         // will be automatically dropped at the end of this function
         let _handle = self.concurrent_request_semaphore.acquire().await;
 
         // There's a bunch of state in send_request, factor out a pinned inner
-        // future to reduce this size of futures that await this function.
+        // future to reduce the size of futures that await this function.
         match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
             Ok(response) => {
-                debug!("Got response");
+                log_got_response();
                 Ok(response)
             }
             Err(e) => {
-                error!("Error while sending request: {e:?}");
+                log_error(&e);
                 Err(e)
             }
         }
