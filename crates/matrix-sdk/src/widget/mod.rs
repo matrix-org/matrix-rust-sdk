@@ -130,6 +130,7 @@ impl WidgetDriver {
     ///
     /// The function returns once the widget is disconnected or any terminal
     /// error occurs.
+    #[expect(clippy::result_unit_err)]
     pub async fn run(
         mut self,
         room: Room,
