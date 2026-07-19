@@ -76,7 +76,7 @@ async fn finish_login_grant<Q>(
         message => {
             return Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.protocol",
-                received: message,
+                received: Box::new(message),
             });
         }
     };
@@ -140,7 +140,7 @@ async fn finish_login_grant<Q>(
         message => {
             return Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.success",
-                received: message,
+                received: Box::new(message),
             });
         }
     }
@@ -1287,13 +1287,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.protocol",
-                received: QrAuthMessage::LoginSuccess
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginSuccess,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -1398,13 +1402,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.protocol",
-                received: QrAuthMessage::LoginSuccess
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginSuccess,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -2711,13 +2719,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.success",
-                received: QrAuthMessage::LoginProtocolAccepted
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginProtocolAccepted,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
@@ -2840,13 +2852,17 @@ mod test {
         });
 
         // Wait for all tasks to finish / fail.
-        assert_matches!(
-            grant.await,
+        assert_let!(
             Err(QRCodeGrantLoginError::UnexpectedMessage {
                 expected: "m.login.success",
-                received: QrAuthMessage::LoginProtocolAccepted
-            }),
-            "Alice should abort the login with expected error"
+                received,
+            }) = grant.await,
+            "Alice should abort the login with expected error variant"
+        );
+        assert_matches!(
+            *received,
+            QrAuthMessage::LoginProtocolAccepted,
+            "Alice should abort the login with expected error message"
         );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");

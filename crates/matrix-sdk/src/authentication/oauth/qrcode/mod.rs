@@ -81,7 +81,7 @@ pub enum QRCodeLoginError {
         /// The message we expected.
         expected: &'static str,
         /// The message we received instead.
-        received: QrAuthMessage,
+        received: Box<QrAuthMessage>,
     },
 
     /// An error happened while exchanging messages with the other device.
@@ -178,7 +178,7 @@ pub enum QRCodeGrantLoginError {
         /// The message we expected.
         expected: &'static str,
         /// The message we received instead.
-        received: QrAuthMessage,
+        received: Box<QrAuthMessage>,
     },
 
     /// The other device has signaled to us that the login has failed.
