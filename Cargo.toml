@@ -168,6 +168,7 @@ mut_mut = "warn"
 needless_borrow = "warn"
 nonstandard_macro_braces = "warn"
 redundant_clone = "warn"
+single_range_in_vec_init = "allow" # Triggers false positives (https://github.com/rust-lang/rust-clippy/issues/11086)
 str_to_string = "warn"
 todo = "warn"
 unnecessary_semicolon = "warn"
