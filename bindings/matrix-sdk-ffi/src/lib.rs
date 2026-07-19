@@ -1,6 +1,8 @@
 #![allow(unused_qualifications, clippy::new_without_default)]
 // Needed because uniffi macros contain empty lines after docs.
 #![allow(clippy::empty_line_after_doc_comments)]
+// Needed because uniffi generates a big const array.
+#![allow(clippy::large_const_arrays)]
 
 mod authentication;
 mod chunk_iterator;
