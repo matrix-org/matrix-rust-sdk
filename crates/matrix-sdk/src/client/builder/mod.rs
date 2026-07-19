@@ -856,7 +856,7 @@ pub enum ClientBuildError {
 
     /// Error looking up the .well-known endpoint on auto-discovery
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
-    AutoDiscovery(FromHttpResponseError<RumaApiError>),
+    AutoDiscovery(Box<FromHttpResponseError<RumaApiError>>),
 
     /// Error when building the sliding sync version.
     #[error(transparent)]
@@ -961,7 +961,8 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail with a server discovery error.
-        assert_matches!(error, ClientBuildError::AutoDiscovery(FromHttpResponseError::Server(_)));
+        assert_let!(ClientBuildError::AutoDiscovery(e) = error);
+        assert_matches!(*e, FromHttpResponseError::Server(_));
     }
 
     #[async_test]
@@ -998,10 +999,8 @@ pub(crate) mod tests {
         let error = builder.build().await.unwrap_err();
 
         // Then the operation should fail due to the well-known file's contents.
-        assert_matches!(
-            error,
-            ClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(_))
-        );
+        assert_let!(ClientBuildError::AutoDiscovery(e) = error);
+        assert_matches!(*e, FromHttpResponseError::Deserialization(_));
     }
 
     #[async_test]

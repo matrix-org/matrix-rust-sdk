@@ -71,7 +71,7 @@ pub enum ClientBuildError {
     #[error(transparent)]
     ServerUnreachable(HttpError),
     #[error(transparent)]
-    WellKnownLookupFailed(RumaApiError),
+    WellKnownLookupFailed(Box<RumaApiError>),
     #[error(transparent)]
     WellKnownDeserializationError(DeserializationError),
     #[error(transparent)]
@@ -94,12 +94,15 @@ impl From<MatrixClientBuildError> for ClientBuildError {
         match e {
             MatrixClientBuildError::InvalidServerName => ClientBuildError::InvalidServerName,
             MatrixClientBuildError::Http(e) => ClientBuildError::ServerUnreachable(e),
-            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Server(e)) => {
-                ClientBuildError::WellKnownLookupFailed(e)
-            }
-            MatrixClientBuildError::AutoDiscovery(FromHttpResponseError::Deserialization(e)) => {
-                ClientBuildError::WellKnownDeserializationError(e)
-            }
+            MatrixClientBuildError::AutoDiscovery(e) => match *e {
+                FromHttpResponseError::Server(e) => {
+                    ClientBuildError::WellKnownLookupFailed(Box::new(e))
+                }
+                FromHttpResponseError::Deserialization(e) => {
+                    ClientBuildError::WellKnownDeserializationError(e)
+                }
+                _ => ClientBuildError::Sdk(MatrixClientBuildError::AutoDiscovery(e)),
+            },
             MatrixClientBuildError::SlidingSyncVersion(e) => {
                 ClientBuildError::SlidingSyncVersion(e)
             }
