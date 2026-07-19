@@ -3234,15 +3234,7 @@ impl TryFrom<JoinRule> for RumaJoinRule {
 }
 
 fn ruma_allow_rules_from_ffi(value: Vec<AllowRule>) -> Result<Vec<RumaAllowRule>, ClientError> {
-    let mut ret = Vec::with_capacity(value.len());
-    for rule in value {
-        let rule: Result<RumaAllowRule, ClientError> = rule.try_into();
-        match rule {
-            Ok(rule) => ret.push(rule),
-            Err(error) => return Err(error),
-        }
-    }
-    Ok(ret)
+    value.into_iter().map(TryInto::try_into).collect()
 }
 
 impl TryFrom<AllowRule> for RumaAllowRule {
