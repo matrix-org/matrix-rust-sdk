@@ -434,7 +434,7 @@ impl Client {
         match store_mode {
             CrossProcessLockConfig::MultiProcess { holder_name } => {
                 if session_delegate.is_none() {
-                    return Err(anyhow::anyhow!(
+                    Err(anyhow::anyhow!(
                         "missing session delegates with multi-process lock configuration"
                     ))?;
                 }
