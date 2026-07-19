@@ -201,7 +201,7 @@ mod test {
         ]));
 
         with_settings!({sort_maps => true, prepend_module_to_snapshot => false}, {
-            assert_json_snapshot!(signatures)
+            assert_json_snapshot!(signatures);
         });
     }
 }

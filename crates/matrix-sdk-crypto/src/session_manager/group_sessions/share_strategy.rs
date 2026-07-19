@@ -2325,7 +2325,7 @@ mod tests {
                 .build_response();
             allow_duplicates! {
                 with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
-                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()));
                 });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
@@ -2381,7 +2381,7 @@ mod tests {
                 .build_response();
             allow_duplicates! {
                 with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
-                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()));
                 });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
@@ -2449,7 +2449,7 @@ mod tests {
                 .build_response();
             allow_duplicates! {
                 with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
-                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()));
                 });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();
@@ -2580,7 +2580,7 @@ mod tests {
                 .build_response();
             allow_duplicates! {
                 with_settings!({ sort_maps => true, prepend_module_to_snapshot => false }, {
-                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()))
+                    assert_json_snapshot!(ruma_response_to_json(keys_query.clone()));
                 });
             }
             machine.mark_request_as_sent(&TransactionId::new(), &keys_query).await.unwrap();

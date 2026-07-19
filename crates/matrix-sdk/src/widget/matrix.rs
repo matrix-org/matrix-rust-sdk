@@ -606,7 +606,7 @@ mod tests {
         let new = attach_room_id(&raw, room_id);
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
-            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap())
+            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap());
         });
 
         let attached: AnyTimelineEvent = new.deserialize().unwrap();
@@ -634,7 +634,7 @@ mod tests {
         let new = attach_room_id(&raw, room_id);
 
         insta::with_settings!({prepend_module_to_snapshot => false}, {
-            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap())
+            insta::assert_json_snapshot!(new.deserialize_as::<Value>().unwrap());
         });
 
         let attached: AnyTimelineEvent = new.deserialize().unwrap();
