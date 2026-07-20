@@ -144,7 +144,7 @@ fn pickle_key_secret_name() -> SecretName {
 
 /// Lifecycle events emitted by [`DehydratedDevices`].
 ///
-/// Subscribe with [`DehydratedDevices::events`] to observe creation,
+/// Subscribe with [`DehydratedDevices::state_stream`] to observe creation,
 /// rehydration progress, and rotation outcomes. [`Self::RehydrationCompleted`]
 /// carries the final imported counts so a caller does not have to fold over the
 /// [`Self::RehydrationProgress`] events, and [`Self::RotationError`] surfaces
@@ -263,7 +263,7 @@ struct DownloadedDevice {
 }
 
 impl DehydratedDevices {
-    /// Subscribe to [`DehydratedDeviceEvent`]s.
+    /// Subscribe to the stream of [`DehydratedDeviceEvent`]s.
     ///
     /// Each call returns a fresh stream. If a subscriber is slow enough to
     /// fall behind the channel's buffer, it receives a
@@ -277,13 +277,13 @@ impl DehydratedDevices {
     /// # use futures_util::StreamExt;
     /// # async fn example(client: Client) -> anyhow::Result<()> {
     /// let dehydrated = client.encryption().dehydrated_devices();
-    /// let mut events = dehydrated.events();
-    /// while let Some(Ok(event)) = events.next().await {
+    /// let mut stream = dehydrated.state_stream();
+    /// while let Some(Ok(event)) = stream.next().await {
     ///     println!("dehydrated devices: {event:?}");
     /// }
     /// # Ok(()) }
     /// ```
-    pub fn events(
+    pub fn state_stream(
         &self,
     ) -> impl Stream<Item = Result<DehydratedDeviceEvent, BroadcastStreamRecvError>> + use<> {
         BroadcastStream::new(self.state().event_sender.subscribe())
