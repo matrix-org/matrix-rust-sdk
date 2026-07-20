@@ -772,7 +772,10 @@ mod tests {
     async fn test_room_heroes_carry_global_profile() {
         use ruma::{
             SecondsSinceUnixEpoch,
-            profile::{CallProfileField, ProfileFieldValue, StatusProfileField, UserProfileUpdate},
+            profile::{
+                CallProfileField, ProfileFieldValue, StatusProfileField, UserProfileChanges,
+                UserProfileUpdate,
+            },
         };
 
         use crate::store::StateChanges;
@@ -804,16 +807,14 @@ mod tests {
         let mut call = CallProfileField::new();
         call.call_joined_ts = Some(SecondsSinceUnixEpoch(1_700_000_000u32.into()));
         let mut changes = StateChanges::default();
-        changes.global_profiles.insert(
-            alice_id.to_owned(),
-            UserProfileUpdate::from_iter([
-                ProfileFieldValue::Status(StatusProfileField::new(
-                    "Working".to_owned(),
-                    "💻".to_owned(),
-                )),
-                ProfileFieldValue::Call(call),
-            ]),
-        );
+        changes.global_profiles.insert(alice_id.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.insert_updated_value(ProfileFieldValue::Status(
+                StatusProfileField::new("Working".to_owned(), "💻".to_owned()),
+            ));
+            profile_changes.insert_updated_value(ProfileFieldValue::Call(call));
+            UserProfileUpdate::Updated(profile_changes)
+        });
         client.state_store().save_changes(&changes).await.unwrap();
 
         // The hero now surfaces the status and call from the global profile.

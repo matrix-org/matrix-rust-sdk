@@ -54,7 +54,7 @@ use ruma::{
             MembershipState, RoomMemberEventContent, StrippedRoomMemberEvent, SyncRoomMemberEvent,
         },
     },
-    profile::UserProfile,
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
 };
 use serde::{Deserialize, Serialize, de::DeserializeOwned, ser::Error};
@@ -1106,13 +1106,26 @@ impl_state_store!({
             let store = tx.object_store(keys::GLOBAL_PROFILES)?;
             for (user_id, profile_update) in &changes.global_profiles {
                 let key = self.encode_key(keys::GLOBAL_PROFILES, user_id);
-                let existing: Option<UserProfile> =
-                    store.get(&key).await?.map(|f| self.deserialize_value(&f)).transpose()?;
+                match profile_update {
+                    UserProfileUpdate::Updated(profile_changes) => {
+                        let existing: Option<UserProfile> = store
+                            .get(&key)
+                            .await?
+                            .map(|f| self.deserialize_value(&f))
+                            .transpose()?;
 
-                let mut profile = existing.unwrap_or_default();
-                profile.merge(profile_update.clone());
+                        let mut profile = existing.unwrap_or_default();
+                        profile.apply(profile_changes.clone());
 
-                store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
+                        store.put(&self.serialize_value(&profile)?).with_key(key).build()?;
+                    }
+                    UserProfileUpdate::Dropped => {
+                        store.delete(&key).build()?;
+                    }
+                    _ => {
+                        warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
+                    }
+                }
             }
         }
 

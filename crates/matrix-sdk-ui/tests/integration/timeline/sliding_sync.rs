@@ -727,9 +727,13 @@ async fn test_timeline_refreshes_sender_profile_on_global_profile_update() -> Re
             "lists": {},
             "rooms": {},
             "extensions": {
-                "users": {
-                    "@alice:bar.org": {
-                        "org.matrix.msc4426.status": { "text": "Away", "emoji": "🌴" }
+                "org.matrix.msc4262.profiles": {
+                    "users": {
+                        "@alice:bar.org": {
+                            "updated": {
+                                "org.matrix.msc4426.status": { "text": "Away", "emoji": "🌴" }
+                            }
+                        }
                     }
                 }
             }
