@@ -30,7 +30,7 @@ use eyeball::SharedObservable;
 use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
-    OutgoingRequest, SupportedVersions,
+    OutgoingRequest, OutgoingRequestExt, SupportedVersions,
     auth_scheme::{self, AuthScheme, SendAccessToken},
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,

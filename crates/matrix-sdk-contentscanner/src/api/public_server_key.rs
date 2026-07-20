@@ -15,13 +15,12 @@
 use matrix_sdk::RumaApiError;
 use ruma::{
     api::{
-        IncomingResponse, Metadata, OutgoingRequest,
-        auth_scheme::{AuthScheme, NoAuthentication},
+        EmptyBody, IncomingResponse, Metadata, OutgoingRequest,
+        auth_scheme::NoAuthentication,
         error::{FromHttpResponseError, IntoHttpError},
         path_builder::PathBuilder,
     },
     exports::{
-        bytes::BufMut,
         http::{Request, Response},
         serde_json,
     },
@@ -53,17 +52,17 @@ impl PublicServerKeyRequest {
 }
 
 impl OutgoingRequest for PublicServerKeyRequest {
+    type Body = EmptyBody;
     type EndpointError = RumaApiError;
     type IncomingResponse = PublicServerKeyResponse;
 
-    fn try_into_http_request<T: Default + BufMut + AsRef<[u8]>>(
+    fn try_into_http_request_inner(
         self,
         _base_url: &str,
-        _authentication_input: <Self::Authentication as AuthScheme>::Input<'_>,
         path_builder_input: <Self::PathBuilder as PathBuilder>::Input<'_>,
-    ) -> Result<Request<T>, IntoHttpError> {
+    ) -> Result<Request<Self::Body>, IntoHttpError> {
         let url = Self::make_endpoint_url(path_builder_input, &self.scanner_url, &[], "")?;
-        Ok(Request::builder().method(Self::METHOD).uri(url).body(T::default())?)
+        Ok(Request::builder().method(Self::METHOD).uri(url).body(EmptyBody)?)
     }
 }
 

@@ -23,7 +23,7 @@ use std::{borrow::Cow, fmt};
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
 use ruma::{
     api::{
-        OutgoingRequest,
+        OutgoingRequestExt,
         auth_scheme::SendAccessToken,
         client::{
             account::register,
