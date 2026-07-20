@@ -28,10 +28,7 @@ use anyhow::Result;
 use assert_matches2::assert_let;
 use futures::StreamExt;
 use matrix_sdk::{
-    encryption::{
-        EncryptionSettings,
-        dehydrated_devices::{DehydratedDeviceEvent, StartDehydrationOpts},
-    },
+    encryption::{EncryptionSettings, dehydrated_devices::DehydratedDeviceEvent},
     timeout::timeout,
 };
 use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
@@ -60,7 +57,7 @@ async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
         return Ok(());
     }
 
-    let mut events = Box::pin(dehydrated.events());
+    let mut events = Box::pin(dehydrated.state_stream());
 
     let pickle_key = DehydratedDeviceKey::new();
     let device_id = dehydrated.create(Some("Direct round trip"), &pickle_key).await?;
@@ -148,9 +145,9 @@ async fn test_dehydrated_device_start_via_recovery() -> Result<()> {
 
     let secret_store = alice.encryption().secret_storage().open_secret_store(&recovery_key).await?;
 
-    let mut events = Box::pin(dehydrated.events());
+    let mut events = Box::pin(dehydrated.state_stream());
 
-    dehydrated.start(&secret_store, StartDehydrationOpts::default()).await?;
+    dehydrated.start(&secret_store).await?;
     let first_id = timeout(
         async {
             loop {
@@ -165,7 +162,7 @@ async fn test_dehydrated_device_start_via_recovery() -> Result<()> {
     .await??;
     info!(?first_id, "Alice's first start uploaded a dehydrated device");
 
-    dehydrated.start(&secret_store, StartDehydrationOpts::default()).await?;
+    dehydrated.start(&secret_store).await?;
     let second_id = timeout(
         async {
             loop {
