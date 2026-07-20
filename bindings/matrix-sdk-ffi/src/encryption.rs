@@ -530,9 +530,9 @@ pub trait DehydratedDeviceEventListener: SyncOutsideWasm + SendOutsideWasm {
     fn on_event(&self, event: DehydratedDeviceEvent);
 }
 
-/// Options for [`Encryption::start_dehydrated_devices`].
+/// Settings for [`Encryption::start_dehydrated_devices`].
 #[derive(uniffi::Record)]
-pub struct StartDehydratedDevicesOpts {
+pub struct StartDehydratedDevicesSettings {
     /// Force generation of a fresh random pickle key on start, replacing
     /// any existing entry in Secret Storage and the local cache.
     pub create_new_key: bool,
@@ -542,16 +542,6 @@ pub struct StartDehydratedDevicesOpts {
     /// If `true`, the call becomes a no-op when no pickle key is cached
     /// locally.
     pub only_if_key_cached: bool,
-}
-
-impl From<StartDehydratedDevicesOpts> for sdk_dd::StartDehydrationOpts {
-    fn from(value: StartDehydratedDevicesOpts) -> Self {
-        Self {
-            create_new_key: value.create_new_key,
-            rehydrate: value.rehydrate,
-            only_if_key_cached: value.only_if_key_cached,
-        }
-    }
 }
 
 /// Errors returned by the dehydrated-device FFI surface.
@@ -940,7 +930,7 @@ impl Encryption {
     pub async fn start_dehydrated_devices(
         &self,
         mut recovery_key: String,
-        opts: StartDehydratedDevicesOpts,
+        settings: StartDehydratedDevicesSettings,
     ) -> Result<(), DehydratedDeviceError> {
         let secret_store = self
             .inner
@@ -949,7 +939,19 @@ impl Encryption {
             .await
             .map_err(|e| DehydratedDeviceError::SecretStorage(e.to_string()))?;
         recovery_key.zeroize();
-        self.inner.dehydrated_devices().start(&secret_store, opts.into()).await?;
+
+        let dehydrated = self.inner.dehydrated_devices();
+        let mut start = dehydrated.start(&secret_store);
+        if settings.create_new_key {
+            start = start.create_new_key();
+        }
+        if !settings.rehydrate {
+            start = start.skip_rehydration();
+        }
+        if settings.only_if_key_cached {
+            start = start.only_if_key_cached();
+        }
+        start.await?;
         Ok(())
     }
 
