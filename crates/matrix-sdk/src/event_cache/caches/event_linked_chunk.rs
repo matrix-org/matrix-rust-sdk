@@ -665,6 +665,7 @@ pub(in super::super) fn sort_positions_descending(positions: &mut [Position]) {
 mod tests {
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
+    use matrix_sdk_base::linked_chunk::Update;
     use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
     use ruma::{EventId, OwnedEventId, event_id, user_id};
 
@@ -951,5 +952,46 @@ mod tests {
                 Position::new(ChunkIdentifier::new(0), 0),
             ]
         );
+    }
+
+    #[test]
+    fn test_shrink_to_no_last_reloaded_chunk() {
+        let mut linked_chunk = EventLinkedChunk::new();
+
+        {
+            let updates = linked_chunk.store_updates().take();
+
+            assert_eq!(updates.len(), 1);
+            assert_matches!(
+                &updates[0],
+                Update::NewItemsChunk { previous, new, next } => {
+                    assert!(previous.is_none());
+                    assert_eq!(new.index(), 0);
+                    assert!(next.is_none());
+                }
+            );
+        }
+
+        // Let's imagine the `LinkedChunk` has been reset: no last chunk anymore, no
+        // metadata, nothing.
+        linked_chunk
+            .shrink_to_last_reloaded_chunk(None, ChunkIdentifierGenerator::new_from_scratch(), None)
+            .unwrap();
+
+        {
+            let updates = linked_chunk.store_updates().take();
+
+            assert_eq!(updates.len(), 1);
+            // No `Update::Clear`, because it is drained.
+            // However, `Update::NewItemsChunk` is **NOT** drained!
+            assert_matches!(
+                &updates[0],
+                Update::NewItemsChunk { previous, new, next } => {
+                    assert!(previous.is_none());
+                    assert_eq!(new.index(), 0);
+                    assert!(next.is_none());
+                }
+            );
+        }
     }
 }
