@@ -87,8 +87,6 @@ ruma = { workspace = true, features = [
     "unstable-msc3245",
     # Emote event type
     "unstable-msc3954",
-    # Image pack event type
-    "unstable-msc2545",
     # Room language event type
     "unstable-msc4334",
     # User status profile fields (m.status, m.call).

@@ -1281,7 +1281,9 @@ mod tests {
         event_factory::EventFactory, ruma_response_from_json,
     };
     #[cfg(feature = "unstable-msc4426")]
-    use ruma::profile::{ProfileFieldValue, StatusProfileField, UserProfileUpdate};
+    use ruma::profile::{
+        ProfileFieldValue, StatusProfileField, UserProfileChanges, UserProfileUpdate,
+    };
     use ruma::{
         api::client::{self as api, sync::sync_events::v5},
         event_id,
@@ -1816,13 +1818,13 @@ mod tests {
 
         // Save a global profile carrying an `m.status` for the member.
         let mut changes = StateChanges::default();
-        changes.global_profiles.insert(
-            user_id.to_owned(),
-            UserProfileUpdate::from_iter([ProfileFieldValue::Status(StatusProfileField::new(
-                "Working".to_owned(),
-                "💻".to_owned(),
-            ))]),
-        );
+        changes.global_profiles.insert(user_id.to_owned(), {
+            let mut profile_changes = UserProfileChanges::new();
+            profile_changes.insert_updated_value(ProfileFieldValue::Status(
+                StatusProfileField::new("Working".to_owned(), "💻".to_owned()),
+            ));
+            UserProfileUpdate::Updated(profile_changes)
+        });
         client.state_store().save_changes(&changes).await.unwrap();
 
         // `get_member` surfaces the status from the global profile.
