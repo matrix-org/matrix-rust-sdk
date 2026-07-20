@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 
 use assert_matches2::assert_let;
-use futures_util::{FutureExt, StreamExt};
+use futures_util::{FutureExt, Stream, StreamExt};
 use matrix_sdk::{
     Client,
     encryption::dehydrated_devices::{DehydratedDeviceError, DehydratedDeviceEvent},
@@ -27,7 +31,7 @@ use ruma::{OwnedDeviceId, owned_device_id, owned_user_id};
 use serde_json::{Value, json};
 use wiremock::{
     Request,
-    matchers::{body_partial_json, method, path},
+    matchers::{body_partial_json, method, path, path_regex},
 };
 
 /// Build a client logged in as Alice with all the standard crypto endpoints
@@ -70,6 +74,56 @@ async fn capture_uploaded_device(server: &MatrixMockServer) -> CapturedDevice {
         .mount()
         .await;
     captured
+}
+
+/// Mount a stateful account-data mock: PUT bodies are stored per event type
+/// and served back by later GETs, with `M_NOT_FOUND` for anything not yet
+/// stored. Enough of a backend for the Secret Storage machinery.
+async fn mock_stateful_account_data(server: &MatrixMockServer) {
+    let store: Arc<Mutex<BTreeMap<String, Value>>> = Arc::new(Mutex::new(BTreeMap::new()));
+
+    let sink = store.clone();
+    wiremock::Mock::given(method("PUT"))
+        .and(path_regex(r"^/_matrix/client/.*/user/[^/]+/account_data/[^/]+$"))
+        .respond_with(move |req: &Request| {
+            let body: Value = req.body_json().expect("valid account-data PUT body");
+            sink.lock().unwrap().insert(account_data_type(req).to_owned(), body);
+            wiremock::ResponseTemplate::new(200).set_body_json(json!({}))
+        })
+        .mount(server.server())
+        .await;
+
+    wiremock::Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/.*/user/[^/]+/account_data/[^/]+$"))
+        .respond_with(move |req: &Request| {
+            match store.lock().unwrap().get(account_data_type(req)) {
+                Some(content) => wiremock::ResponseTemplate::new(200).set_body_json(content),
+                None => wiremock::ResponseTemplate::new(404).set_body_json(json!({
+                    "errcode": "M_NOT_FOUND",
+                    "error": "Account data not found",
+                })),
+            }
+        })
+        .mount(server.server())
+        .await;
+}
+
+/// Event type carried in the last path segment of an account-data URL.
+fn account_data_type(req: &Request) -> &str {
+    req.url.path_segments().and_then(Iterator::last).expect("account-data URL has path segments")
+}
+
+/// Drain `events` until the next [`DehydratedDeviceEvent::Uploaded`],
+/// returning the uploaded device id.
+async fn next_uploaded_device_id<E: Debug>(
+    events: &mut (impl Stream<Item = Result<DehydratedDeviceEvent, E>> + Unpin),
+) -> OwnedDeviceId {
+    loop {
+        let event = events.next().await.expect("event stream is open").expect("no skipped events");
+        if let DehydratedDeviceEvent::Uploaded { device_id } = event {
+            return device_id;
+        }
+    }
 }
 
 #[async_test]
@@ -436,9 +490,37 @@ async fn test_rehydrate_wrong_pickle_key() {
         .expect_err("a mismatched pickle key must fail rehydration");
 }
 
-#[ignore = "SSSS round trip is covered by the live integration test"]
 #[async_test]
-async fn test_pickle_key_round_trip_through_sssss() {
-    // The wiremock plumbing for a full SecretStore is out of proportion to
-    // what this assertion adds on top of the live test; left as a TODO.
+async fn test_start_round_trips_the_pickle_key_through_secret_storage() {
+    let server = MatrixMockServer::new().await;
+    let client = alice_client(&server).await;
+    bootstrap_cross_signing(&client).await;
+    mock_stateful_account_data(&server).await;
+    let captured = capture_uploaded_device(&server).await;
+
+    let secret_store = client.encryption().secret_storage().create_secret_store().await.unwrap();
+
+    let dehydrated = client.encryption().dehydrated_devices();
+    let mut events = dehydrated.state_stream();
+
+    dehydrated.start(&secret_store).await.unwrap();
+    let first_id = next_uploaded_device_id(&mut events).await;
+
+    // The generated pickle key must have landed in Secret Storage, not only
+    // in the local cache.
+    assert!(dehydrated.is_key_stored(&secret_store).await.unwrap());
+
+    // The second start rehydrates the first device and uploads a fresh one.
+    let (uploaded_id, uploaded_data) =
+        captured.lock().unwrap().clone().expect("PUT mock recorded the upload");
+    assert_eq!(uploaded_id, first_id);
+    server.mock_get_dehydrated_device().ok(&uploaded_id, uploaded_data).mock_once().mount().await;
+    server.mock_dehydrated_device_events().ok(vec![], None).mock_once().mount().await;
+    server.mock_delete_dehydrated_device().ok(&uploaded_id).mock_once().mount().await;
+
+    dehydrated.start(&secret_store).await.unwrap();
+    let second_id = next_uploaded_device_id(&mut events).await;
+    assert_ne!(second_id, first_id, "the second start must upload a fresh dehydrated device");
+
+    dehydrated.stop();
 }
