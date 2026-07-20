@@ -19,7 +19,9 @@
 use std::{collections::hash_map::HashMap, path::PathBuf, sync::Arc};
 
 use futures_util::future::join_all;
-use matrix_sdk_base::deserialized_responses::TimelineEvent;
+use matrix_sdk_base::{
+    check_validity_of_replacement_events, deserialized_responses::TimelineEvent,
+};
 use matrix_sdk_search::{
     error::IndexError,
     index::{IndexableEvent, RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
@@ -230,7 +232,24 @@ async fn get_most_recent_edit(
         return None;
     };
 
-    match related.last().unwrap_or(&original_ev).raw().deserialize() {
+    // Only index valid replacements (matching sender, type, etc.); otherwise
+    // anyone could rewrite another user's indexed message. Fall back to the
+    // original event when there is no valid edit.
+    let latest = related
+        .iter()
+        .rev()
+        .find(|edit| {
+            check_validity_of_replacement_events(
+                original_ev.raw(),
+                original_ev.encryption_info().map(|info| &**info),
+                edit.raw(),
+                edit.encryption_info().map(|info| &**info),
+            )
+            .is_ok()
+        })
+        .unwrap_or(&original_ev);
+
+    match latest.raw().deserialize() {
         Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(latest))) => {
             latest.as_original().cloned()
         }
@@ -731,5 +750,56 @@ mod tests {
             "Search should return latest edit, got {:?}",
             results[0].1
         );
+    }
+
+    #[cfg(feature = "experimental-search")]
+    #[async_test]
+    async fn test_search_index_ignores_cross_sender_edit() {
+        let room_id = room_id!("!room_id:localhost");
+        let original_id = event_id!("$original");
+        let edit_id = event_id!("$edit");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room = server.sync_joined_room(&client, room_id).await;
+
+        let f = EventFactory::new().room(room_id);
+
+        let original =
+            f.text_msg("original alpha").sender(user_id!("@alice:localhost")).event_id(original_id);
+
+        // An edit from a different user than the original sender is not a valid
+        // replacement and must be ignored.
+        let malicious_edit = f
+            .text_msg("* malicious beta")
+            .edit(original_id, RoomMessageEventContentWithoutRelation::text_plain("malicious beta"))
+            .sender(user_id!("@bob:localhost"))
+            .event_id(edit_id);
+
+        server
+            .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(original))
+            .await;
+
+        // The original message is indexed.
+        let results = room.search("alpha", 3, None).await.unwrap();
+        assert_eq!(results.len(), 1, "Original should be indexed, got {results:?}");
+        assert_eq!(results[0].1, original_id, "unexpected event id: {results:?}");
+
+        server
+            .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(malicious_edit))
+            .await;
+
+        // The forged edit's content must not be indexed.
+        let results = room.search("beta", 3, None).await.unwrap();
+        assert_eq!(results.len(), 0, "Cross-sender edit should be ignored, got {results:?}");
+
+        // The original message stays indexed.
+        let results = room.search("alpha", 3, None).await.unwrap();
+        assert_eq!(results.len(), 1, "Original should stay indexed, got {results:?}");
+        assert_eq!(results[0].1, original_id, "unexpected event id: {results:?}");
     }
 }
