@@ -54,7 +54,7 @@
 //! [Dehydrated Devices]: https://spec.matrix.org/unstable/client-server-api/#dehydrated-devices
 //! [MSC3814]: https://github.com/matrix-org/matrix-spec-proposals/pull/3814
 
-use std::time::Duration;
+use std::{future::IntoFuture, time::Duration};
 
 use futures_core::Stream;
 use matrix_sdk_base::crypto::{
@@ -64,7 +64,7 @@ use matrix_sdk_base::crypto::{
     vodozemac::base64_decode,
 };
 use matrix_sdk_common::{
-    locks::Mutex as StdMutex, sleep::sleep, task_monitor::BackgroundTaskHandle,
+    boxed_into_future, locks::Mutex as StdMutex, sleep::sleep, task_monitor::BackgroundTaskHandle,
 };
 use ruma::{
     OwnedDeviceId,
@@ -80,7 +80,7 @@ use ruma::{
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
-use tracing::{debug, info, instrument, trace, warn};
+use tracing::{Instrument, Span, debug, info, instrument, trace, warn};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -199,27 +199,6 @@ pub enum DehydratedDeviceEvent {
         /// Human-readable description of the failure.
         error: String,
     },
-}
-
-/// Options for [`DehydratedDevices::start`].
-#[derive(Clone, Debug)]
-pub struct StartDehydrationOpts {
-    /// Force generation of a fresh random pickle key on start, replacing
-    /// any existing entry in Secret Storage and the local cache.
-    pub create_new_key: bool,
-    /// Whether to attempt to rehydrate the existing dehydrated device, if
-    /// any, before creating the next one. Defaults to `true`.
-    pub rehydrate: bool,
-    /// If `true`, [`DehydratedDevices::start`] becomes a no-op when no
-    /// pickle key is cached locally. Useful for opportunistic restart on
-    /// a freshly opened client without forcing a Secret Storage unlock.
-    pub only_if_key_cached: bool,
-}
-
-impl Default for StartDehydrationOpts {
-    fn default() -> Self {
-        Self { create_new_key: false, rehydrate: true, only_if_key_cached: false }
-    }
 }
 
 /// Process-wide state for the dehydrated-devices manager.
@@ -573,89 +552,49 @@ impl DehydratedDevices {
 
     /// Start using dehydrated devices for this client.
     ///
+    /// Returns a [`StartDehydration`] future. Await it directly for the default
+    /// behavior, or configure it first with
+    /// [`StartDehydration::create_new_key`],
+    /// [`StartDehydration::skip_rehydration`], and
+    /// [`StartDehydration::only_if_key_cached`].
+    ///
     /// The caller is expected to have unlocked Secret Storage and bootstrapped
     /// cross-signing before this call; otherwise the underlying account-data
     /// reads and writes will fail mid-flight.
     ///
-    /// Mirrors matrix-js-sdk's `DehydratedDeviceManager.start`:
+    /// Awaiting the future performs the following steps:
     ///
-    /// 1. If `opts.only_if_key_cached` is set, return early when no pickle key
-    ///    is cached locally.
+    /// 1. If [`StartDehydration::only_if_key_cached`] was set, return early
+    ///    when no pickle key is cached locally.
     /// 2. Stop any previously scheduled rotation.
-    /// 3. If `opts.rehydrate`, attempt to rehydrate the existing dehydrated
-    ///    device. Failures are logged and emitted as
-    ///    [`DehydratedDeviceEvent::RehydrationError`] but do not abort `start`.
-    /// 4. If `opts.create_new_key` *and* the rehydration step succeeded (or was
-    ///    skipped), replace the pickle key in Secret Storage with a fresh
-    ///    random one. A failed rehydration suppresses the reset so the stored
-    ///    key can still recover the existing dehydrated device on another
-    ///    client.
-    /// 5. Create a new dehydrated device now and schedule rotation every
-    ///    [`DEHYDRATION_INTERVAL`].
+    /// 3. Unless [`StartDehydration::skip_rehydration`] was set, attempt to
+    ///    rehydrate the existing dehydrated device. Failures are logged and
+    ///    emitted as [`DehydratedDeviceEvent::RehydrationError`] but do not
+    ///    abort the start.
+    /// 4. If [`StartDehydration::create_new_key`] was set and the rehydration
+    ///    step succeeded (or was skipped), replace the pickle key in Secret
+    ///    Storage with a fresh random one. A failed rehydration suppresses the
+    ///    reset so the stored key can still recover the existing dehydrated
+    ///    device on another client.
+    /// 5. Create a new dehydrated device now and schedule rotation once a week.
     ///
-    /// The rotation task resolves the pickle key from the local crypto
-    /// store on each tick. The local cache is the only key source available
-    /// to the task because reopening Secret Storage requires the recovery
-    /// key, which is not retained. If the cache is cleared while the task
-    /// is scheduled, the task emits
-    /// [`DehydratedDeviceEvent::RotationError`] and stops; restart it with
-    /// a fresh [`Self::start`] call once the key is available again.
-    /// Per-tick HTTP failures emit
-    /// [`DehydratedDeviceEvent::RotationError`] without aborting the
-    /// schedule.
+    /// The rotation task resolves the pickle key from the local crypto store on
+    /// each tick. The local cache is the only key source available to the task
+    /// because reopening Secret Storage requires the recovery key, which is not
+    /// retained. Per-tick failures emit
+    /// [`DehydratedDeviceEvent::RotationError`] without aborting the schedule.
     ///
     /// # Example
     ///
     /// ```no_run
     /// # use matrix_sdk::{Client, encryption::secret_storage::SecretStore};
-    /// # use matrix_sdk::encryption::dehydrated_devices::StartDehydrationOpts;
     /// # async fn example(client: Client, store: SecretStore)
     /// # -> anyhow::Result<()> {
-    /// client
-    ///     .encryption()
-    ///     .dehydrated_devices()
-    ///     .start(&store, StartDehydrationOpts::default())
-    ///     .await?;
+    /// client.encryption().dehydrated_devices().start(&store).await?;
     /// # Ok(()) }
     /// ```
-    #[instrument(skip_all)]
-    pub async fn start(
-        &self,
-        secret_store: &SecretStore,
-        opts: StartDehydrationOpts,
-    ) -> Result<(), DehydratedDeviceError> {
-        if opts.only_if_key_cached && self.cached_key().await?.is_none() {
-            return Ok(());
-        }
-
-        self.stop();
-
-        let mut rehydrate_failed = false;
-        if opts.rehydrate
-            && let Some(key) = self.load_key(secret_store, false).await?
-            && let Err(e) = self.rehydrate(&key).await
-        {
-            let msg = e.to_string();
-            warn!(error = %e, "Rehydration failed during start; continuing");
-            self.emit(DehydratedDeviceEvent::RehydrationError { error: msg });
-            rehydrate_failed = true;
-        }
-
-        // Refuse to clobber Secret Storage after a failed rehydration: the
-        // stored pickle key is the only one that can decrypt the existing
-        // dehydrated device, and overwriting it would discard that recovery
-        // chance for every other client signed in to this account.
-        if opts.create_new_key {
-            if rehydrate_failed {
-                warn!(
-                    "Skipping pickle-key reset after failed rehydration to preserve the chance of recovering the existing dehydrated device on another client"
-                );
-            } else {
-                self.reset_key(secret_store).await?;
-            }
-        }
-
-        self.schedule_dehydration(secret_store).await
+    pub fn start<'a>(&'a self, secret_store: &'a SecretStore) -> StartDehydration<'a> {
+        StartDehydration::new(self, secret_store)
     }
 
     /// Stop the scheduled dehydrated-device rotation, if any.
@@ -846,5 +785,115 @@ impl DehydratedDevices {
 
         info!(to_device_count, room_key_count, "Drained dehydrated device to-device queue");
         Ok((room_key_count, to_device_count))
+    }
+}
+
+/// Named future returned by [`DehydratedDevices::start`].
+///
+/// Await it to start dehydrated devices with the default behavior, or configure
+/// it first with [`Self::create_new_key`], [`Self::skip_rehydration`], and
+/// [`Self::only_if_key_cached`].
+#[derive(Debug)]
+pub struct StartDehydration<'a> {
+    devices: &'a DehydratedDevices,
+    secret_store: &'a SecretStore,
+    create_new_key: bool,
+    rehydrate: bool,
+    only_if_key_cached: bool,
+    tracing_span: Span,
+}
+
+impl<'a> StartDehydration<'a> {
+    fn new(devices: &'a DehydratedDevices, secret_store: &'a SecretStore) -> Self {
+        Self {
+            devices,
+            secret_store,
+            create_new_key: false,
+            rehydrate: true,
+            only_if_key_cached: false,
+            tracing_span: Span::current(),
+        }
+    }
+
+    /// Generate a fresh random pickle key on start, replacing any existing
+    /// entry in Secret Storage and the local cache.
+    ///
+    /// The reset is suppressed if a rehydration attempt in the same start
+    /// fails, so the stored key can still recover the existing dehydrated
+    /// device on another client.
+    pub fn create_new_key(mut self) -> Self {
+        self.create_new_key = true;
+        self
+    }
+
+    /// Skip the attempt to rehydrate the existing dehydrated device before
+    /// creating the next one.
+    ///
+    /// By default the existing device is rehydrated first.
+    pub fn skip_rehydration(mut self) -> Self {
+        self.rehydrate = false;
+        self
+    }
+
+    /// Do nothing unless a pickle key is already cached locally.
+    ///
+    /// Useful for an opportunistic start on a freshly opened client without
+    /// forcing a Secret Storage unlock.
+    pub fn only_if_key_cached(mut self) -> Self {
+        self.only_if_key_cached = true;
+        self
+    }
+}
+
+impl<'a> IntoFuture for StartDehydration<'a> {
+    type Output = Result<(), DehydratedDeviceError>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        let Self {
+            devices,
+            secret_store,
+            create_new_key,
+            rehydrate,
+            only_if_key_cached,
+            tracing_span,
+        } = self;
+
+        let future = async move {
+            if only_if_key_cached && devices.cached_key().await?.is_none() {
+                return Ok(());
+            }
+
+            devices.stop();
+
+            let mut rehydrate_failed = false;
+            if rehydrate
+                && let Some(key) = devices.load_key(secret_store, false).await?
+                && let Err(e) = devices.rehydrate(&key).await
+            {
+                let msg = e.to_string();
+                warn!(error = %e, "Rehydration failed during start; continuing");
+                devices.emit(DehydratedDeviceEvent::RehydrationError { error: msg });
+                rehydrate_failed = true;
+            }
+
+            // Refuse to clobber Secret Storage after a failed rehydration: the
+            // stored pickle key is the only one that can decrypt the existing
+            // dehydrated device, and overwriting it would discard that recovery
+            // chance for every other client signed in to this account.
+            if create_new_key {
+                if rehydrate_failed {
+                    warn!(
+                        "Skipping pickle-key reset after failed rehydration to preserve the chance of recovering the existing dehydrated device on another client"
+                    );
+                } else {
+                    devices.reset_key(secret_store).await?;
+                }
+            }
+
+            devices.schedule_dehydration(secret_store).await
+        };
+
+        Box::pin(future.instrument(tracing_span))
     }
 }
