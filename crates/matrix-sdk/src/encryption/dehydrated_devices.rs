@@ -63,7 +63,9 @@ use matrix_sdk_base::crypto::{
     store::types::DehydratedDeviceKey,
     vodozemac::base64_decode,
 };
-use matrix_sdk_common::{executor::spawn, locks::Mutex as StdMutex, sleep::sleep};
+use matrix_sdk_common::{
+    locks::Mutex as StdMutex, sleep::sleep, task_monitor::BackgroundTaskHandle,
+};
 use ruma::{
     OwnedDeviceId,
     api::{
@@ -85,7 +87,6 @@ use crate::{
     Client, HttpError,
     client::WeakClient,
     encryption::{CryptoStoreError, secret_storage::SecretStore},
-    executor::JoinHandle,
 };
 
 /// The default display name uploaded for a freshly created dehydrated device.
@@ -228,7 +229,7 @@ impl Default for StartDehydrationOpts {
 /// `Client::encryption().dehydrated_devices()` calls.
 pub(crate) struct DehydratedDevicesState {
     event_sender: broadcast::Sender<DehydratedDeviceEvent>,
-    rotation_task: StdMutex<Option<DehydratedDeviceRotationTask>>,
+    rotation_task: StdMutex<Option<BackgroundTaskHandle>>,
     /// The ID of the dehydrated device most recently uploaded by this
     /// process. Used by [`DehydratedDevices::rehydrate`] to detect a
     /// server that serves a different (potentially attacker-replayed)
@@ -245,32 +246,6 @@ impl Default for DehydratedDevicesState {
             rotation_task: StdMutex::new(None),
             last_uploaded_device_id: StdMutex::new(None),
         }
-    }
-}
-
-/// Whether the rotation timer should keep running after a tick.
-enum RotationTickOutcome {
-    /// The rotation timer should remain scheduled and try again at the next
-    /// interval. Used both for successful ticks and for recoverable HTTP or
-    /// store errors.
-    Continue,
-    /// The rotation timer must abort. Used when the cached pickle key is
-    /// gone; restarting the timer requires a fresh [`DehydratedDevices::start`]
-    /// call.
-    Halt,
-}
-
-/// The background task that re-creates the dehydrated device on a fixed
-/// interval. Aborted on drop.
-struct DehydratedDeviceRotationTask {
-    #[cfg_attr(target_family = "wasm", allow(dead_code))]
-    join_handle: JoinHandle<()>,
-}
-
-impl Drop for DehydratedDeviceRotationTask {
-    fn drop(&mut self) {
-        #[cfg(not(target_family = "wasm"))]
-        self.join_handle.abort();
     }
 }
 
@@ -705,43 +680,45 @@ impl DehydratedDevices {
         self.create(None, &key).await?;
 
         let weak_client = WeakClient::from_client(&self.client);
-        let join_handle = spawn(async move {
-            loop {
-                sleep(DEHYDRATION_INTERVAL).await;
+        let handle = self
+            .client
+            .task_monitor()
+            .spawn_infinite_task("dehydrated_devices::rotation", async move {
+                loop {
+                    sleep(DEHYDRATION_INTERVAL).await;
 
-                let Some(client) = weak_client.get() else {
-                    debug!("Client dropped; halting dehydrated-device rotation");
-                    return;
-                };
+                    let Some(client) = weak_client.get() else {
+                        // The client is gone; this task is aborted when its
+                        // handle drops, so just wait for that to happen.
+                        continue;
+                    };
 
-                match client.encryption().dehydrated_devices().rotate_tick().await {
-                    RotationTickOutcome::Continue => {}
-                    RotationTickOutcome::Halt => return,
+                    client.encryption().dehydrated_devices().rotate_tick().await;
                 }
-            }
-        });
+            })
+            .abort_on_drop();
 
-        *self.state().rotation_task.lock() = Some(DehydratedDeviceRotationTask { join_handle });
+        *self.state().rotation_task.lock() = Some(handle);
         Ok(())
     }
 
-    /// One iteration of the rotation timer: resolve the cached pickle key,
-    /// upload a fresh dehydrated device, and report whether the timer should
-    /// keep running.
-    async fn rotate_tick(&self) -> RotationTickOutcome {
+    /// One iteration of the rotation timer: resolve the cached pickle key and
+    /// upload a fresh dehydrated device, emitting a
+    /// [`DehydratedDeviceEvent::RotationError`] on failure.
+    async fn rotate_tick(&self) {
         let key = match self.cached_key().await {
             Ok(Some(key)) => key,
             Ok(None) => {
                 let msg = "no cached pickle key for dehydrated-device rotation".to_owned();
-                warn!("{msg}; halting timer until start() is called again");
+                warn!("{msg}; skipping this rotation");
                 self.emit(DehydratedDeviceEvent::RotationError { error: msg });
-                return RotationTickOutcome::Halt;
+                return;
             }
             Err(e) => {
                 let msg = e.to_string();
                 warn!(error = %e, "Failed to load cached pickle key for rotation");
                 self.emit(DehydratedDeviceEvent::RotationError { error: msg });
-                return RotationTickOutcome::Continue;
+                return;
             }
         };
 
@@ -750,7 +727,6 @@ impl DehydratedDevices {
             warn!(error = msg, "Failed to rotate dehydrated device");
             self.emit(DehydratedDeviceEvent::RotationError { error: msg });
         }
-        RotationTickOutcome::Continue
     }
 
     /// Delete the current dehydrated device, if one exists.
