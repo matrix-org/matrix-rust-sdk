@@ -99,10 +99,9 @@ const DEFAULT_DEVICE_DISPLAY_NAME: &str = "Dehydrated device";
 /// stabilizes.
 const PICKLE_KEY_SECRET_NAME: &str = "org.matrix.msc3814";
 
-/// How often [`DehydratedDevices::start`] rotates the dehydrated device.
-///
-/// Set to one week, matching matrix-js-sdk's `DEHYDRATION_INTERVAL`.
-pub const DEHYDRATION_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+/// How often the rotation task started by [`DehydratedDevices::start`]
+/// re-creates the dehydrated device. Fixed at one week.
+const DEHYDRATION_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// Errors that can occur while managing dehydrated devices.
 #[derive(Debug, Error)]
