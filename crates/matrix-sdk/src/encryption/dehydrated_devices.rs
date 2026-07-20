@@ -144,17 +144,10 @@ fn pickle_key_secret_name() -> SecretName {
 /// Lifecycle events emitted by [`DehydratedDevices`].
 ///
 /// Subscribe with [`DehydratedDevices::events`] to observe creation,
-/// rehydration progress, and rotation outcomes. The set of variants is a
-/// superset of matrix-js-sdk's `CryptoEvent::Dehydrated*` and
-/// `CryptoEvent::Rehydration*`: [`Self::Created`], [`Self::Uploaded`],
-/// [`Self::RehydrationStarted`], [`Self::RehydrationProgress`], and
-/// [`Self::RehydrationError`] mirror js-sdk one for one. The remaining
-/// variants are Rust-side extensions retained because callers asked for
-/// them in code review: [`Self::Deleted`] signals the post-rehydration
-/// delete, [`Self::RehydrationCompleted`] carries the imported counts so
-/// the caller does not have to fold over progress events, and
-/// [`Self::RotationError`] surfaces background rotation failures the
-/// task otherwise swallows.
+/// rehydration progress, and rotation outcomes. [`Self::RehydrationCompleted`]
+/// carries the final imported counts so a caller does not have to fold over the
+/// [`Self::RehydrationProgress`] events, and [`Self::RotationError`] surfaces
+/// background rotation failures the task would otherwise swallow.
 #[derive(Clone, Debug)]
 pub enum DehydratedDeviceEvent {
     /// A fresh dehydrated device was constructed in the local crypto
@@ -365,7 +358,7 @@ impl DehydratedDevices {
     ///
     /// * `display_name` - Optional human-readable name uploaded as the
     ///   dehydrated device's `initial_device_display_name`. Defaults to
-    ///   `"Dehydrated device"` to match the existing [matrix-js-sdk] behavior.
+    ///   `"Dehydrated device"`.
     /// * `pickle_key` - 32-byte key used to encrypt the dehydrated device.
     ///
     /// # Example
@@ -385,7 +378,6 @@ impl DehydratedDevices {
     /// ```
     ///
     /// [vodozemac]: https://docs.rs/vodozemac/
-    /// [matrix-js-sdk]: https://github.com/matrix-org/matrix-js-sdk
     #[instrument(skip_all)]
     pub async fn create(
         &self,
@@ -488,8 +480,7 @@ impl DehydratedDevices {
     /// Cache the pickle key in the local crypto store.
     ///
     /// Subsequent rehydration attempts can then resolve the key from the
-    /// cache without an account-data round-trip. Equivalent to
-    /// matrix-js-sdk's `DehydratedDeviceManager.cacheKey`.
+    /// cache without an account-data round-trip.
     #[instrument(skip_all)]
     pub(crate) async fn cache_key(
         &self,
@@ -768,8 +759,7 @@ impl DehydratedDevices {
     /// immediately recreate the device the caller just asked to remove.
     ///
     /// Returns `Ok(())` silently if no dehydrated device is on the server or
-    /// the server does not implement the endpoint, matching the
-    /// matrix-js-sdk's behavior.
+    /// the server does not implement the endpoint.
     ///
     /// # Example
     ///
