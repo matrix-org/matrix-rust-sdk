@@ -103,6 +103,11 @@ const PICKLE_KEY_SECRET_NAME: &str = "org.matrix.msc3814";
 /// re-creates the dehydrated device. Fixed at one week.
 const DEHYDRATION_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+/// Crypto-store key under which the ID of the most recently uploaded dehydrated
+/// device is persisted, so the replay check in [`DehydratedDevices::rehydrate`]
+/// survives a client restart.
+const LAST_UPLOADED_DEVICE_ID_KEY: &str = "matrix-sdk-dehydrated-devices.last-uploaded-device-id";
+
 /// Errors that can occur while managing dehydrated devices.
 #[derive(Debug, Error)]
 pub enum DehydratedDeviceError {
@@ -208,22 +213,12 @@ pub enum DehydratedDeviceEvent {
 pub(crate) struct DehydratedDevicesState {
     event_sender: broadcast::Sender<DehydratedDeviceEvent>,
     rotation_task: StdMutex<Option<BackgroundTaskHandle>>,
-    /// The ID of the dehydrated device most recently uploaded by this
-    /// process. Used by [`DehydratedDevices::rehydrate`] to detect a
-    /// server that serves a different (potentially attacker-replayed)
-    /// device id within the same session. Lost on restart; cross-session
-    /// continuity is not enforced.
-    last_uploaded_device_id: StdMutex<Option<OwnedDeviceId>>,
 }
 
 impl Default for DehydratedDevicesState {
     fn default() -> Self {
         let (event_sender, _) = broadcast::channel(32);
-        Self {
-            event_sender,
-            rotation_task: StdMutex::new(None),
-            last_uploaded_device_id: StdMutex::new(None),
-        }
+        Self { event_sender, rotation_task: StdMutex::new(None) }
     }
 }
 
@@ -353,7 +348,7 @@ impl DehydratedDevices {
         self.client.send(request).await?;
         info!(?device_id, "Successfully uploaded dehydrated device");
 
-        *self.state().last_uploaded_device_id.lock() = Some(device_id.clone());
+        machine.store().set_value(LAST_UPLOADED_DEVICE_ID_KEY, &device_id).await?;
         self.emit(DehydratedDeviceEvent::Uploaded { device_id: device_id.clone() });
         Ok(device_id)
     }
@@ -391,12 +386,12 @@ impl DehydratedDevices {
         let Some(downloaded) = self.download_device().await? else { return Ok(false) };
         info!(device_id = ?downloaded.device_id, "Dehydrated device found");
 
-        // Within this process, the server should serve back whichever id we
-        // last uploaded. A mismatch can indicate a stale or replayed payload;
-        // warn so the application can decide to drop or quarantine the
-        // imported keys. Cross-restart continuity is not enforced because the
-        // last-uploaded id is not persisted to the crypto store.
-        if let Some(expected) = self.state().last_uploaded_device_id.lock().clone()
+        // The server should serve back whichever id we last uploaded. A
+        // mismatch can indicate a stale or replayed payload; warn so the
+        // application can decide to drop or quarantine the imported keys. The
+        // last-uploaded id is persisted in the crypto store, so this check
+        // holds across restarts.
+        if let Some(expected) = self.last_uploaded_device_id().await?
             && expected != downloaded.device_id
         {
             warn!(
@@ -460,6 +455,18 @@ impl DehydratedDevices {
         let machine = olm.as_ref().ok_or(DehydratedDeviceError::NotLoggedIn)?;
 
         Ok(machine.dehydrated_devices().get_dehydrated_device_pickle_key().await?)
+    }
+
+    /// Return the ID of the dehydrated device this client most recently
+    /// uploaded, as persisted in the crypto store, or `Ok(None)` if none has
+    /// been uploaded yet.
+    async fn last_uploaded_device_id(
+        &self,
+    ) -> Result<Option<OwnedDeviceId>, DehydratedDeviceError> {
+        let olm = self.client.olm_machine().await;
+        let machine = olm.as_ref().ok_or(DehydratedDeviceError::NotLoggedIn)?;
+
+        Ok(machine.store().get_value(LAST_UPLOADED_DEVICE_ID_KEY).await?)
     }
 
     /// Return whether the pickle key is stored in the given Secret Storage.
