@@ -8461,4 +8461,4 @@ dependencies = [
 [[patch.unused]]
 name = "ruma"
 version = "0.16.0"
-source = "git+https://github.com/matrix-org/ruma?rev=e025321febd9f409813af680f16d8e6b3e078266#e025321febd9f409813af680f16d8e6b3e078266"
+source = "git+https://github.com/matrix-org/ruma?rev=2a1d714314f6f711d5bca755c73cf2ce3053c3d1#2a1d714314f6f711d5bca755c73cf2ce3053c3d1"
