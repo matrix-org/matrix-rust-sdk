@@ -5,6 +5,12 @@
 // You may obtain a copy of the License at
 //
 //     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 //! Live MSC3814 round trip against a real homeserver.
 //!
@@ -65,8 +71,8 @@ async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
 
     let mut saw_created = false;
     let mut saw_uploaded = false;
-    let mut saw_rh_started = false;
-    let mut saw_rh_completed = false;
+    let mut saw_rehydration_started = false;
+    let mut saw_rehydration_completed = false;
     let mut saw_deleted = false;
 
     // Rehydrate first to emit the matching events; observe both lifecycles
@@ -77,8 +83,8 @@ async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
         async {
             while !(saw_created
                 && saw_uploaded
-                && saw_rh_started
-                && saw_rh_completed
+                && saw_rehydration_started
+                && saw_rehydration_completed
                 && saw_deleted)
             {
                 let event = events.next().await.expect("event stream is open")?;
@@ -93,11 +99,11 @@ async fn test_dehydrated_device_direct_round_trip() -> Result<()> {
                     }
                     DehydratedDeviceEvent::RehydrationStarted { device_id: id } => {
                         assert_eq!(id, device_id);
-                        saw_rh_started = true;
+                        saw_rehydration_started = true;
                     }
                     DehydratedDeviceEvent::RehydrationCompleted { device_id: id, .. } => {
                         assert_eq!(id, device_id);
-                        saw_rh_completed = true;
+                        saw_rehydration_completed = true;
                     }
                     DehydratedDeviceEvent::Deleted => saw_deleted = true,
                     _ => {}

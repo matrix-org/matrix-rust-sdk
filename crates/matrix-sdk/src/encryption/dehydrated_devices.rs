@@ -36,15 +36,16 @@
 //! ```no_run
 //! # use matrix_sdk::Client;
 //! # use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
-//! # async fn example(client: Client) -> anyhow::Result<()> {
+//! # async fn example(client: Client, pickle_key: DehydratedDeviceKey)
+//! # -> anyhow::Result<()> {
 //! let dehydrated = client.encryption().dehydrated_devices();
 //!
 //! if !dehydrated.is_supported().await? {
 //!     return Ok(());
 //! }
 //!
-//! let pickle_key = DehydratedDeviceKey::new();
-//!
+//! // The pickle key comes from Secret Storage: only the key that encrypted
+//! // the existing device can rehydrate it. `start` manages that round trip.
 //! dehydrated.rehydrate(&pickle_key).await?;
 //! dehydrated.create(None, &pickle_key).await?;
 //! # Ok(())
@@ -234,7 +235,7 @@ pub(crate) struct DehydratedDevicesState {
 
 impl Default for DehydratedDevicesState {
     fn default() -> Self {
-        let (event_sender, _) = broadcast::channel(32);
+        let (event_sender, _) = broadcast::channel(100);
         Self { event_sender, rotation_task: StdMutex::new(None) }
     }
 }
@@ -459,7 +460,7 @@ impl DehydratedDevices {
         // Key import already succeeded; if the post-drain delete fails, log
         // it but do not let the failure masquerade as a rehydration error.
         // The next create() call will replace the device anyway.
-        if let Err(e) = self.delete().await {
+        if let Err(e) = self.delete_device().await {
             warn!(device_id = ?downloaded.device_id, error = %e, "Post-rehydration delete failed; the next rotation will replace the device");
         }
 
@@ -525,6 +526,7 @@ impl DehydratedDevices {
     ///     client.encryption().dehydrated_devices().is_key_stored(&store).await?;
     /// # Ok(()) }
     /// ```
+    #[instrument(skip_all)]
     pub async fn is_key_stored(
         &self,
         secret_store: &SecretStore,
@@ -734,6 +736,12 @@ impl DehydratedDevices {
     #[instrument(skip_all)]
     pub async fn delete(&self) -> Result<(), DehydratedDeviceError> {
         self.stop();
+        self.delete_device().await
+    }
+
+    /// Issue the delete request for the current dehydrated device without
+    /// touching the rotation schedule.
+    async fn delete_device(&self) -> Result<(), DehydratedDeviceError> {
         let request = delete_dehydrated_device::unstable::Request::new();
         match self.client.send(request).await {
             Ok(_) => {
