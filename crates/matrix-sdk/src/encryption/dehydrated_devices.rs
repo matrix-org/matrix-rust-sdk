@@ -108,6 +108,12 @@ const DEHYDRATION_INTERVAL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 /// survives a client restart.
 const LAST_UPLOADED_DEVICE_ID_KEY: &str = "matrix-sdk-dehydrated-devices.last-uploaded-device-id";
 
+/// Defensive ceiling on the number of to-device events drained from a single
+/// dehydrated device during rehydration. MSC3814 does not specify a limit; this
+/// bounds the drain loop so a server that keeps returning events cannot make it
+/// run forever, and keeps the running count well clear of overflow.
+const MAX_TO_DEVICE_EVENTS: usize = 100_000;
+
 /// Errors that can occur while managing dehydrated devices.
 #[derive(Debug, Error)]
 pub enum DehydratedDeviceError {
@@ -764,28 +770,35 @@ impl DehydratedDevices {
                 break;
             }
 
-            to_device_count += response.events.len();
+            to_device_count = to_device_count.saturating_add(response.events.len());
             let imported = rehydrated.receive_events(response.events, &settings).await?;
-            room_key_count += imported.len();
+            room_key_count = room_key_count.saturating_add(imported.len());
             trace!(to_device_count, room_key_count, "Absorbed a batch of to-device events");
             self.emit(DehydratedDeviceEvent::RehydrationProgress {
                 room_keys_imported: room_key_count,
                 to_device_events: to_device_count,
             });
 
-            // Defensive guard against a server that keeps returning the
-            // same cursor or stops returning one altogether. matrix-js-sdk
-            // does not have this; added here as a safety net.
-            match response.next_batch {
+            if to_device_count >= MAX_TO_DEVICE_EVENTS {
+                warn!(
+                    to_device_count,
+                    "Reached the dehydrated-device drain limit; stopping to bound the loop"
+                );
+                break;
+            }
+
+            // Guard against a server that repeats the same cursor and would
+            // otherwise keep us looping over an identical batch.
+            match &response.next_batch {
                 None => break,
-                Some(ref token) if Some(token) == next_batch.as_ref() => {
+                Some(token) if Some(token) == next_batch.as_ref() => {
                     warn!(
                         ?next_batch,
-                        "Server returned the same next_batch twice; aborting to avoid an infinite loop"
+                        "Server returned the same next_batch twice; stopping to avoid a loop"
                     );
                     break;
                 }
-                Some(token) => next_batch = Some(token),
+                Some(token) => next_batch = Some(token.clone()),
             }
         }
 
