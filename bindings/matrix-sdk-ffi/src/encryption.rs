@@ -969,7 +969,7 @@ impl Encryption {
         &self,
         listener: Box<dyn DehydratedDeviceEventListener>,
     ) -> Arc<TaskHandle> {
-        let mut events = Box::pin(self.inner.dehydrated_devices().events());
+        let mut events = Box::pin(self.inner.dehydrated_devices().state_stream());
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(event) = events.next().await {
                 let Ok(event) = event else { continue };

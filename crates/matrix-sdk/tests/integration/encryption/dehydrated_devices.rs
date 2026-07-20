@@ -129,7 +129,7 @@ async fn test_create_with_explicit_display_name() {
 
     server.mock_put_dehydrated_device().ok_echo().mock_once().mount().await;
 
-    let mut events = client.encryption().dehydrated_devices().events();
+    let mut events = client.encryption().dehydrated_devices().state_stream();
     let pickle_key = DehydratedDeviceKey::new();
     let device_id = client
         .encryption()
@@ -189,7 +189,7 @@ async fn test_delete_emits_event_on_success() {
         .mount()
         .await;
 
-    let mut events = client.encryption().dehydrated_devices().events();
+    let mut events = client.encryption().dehydrated_devices().state_stream();
     client.encryption().dehydrated_devices().delete().await.unwrap();
 
     assert_let!(Some(Ok(DehydratedDeviceEvent::Deleted)) = events.next().await);
@@ -202,7 +202,7 @@ async fn test_delete_silent_on_not_found() {
 
     server.mock_delete_dehydrated_device().not_found().mock_once().mount().await;
 
-    let mut events = client.encryption().dehydrated_devices().events();
+    let mut events = client.encryption().dehydrated_devices().state_stream();
     client.encryption().dehydrated_devices().delete().await.unwrap();
 
     // No event should have fired; the broadcast channel must remain empty.
@@ -216,7 +216,7 @@ async fn test_delete_silent_on_unrecognized() {
 
     server.mock_delete_dehydrated_device().error_unrecognized().mock_once().mount().await;
 
-    let mut events = client.encryption().dehydrated_devices().events();
+    let mut events = client.encryption().dehydrated_devices().state_stream();
     client.encryption().dehydrated_devices().delete().await.unwrap();
 
     assert!(events.next().now_or_never().is_none());
@@ -249,7 +249,7 @@ async fn test_rehydrate_round_trip() {
         .await;
     server.mock_delete_dehydrated_device().ok(&uploaded_id).mock_once().mount().await;
 
-    let mut events = client.encryption().dehydrated_devices().events();
+    let mut events = client.encryption().dehydrated_devices().state_stream();
     let outcome = client.encryption().dehydrated_devices().rehydrate(&pickle_key).await.unwrap();
     assert!(outcome);
 
@@ -315,7 +315,7 @@ async fn test_rehydrate_empty_server() {
 
     server.mock_get_dehydrated_device().not_found().mock_once().mount().await;
 
-    let mut events = client.encryption().dehydrated_devices().events();
+    let mut events = client.encryption().dehydrated_devices().state_stream();
     let pickle_key = DehydratedDeviceKey::new();
     let outcome = client.encryption().dehydrated_devices().rehydrate(&pickle_key).await.unwrap();
     assert!(!outcome);
