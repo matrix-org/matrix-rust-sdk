@@ -8274,3 +8274,8 @@ dependencies = [
  "wasm-bindgen",
  "web-sys",
 ]
+
+[[patch.unused]]
+name = "ruma"
+version = "0.16.0"
+source = "git+https://github.com/matrix-org/ruma?rev=e025321febd9f409813af680f16d8e6b3e078266#e025321febd9f409813af680f16d8e6b3e078266"
