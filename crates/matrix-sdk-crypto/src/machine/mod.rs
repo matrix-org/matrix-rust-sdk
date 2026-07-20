@@ -1854,6 +1854,14 @@ impl OlmMachine {
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
+        {
+            let account = store_transaction.account().await?;
+            account.update_key_counts(
+                sync_changes.one_time_keys_counts,
+                sync_changes.unused_fallback_keys,
+            )
+        }
+
         let (events, changes) = self
             .preprocess_sync_changes(&mut store_transaction, sync_changes, decryption_settings)
             .await?;
@@ -1906,14 +1914,6 @@ impl OlmMachine {
         // The account is automatically saved by the store transaction created by the
         // caller.
         let mut changes = Default::default();
-
-        {
-            let account = transaction.account().await?;
-            account.update_key_counts(
-                sync_changes.one_time_keys_counts,
-                sync_changes.unused_fallback_keys,
-            )
-        }
 
         if let Err(e) = self
             .inner
