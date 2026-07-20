@@ -58,7 +58,7 @@ use std::{future::IntoFuture, time::Duration};
 
 use futures_core::Stream;
 use matrix_sdk_base::crypto::{
-    DecryptionSettings, OlmError, TrustRequirement,
+    OlmError,
     dehydrated_devices::{DehydrationError, RehydratedDevice},
     store::types::DehydratedDeviceKey,
     vodozemac::base64_decode,
@@ -792,8 +792,7 @@ impl DehydratedDevices {
         device_id: &OwnedDeviceId,
         rehydrated: &RehydratedDevice,
     ) -> Result<DrainOutcome, DehydratedDeviceError> {
-        let settings =
-            DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
+        let settings = self.client.decryption_settings();
 
         let mut next_batch: Option<String> = None;
         let mut to_device_count: usize = 0;
@@ -809,7 +808,7 @@ impl DehydratedDevices {
             }
 
             to_device_count = to_device_count.saturating_add(response.events.len());
-            let imported = rehydrated.receive_events(response.events, &settings).await?;
+            let imported = rehydrated.receive_events(response.events, settings).await?;
             room_key_count = room_key_count.saturating_add(imported.len());
             trace!(to_device_count, room_key_count, "Absorbed a batch of to-device events");
             self.emit(DehydratedDeviceEvent::RehydrationProgress {
