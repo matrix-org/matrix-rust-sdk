@@ -15,7 +15,7 @@
 use std::{str::FromStr, sync::Arc};
 
 use futures_util::StreamExt;
-use matrix_sdk::encryption::{self, backups, dehydrated_devices as sdk_dd, recovery, vodozemac};
+use matrix_sdk::encryption::{self, backups, dehydrated_devices, recovery, vodozemac};
 use matrix_sdk_base::crypto::{
     store::types::DehydratedDeviceKey,
     types::{BackupSecrets, RoomKeyBackupInfo},
@@ -462,7 +462,7 @@ pub async fn database_contains_secrets_bundle(
 
 /// Lifecycle event emitted by the dehydrated-device manager.
 ///
-/// Mirrors [`sdk_dd::DehydratedDeviceEvent`]; subscribe via
+/// Mirrors [`dehydrated_devices::DehydratedDeviceEvent`]; subscribe via
 /// [`Encryption::dehydrated_device_event_listener`].
 #[derive(uniffi::Enum)]
 pub enum DehydratedDeviceEvent {
@@ -487,28 +487,28 @@ pub enum DehydratedDeviceEvent {
     RotationError { error: String },
 }
 
-impl From<sdk_dd::DehydratedDeviceEvent> for DehydratedDeviceEvent {
-    fn from(value: sdk_dd::DehydratedDeviceEvent) -> Self {
+impl From<dehydrated_devices::DehydratedDeviceEvent> for DehydratedDeviceEvent {
+    fn from(value: dehydrated_devices::DehydratedDeviceEvent) -> Self {
         match value {
-            sdk_dd::DehydratedDeviceEvent::Created { device_id } => {
+            dehydrated_devices::DehydratedDeviceEvent::Created { device_id } => {
                 Self::Created { device_id: device_id.to_string() }
             }
-            sdk_dd::DehydratedDeviceEvent::Uploaded { device_id } => {
+            dehydrated_devices::DehydratedDeviceEvent::Uploaded { device_id } => {
                 Self::Uploaded { device_id: device_id.to_string() }
             }
-            sdk_dd::DehydratedDeviceEvent::Deleted => Self::Deleted,
-            sdk_dd::DehydratedDeviceEvent::KeyCached => Self::KeyCached,
-            sdk_dd::DehydratedDeviceEvent::RehydrationStarted { device_id } => {
+            dehydrated_devices::DehydratedDeviceEvent::Deleted => Self::Deleted,
+            dehydrated_devices::DehydratedDeviceEvent::KeyCached => Self::KeyCached,
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationStarted { device_id } => {
                 Self::RehydrationStarted { device_id: device_id.to_string() }
             }
-            sdk_dd::DehydratedDeviceEvent::RehydrationProgress {
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationProgress {
                 room_keys_imported,
                 to_device_events,
             } => Self::RehydrationProgress {
                 room_keys_imported: room_keys_imported as u64,
                 to_device_events: to_device_events as u64,
             },
-            sdk_dd::DehydratedDeviceEvent::RehydrationCompleted {
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationCompleted {
                 device_id,
                 room_keys_imported,
                 to_device_events,
@@ -517,10 +517,12 @@ impl From<sdk_dd::DehydratedDeviceEvent> for DehydratedDeviceEvent {
                 room_keys_imported: room_keys_imported as u64,
                 to_device_events: to_device_events as u64,
             },
-            sdk_dd::DehydratedDeviceEvent::RehydrationError { error } => {
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationError { error } => {
                 Self::RehydrationError { error }
             }
-            sdk_dd::DehydratedDeviceEvent::RotationError { error } => Self::RotationError { error },
+            dehydrated_devices::DehydratedDeviceEvent::RotationError { error } => {
+                Self::RotationError { error }
+            }
         }
     }
 }
@@ -535,12 +537,15 @@ pub trait DehydratedDeviceEventListener: SyncOutsideWasm + SendOutsideWasm {
 pub struct StartDehydratedDevicesSettings {
     /// Force generation of a fresh random pickle key on start, replacing
     /// any existing entry in Secret Storage and the local cache.
+    #[uniffi(default = false)]
     pub create_new_key: bool,
     /// Whether to attempt to rehydrate the existing dehydrated device, if
     /// any, before creating the next one.
+    #[uniffi(default = true)]
     pub rehydrate: bool,
     /// If `true`, the call becomes a no-op when no pickle key is cached
     /// locally.
+    #[uniffi(default = false)]
     pub only_if_key_cached: bool,
 }
 
@@ -562,10 +567,10 @@ pub enum DehydratedDeviceError {
     Sdk(String),
 }
 
-impl From<sdk_dd::DehydratedDeviceError> for DehydratedDeviceError {
-    fn from(value: sdk_dd::DehydratedDeviceError) -> Self {
+impl From<dehydrated_devices::DehydratedDeviceError> for DehydratedDeviceError {
+    fn from(value: dehydrated_devices::DehydratedDeviceError) -> Self {
         match value {
-            sdk_dd::DehydratedDeviceError::NotLoggedIn => Self::NotLoggedIn,
+            dehydrated_devices::DehydratedDeviceError::NotLoggedIn => Self::NotLoggedIn,
             other => Self::Sdk(other.to_string()),
         }
     }
@@ -925,8 +930,9 @@ impl Encryption {
     /// Start using dehydrated devices for this client, resolving the pickle
     /// key through Secret Storage and scheduling weekly rotation.
     ///
-    /// The recovery key is consumed (zeroized) after Secret Storage has been
-    /// unlocked.
+    /// The Rust-side copy of the recovery key is zeroized after Secret
+    /// Storage has been unlocked; the caller keeps responsibility for the
+    /// string it passed in.
     pub async fn start_dehydrated_devices(
         &self,
         mut recovery_key: String,
