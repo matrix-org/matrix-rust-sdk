@@ -17,7 +17,8 @@ use std::sync::{Arc, Mutex};
 use assert_matches2::assert_let;
 use futures_util::{FutureExt, StreamExt};
 use matrix_sdk::{
-    Client, encryption::dehydrated_devices::DehydratedDeviceEvent,
+    Client,
+    encryption::dehydrated_devices::{DehydratedDeviceError, DehydratedDeviceEvent},
     test_utils::mocks::MatrixMockServer,
 };
 use matrix_sdk_base::crypto::store::types::DehydratedDeviceKey;
@@ -306,6 +307,92 @@ async fn test_rehydrate_paginated() {
 
     let outcome = client.encryption().dehydrated_devices().rehydrate(&pickle_key).await.unwrap();
     assert!(outcome);
+}
+
+#[async_test]
+async fn test_rehydrate_absent_cursor_ends_the_drain() {
+    let server = MatrixMockServer::new().await;
+    let client = alice_client(&server).await;
+    bootstrap_cross_signing(&client).await;
+    let pickle_key = DehydratedDeviceKey::new();
+
+    let captured = capture_uploaded_device(&server).await;
+    client.encryption().dehydrated_devices().create(None, &pickle_key).await.unwrap();
+    let (uploaded_id, uploaded_data) =
+        captured.lock().unwrap().clone().expect("PUT mock recorded the upload");
+
+    server.mock_get_dehydrated_device().ok(&uploaded_id, uploaded_data).mock_once().mount().await;
+    // A non-empty batch without a cursor still terminates the drain cleanly.
+    server
+        .mock_dehydrated_device_events()
+        .match_missing_next_batch()
+        .ok(
+            vec![json!({
+                "type": "m.dummy",
+                "sender": "@bob:example.org",
+                "content": {},
+            })],
+            None,
+        )
+        .mock_once()
+        .mount()
+        .await;
+    server.mock_delete_dehydrated_device().ok(&uploaded_id).mock_once().mount().await;
+
+    let outcome = client.encryption().dehydrated_devices().rehydrate(&pickle_key).await.unwrap();
+    assert!(outcome);
+}
+
+#[async_test]
+async fn test_rehydrate_repeated_cursor_keeps_the_device() {
+    let server = MatrixMockServer::new().await;
+    let client = alice_client(&server).await;
+    bootstrap_cross_signing(&client).await;
+    let pickle_key = DehydratedDeviceKey::new();
+
+    let captured = capture_uploaded_device(&server).await;
+    client.encryption().dehydrated_devices().create(None, &pickle_key).await.unwrap();
+    let (uploaded_id, uploaded_data) =
+        captured.lock().unwrap().clone().expect("PUT mock recorded the upload");
+
+    server.mock_get_dehydrated_device().ok(&uploaded_id, uploaded_data).mock_once().mount().await;
+    let batch = vec![json!({
+        "type": "m.dummy",
+        "sender": "@bob:example.org",
+        "content": {},
+    })];
+    server
+        .mock_dehydrated_device_events()
+        .match_missing_next_batch()
+        .ok(batch.clone(), Some("repeated-cursor"))
+        .mock_once()
+        .mount()
+        .await;
+    // The server hands back the same cursor again; the drain must stop
+    // without deleting the device so a retry can resume the queue.
+    server
+        .mock_dehydrated_device_events()
+        .match_next_batch("repeated-cursor")
+        .ok(batch, Some("repeated-cursor"))
+        .mock_once()
+        .mount()
+        .await;
+    server.mock_delete_dehydrated_device().ok(&uploaded_id).never().mount().await;
+
+    let mut events = client.encryption().dehydrated_devices().state_stream();
+    let error = client
+        .encryption()
+        .dehydrated_devices()
+        .rehydrate(&pickle_key)
+        .await
+        .expect_err("a truncated drain must surface as an error");
+    assert_let!(DehydratedDeviceError::DrainTruncated { to_device_events: 2 } = error);
+
+    assert_let!(Some(Ok(DehydratedDeviceEvent::RehydrationStarted { .. })) = events.next().await);
+    assert_let!(Some(Ok(DehydratedDeviceEvent::RehydrationProgress { .. })) = events.next().await);
+    assert_let!(Some(Ok(DehydratedDeviceEvent::RehydrationProgress { .. })) = events.next().await);
+    // Neither RehydrationCompleted nor Deleted may follow a truncated drain.
+    assert!(events.next().now_or_never().is_none());
 }
 
 #[async_test]

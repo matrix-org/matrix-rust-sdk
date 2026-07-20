@@ -130,6 +130,17 @@ pub enum DehydratedDeviceError {
     #[error(transparent)]
     Olm(#[from] OlmError),
 
+    /// The to-device drain during rehydration stopped before the server's
+    /// queue was exhausted; the dehydrated device was left in place so a
+    /// retry can resume the drain.
+    #[error(
+        "the to-device drain stopped after {to_device_events} events with more still queued; the dehydrated device was kept so a retry can resume"
+    )]
+    DrainTruncated {
+        /// Number of to-device events processed before the drain stopped.
+        to_device_events: usize,
+    },
+
     /// The crypto store could not be accessed.
     #[error(transparent)]
     Store(#[from] CryptoStoreError),
@@ -239,6 +250,16 @@ pub struct DehydratedDevices {
 struct DownloadedDevice {
     device_id: OwnedDeviceId,
     device_data: Raw<DehydratedDeviceData>,
+}
+
+/// Outcome of draining the dehydrated device's to-device queue.
+struct DrainOutcome {
+    room_keys_imported: usize,
+    to_device_events: usize,
+
+    /// Whether the drain stopped defensively (batch cap or a repeated
+    /// cursor) with events potentially still queued on the server.
+    truncated: bool,
 }
 
 impl DehydratedDevices {
@@ -370,6 +391,12 @@ impl DehydratedDevices {
     /// (`M_UNRECOGNIZED`). Returns `Ok(true)` once the rehydration cycle
     /// has completed end to end.
     ///
+    /// If the drain stops defensively before the server's queue is
+    /// exhausted, the device is left on the server and
+    /// [`DehydratedDeviceError::DrainTruncated`] is returned. Calling this
+    /// method again restarts the drain from the beginning of the queue;
+    /// room keys imported by the earlier attempt import idempotently.
+    ///
     /// # Example
     ///
     /// ```no_run
@@ -412,13 +439,21 @@ impl DehydratedDevices {
         });
 
         let rehydrated = self.rehydrate_device(&downloaded, pickle_key).await?;
-        let (room_keys_imported, to_device_events) =
-            self.absorb_events(&downloaded.device_id, &rehydrated).await?;
+        let drained = self.absorb_events(&downloaded.device_id, &rehydrated).await?;
+
+        // The server keeps undelivered events queued until the device is
+        // deleted, so a truncated drain must leave the device in place for a
+        // retry to resume; deleting now would discard the rest of the queue.
+        if drained.truncated {
+            return Err(DehydratedDeviceError::DrainTruncated {
+                to_device_events: drained.to_device_events,
+            });
+        }
 
         self.emit(DehydratedDeviceEvent::RehydrationCompleted {
             device_id: downloaded.device_id.clone(),
-            room_keys_imported,
-            to_device_events,
+            room_keys_imported: drained.room_keys_imported,
+            to_device_events: drained.to_device_events,
         });
 
         // Key import already succeeded; if the post-drain delete fails, log
@@ -747,13 +782,16 @@ impl DehydratedDevices {
 
     /// Drain every queued to-device event from the dehydrated device's
     /// server-side buffer, feeding each batch through the rehydrated
-    /// machine so the room keys are imported. Returns
-    /// `(room_keys_imported, to_device_events_processed)`.
+    /// machine so the room keys are imported.
+    ///
+    /// An empty batch or an absent cursor ends the drain cleanly; the two
+    /// defensive stops (batch cap, repeated cursor) mark the returned
+    /// [`DrainOutcome`] as truncated instead.
     async fn absorb_events(
         &self,
         device_id: &OwnedDeviceId,
         rehydrated: &RehydratedDevice,
-    ) -> Result<(usize, usize), DehydratedDeviceError> {
+    ) -> Result<DrainOutcome, DehydratedDeviceError> {
         let settings =
             DecryptionSettings { sender_device_trust_requirement: TrustRequirement::Untrusted };
 
@@ -761,13 +799,13 @@ impl DehydratedDevices {
         let mut to_device_count: usize = 0;
         let mut room_key_count: usize = 0;
 
-        loop {
+        let truncated = loop {
             let mut request = get_events::unstable::Request::new(device_id.clone());
             request.next_batch.clone_from(&next_batch);
 
             let response = self.client.send(request).await?;
             if response.events.is_empty() {
-                break;
+                break false;
             }
 
             to_device_count = to_device_count.saturating_add(response.events.len());
@@ -784,26 +822,33 @@ impl DehydratedDevices {
                     to_device_count,
                     "Reached the dehydrated-device drain limit; stopping to bound the loop"
                 );
-                break;
+                break true;
             }
 
             // Guard against a server that repeats the same cursor and would
             // otherwise keep us looping over an identical batch.
             match &response.next_batch {
-                None => break,
+                None => break false,
                 Some(token) if Some(token) == next_batch.as_ref() => {
                     warn!(
                         ?next_batch,
                         "Server returned the same next_batch twice; stopping to avoid a loop"
                     );
-                    break;
+                    break true;
                 }
                 Some(token) => next_batch = Some(token.clone()),
             }
-        }
+        };
 
-        info!(to_device_count, room_key_count, "Drained dehydrated device to-device queue");
-        Ok((room_key_count, to_device_count))
+        info!(
+            to_device_count,
+            room_key_count, truncated, "Finished draining the dehydrated device's to-device queue"
+        );
+        Ok(DrainOutcome {
+            room_keys_imported: room_key_count,
+            to_device_events: to_device_count,
+            truncated,
+        })
     }
 }
 
