@@ -463,26 +463,36 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         .await
     }
 
-    /// Delete events in the given position range matching the given linked
-    /// chunk id
-    pub async fn delete_events_by_position(
-        &self,
-        linked_chunk_id: LinkedChunkId<'_>,
-        range: impl Into<IndexedKeyRange<Position>>,
-    ) -> Result<(), TransactionError> {
-        self.delete_items_by_key_components::<Event, IndexedEventPositionKey>(
-            range.into().map(|position| (linked_chunk_id, position)),
-        )
-        .await
-    }
-
-    /// Delete event in the given position matching the given linked chunk id
+    /// Delete event in the given position matching the given linked chunk id.
+    ///
+    /// Note that after removing the event, the index of each subsequent event
+    /// in the same chunk will be decremented by one. This is a potentially
+    /// expensive operation, as updating the indices requires reading the event,
+    /// then modifying it, then writing it back to IndexedDB.
     pub async fn delete_event_by_position(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         position: Position,
     ) -> Result<(), TransactionError> {
-        self.delete_item_by_key::<Event, IndexedEventPositionKey>((linked_chunk_id, position)).await
+        self.delete_item_by_key::<Event, IndexedEventPositionKey>((linked_chunk_id, position))
+            .await?;
+
+        // After deleting an event, every subsequent event in the chunk
+        // must shift it's recorded index down one position.
+        let lower = (linked_chunk_id, position);
+        let upper = IndexedEventPositionKey::upper_key_components_with_prefix((
+            linked_chunk_id,
+            ChunkIdentifier::new(position.chunk_identifier),
+        ));
+        let range = IndexedKeyRange::Bound(lower, upper).map(|(_, position)| position);
+
+        self.update_events_by_position(linked_chunk_id, range, |mut event| {
+            if let Event::InBand(i) = &mut event {
+                i.position.index -= 1;
+            }
+            event
+        })
+        .await
     }
 
     /// Delete events in the given chunk matching the given linked chunk id
@@ -511,7 +521,11 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
             ChunkIdentifier::new(position.chunk_identifier),
         ));
         let range = IndexedKeyRange::Bound(lower, upper).map(|(_, position)| position);
-        self.delete_events_by_position(linked_chunk_id, range).await
+
+        self.delete_items_by_key_components::<Event, IndexedEventPositionKey>(
+            range.map(|position| (linked_chunk_id, position)),
+        )
+        .await
     }
 
     /// Delete all events matching the given linked chunk id
