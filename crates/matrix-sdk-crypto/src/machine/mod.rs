@@ -1852,13 +1852,49 @@ impl OlmMachine {
         sync_changes: EncryptionSyncChanges<'_>,
         decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
-        self.receive_sync_changes_impl(sync_changes, decryption_settings).await
+        self.receive_sync_changes_impl(sync_changes, decryption_settings, true).await
     }
 
-    pub async fn receive_sync_changes_impl(
+    /// Handle changes in the end-to-end-encryption state we received from a
+    /// MSC4186 /sync request.
+    ///
+    /// This will decrypt and handle to-device messages returning the decrypted
+    /// versions of them.
+    ///
+    /// To decrypt an event from the room timeline, call
+    /// [`OlmMachine::decrypt_room_event`].
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
+    ///   a sync response.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (decrypted to-device events, updated room keys).
+    #[instrument(skip_all)]
+    pub async fn receive_sync_changes_msc4186(
         &self,
         sync_changes: EncryptionSyncChanges<'_>,
         decryption_settings: &DecryptionSettings,
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
+        self.receive_sync_changes_impl(sync_changes, decryption_settings, false).await
+    }
+
+    /// Body for [`OlmMachine::receive_sync_changes`] and
+    /// [`OlmMachine::receive_sync_changes_msc4186`].
+    ///
+    /// There exist some semantic differences between the two sync APIs we
+    /// support, this is publicly exposed as different functions, but
+    /// internally we just use a simple boolean switch.
+    ///
+    /// Please take a look at the docs for [`OlmMachine::receive_sync_changes`]
+    /// and [`Account::update_key_counts`] for more info.
+    async fn receive_sync_changes_impl(
+        &self,
+        sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
+        is_missing_count_zero: bool,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
@@ -1867,6 +1903,7 @@ impl OlmMachine {
             account.update_key_counts(
                 sync_changes.one_time_keys_counts,
                 sync_changes.unused_fallback_keys,
+                is_missing_count_zero,
             )
         }
 
