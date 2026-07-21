@@ -1,0 +1,10 @@
+Introduces a new `x509` module that provides the `RawX509Signer` and
+`RawX509Verifier` traits, and an `X509Signature` type in the signature
+system. A signer and verifier can be injected via `OlmMachineBuilder::with_x509_signer`
+and `OlmMachineBuilder::with_x509_verifier`.
+
+When configured, the master key is additionally signed with the X.509
+signer during `OwnUserIdentity::verify`, and other users' master keys
+can be verified against their X.509 signatures.
+
+Gated behind the `experimental-x509-identity-verification` feature.
