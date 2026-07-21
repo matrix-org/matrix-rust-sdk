@@ -21,6 +21,7 @@ use matrix_sdk::{
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHeroWithProfile as SdkRoomHeroWithProfile,
     RoomMemberships, RoomState, SuccessorRoom as SdkSuccessorRoom,
+    deserialized_responses::RawAnySyncOrStrippedState,
     encryption::LocalTrust,
     room::{
         Room as SdkRoom, RoomMemberRole, edit::EditedContent, power_levels::RoomPowerLevelChanges,
@@ -469,6 +470,22 @@ impl Room {
             self.inner.send_state_event_raw(&event_type, &state_key, content_json).await?;
 
         Ok(response.event_id.to_string())
+    }
+
+    /// Get an exact state event from the local room state after sync.
+    ///
+    /// The event is selected by its event type and state key and returned as a
+    /// raw JSON string so custom event types remain available through FFI.
+    pub async fn get_state_event_raw(
+        &self,
+        event_type: String,
+        state_key: String,
+    ) -> Result<Option<String>, ClientError> {
+        let event = self.inner.get_state_event(event_type.into(), &state_key).await?;
+        Ok(event.map(|event| match event {
+            RawAnySyncOrStrippedState::Sync(raw) => raw.json().get().to_owned(),
+            RawAnySyncOrStrippedState::Stripped(raw) => raw.json().get().to_owned(),
+        }))
     }
 
     /// Redacts an event from the room.

@@ -2780,6 +2780,15 @@ impl From<PowerLevels> for RoomPowerLevelsContentOverride {
     }
 }
 
+/// A custom state event to include atomically when creating a room.
+#[derive(uniffi::Record)]
+pub struct CustomInitialStateEvent {
+    pub event_type: String,
+    pub state_key: String,
+    /// The event content encoded as a JSON object.
+    pub content: String,
+}
+
 #[derive(uniffi::Record)]
 pub struct CreateRoomParameters {
     pub name: Option<String>,
@@ -2804,6 +2813,8 @@ pub struct CreateRoomParameters {
     pub canonical_alias: Option<String>,
     #[uniffi(default = false)]
     pub is_space: bool,
+    #[uniffi(default = None)]
+    pub initial_state: Option<Vec<CustomInitialStateEvent>>,
 }
 
 impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
@@ -2832,6 +2843,23 @@ impl TryFrom<CreateRoomParameters> for create_room::v3::Request {
         };
 
         let mut initial_state: Vec<Raw<AnyInitialStateEvent>> = vec![];
+
+        if let Some(custom_events) = value.initial_state {
+            for event in custom_events {
+                let content: serde_json::Value =
+                    serde_json::from_str(&event.content).map_err(|e| ClientError::Generic {
+                        msg: format!("Failed to parse custom initial state event content: {e}"),
+                        details: None,
+                    })?;
+                let raw_event = Raw::new(&serde_json::json!({
+                    "type": event.event_type,
+                    "state_key": event.state_key,
+                    "content": content,
+                }))?
+                .cast_unchecked();
+                initial_state.push(raw_event);
+            }
+        }
 
         if value.is_encrypted {
             let content =
@@ -3491,6 +3519,11 @@ mod tests {
             history_visibility_override: Some(RoomHistoryVisibility::Shared),
             canonical_alias: Some("#a-room:example.com".to_owned()),
             is_space: true,
+            initial_state: Some(vec![super::CustomInitialStateEvent {
+                event_type: "org.example.idempotency_marker".to_owned(),
+                state_key: "operation-123".to_owned(),
+                content: r#"{"operation_id":"operation-123"}"#.to_owned(),
+            }]),
         };
 
         let request: create_room::v3::Request =
@@ -3513,6 +3546,22 @@ mod tests {
         assert!(
             initial_state.iter().any(|e| e.event_type() == StateEventType::RoomHistoryVisibility)
         );
+        let marker = request
+            .initial_state
+            .iter()
+            .find(|raw| {
+                raw.get_field::<String>("type").unwrap().as_deref()
+                    == Some("org.example.idempotency_marker")
+            })
+            .expect("custom initial state event is missing");
+        assert_eq!(
+            marker.get_field::<String>("state_key").unwrap().as_deref(),
+            Some("operation-123")
+        );
+        assert_eq!(
+            marker.get_field::<serde_json::Value>("content").unwrap(),
+            Some(serde_json::json!({ "operation_id": "operation-123" }))
+        );
         assert_eq!(request.room_alias_name, Some("#a-room:example.com".to_owned()));
 
         let room_type = request
@@ -3522,6 +3571,34 @@ mod tests {
             .expect("Creation content can't be deserialized")
             .room_type;
         assert_eq!(room_type, Some(RoomType::Space));
+    }
+
+    #[test]
+    fn invalid_custom_initial_state_content_does_not_leak_content() {
+        let secret = "TOP_SECRET_MARKER_CONTENT";
+        let params = CreateRoomParameters {
+            name: None,
+            topic: None,
+            is_encrypted: false,
+            is_direct: false,
+            visibility: RoomVisibility::Private,
+            preset: RoomPreset::PrivateChat,
+            invite: None,
+            avatar: None,
+            power_level_content_override: None,
+            join_rule_override: None,
+            history_visibility_override: None,
+            canonical_alias: None,
+            is_space: false,
+            initial_state: Some(vec![super::CustomInitialStateEvent {
+                event_type: "org.example.idempotency_marker".to_owned(),
+                state_key: "operation-123".to_owned(),
+                content: format!(r#"{{"secret":"{secret}""#),
+            }]),
+        };
+
+        let error = create_room::v3::Request::try_from(params).unwrap_err().to_string();
+        assert!(!error.contains(secret));
     }
 
     #[test]
