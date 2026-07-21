@@ -1852,6 +1852,14 @@ impl OlmMachine {
         sync_changes: EncryptionSyncChanges<'_>,
         decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
+        self.receive_sync_changes_impl(sync_changes, decryption_settings).await
+    }
+
+    pub async fn receive_sync_changes_impl(
+        &self,
+        sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
 
         {
