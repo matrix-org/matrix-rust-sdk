@@ -1006,6 +1006,19 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
                     ],
                 },
                 Update::RemoveItem { at: Position::new(CId::new(42), 2) /* "three" */ },
+                // After removing an item, we need to ensure that the indices of all subsequent
+                // items in the chunk have shifted down by one. We can ensure this by pushing
+                // an item at the smallest index we expect to be unoccupied, and checking to see
+                // whether the last item in the chunk was overwritten.
+                //
+                // For example, after removing the item at index 2, we should have 5 elements and
+                // the smallest unoccupied index should be index 5. If we push an item to index 5,
+                // it should not overwrite any existing elements - i.e., "six" - but should be
+                // appended to the end of the chunk.
+                Update::PushItems {
+                    at: Position::new(CId::new(42), 5),
+                    items: vec![make_test_event(room_id, "seven")],
+                },
             ],
         )
         .await
@@ -1020,13 +1033,19 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         assert_eq!(c.previous, None);
         assert_eq!(c.next, None);
         assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 5);
+            assert_eq!(events.len(), 6);
             check_test_event(&events[0], "one");
             check_test_event(&events[1], "two");
             check_test_event(&events[2], "four");
             check_test_event(&events[3], "five");
             check_test_event(&events[4], "six");
+            check_test_event(&events[5], "seven");
         });
+
+        // The chunk metadata must agree on the number of items.
+        let metas = self.load_all_chunks_metadata(linked_chunk_id).await.unwrap();
+        assert_eq!(metas.len(), 1);
+        assert_eq!(metas[0].num_items, 6);
     }
 
     async fn test_linked_chunk_detach_last_items(&self) {
