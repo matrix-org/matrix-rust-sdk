@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v5};
+    use super::{Version, v6};
 
-    pub const VERSION: Version = Version::V5;
-    pub use v5::keys;
+    pub const VERSION: Version = Version::V6;
+    pub use v6::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -62,6 +62,8 @@ pub enum Version {
     V4 = 4,
     /// Version 5 of the database, for details see [`v5`].
     V5 = 5,
+    /// Version 6 of the database, for details see [`v6`].
+    V6 = 6,
 }
 
 impl Version {
@@ -73,7 +75,8 @@ impl Version {
             Self::V2 => v2::upgrade(transaction).map(Some),
             Self::V3 => v3::upgrade(transaction).map(Some),
             Self::V4 => v4::upgrade(transaction).map(Some),
-            Self::V5 => Ok(None),
+            Self::V5 => v5::upgrade(transaction).map(Some),
+            Self::V6 => Ok(None),
         }
     }
 }
@@ -376,6 +379,44 @@ pub mod v5 {
             .create_object_store(keys::THREADS)
             .with_key_path(keys::THREADS_KEY_PATH.into())
             .build()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v4` to `v5`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v6::empty_event_cache(transaction)?;
+        Ok(Version::V6)
+    }
+}
+
+mod v6 {
+    // Re-use all the same keys from `v5`.
+    pub use super::v5::keys;
+    use super::*;
+
+    /// Prior iterations of this implementation of the event cache store did not
+    /// properly handle deleting events - namely, subsequent events in the same
+    /// chunk did not have their indices decremented after an event was deleted.
+    /// This caused bugs when callers tried to address events by position, as
+    /// the assumption is that deletions do not leave gaps between indices,
+    /// but rather shift higher indices down.
+    ///
+    /// The implementation has now been fixed, but it is also necessary to clear
+    /// existing data where the indices may have gaps due to deletions that
+    /// happened before this fix.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
 
         Ok(())
     }
