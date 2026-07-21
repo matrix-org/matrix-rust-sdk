@@ -429,18 +429,6 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// function returns the intermediary type [`IndexedEvent`] in case
     /// inspection is needed.
     pub async fn put_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        if let Some(position) = event.position() {
-            // For some reason, we can't simply replace an event with `put_item`
-            // because we can get an error stating that the data violates a uniqueness
-            // constraint on the `events_position` index. This is NOT expected, but
-            // it is not clear if this improperly implemented in the browser or the
-            // library we are using.
-            //
-            // As a workaround, if the event has a position, we delete it first and
-            // then call `put_item`. This should be fine as it all happens within the
-            // context of a single transaction.
-            self.delete_event_by_position(event.linked_chunk_id(), position).await?;
-        }
         self.put_item(event).await
     }
 
