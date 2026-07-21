@@ -28,7 +28,7 @@ use matrix_sdk_common::{
         RawChunk, Update, relational::RelationalLinkedChunk,
     },
 };
-use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
 use tracing::error;
 
 use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
@@ -50,8 +50,14 @@ pub struct MemoryStore {
 
 #[derive(Debug)]
 struct MemoryStoreInner {
+    /// Leases for the cross-process lock.
     leases: HashMap<String, Lease>,
+
+    /// All events organised in a `LinkedChunk`.
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
+
+    /// List of all threads.
+    threads: Vec<(OwnedRoomId, OwnedEventId)>,
 }
 
 impl Default for MemoryStore {
@@ -60,6 +66,7 @@ impl Default for MemoryStore {
             inner: Arc::new(StdRwLock::new(MemoryStoreInner {
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
+                threads: Vec::new(),
             })),
         }
     }
@@ -155,8 +162,26 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
+    async fn remember_thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        let threads = &mut inner.threads;
+
+        let pair = (room_id.to_owned(), thread_id.to_owned());
+
+        if !threads.contains(&pair) {
+            threads.push(pair);
+        }
+
+        Ok(())
+    }
+
     async fn clear_all_events(&self) -> Result<(), Self::Error> {
         self.inner.write().unwrap().events.clear();
+
         Ok(())
     }
 

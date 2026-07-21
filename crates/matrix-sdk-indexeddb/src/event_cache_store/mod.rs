@@ -39,7 +39,7 @@ use crate::{
     event_cache_store::{
         migrations::current::keys,
         transaction::IndexeddbEventCacheStoreTransaction,
-        types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
+        types::{ChunkType, InBandEvent, Lease, OutOfBandEvent, Thread},
     },
     serializer::indexed_type::{IndexedTypeSerializer, traits::Indexed},
     transaction::TransactionError,
@@ -413,6 +413,23 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         } else {
             Ok(None)
         }
+    }
+
+    #[instrument(skip(self))]
+    async fn remember_thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readwrite)?;
+        let thread = Thread { room_id: room_id.to_owned(), thread_id: thread_id.to_owned() };
+
+        transaction.put_thread(&thread).await?;
+        transaction.commit().await?;
+
+        Ok(())
     }
 
     #[instrument(skip(self))]

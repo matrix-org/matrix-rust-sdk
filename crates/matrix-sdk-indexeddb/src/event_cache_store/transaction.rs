@@ -28,9 +28,9 @@ use crate::{
         serializer::indexed_types::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
             IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey,
+            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
         },
-        types::{Chunk, ChunkType, Event, Gap, Lease, Position},
+        types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
     serializer::indexed_type::{
         IndexedTypeSerializer,
@@ -528,5 +528,10 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(), TransactionError> {
         self.delete_items_by_linked_chunk_id::<Gap, IndexedGapIdKey>(linked_chunk_id).await
+    }
+
+    /// Remember a thread.
+    pub async fn put_thread(&self, thread: &Thread) -> Result<IndexedThread, TransactionError> {
+        self.put_item(thread).await
     }
 }

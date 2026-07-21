@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     event_cache::store::extract_event_relation,
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
-use ruma::{EventId, OwnedEventId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire
@@ -231,4 +231,14 @@ pub struct Gap {
     /// "end" field of a `/messages` response.
     #[serde(alias = "prev_token")]
     pub token: String,
+}
+
+/// A representation of a _thread_ for the thread list which can be stored in
+/// IndexedDB.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Thread {
+    /// The room of the thread.
+    pub room_id: OwnedRoomId,
+    /// The root of the thread.
+    pub thread_id: OwnedEventId,
 }

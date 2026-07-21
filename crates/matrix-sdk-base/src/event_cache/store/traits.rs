@@ -102,6 +102,19 @@ pub trait EventCacheStore: AsyncTraitDeps {
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error>;
 
+    /// Register a new thread.
+    ///
+    /// It does nothing regarding events or linked chunks: it simply remembers
+    /// that a thread has been created. This is important if one wants to list
+    /// all threads, or remove specific events or linked chunks.
+    ///
+    /// If the thread already exists, it returns successfully.
+    async fn remember_thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error>;
+
     /// Clear persisted events for all the rooms.
     ///
     /// This will empty and remove all the linked chunks stored previously,
@@ -260,6 +273,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
             .load_previous_chunk(linked_chunk_id, before_chunk_identifier)
             .await
             .map_err(Into::into)
+    }
+
+    async fn remember_thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        self.0.remember_thread(room_id, thread_id).await.map_err(Into::into)
     }
 
     async fn clear_all_events(&self) -> Result<(), Self::Error> {

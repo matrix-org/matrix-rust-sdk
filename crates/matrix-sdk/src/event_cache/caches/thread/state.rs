@@ -114,6 +114,11 @@ impl ThreadEventCacheState {
     ) -> Result<Self> {
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 
+        // Register the thread in the list of threads. It does nothing regarding events
+        // or linked chunks: it only remembers the thread exists for the thread list
+        // feature.
+        store_guard.remember_thread(&room_id, &thread_id).await?;
+
         // Load the full linked chunk's metadata, so as to feed the order tracker.
         //
         // If loading the full linked chunk failed, we'll clear the event cache, as it
