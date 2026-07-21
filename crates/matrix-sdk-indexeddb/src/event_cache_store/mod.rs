@@ -215,7 +215,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .put_event(&types::Event::InBand(InBandEvent {
+                            .add_event(&types::Event::InBand(InBandEvent {
                                 linked_chunk_id: linked_chunk_id.to_owned(),
                                 content: item,
                                 position: types::Position {
