@@ -1020,7 +1020,9 @@ mod tests {
         events::{direct::DirectEvent, room::member::MembershipState},
         owned_room_id,
         presence::PresenceState,
-        profile::{AvatarUrl, DisplayName, UserProfileUpdate},
+        profile::{
+            AvatarUrl, DisplayName, ProfileFieldName, UserProfileChanges, UserProfileUpdate,
+        },
         room_id,
         serde::Raw,
         uint,
@@ -1076,10 +1078,15 @@ mod tests {
         // Given a stored global profile for the current user, received through a
         // previous sync.
         let mut response = http::Response::new("0".to_owned());
-        response.extensions.profiles.insert(
-            own_user_id.clone(),
-            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Example"))]),
-        );
+
+        let mut profile_changes = UserProfileChanges::new();
+        profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Example"));
+
+        response
+            .extensions
+            .profiles
+            .users
+            .insert(own_user_id.clone(), UserProfileUpdate::Updated(profile_changes));
         client
             .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
             .await
@@ -1094,10 +1101,14 @@ mod tests {
 
         // An update for another user only is ignored: nothing is emitted.
         let mut response = http::Response::new("1".to_owned());
-        response.extensions.profiles.insert(
-            ALICE.to_owned(),
-            UserProfileUpdate::from_iter([("displayname".to_owned(), json!("Alice"))]),
-        );
+
+        let mut profile_changes = UserProfileChanges::new();
+        profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+        response
+            .extensions
+            .profiles
+            .users
+            .insert(ALICE.to_owned(), UserProfileUpdate::Updated(profile_changes));
         client
             .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
             .await
@@ -1107,13 +1118,17 @@ mod tests {
 
         // An update for the current user is emitted with the merged value.
         let mut response = http::Response::new("2".to_owned());
-        response.extensions.profiles.insert(
-            own_user_id.clone(),
-            UserProfileUpdate::from_iter([(
-                "avatar_url".to_owned(),
-                json!("mxc://example.org/avatar"),
-            )]),
-        );
+
+        let mut profile_changes = UserProfileChanges::new();
+        profile_changes
+            .updated
+            .insert(ProfileFieldName::AvatarUrl, json!("mxc://example.org/avatar"));
+
+        response
+            .extensions
+            .profiles
+            .users
+            .insert(own_user_id.clone(), UserProfileUpdate::Updated(profile_changes));
         client
             .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
             .await
