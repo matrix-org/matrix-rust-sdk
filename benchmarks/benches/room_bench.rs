@@ -176,7 +176,7 @@ pub fn load_pinned_events_benchmark(c: &mut Criterion) {
                 .unwrap()
                 .as_clean()
                 .unwrap()
-                .clear_all_events()
+                .clear_all_events(None)
                 .await
                 .unwrap();
 

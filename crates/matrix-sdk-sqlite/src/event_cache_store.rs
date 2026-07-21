@@ -1387,21 +1387,70 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn clear_all_events(&self) -> Result<(), Self::Error> {
+    async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
-        self.write()
-            .await?
-            .with_transaction(move |txn| {
-                // Remove all the chunks, and let cascading do its job.
-                txn.execute("DELETE FROM linked_chunks", ())?;
+        match room_id {
+            // Clear all events.
+            None => {
+                self.write()
+                    .await?
+                    .with_transaction(move |txn| {
+                        // Remove all the chunks, and let cascading do its job.
+                        txn.execute("DELETE FROM linked_chunks", ())?;
 
-                // Also clear all the events' contents, and let cascading do its job.
-                txn.execute("DELETE FROM events", ())?;
+                        // Also clear all the events' contents, and let cascading do its job.
+                        txn.execute("DELETE FROM events", ())?;
 
-                Ok(())
-            })
-            .await
+                        Ok(())
+                    })
+                    .await
+            }
+
+            // Clear events for specific room.
+            Some(room_id) => {
+                let encryption = self.encryption.clone();
+                let room_id = room_id.to_owned();
+
+                self.write()
+                    .await?
+                    .with_transaction(move |txn| {
+                        // Delete linked chunks for the room and pinned-events caches.
+                        {
+                            let mut delete =
+                                txn.prepare("DELETE FROM linked_chunks WHERE linked_chunk_id = ?")?;
+
+                            for linked_chunk_id in
+                                [LinkedChunkId::Room(&room_id), LinkedChunkId::PinnedEvents(&room_id)]
+                            {
+                                let linked_chunk_id = encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
+
+                                // Remove all the chunks about the current `LinkedChunkId`, and let cascading
+                                // do its job.
+                                delete.execute((&linked_chunk_id,))?;
+                            }
+                        }
+
+                        let encoded_room_id = encryption.encode_room_id(keys::EVENTS, &room_id);
+
+                        // Delete linked chunks for the thread caches.
+                        {
+                            txn.execute(
+                                "DELETE FROM linked_chunks WHERE linked_chunk_id IN (SELECT linked_chunk_id FROM threads WHERE room_id = ?)",
+                                (&encoded_room_id,),
+                            )?;
+                        }
+
+                        // Also clear all the events' contents.
+                        txn.execute(
+                            "DELETE FROM events WHERE room_id = ?",
+                            (encoded_room_id,),
+                        )?;
+
+                        Ok(())
+                    })
+                    .await
+            }
         }
     }
 

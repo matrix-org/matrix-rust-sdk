@@ -461,6 +461,13 @@ impl EventCache {
         ))
     }
 
+    /// Forget all caches related to a single room.
+    ///
+    /// This will notify any live observers that the room has been cleared.
+    pub async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
+        self.inner.forget_room(room_id).await
+    }
+
     /// Cleanly clear all the rooms' event caches.
     ///
     /// This will notify any live observers that the room has been cleared.
@@ -621,7 +628,21 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
-    /// Clears all the room's data.
+    /// Clear a single room's data.
+    async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
+        // The constraints are very similar to what we do in `clear_all_rooms`. See this
+        // information to understand them.
+
+        let mut caches_for_all_rooms = self.by_room.write().await;
+        self.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await?;
+
+        // Finally, we forget all the caches if any exists in memory.
+        caches_for_all_rooms.remove(room_id);
+
+        Ok(())
+    }
+
+    /// Clears all the rooms' data.
     async fn clear_all_rooms(&self) -> Result<()> {
         // Okay, here's where things get delicate.
         //
@@ -649,7 +670,11 @@ impl EventCacheInner {
         // same time, we'll have to take the lock for *all* the live caches and
         // for the states, so as to properly clear the underlying storage.
 
-        self.state.clear_and_reload(self.by_room.write().await).await?;
+        // We acquire an exclusive access to `by_room`.
+        let caches_for_all_rooms = self.by_room.write().await;
+
+        // Then, we can clear and reload the states for all the rooms.
+        self.state.clear_and_reload(&caches_for_all_rooms, None).await?;
 
         Ok(())
     }

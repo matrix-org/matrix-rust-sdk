@@ -24,7 +24,7 @@ use std::{
 use matrix_sdk_base::event_cache::store::{
     EventCacheStoreLock, EventCacheStoreLockGuard, EventCacheStoreLockState,
 };
-use ruma::{OwnedEventId, OwnedRoomId};
+use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
 
 use super::{
@@ -207,14 +207,16 @@ impl StateLock {
         })
     }
 
-    /// Clear and reload all states: in-memory and in-store.
+    /// Clear and reload all states —in-memory and in-store— for all rooms if
+    /// `room` is `None`, otherwise for a single room.
     ///
     /// The `caches_for_all_rooms_exclusive_lock_guard` argument ensures an
     /// exclusive lock over all the caches has been acquired. This is required
     /// to ensure safety for this method.
     pub(super) async fn clear_and_reload(
         &self,
-        caches_for_all_rooms_exclusive_lock_guard: RwLockWriteGuard<'_, CachesByRoom>,
+        _caches_for_all_rooms_exclusive_lock_guard: &RwLockWriteGuard<'_, CachesByRoom>,
+        room_id: Option<&RoomId>,
     ) -> Result<()> {
         let state_guard = self.inner.locked_state.write().await;
 
@@ -226,7 +228,7 @@ impl StateLock {
         };
 
         // Clear all the events.
-        guard.store.clear_all_events().await?;
+        guard.store.clear_all_events(room_id).await?;
 
         // At this point, all the in-memory `LinkedChunk`s are desynchronised
         // from the storage. Resynchronise them manually by reloading them.
@@ -237,8 +239,6 @@ impl StateLock {
             // cross-process lock as non-dirty.
             EventCacheStoreLockGuard::clear_dirty(&guard.store);
         }
-
-        drop(caches_for_all_rooms_exclusive_lock_guard);
 
         Ok(())
     }

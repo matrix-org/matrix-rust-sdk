@@ -129,6 +129,15 @@ where
         Self { chunks: Vec::new(), items_chunks: Vec::new(), items: HashMap::new() }
     }
 
+    /// Remove all the chunks and items for a particular room for this
+    /// relational linked chunk.
+    pub fn clear_room(&mut self, room_id: &RoomId) {
+        self.chunks.retain(|ChunkRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
+        self.items_chunks
+            .retain(|ItemRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
+        self.items.retain(|key, _| key.room_id() != room_id);
+    }
+
     /// Removes all the chunks and items from this relational linked chunk.
     pub fn clear(&mut self) {
         self.chunks.clear();

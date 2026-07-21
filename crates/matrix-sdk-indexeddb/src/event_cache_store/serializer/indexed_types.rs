@@ -723,3 +723,15 @@ impl IndexedKey<Thread> for IndexedThreadIdKey {
         Self(room_id, event_id)
     }
 }
+
+impl IndexedPrefixKeyBounds<Thread, &RoomId> for IndexedThreadIdKey {
+    fn lower_key_with_prefix(room_id: &RoomId, serializer: &SafeEncodeSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id.as_str());
+        Self(room_id, (*INDEXED_KEY_LOWER_STRING).clone())
+    }
+
+    fn upper_key_with_prefix(room_id: &RoomId, serializer: &SafeEncodeSerializer) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id.as_str());
+        Self(room_id, (*INDEXED_KEY_UPPER_STRING).clone())
+    }
+}

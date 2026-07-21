@@ -1310,7 +1310,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Clear the chunks.
-        self.clear_all_events().await.unwrap();
+        self.clear_all_events(None).await.unwrap();
 
         // Both rooms now have no linked chunk.
         assert!(
@@ -1368,7 +1368,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         .unwrap();
 
         // Try to remove content from r0.
-        self.remove_room(r0).await.unwrap();
+        self.clear_all_events(Some(r0)).await.unwrap();
 
         // Check that r0 doesn't have a linked chunk anymore.
         let r0_linked_chunk = self.load_all_chunks(linked_chunk_id0).await.unwrap();
@@ -1527,7 +1527,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
 
         // Clearing the rooms also clears the event's storage.
-        self.clear_all_events().await.expect("failed to clear all rooms chunks");
+        self.clear_all_events(None).await.expect("failed to clear all rooms chunks");
         assert!(
             self.find_event(room_id, event_comte.event_id().unwrap())
                 .await
