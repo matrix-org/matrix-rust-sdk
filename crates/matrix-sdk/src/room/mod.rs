@@ -3726,7 +3726,9 @@ impl Room {
             RoomState::Left | RoomState::Banned => {}
         }
 
-        let request = forget_room::v3::Request::new(self.inner.room_id().to_owned());
+        let room_id = self.room_id();
+
+        let request = forget_room::v3::Request::new(room_id.to_owned());
         let _response = self.client.send(request).await?;
 
         // If it was a DM, remove the room from the `m.direct` global account data.
@@ -3735,10 +3737,11 @@ impl Room {
         {
             // It is not important whether we managed to remove the room, it will not have
             // any consequences, so just log the error.
-            warn!(room_id = ?self.room_id(), "failed to remove room from m.direct account data: {e}");
+            warn!(?room_id, "failed to remove room from m.direct account data: {e}");
         }
 
-        self.client.base_client().forget_room(self.inner.room_id()).await?;
+        self.client.base_client().forget_room(room_id).await?;
+        self.client.event_cache().forget_room(room_id).await?;
 
         Ok(())
     }

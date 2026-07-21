@@ -29,6 +29,7 @@ use crate::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
             IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
             IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
+            IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -533,5 +534,18 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// Remember a thread.
     pub async fn put_thread(&self, thread: &Thread) -> Result<IndexedThread, TransactionError> {
         self.put_item(thread).await
+    }
+
+    /// List all threads (remembered with [`Self::put_thread`]) for a particular
+    /// room ID.
+    pub async fn get_threads_by_room_id(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<Thread>, TransactionError> {
+        self.get_items_by_key::<Thread, IndexedThreadIdKey>(IndexedKeyRange::all_with_prefix(
+            room_id,
+            self.serializer().inner(),
+        ))
+        .await
     }
 }

@@ -60,7 +60,7 @@ use crate::{
     RoomStateFilter, SessionMeta, StateStore,
     deserialized_responses::DisplayName,
     error::{Error, Result},
-    event_cache::store::{EventCacheStoreLock, EventCacheStoreLockState},
+    event_cache::store::EventCacheStoreLock,
     media::store::MediaStoreLock,
     response_processors::{self as processors, Context},
     room::{
@@ -1095,17 +1095,6 @@ impl BaseClient {
     pub async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
         // Forget the room in the state store.
         self.state_store.forget_room(room_id).await?;
-
-        // Remove the room in the event cache store too.
-        match self.event_cache_store().lock().await? {
-            // If the lock is clear, we can do the operation as expected.
-            // If the lock is dirty, we can ignore to refresh the state, we just need to remove a
-            // room. Also, we must not mark the lock as non-dirty because other operations may be
-            // critical and may need to refresh the `EventCache`' state.
-            EventCacheStoreLockState::Clean(guard) | EventCacheStoreLockState::Dirty(guard) => {
-                guard.remove_room(room_id).await?
-            }
-        }
 
         Ok(())
     }

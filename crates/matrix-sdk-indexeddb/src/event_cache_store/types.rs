@@ -242,3 +242,10 @@ pub struct Thread {
     /// The root of the thread.
     pub thread_id: OwnedEventId,
 }
+
+impl Thread {
+    /// Get the [`LinkedChunkId`] associated to this [`Thread`].
+    pub fn linked_chunk(&self) -> LinkedChunkId<'_> {
+        LinkedChunkId::Thread(&self.room_id, &self.thread_id)
+    }
+}

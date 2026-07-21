@@ -58,13 +58,6 @@ pub trait EventCacheStore: AsyncTraitDeps {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
 
-    /// Remove all data tied to a given room from the cache.
-    async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
-        // Right now, this means removing all the linked chunk. If implementations
-        // override this behavior, they should *also* include this code.
-        self.handle_linked_chunk_updates(LinkedChunkId::Room(room_id), vec![Update::Clear]).await
-    }
-
     /// Return all the raw components of a linked chunk, so the caller may
     /// reconstruct the linked chunk later.
     #[doc(hidden)]
@@ -115,7 +108,8 @@ pub trait EventCacheStore: AsyncTraitDeps {
         thread_id: &EventId,
     ) -> Result<(), Self::Error>;
 
-    /// Clear persisted events for all the rooms.
+    /// Clear persisted events for all the rooms if `room_id` is `None`, or a
+    /// single room otherwise.
     ///
     /// This will empty and remove all the linked chunks stored previously,
     /// using the above [`Self::handle_linked_chunk_updates`] methods. It
@@ -124,7 +118,7 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// ⚠ This is meant only for super specific use cases, where there shouldn't
     /// be any live in-memory linked chunks. In general, prefer using
     /// `EventCache::clear_all_rooms()` from the common SDK crate.
-    async fn clear_all_events(&self) -> Result<(), Self::Error>;
+    async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error>;
 
     /// Given a set of event IDs, return the duplicated events along with their
     /// position if there are any.
@@ -283,8 +277,8 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         self.0.remember_thread(room_id, thread_id).await.map_err(Into::into)
     }
 
-    async fn clear_all_events(&self) -> Result<(), Self::Error> {
-        self.0.clear_all_events().await.map_err(Into::into)
+    async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
+        self.0.clear_all_events(room_id).await.map_err(Into::into)
     }
 
     async fn filter_duplicated_events(

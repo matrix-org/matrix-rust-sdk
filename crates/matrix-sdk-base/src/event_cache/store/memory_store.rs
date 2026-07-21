@@ -179,8 +179,15 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
-    async fn clear_all_events(&self) -> Result<(), Self::Error> {
-        self.inner.write().unwrap().events.clear();
+    async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
+        match room_id {
+            Some(room_id) => {
+                self.inner.write().unwrap().events.clear_room(room_id);
+            }
+            None => {
+                self.inner.write().unwrap().events.clear();
+            }
+        }
 
         Ok(())
     }
