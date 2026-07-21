@@ -2021,6 +2021,21 @@ impl Client {
         Ok(())
     }
 
+    /// Change the current account's password.
+    ///
+    /// This request may require user-interactive authentication. Call it with
+    /// no authentication data first, then retry with [`AuthData`] for a
+    /// supported homeserver authentication flow.
+    pub async fn change_password(
+        &self,
+        new_password: String,
+        auth_data: Option<AuthData>,
+    ) -> Result<(), ClientError> {
+        self.inner.account().change_password(&new_password, auth_data.map(Into::into)).await?;
+
+        Ok(())
+    }
+
     /// Checks if a room alias is not in use yet.
     ///
     /// Returns:
@@ -3462,12 +3477,18 @@ pub struct ExtendedProfileFields {
 mod tests {
     use std::time::Duration;
 
+    use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use ruma::{
         ServerName,
         api::client::room::{Visibility, create_room},
         authentication::TokenType,
         events::StateEventType,
         room::RoomType,
+    };
+    use serde_json::json;
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{body_json, method, path},
     };
 
     use crate::{
@@ -3539,6 +3560,31 @@ mod tests {
         assert_eq!(token.token_type, "Bearer");
         assert_eq!(token.matrix_server_name, "example.com");
         assert_eq!(token.expires_in_seconds, 3_600);
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn change_password_forwards_to_the_account_api() {
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+
+        let server = MatrixMockServer::new().await;
+        let sdk_client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+            })
+            .build()
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/account/password"))
+            .and(body_json(json!({ "new_password": "not-a-real-new-password" })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let client = super::Client::new(sdk_client, None, None).await.unwrap();
+        client.change_password("not-a-real-new-password".to_owned(), None).await.unwrap();
     }
 
     /// Dropping an FFI [`Client`] on a non-tokio thread must not panic.

@@ -144,6 +144,7 @@ matrix-sdk = { workspace = true, features = ["testing", "rustls-aws-lc-rs"] }
 similar-asserts.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+wiremock.workspace = true
 
 [build-dependencies]
 uniffi = { workspace = true, features = ["build"] }
