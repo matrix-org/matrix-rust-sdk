@@ -68,7 +68,7 @@ enum Either<Item, Gap> {
 /// This type is also designed to receive [`Update`]. Applying `Update`s
 /// directly on a [`LinkedChunk`] is not ideal and particularly not trivial as
 /// the `Update`s do _not_ match the internal data layout of the `LinkedChunk`,
-/// they have been designed for storages, like a relational database for
+/// they have been designed for databases, like a relational database for
 /// example.
 ///
 /// This type is not as performant as [`LinkedChunk`] (in terms of memory

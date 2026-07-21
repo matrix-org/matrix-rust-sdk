@@ -41,7 +41,7 @@ use crate::{
             INDEXED_KEY_LOWER_EVENT_POSITION, INDEXED_KEY_UPPER_CHUNK_IDENTIFIER,
             INDEXED_KEY_UPPER_EVENT_INDEX, INDEXED_KEY_UPPER_EVENT_POSITION,
         },
-        types::{Chunk, Event, Gap, Lease, Position},
+        types::{Chunk, Event, Gap, Lease, Position, Thread},
     },
     serializer::{
         indexed_type::{
@@ -95,6 +95,9 @@ pub type IndexedEventContent = MaybeEncrypted;
 /// A (possibly) encrypted representation of a [`Gap`]
 pub type IndexedGapContent = MaybeEncrypted;
 
+/// A (possibly) encrypted representation of a [`Thread`]
+pub type IndexedThreadContent = MaybeEncrypted;
+
 /// Represents the [`LEASES`][1] object store.
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_lease_object_store
@@ -136,7 +139,7 @@ impl Indexed for Lease {
 /// [`Lease::key`]. This value may or may not be hashed depending on the
 /// provided [`IndexeddbSerializer`].
 ///
-/// [1]: crate::event_cache_store::migrations::v1::create_linked_chunks_object_store
+/// [1]: crate::event_cache_store::migrations::v1::create_lease_object_store
 pub type IndexedLeaseIdKey = String;
 
 impl IndexedKey<Lease> for IndexedLeaseIdKey {
@@ -657,5 +660,66 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Gap, LinkedChunkId<'a>> for Indexed
         <Self as IndexedPrefixKeyComponentBounds<Chunk, _>>::upper_key_components_with_prefix(
             linked_chunk_id,
         )
+    }
+}
+
+/// Represents the [`THREADS`][1] object store.
+///
+/// [1]: crate::event_cache_store::migrations::v5::create_threads_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedThread {
+    /// The primary key of the object store.
+    pub id: IndexedThreadIdKey,
+    /// The (possibly encrypted) content - i.e., a [`Thread`].
+    pub content: IndexedThreadContent,
+}
+
+impl Indexed for Thread {
+    type IndexedType = IndexedThread;
+
+    const OBJECT_STORE: &'static str = keys::THREADS;
+
+    type Error = CryptoStoreError;
+
+    fn to_indexed(
+        &self,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self::IndexedType, Self::Error> {
+        Ok(IndexedThread {
+            id: <IndexedThreadIdKey as IndexedKey<Thread>>::encode(
+                (&self.room_id, &self.thread_id),
+                serializer,
+            ),
+            content: serializer.maybe_encrypt_value(self)?,
+        })
+    }
+
+    fn from_indexed(
+        indexed: Self::IndexedType,
+        serializer: &SafeEncodeSerializer,
+    ) -> Result<Self, Self::Error> {
+        serializer.maybe_decrypt_value(indexed.content)
+    }
+}
+
+/// The value associated with the [primary key](IndexedThread::id) of the
+/// [`THREADS`][1] object store, which is constructed from the value in
+/// [`Thread::key`]. This value may or may not be hashed depending on the
+/// provided [`IndexeddbSerializer`].
+///
+/// [1]: crate::event_cache_store::migrations::v5::create_threads_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedThreadIdKey(IndexedRoomId, IndexedEventId);
+
+impl IndexedKey<Thread> for IndexedThreadIdKey {
+    type KeyComponents<'a> = (&'a RoomId, &'a EventId);
+
+    fn encode(
+        (room_id, event_id): Self::KeyComponents<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id.as_str());
+        let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+        Self(room_id, event_id)
     }
 }
