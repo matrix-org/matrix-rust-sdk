@@ -444,6 +444,25 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.put_item(event).await
     }
 
+    /// Update events in the given position range matching the given linked
+    /// chunk id by reading them, applying the function `F`, and then writing
+    /// them back to IndexedDB.
+    ///
+    /// Note that this is a potentially expensive operation, as IndexedDB
+    /// does not provide modification utilities.
+    pub async fn update_events_by_position<F: Fn(Event) -> Event>(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+        range: impl Into<IndexedKeyRange<Position>>,
+        f: F,
+    ) -> Result<(), TransactionError> {
+        self.update_items_by_key_components::<Event, IndexedEventPositionKey, F>(
+            range.into().map(|position| (linked_chunk_id, position)),
+            f,
+        )
+        .await
+    }
+
     /// Delete events in the given position range matching the given linked
     /// chunk id
     pub async fn delete_events_by_position(
