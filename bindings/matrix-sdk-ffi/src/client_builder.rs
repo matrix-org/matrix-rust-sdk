@@ -19,6 +19,8 @@
 use std::{fs, path::PathBuf};
 use std::{num::NonZeroUsize, sync::Arc, time::Duration};
 
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk::encryption::SignatureError;
 #[cfg(not(any(target_family = "wasm")))]
 use matrix_sdk::reqwest::Certificate;
 #[cfg(feature = "experimental-search")]
@@ -36,6 +38,8 @@ use matrix_sdk::{
         VersionBuilderError,
     },
 };
+#[cfg(feature = "experimental-x509-identity-verification")]
+use matrix_sdk_base::crypto::x509::RawX509Signature;
 use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
@@ -44,6 +48,8 @@ use ruma::api::error::{DeserializationError, FromHttpResponseError};
 use tracing::debug;
 
 use super::client::Client;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use super::client::{RawX509Signer, RawX509Verifier};
 #[cfg(any(feature = "sqlite", feature = "indexeddb"))]
 use crate::store;
 use crate::{
@@ -166,6 +172,11 @@ pub struct ClientBuilder {
 
     threading_support: ThreadingSupport,
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    raw_x509_signer: Option<Arc<dyn RawX509Signer>>,
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    raw_x509_verifier: Option<Arc<dyn RawX509Verifier>>,
+
     dm_room_definition: DmRoomDefinition,
 
     media_fetcher: Option<Arc<dyn MediaFetcher>>,
@@ -214,6 +225,12 @@ impl ClientBuilder {
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
             search_index_store: None,
+
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            raw_x509_signer: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            raw_x509_verifier: None,
+
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: None,
         })
@@ -547,9 +564,76 @@ impl ClientBuilder {
             inner_builder = inner_builder.media_fetcher(media_fetcher.clone());
         }
 
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(x509_sign) = builder.raw_x509_signer {
+            // Wrap the provided RawX509Signer impl in a shim which converts the arguments
+            // and results.
+            #[derive(Debug)]
+            struct X509SignImpl(Arc<dyn RawX509Signer>);
+            impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
+                fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
+                    use matrix_sdk_base::crypto::x509::X509SignatureSigningError;
+
+                    self.0.sign(message.to_vec()).map_err(|e| {
+                        SignatureError::X509SigningError(X509SignatureSigningError::Custom(
+                            e.into(),
+                        ))
+                    })
+                }
+            }
+
+            inner_builder = inner_builder.with_x509_signer(Some(Arc::new(X509SignImpl(x509_sign))));
+        }
+
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(x509_verify) = builder.raw_x509_verifier {
+            use matrix_sdk_base::crypto::x509::X509SignatureVerificationError;
+
+            // Wrap the provided RawX509Verifier impl in a shim which converts the
+            // arguments.
+            #[derive(Debug)]
+            struct X509VerifyImpl(Arc<dyn RawX509Verifier>);
+            impl matrix_sdk_base::crypto::x509::RawX509Verifier for X509VerifyImpl {
+                fn verify(
+                    &self,
+                    message: &[u8],
+                    sig: &RawX509Signature,
+                ) -> Result<(), X509SignatureVerificationError> {
+                    if self.0.verify(message.to_vec(), sig.clone()) {
+                        Ok(())
+                    } else {
+                        Err(X509SignatureVerificationError::Custom(
+                            "Verification across FFI failed".into(),
+                        ))
+                    }
+                }
+            }
+            inner_builder =
+                inner_builder.with_x509_verifier(Some(Arc::new(X509VerifyImpl(x509_verify))));
+        }
+
         let sdk_client = inner_builder.build().await?;
 
         Ok(Arc::new(Client::new(sdk_client, builder.session_delegate, store_path).await?))
+    }
+}
+
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[matrix_sdk_ffi_macros::export]
+impl ClientBuilder {
+    pub fn with_raw_x509_signer(self: Arc<Self>, x509_sign: Arc<dyn RawX509Signer>) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.raw_x509_signer = Some(x509_sign);
+        Arc::new(builder)
+    }
+
+    pub fn with_raw_x509_verifier(
+        self: Arc<Self>,
+        x509_verify: Arc<dyn RawX509Verifier>,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.raw_x509_verifier = Some(x509_verify);
+        Arc::new(builder)
     }
 }
 

@@ -70,6 +70,8 @@ use vodozemac::{Curve25519PublicKey, Ed25519Signature, megolm::DecryptionError};
 use crate::error::SecretPushError;
 #[cfg(feature = "experimental-send-custom-to-device")]
 use crate::session_manager::split_devices_for_share_strategy;
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::x509::{RawX509Signer, RawX509Verifier, X509Signer, X509Verifier};
 use crate::{
     CollectStrategy, CryptoStoreError, DecryptionSettings, DeviceData, LocalTrust,
     RoomEventDecryptionResult, SignatureError, TrustRequirement,
@@ -142,6 +144,14 @@ pub struct OlmMachineBuilder {
     /// Optional override for the vodozemac `Account` that will be used for this
     /// OlmMachine.
     custom_account: Option<vodozemac::olm::Account>,
+
+    /// Optional X509 verifier to be used for verifying people's identities.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_verifier: Option<X509Verifier>,
+
+    /// Optional X509 signer to be used for signing our own identity.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_signer: Option<X509Signer>,
 }
 
 impl OlmMachineBuilder {
@@ -153,6 +163,10 @@ impl OlmMachineBuilder {
             device_id: device_id.to_owned(),
             store: None,
             custom_account: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier: None,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer: None,
         }
     }
 
@@ -179,6 +193,22 @@ impl OlmMachineBuilder {
     /// user/device IDs, e.g., to use the identity key as the device ID.
     pub fn with_custom_account(mut self, custom_account: Option<vodozemac::olm::Account>) -> Self {
         self.custom_account = custom_account;
+        self
+    }
+
+    /// Specify a [`RawX509Verifier`] which the `OlmMachine` should use to
+    /// verify people's identities.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub fn with_x509_verifier(mut self, x509_verifier: Option<Arc<dyn RawX509Verifier>>) -> Self {
+        self.x509_verifier = x509_verifier.map(X509Verifier::new);
+        self
+    }
+
+    /// Specify a [`RawX509Signer`] which the `OlmMachine` should use to sign
+    /// our own identity.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub fn with_x509_signer(mut self, x509_signer: Option<Arc<dyn RawX509Signer>>) -> Self {
+        self.x509_signer = x509_signer.map(X509Signer::new);
         self
     }
 
@@ -291,8 +321,15 @@ impl OlmMachine {
             })
             .await?;
 
-        let (verification_machine, store, identity_manager) =
-            Self::new_helper_prelude(store, static_account, self.store().private_identity());
+        let (verification_machine, store, identity_manager) = Self::new_helper_prelude(
+            store,
+            static_account,
+            self.store().private_identity(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.store().x509_verifier().cloned(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            self.store().x509_signer().cloned(),
+        );
 
         Ok(Self::new_helper(
             device_id,
@@ -308,10 +345,24 @@ impl OlmMachine {
         store_wrapper: Arc<CryptoStoreWrapper>,
         account: StaticAccountData,
         user_identity: Arc<Mutex<PrivateCrossSigningIdentity>>,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_verifier: Option<
+            X509Verifier,
+        >,
+        #[cfg(feature = "experimental-x509-identity-verification")] x509_signer: Option<X509Signer>,
     ) -> (VerificationMachine, Store, IdentityManager) {
         let verification_machine =
             VerificationMachine::new(account.clone(), user_identity.clone(), store_wrapper.clone());
-        let store = Store::new(account, user_identity, store_wrapper, verification_machine.clone());
+
+        let store = Store::new_with_x509(
+            account,
+            user_identity,
+            store_wrapper,
+            verification_machine.clone(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer,
+        );
 
         let identity_manager = IdentityManager::new(store.clone());
 
@@ -359,7 +410,16 @@ impl OlmMachine {
 
     #[instrument(skip(builder), fields(user_id, device_id, ed25519_key, curve25519_key))]
     pub(crate) async fn from_builder(builder: OlmMachineBuilder) -> StoreResult<Self> {
-        let OlmMachineBuilder { user_id, device_id, store, custom_account } = builder;
+        let OlmMachineBuilder {
+            user_id,
+            device_id,
+            store,
+            custom_account,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer,
+        } = builder;
 
         let store = store.unwrap_or_else(|| MemoryStore::new().into_crypto_store());
 
@@ -449,8 +509,15 @@ impl OlmMachine {
         let identity = Arc::new(Mutex::new(identity));
         let store = Arc::new(CryptoStoreWrapper::new(&user_id, &device_id, store));
 
-        let (verification_machine, store, identity_manager) =
-            Self::new_helper_prelude(store, static_account, identity.clone());
+        let (verification_machine, store, identity_manager) = Self::new_helper_prelude(
+            store,
+            static_account,
+            identity.clone(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_verifier,
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signer,
+        );
 
         // FIXME: We might want in the future a more generic high-level data migration
         // mechanism (at the store wrapper layer).
@@ -674,6 +741,7 @@ impl OlmMachine {
             }
             AnyIncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
+                self.inner.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
             }
             AnyIncomingResponse::RoomMessage(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
@@ -731,7 +799,12 @@ impl OlmMachine {
             let (identity, upload_signing_keys_req, upload_signatures_req) = {
                 let cache = self.inner.store.cache().await?;
                 let account = cache.account().await?;
-                account.bootstrap_cross_signing().await?
+                account
+                    .bootstrap_cross_signing(
+                        #[cfg(feature = "experimental-x509-identity-verification")]
+                        self.inner.store.x509_signer().map(|s| s.raw()),
+                    )
+                    .await?
             };
 
             let public = identity.to_public_identity().await.expect(

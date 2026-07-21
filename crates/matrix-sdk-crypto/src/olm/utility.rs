@@ -23,7 +23,7 @@ use crate::{
     types::{CrossSigningKey, DeviceKeys, Signature, Signatures, SignedKey},
 };
 
-fn to_signable_json(mut value: CanonicalJsonValue) -> Result<String, SignatureError> {
+pub(crate) fn to_signable_json(mut value: CanonicalJsonValue) -> Result<String, SignatureError> {
     let json_object = value.as_object_mut().ok_or(SignatureError::NotAnObject)?;
     let _ = json_object.remove("signatures");
     let _ = json_object.remove("unsigned");
@@ -154,7 +154,7 @@ fn verify_signature(
 
     match s {
         Ok(Signature::Ed25519(s)) => Ok(public_key.verify(canonical_json.as_bytes(), s)?),
-        Ok(Signature::Other(_)) => Err(SignatureError::UnsupportedAlgorithm),
+        Ok(_) => Err(SignatureError::UnsupportedAlgorithm),
         Err(_) => Err(SignatureError::InvalidSignature),
     }
 }

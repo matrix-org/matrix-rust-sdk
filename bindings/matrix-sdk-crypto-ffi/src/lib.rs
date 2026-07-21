@@ -28,8 +28,7 @@ pub use backup_recovery_key::{
 };
 pub use device::Device;
 pub use error::{
-    BootstrapCrossSigningError, CryptoStoreError, DecryptionError, KeyImportError,
-    SecretImportError, SignatureError,
+    CryptoStoreError, DecryptionError, KeyImportError, SecretImportError, SignatureError,
 };
 use js_int::UInt;
 pub use logger::{Logger, set_logger};

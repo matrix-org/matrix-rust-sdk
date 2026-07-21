@@ -41,6 +41,7 @@ sentry = ["dep:sentry", "dep:sentry-tracing"]
 
 experimental-element-recent-emojis = ["matrix-sdk/experimental-element-recent-emojis"]
 experimental-push-secrets = ["matrix-sdk/experimental-push-secrets"]
+experimental-x509-identity-verification = ["matrix-sdk-base/experimental-x509-identity-verification", "matrix-sdk/experimental-x509-identity-verification"]
 
 rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs", "matrix-sdk-ui/rustls-aws-lc-rs", "matrix-sdk-contentscanner/rustls-aws-lc-rs"]
 
