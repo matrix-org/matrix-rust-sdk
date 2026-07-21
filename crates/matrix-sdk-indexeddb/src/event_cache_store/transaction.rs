@@ -424,6 +424,29 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.get_items_by_key::<Event, IndexedEventRelationKey>(range).await
     }
 
+    /// Adds an event to IndexedDB.
+    ///
+    /// If an event with the same key already exists, actions are
+    /// taken based on the following conditions. If the provided
+    /// event is an [`Event::InBand`] and the existing event is an
+    /// [`Event::OutOfBand`], the provided event will replace the
+    /// existing event. Otherwise, the provided event will be rejected.
+    /// This functionality allows events to be promoted from
+    /// out-of-band events to in-band events, but not vice versa.
+    ///
+    /// When the event is successfully added, the function returns
+    /// the intermediary type [`IndexedEvent`] in case inspection
+    /// is needed.
+    pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
+        let existing =
+            self.get_event_by_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
+        if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
+            self.put_event(event).await
+        } else {
+            self.add_item(event).await
+        }
+    }
+
     /// Puts an event in IndexedDB. If an event with the same key already
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`IndexedEvent`] in case
