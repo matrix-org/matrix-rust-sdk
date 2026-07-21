@@ -292,9 +292,7 @@ mod tests {
 
     use assert_matches::assert_matches;
     use gloo_utils::format::JsValueSerdeExt;
-    use indexed_db_futures::{
-        database::VersionChangeEvent, prelude::*, transaction::TransactionMode,
-    };
+    use indexed_db_futures::{database::VersionChangeEvent, transaction::TransactionMode};
     use matrix_sdk_common::{
         deserialized_responses::WithheldCode, js_tracing::make_tracing_subscriber,
     };
