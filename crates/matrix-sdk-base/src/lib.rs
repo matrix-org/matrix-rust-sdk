@@ -93,7 +93,7 @@ pub trait CancellableIntoFutureExt: IntoFuture + Sized {
     /// Returns `Some` with the output of the underlying future if it completes
     /// first, or `None` if the cancellation token is cancelled first.
     fn cancellable(self, token: CancellationToken) -> impl Future<Output = Option<Self::Output>> {
-        async move { token.run_until_cancelled(self.into_future()).await }
+        token.run_until_cancelled_owned(self.into_future())
     }
 }
 
