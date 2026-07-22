@@ -25,7 +25,10 @@ use tracing::{error, info};
 use zeroize::Zeroize;
 
 use crate::{
-    client::Client, error::ClientError, ruma::AuthData, runtime::get_runtime_handle,
+    client::{Client, UiaaChallenge},
+    error::ClientError,
+    ruma::AuthData,
+    runtime::get_runtime_handle,
     task_handle::TaskHandle,
 };
 
@@ -619,6 +622,22 @@ impl Encryption {
         Ok(result?)
     }
 
+    /// Start a non-destructive first-device cross-signing bootstrap when the
+    /// authoritative server state has no identity.
+    ///
+    /// `None` means the server identity already existed or bootstrap completed
+    /// without UIAA. A returned handle retains the exact generated requests.
+    pub async fn bootstrap_cross_signing_if_needed(
+        &self,
+    ) -> Result<Option<Arc<CrossSigningBootstrapHandle>>, ClientError> {
+        Ok(self
+            .inner
+            .start_cross_signing_bootstrap_if_needed()
+            .await
+            .map_err(ClientError::from_err)?
+            .map(|inner| Arc::new(CrossSigningBootstrapHandle { inner })))
+    }
+
     /// Completely reset the current user's crypto identity: reset the cross
     /// signing keys, delete the existing backup and recovery key.
     pub async fn reset_identity(&self) -> Result<Option<Arc<IdentityResetHandle>>, ClientError> {
@@ -827,6 +846,36 @@ impl UserIdentity {
     /// Was this identity previously verified, and is no longer?
     pub fn has_verification_violation(&self) -> bool {
         self.inner.has_verification_violation()
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct CrossSigningBootstrapHandle {
+    inner: matrix_sdk::encryption::CrossSigningBootstrapHandle,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl CrossSigningBootstrapHandle {
+    /// Return the most recent UIAA challenge.
+    pub async fn challenge(&self) -> UiaaChallenge {
+        let challenge = self.inner.challenge().await;
+        UiaaChallenge::from(&challenge)
+    }
+
+    /// Continue bootstrap using password authentication. The password is a
+    /// method argument so generated bindings do not retain or print it.
+    pub async fn auth_with_password(
+        &self,
+        mut password: String,
+    ) -> Result<Option<UiaaChallenge>, ClientError> {
+        let result = self
+            .inner
+            .auth_with_password(&password)
+            .await
+            .map_err(ClientError::from_err)
+            .map(|challenge| challenge.as_ref().map(UiaaChallenge::from));
+        password.zeroize();
+        result
     }
 }
 
