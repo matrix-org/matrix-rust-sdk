@@ -2005,10 +2005,101 @@ impl TryFrom<SdkRoomSendQueueUpdate> for RoomSendQueueUpdate {
 mod tests {
     use std::time::Duration;
 
-    use matrix_sdk::{ruma::room_id, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk::{
+        ruma::{
+            events::{AnyStrippedStateEvent, AnySyncStateEvent},
+            room_id,
+            serde::Raw,
+        },
+        test_utils::mocks::MatrixMockServer,
+    };
+    use matrix_sdk_test::{InvitedRoomBuilder, JoinedRoomBuilder};
     use tempfile::tempdir;
 
     use super::*;
+
+    #[tokio::test]
+    async fn raw_state_lookup_uses_the_exact_state_key_and_reports_absence() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!custom-state:example.com");
+        let state_a: Raw<AnySyncStateEvent> = Raw::from_json_string(
+            r#"{
+                "content":{"operation_id":"operation-a"},
+                "event_id":"$state-a:example.com",
+                "origin_server_ts":1,
+                "sender":"@example:localhost",
+                "state_key":"operation-a",
+                "type":"org.example.marker"
+            }"#
+            .to_owned(),
+        )
+        .unwrap();
+        let state_b: Raw<AnySyncStateEvent> = Raw::from_json_string(
+            r#"{
+                "content":{"operation_id":"operation-b"},
+                "event_id":"$state-b:example.com",
+                "origin_server_ts":2,
+                "sender":"@example:localhost",
+                "state_key":"operation-b",
+                "type":"org.example.marker"
+            }"#
+            .to_owned(),
+        )
+        .unwrap();
+        let sdk_room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_state_event(state_a).add_state_event(state_b),
+            )
+            .await;
+        let room = Room::new(sdk_room, None);
+
+        let raw = room
+            .get_state_event_raw("org.example.marker".to_owned(), "operation-a".to_owned())
+            .await
+            .unwrap()
+            .unwrap();
+        let event: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(event["state_key"], "operation-a");
+        assert_eq!(event["content"]["operation_id"], "operation-a");
+
+        let absent = room
+            .get_state_event_raw("org.example.marker".to_owned(), "missing".to_owned())
+            .await
+            .unwrap();
+        assert!(absent.is_none());
+    }
+
+    #[tokio::test]
+    async fn raw_state_lookup_returns_stripped_invite_state() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!invited-custom-state:example.com");
+        let state: Raw<AnyStrippedStateEvent> = Raw::from_json_string(
+            r#"{
+                "content":{"operation_id":"operation-invite"},
+                "sender":"@inviter:example.com",
+                "state_key":"operation-invite",
+                "type":"org.example.marker"
+            }"#
+            .to_owned(),
+        )
+        .unwrap();
+        let sdk_room = server
+            .sync_room(&client, InvitedRoomBuilder::new(room_id).add_state_event(state))
+            .await;
+        let room = Room::new(sdk_room, None);
+
+        let raw = room
+            .get_state_event_raw("org.example.marker".to_owned(), "operation-invite".to_owned())
+            .await
+            .unwrap()
+            .unwrap();
+        let event: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(event["state_key"], "operation-invite");
+        assert_eq!(event["content"]["operation_id"], "operation-invite");
+    }
 
     /// Dropping an FFI [`Room`] on a non-tokio thread must not panic.
     ///
