@@ -89,7 +89,10 @@ use ruma::{
             },
             profile::{AvatarUrl, DisplayName},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
-            uiaa::{EmailUserIdentifier, UserIdentifier},
+            uiaa::{
+                AuthData as RumaAuthData, EmailUserIdentifier, Password as RumaPasswordAuthData,
+                UiaaInfo as RumaUiaaInfo, UserIdentifier,
+            },
         },
         error::ErrorKind,
     },
@@ -161,6 +164,50 @@ use crate::{
     utd::{UnableToDecryptDelegate, UtdHook},
     utils::AsyncRuntimeDropped,
 };
+
+/// An ordered sequence of authentication stages accepted by a homeserver.
+#[derive(Clone, uniffi::Record)]
+pub struct UiaaFlow {
+    pub stages: Vec<String>,
+}
+
+/// Structured user-interactive authentication information.
+#[derive(Clone, uniffi::Record)]
+pub struct UiaaChallenge {
+    pub flows: Vec<UiaaFlow>,
+    pub completed: Vec<String>,
+    /// Authentication parameters encoded as a JSON object.
+    pub params_json: Option<String>,
+    pub session: Option<String>,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+}
+
+impl From<&RumaUiaaInfo> for UiaaChallenge {
+    fn from(value: &RumaUiaaInfo) -> Self {
+        Self {
+            flows: value
+                .flows
+                .iter()
+                .map(|flow| UiaaFlow {
+                    stages: flow.stages.iter().map(ToString::to_string).collect(),
+                })
+                .collect(),
+            completed: value.completed.iter().map(ToString::to_string).collect(),
+            params_json: value.params.as_ref().map(|params| params.get().to_owned()),
+            session: value.session.clone(),
+            error_code: value.auth_error.as_ref().map(|error| error.kind.errcode().to_string()),
+            error_message: value.auth_error.as_ref().map(|error| error.message.clone()),
+        }
+    }
+}
+
+/// The result of a password-change request.
+#[derive(Clone, uniffi::Enum)]
+pub enum PasswordChangeOutcome {
+    Success,
+    AuthenticationRequired { challenge: UiaaChallenge },
+}
 
 #[derive(Clone, uniffi::Record)]
 pub struct PusherIdentifiers {
@@ -2023,17 +2070,56 @@ impl Client {
 
     /// Change the current account's password.
     ///
-    /// This request may require user-interactive authentication. Call it with
-    /// no authentication data first, then retry with [`AuthData`] for a
-    /// supported homeserver authentication flow.
+    /// This request may require user-interactive authentication. Call it
+    /// without a current password first. If the result contains a challenge,
+    /// retry with the current password and the challenge's session.
+    ///
+    /// `logout_devices` controls whether the account's other access tokens and
+    /// associated devices are revoked when the request succeeds.
     pub async fn change_password(
         &self,
         new_password: String,
-        auth_data: Option<AuthData>,
-    ) -> Result<(), ClientError> {
-        self.inner.account().change_password(&new_password, auth_data.map(Into::into)).await?;
+        logout_devices: bool,
+        current_password: Option<String>,
+        session: Option<String>,
+    ) -> Result<PasswordChangeOutcome, ClientError> {
+        let auth_data = match current_password {
+            Some(current_password) => {
+                let user_id = self.inner.user_id().ok_or_else(|| ClientError::Generic {
+                    msg: "Changing a password requires an authenticated session".to_owned(),
+                    details: None,
+                })?;
+                let mut password =
+                    RumaPasswordAuthData::new(user_id.to_owned().into(), current_password);
+                password.session = session;
+                Some(RumaAuthData::Password(password))
+            }
+            None if session.is_some() => {
+                return Err(ClientError::Generic {
+                    msg: "A UIAA session requires authentication data".to_owned(),
+                    details: None,
+                });
+            }
+            None => None,
+        };
 
-        Ok(())
+        match self
+            .inner
+            .account()
+            .change_password_with_logout_devices(&new_password, logout_devices, auth_data)
+            .await
+        {
+            Ok(_) => Ok(PasswordChangeOutcome::Success),
+            Err(error) => {
+                if let Some(challenge) = error.as_uiaa_response() {
+                    Ok(PasswordChangeOutcome::AuthenticationRequired {
+                        challenge: challenge.into(),
+                    })
+                } else {
+                    Err(error.into())
+                }
+            }
+        }
     }
 
     /// Checks if a room alias is not in use yet.
@@ -3564,27 +3650,171 @@ mod tests {
 
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
-    async fn change_password_forwards_to_the_account_api() {
+    async fn change_password_exposes_and_completes_uiaa() {
         use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 
         let server = MatrixMockServer::new().await;
         let sdk_client = server
             .client_builder()
             .on_builder(|builder| {
-                builder.cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+                builder
+                    .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+                    .request_config(matrix_sdk::config::RequestConfig::new().disable_retry())
             })
             .build()
             .await;
+        let user_id = sdk_client.user_id().unwrap().to_string();
         Mock::given(method("POST"))
             .and(path("/_matrix/client/v3/account/password"))
-            .and(body_json(json!({ "new_password": "not-a-real-new-password" })))
+            .and(body_json(json!({
+                "new_password": "not-a-real-new-password",
+                "logout_devices": false,
+            })))
+            .respond_with(ResponseTemplate::new(401).set_body_json(json!({
+                "flows": [{ "stages": ["m.login.password"] }],
+                "completed": [],
+                "params": { "m.login.password": {} },
+                "session": "uiaa-session",
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/account/password"))
+            .and(body_json(json!({
+                "new_password": "not-a-real-new-password",
+                "logout_devices": false,
+                "auth": {
+                    "type": "m.login.password",
+                    "identifier": { "type": "m.id.user", "user": user_id.clone() },
+                    "password": "not-a-real-current-password",
+                    "session": "uiaa-session",
+                },
+            })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/account/password"))
+            .and(body_json(json!({
+                "new_password": "another-not-real-new-password",
+                "auth": {
+                    "type": "m.login.password",
+                    "identifier": { "type": "m.id.user", "user": user_id },
+                    "password": "not-a-real-current-password",
+                    "session": null,
+                },
+            })))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
             .expect(1)
             .mount(server.server())
             .await;
 
         let client = super::Client::new(sdk_client, None, None).await.unwrap();
-        client.change_password("not-a-real-new-password".to_owned(), None).await.unwrap();
+        let challenge = client
+            .change_password("not-a-real-new-password".to_owned(), false, None, None)
+            .await
+            .unwrap();
+        let super::PasswordChangeOutcome::AuthenticationRequired { challenge } = challenge else {
+            panic!("expected UIAA challenge")
+        };
+        assert_eq!(challenge.flows[0].stages, ["m.login.password"]);
+        assert_eq!(challenge.session.as_deref(), Some("uiaa-session"));
+        assert_eq!(challenge.params_json.as_deref(), Some(r#"{"m.login.password":{}}"#));
+
+        let outcome = client
+            .change_password(
+                "not-a-real-new-password".to_owned(),
+                false,
+                Some("not-a-real-current-password".to_owned()),
+                Some("uiaa-session".to_owned()),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(outcome, super::PasswordChangeOutcome::Success));
+
+        let outcome = client
+            .change_password(
+                "another-not-real-new-password".to_owned(),
+                true,
+                Some("not-a-real-current-password".to_owned()),
+                None,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(outcome, super::PasswordChangeOutcome::Success));
+
+        let result = client
+            .change_password(
+                "not-a-real-new-password".to_owned(),
+                false,
+                None,
+                Some("orphaned-session".to_owned()),
+            )
+            .await;
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("expected a local validation error"),
+        };
+        assert_eq!(error.to_string(), "client error: A UIAA session requires authentication data");
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn password_change_errors_do_not_include_passwords() {
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+
+        let server = MatrixMockServer::new().await;
+        let sdk_client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder
+                    .cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+                    .request_config(matrix_sdk::config::RequestConfig::new().disable_retry())
+            })
+            .build()
+            .await;
+        let user_id = sdk_client.user_id().unwrap().to_string();
+        let new_password = "NEW_PASSWORD_SENTINEL_6771";
+        let current_password = "CURRENT_PASSWORD_SENTINEL_6771";
+        Mock::given(method("POST"))
+            .and(path("/_matrix/client/v3/account/password"))
+            .and(body_json(json!({
+                "new_password": new_password,
+                "logout_devices": false,
+                "auth": {
+                    "type": "m.login.password",
+                    "identifier": { "type": "m.id.user", "user": user_id },
+                    "password": current_password,
+                    "session": "uiaa-session",
+                },
+            })))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+                "errcode": "M_WEAK_PASSWORD",
+                "error": "Password is too weak",
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let client = super::Client::new(sdk_client, None, None).await.unwrap();
+        let result = client
+            .change_password(
+                new_password.to_owned(),
+                false,
+                Some(current_password.to_owned()),
+                Some("uiaa-session".to_owned()),
+            )
+            .await;
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("expected a weak-password error"),
+        };
+        let rendered = format!("{error:?} {error}");
+        assert!(!rendered.contains(new_password));
+        assert!(!rendered.contains(current_password));
     }
 
     /// Dropping an FFI [`Client`] on a non-tokio thread must not panic.
