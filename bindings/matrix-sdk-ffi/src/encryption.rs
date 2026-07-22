@@ -639,7 +639,9 @@ impl Encryption {
             .start_cross_signing_bootstrap_if_needed()
             .await
             .map_err(ClientError::from_err)?
-            .map(|inner| Arc::new(CrossSigningBootstrapHandle { inner })))
+            .map(|inner| {
+                Arc::new(CrossSigningBootstrapHandle { inner, _client: self._client.clone() })
+            }))
     }
 
     /// Completely reset the current user's crypto identity: reset the cross
@@ -856,6 +858,9 @@ impl UserIdentity {
 #[derive(uniffi::Object)]
 pub struct CrossSigningBootstrapHandle {
     inner: matrix_sdk::encryption::CrossSigningBootstrapHandle,
+    // Keep the runtime-safe FFI client ownership chain alive while foreign
+    // callers retain this handle.
+    _client: Arc<Client>,
 }
 
 #[matrix_sdk_ffi_macros::export]

@@ -316,7 +316,20 @@ pub struct CrossSigningBootstrapHandle {
     client: Client,
     upload_request: UploadSigningKeysRequest,
     signatures_request: UploadSignaturesRequest,
-    challenge: Mutex<UiaaInfo>,
+    state: Mutex<CrossSigningBootstrapState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CrossSigningBootstrapPhase {
+    SigningKeys,
+    Signatures,
+    Complete,
+}
+
+#[derive(Debug)]
+struct CrossSigningBootstrapState {
+    challenge: UiaaInfo,
+    phase: CrossSigningBootstrapPhase,
 }
 
 impl CrossSigningBootstrapHandle {
@@ -326,12 +339,20 @@ impl CrossSigningBootstrapHandle {
         signatures_request: UploadSignaturesRequest,
         challenge: UiaaInfo,
     ) -> Self {
-        Self { client, upload_request, signatures_request, challenge: Mutex::new(challenge) }
+        Self {
+            client,
+            upload_request,
+            signatures_request,
+            state: Mutex::new(CrossSigningBootstrapState {
+                challenge,
+                phase: CrossSigningBootstrapPhase::SigningKeys,
+            }),
+        }
     }
 
     /// Return the most recent UIAA challenge.
     pub async fn challenge(&self) -> UiaaInfo {
-        self.challenge.lock().await.clone()
+        self.state.lock().await.challenge.clone()
     }
 
     /// Continue bootstrap with password authentication.
@@ -339,8 +360,18 @@ impl CrossSigningBootstrapHandle {
     /// Returns an updated challenge when authentication is rejected, and
     /// `None` once both the signing keys and device signatures are uploaded.
     pub async fn auth_with_password(&self, password: &str) -> Result<Option<UiaaInfo>> {
+        let mut state = self.state.lock().await;
+        if state.phase == CrossSigningBootstrapPhase::Complete {
+            return Ok(None);
+        }
+        if state.phase == CrossSigningBootstrapPhase::Signatures {
+            self.client.send(self.signatures_request.clone()).await?;
+            state.phase = CrossSigningBootstrapPhase::Complete;
+            return Ok(None);
+        }
+
         let user_id = self.client.user_id().ok_or(Error::AuthenticationRequired)?.to_owned();
-        let session = self.challenge.lock().await.session.clone();
+        let session = state.challenge.session.clone();
         let mut auth = UiaaPassword::new(user_id.into(), password.to_owned());
         auth.session = session;
 
@@ -349,13 +380,15 @@ impl CrossSigningBootstrapHandle {
 
         match self.client.send(upload_request).await {
             Ok(_) => {
+                state.phase = CrossSigningBootstrapPhase::Signatures;
                 self.client.send(self.signatures_request.clone()).await?;
+                state.phase = CrossSigningBootstrapPhase::Complete;
                 Ok(None)
             }
             Err(error) => {
                 if let Some(challenge) = error.as_uiaa_response() {
                     let challenge = challenge.clone();
-                    *self.challenge.lock().await = challenge.clone();
+                    state.challenge = challenge.clone();
                     Ok(Some(challenge))
                 } else {
                     Err(error.into())
@@ -2685,6 +2718,46 @@ mod tests {
         assert!(handle.auth_with_password("password").await.is_err());
         assert_eq!(handle.challenge().await.session.as_deref(), Some("bootstrap-session"));
         assert!(handle.auth_with_password("password").await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_first_device_bootstrap_serializes_concurrent_continuations() {
+        let (client, server) = logged_in_client_with_server().await;
+        mount_empty_key_query(&server).await;
+        mount_device_key_upload(&server).await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/(?:r0|v3|unstable)/keys/device_signing/upload$"))
+            .respond_with(|request: &Request| {
+                let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                if body.get("auth").is_none() {
+                    ResponseTemplate::new(401).set_body_json(json!({
+                        "flows": [{ "stages": ["m.login.password"] }],
+                        "params": {},
+                        "session": "bootstrap-session",
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({}))
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/(?:r0|v3|unstable)/keys/signatures/upload$"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let handle =
+            client.encryption().start_cross_signing_bootstrap_if_needed().await.unwrap().unwrap();
+        let (first, second) = tokio::join!(
+            handle.auth_with_password("password"),
+            handle.auth_with_password("password"),
+        );
+
+        assert!(first.unwrap().is_none());
+        assert!(second.unwrap().is_none());
     }
 
     #[async_test]
