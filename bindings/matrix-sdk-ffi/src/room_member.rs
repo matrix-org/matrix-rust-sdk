@@ -1,9 +1,10 @@
 use matrix_sdk::room::{RoomMember as SdkRoomMember, RoomMemberRole};
 use ruma::{UserId, events::room::power_levels::UserPowerLevel};
 
-use crate::error::{ClientError, NotYetImplemented};
-#[cfg(feature = "unstable-msc4426")]
-use crate::ruma::{UserCall, UserStatus};
+use crate::{
+    error::{ClientError, NotYetImplemented},
+    ruma::{UserCall, UserStatus},
+};
 
 #[derive(Clone, uniffi::Enum)]
 pub enum MembershipState {
@@ -92,9 +93,7 @@ pub struct RoomMember {
     pub user_id: String,
     pub display_name: Option<String>,
     pub avatar_url: Option<String>,
-    #[cfg(feature = "unstable-msc4426")]
     pub status: Option<UserStatus>,
-    #[cfg(feature = "unstable-msc4426")]
     pub call: Option<UserCall>,
     pub membership: MembershipState,
     pub is_name_ambiguous: bool,
@@ -113,9 +112,7 @@ impl TryFrom<SdkRoomMember> for RoomMember {
             user_id: m.user_id().to_string(),
             display_name: m.display_name().map(|s| s.to_owned()),
             avatar_url: m.avatar_url().map(|a| a.to_string()),
-            #[cfg(feature = "unstable-msc4426")]
             status: m.status().cloned().map(UserStatus::from),
-            #[cfg(feature = "unstable-msc4426")]
             call: m.call().cloned().map(UserCall::from),
             membership: m.membership().clone().try_into()?,
             is_name_ambiguous: m.name_ambiguous(),
