@@ -2894,9 +2894,11 @@ mod tests {
         drop(client.encryption().start_cross_signing_bootstrap_if_needed().await.unwrap().unwrap());
         drop(client.encryption().start_cross_signing_bootstrap_if_needed().await.unwrap().unwrap());
 
-        let master_keys = master_keys.lock().unwrap();
-        assert_eq!(master_keys.len(), 2);
-        assert_eq!(master_keys[0], master_keys[1]);
+        {
+            let master_keys = master_keys.lock().unwrap();
+            assert_eq!(master_keys.len(), 2);
+            assert_eq!(master_keys[0], master_keys[1]);
+        }
 
         let requests = server.received_requests().await.unwrap();
         assert!(requests.iter().all(|request| {
