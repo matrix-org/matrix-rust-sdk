@@ -49,8 +49,6 @@ use ruma::{
 use tracing::error;
 
 use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
-#[cfg(feature = "unstable-msc4426")]
-use crate::ruma::{UserCall, UserStatus};
 use crate::{
     TaskHandle,
     chunk_iterator::ChunkIterator,
@@ -64,7 +62,9 @@ use crate::{
     live_locations_observer::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
+    ruma::{
+        AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, UserCall, UserStatus, VideoInfo,
+    },
     runtime::get_runtime_handle,
     timeline::{
         AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
@@ -1407,10 +1407,8 @@ pub struct RoomHero {
     /// The avatar URL of the hero.
     avatar_url: Option<String>,
     /// The hero's user-set status, taken from their global profile.
-    #[cfg(feature = "unstable-msc4426")]
     status: Option<UserStatus>,
     /// The hero's call indicator, taken from their global profile.
-    #[cfg(feature = "unstable-msc4426")]
     call: Option<UserCall>,
 }
 
@@ -1420,9 +1418,7 @@ impl From<SdkRoomHeroWithProfile> for RoomHero {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(ToString::to_string),
-            #[cfg(feature = "unstable-msc4426")]
             status: value.status.map(UserStatus::from),
-            #[cfg(feature = "unstable-msc4426")]
             call: value.call.map(UserCall::from),
         }
     }

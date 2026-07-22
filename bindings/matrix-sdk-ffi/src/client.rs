@@ -77,8 +77,6 @@ use matrix_sdk_ui::{
 };
 use mime::Mime;
 use oauth2::Scope;
-#[cfg(feature = "unstable-msc4426")]
-use ruma::api::client::profile::{Call, Status};
 use ruma::{
     OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::{
@@ -88,7 +86,7 @@ use ruma::{
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
-            profile::{AvatarUrl, DisplayName, ProfileFieldName},
+            profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
             uiaa::{EmailUserIdentifier, UserIdentifier},
         },
@@ -130,8 +128,6 @@ use super::{
     room::{Room, room_info::RoomInfo},
     session_verification::SessionVerificationController,
 };
-#[cfg(feature = "unstable-msc4426")]
-use crate::ruma::{UserCall, UserStatus};
 use crate::{
     ClientError,
     authentication::{
@@ -152,7 +148,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -2578,14 +2574,12 @@ pub struct UserProfile {
     pub avatar_url: Option<String>,
 
     /// The user's status (MSC4426 `m.status` profile field), if set.
-    #[cfg(feature = "unstable-msc4426")]
     pub status: Option<UserStatus>,
 
     /// Set when the user is in a call (MSC4426 `m.call` profile field).
     ///
     /// `None` means the user is not in a call. `Some(UserCall { call_joined_ts:
     /// None })` means the user is in a call but the join time wasn't recorded.
-    #[cfg(feature = "unstable-msc4426")]
     pub call: Option<UserCall>,
 }
 
@@ -2604,21 +2598,10 @@ impl UserProfile {
     ) -> Result<Self, ClientError> {
         let display_name = profile.get_static::<DisplayName>()?;
         let avatar_url = profile.get_static::<AvatarUrl>()?.map(|url| url.to_string());
-
-        #[cfg(feature = "unstable-msc4426")]
         let status = profile.get_static::<Status>()?.map(UserStatus::from);
-        #[cfg(feature = "unstable-msc4426")]
         let call = profile.get_static::<Call>()?.map(UserCall::from);
 
-        Ok(UserProfile {
-            user_id: user_id.to_string(),
-            display_name,
-            avatar_url,
-            #[cfg(feature = "unstable-msc4426")]
-            status,
-            #[cfg(feature = "unstable-msc4426")]
-            call,
-        })
+        Ok(UserProfile { user_id: user_id.to_string(), display_name, avatar_url, status, call })
     }
 }
 
@@ -2628,15 +2611,12 @@ impl From<&search_users::v3::User> for UserProfile {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(|url| url.to_string()),
-            #[cfg(feature = "unstable-msc4426")]
             status: None,
-            #[cfg(feature = "unstable-msc4426")]
             call: None,
         }
     }
 }
 
-#[cfg(feature = "unstable-msc4426")]
 #[matrix_sdk_ffi_macros::export]
 impl Client {
     /// Set the current user's status (MSC4426 `m.status` profile field).
