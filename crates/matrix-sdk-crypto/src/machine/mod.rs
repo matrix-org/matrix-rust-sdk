@@ -1829,19 +1829,19 @@ impl OlmMachine {
             .is_some_and(|d| d.is_dehydrated()))
     }
 
-    /// Handle a to-device and one-time key counts from a sync response.
+    /// Handle changes in the end-to-end-encryption state we received from a
+    /// /sync request.
     ///
-    /// This will decrypt and handle to-device events returning the decrypted
+    /// This will decrypt and handle to-device messages returning the decrypted
     /// versions of them.
     ///
-    /// To decrypt an event from the room timeline, call [`decrypt_room_event`].
+    /// To decrypt an event from the room timeline, call
+    /// [`OlmMachine::decrypt_room_event`].
     ///
     /// # Arguments
     ///
     /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
     ///   a sync response.
-    ///
-    /// [`decrypt_room_event`]: #method.decrypt_room_event
     ///
     /// # Returns
     ///
