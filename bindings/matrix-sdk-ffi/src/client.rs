@@ -3754,9 +3754,8 @@ mod tests {
                 Some("orphaned-session".to_owned()),
             )
             .await;
-        let error = match result {
-            Err(error) => error,
-            Ok(_) => panic!("expected a local validation error"),
+        let Err(error) = result else {
+            panic!("expected a local validation error");
         };
         assert_eq!(error.to_string(), "client error: A UIAA session requires authentication data");
     }
@@ -3808,9 +3807,8 @@ mod tests {
                 Some("uiaa-session".to_owned()),
             )
             .await;
-        let error = match result {
-            Err(error) => error,
-            Ok(_) => panic!("expected a weak-password error"),
+        let Err(error) = result else {
+            panic!("expected a weak-password error");
         };
         let rendered = format!("{error:?} {error}");
         assert!(!rendered.contains(new_password));
