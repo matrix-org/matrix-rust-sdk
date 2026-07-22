@@ -330,6 +330,7 @@ enum LogTarget {
     MatrixSdkCrypto,
     MatrixSdkCryptoAccount,
     MatrixSdkEventCache,
+    MatrixSdkEventCacheBackPagination,
     MatrixSdkEventCacheStore,
     MatrixSdkHttpClient,
     MatrixSdkLatestEvents,
@@ -363,6 +364,9 @@ impl LogTarget {
             LogTarget::MatrixSdkHttpClient => "matrix_sdk::http_client",
             LogTarget::MatrixSdkSlidingSync => "matrix_sdk::sliding_sync",
             LogTarget::MatrixSdkEventCache => "matrix_sdk::event_cache",
+            LogTarget::MatrixSdkEventCacheBackPagination => {
+                "matrix_sdk::event_cache::back_pagination_queue"
+            }
             LogTarget::MatrixSdkLatestEvents => "matrix_sdk::latest_events",
             LogTarget::MatrixSdkSendQueue => "matrix_sdk::send_queue",
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
@@ -386,6 +390,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkUiTimeline, LogLevel::Info),
     (LogTarget::MatrixSdkSendQueue, LogLevel::Info),
     (LogTarget::MatrixSdkEventCache, LogLevel::Info),
+    (LogTarget::MatrixSdkEventCacheBackPagination, LogLevel::Info),
     (LogTarget::MatrixSdkLatestEvents, LogLevel::Info),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
@@ -410,6 +415,8 @@ const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
 pub enum TraceLogPacks {
     /// Enables all the logs relevant to the event cache.
     EventCache,
+    /// Enables all the logs relevant to the back-pagination queue.
+    BackPagination,
     /// Enables all the logs relevant to the send queue.
     SendQueue,
     /// Enables all the logs relevant to the timeline.
@@ -434,6 +441,7 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkCommonCrossProcessLock,
                 LogTarget::MatrixSdkCommonDeserializedResponses,
             ],
+            TraceLogPacks::BackPagination => &[LogTarget::MatrixSdkEventCacheBackPagination],
             TraceLogPacks::SendQueue => &[LogTarget::MatrixSdkSendQueue],
             TraceLogPacks::Timeline => {
                 &[LogTarget::MatrixSdkUiTimeline, LogTarget::MatrixSdkCommonDeserializedResponses]
@@ -820,6 +828,7 @@ mod tests {
             matrix_sdk_ui::timeline=info,
             matrix_sdk::send_queue=info,
             matrix_sdk::event_cache=info,
+            matrix_sdk::event_cache::back_pagination_queue=info,
             matrix_sdk::latest_events=info,
             matrix_sdk_base::event_cache=info,
             matrix_sdk_sqlite::event_cache_store=info,
@@ -866,6 +875,7 @@ mod tests {
             matrix_sdk_ui::timeline=trace,
             matrix_sdk::send_queue=trace,
             matrix_sdk::event_cache=trace,
+            matrix_sdk::event_cache::back_pagination_queue=trace,
             matrix_sdk::latest_events=trace,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
@@ -913,6 +923,7 @@ mod tests {
             matrix_sdk_ui::timeline=info,
             matrix_sdk::send_queue=trace,
             matrix_sdk::event_cache=trace,
+            matrix_sdk::event_cache::back_pagination_queue=info,
             matrix_sdk::latest_events=info,
             matrix_sdk_base::event_cache=trace,
             matrix_sdk_sqlite::event_cache_store=trace,
@@ -927,5 +938,25 @@ mod tests {
                 .collect::<Vec<_>>()
                 .join("")
         );
+    }
+
+    /// The `BackPagination` pack only bumps its own target, not the rest of the
+    /// `EventCache` pack.
+    #[test]
+    fn test_trace_log_pack_back_pagination_is_standalone() {
+        let config = super::TracingConfiguration {
+            log_level: super::LogLevel::Info,
+            trace_log_packs: vec![TraceLogPacks::BackPagination],
+            extra_targets: Vec::new(),
+            write_to_stdout_or_system: true,
+            write_to_files: None,
+            #[cfg(feature = "sentry")]
+            sentry_config: None,
+        };
+
+        let filter = build_tracing_filter(&config);
+
+        assert!(filter.contains("matrix_sdk::event_cache::back_pagination_queue=trace"));
+        assert!(filter.contains("matrix_sdk::event_cache=info"));
     }
 }
