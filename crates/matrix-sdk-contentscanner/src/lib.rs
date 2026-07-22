@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(feature = "e2e-encryption")]
+use std::io::Read;
 use std::{
     fmt::{Debug, Formatter},
     sync::Arc,
@@ -30,6 +32,8 @@ use matrix_sdk::{
     media::{MediaFetcher, MediaRequestParameters},
     ruma::events::room::MediaSource,
 };
+#[cfg(feature = "e2e-encryption")]
+use matrix_sdk_crypto::AttachmentDecryptor;
 use matrix_sdk_crypto::olm::Curve25519PublicKey;
 use ruma::{
     events::room::EncryptedFile,
@@ -213,7 +217,28 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         request: &'a MediaRequestParameters,
     ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
         Box::pin(async move {
-            Ok(self.content_scanner.get_media(client, &request.source).await?.content)
+            let content = self.content_scanner.get_media(client, &request.source).await?.content;
+            #[cfg(feature = "e2e-encryption")]
+            let content = {
+                match &request.source {
+                    MediaSource::Encrypted(file) => {
+                        let content_len = content.len();
+                        let mut cursor = std::io::Cursor::new(content);
+                        let mut reader =
+                            AttachmentDecryptor::new(&mut cursor, file.as_ref().clone().into())?;
+
+                        // Encrypted size should be the same as the decrypted size,
+                        // rounded up to a cipher block.
+                        let mut decrypted = Vec::with_capacity(content_len);
+
+                        reader.read_to_end(&mut decrypted)?;
+
+                        decrypted
+                    }
+                    MediaSource::Plain(_) => content,
+                }
+            };
+            Ok(content)
         })
     }
 }
