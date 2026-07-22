@@ -82,12 +82,13 @@ use ruma::api::client::profile::{Call, Status};
 use ruma::{
     OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::{
+        FeatureFlag,
         client::{
             alias::get_alias,
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
-            profile::{AvatarUrl, DisplayName},
+            profile::{AvatarUrl, DisplayName, ProfileFieldName},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
             uiaa::{EmailUserIdentifier, UserIdentifier},
         },
@@ -2150,6 +2151,24 @@ impl Client {
             .await?
             .iter()
             .any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
+    }
+
+    /// Checks if the server supports user status.
+    pub async fn is_user_status_supported(&self) -> Result<bool, ClientError> {
+        let supports_profiles_sync_extension = self
+            .inner
+            .unstable_features()
+            .await?
+            .contains(&FeatureFlag::from("org.matrix.msc4262"));
+
+        let can_set_status_field = self
+            .inner
+            .homeserver_capabilities()
+            .extended_profile_fields()
+            .await?
+            .can_set_field(&ProfileFieldName::Status);
+
+        Ok(supports_profiles_sync_extension && can_set_status_field)
     }
 
     /// Get information about the homeserver's advertised map tile server, if
