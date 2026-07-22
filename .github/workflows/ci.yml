@@ -272,7 +272,7 @@ jobs:
           components: clippy
 
       - name: Install wasm-pack
-        uses: qmaru/wasm-pack-action@785fe709cd17eb6a97607eda9b6f5dbebed2b89c # v0.5.3
+        uses: qmaru/wasm-pack-action@82e10bdbc3f0f54f503a53bc2dba88b038c407ff # v0.6.0
         if: '!matrix.check_only'
         with:
           version: v0.13.1
