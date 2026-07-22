@@ -622,11 +622,15 @@ impl Encryption {
         Ok(result?)
     }
 
-    /// Start a non-destructive first-device cross-signing bootstrap when the
-    /// authoritative server state has no identity.
+    /// Start a non-destructive first-device cross-signing bootstrap from the
+    /// authoritative server state.
     ///
-    /// `None` means the server identity already existed or bootstrap completed
-    /// without UIAA. A returned handle retains the exact generated requests.
+    /// Existing server identities are never replaced. If an interrupted local
+    /// bootstrap uploaded the matching identity but not the current device
+    /// signature, this method reconciles that signature and returns `None`.
+    /// Otherwise `None` means the server identity already existed or bootstrap
+    /// completed without UIAA. A returned handle retains the exact generated
+    /// requests.
     pub async fn bootstrap_cross_signing_if_needed(
         &self,
     ) -> Result<Option<Arc<CrossSigningBootstrapHandle>>, ClientError> {

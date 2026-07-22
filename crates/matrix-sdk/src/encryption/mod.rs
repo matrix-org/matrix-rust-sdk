@@ -1564,8 +1564,13 @@ impl Encryption {
         Ok(())
     }
 
-    /// Start a non-destructive first-device cross-signing bootstrap if the
-    /// authoritative server query shows that no identity exists.
+    /// Start a non-destructive first-device cross-signing bootstrap from the
+    /// authoritative server state.
+    ///
+    /// Existing server identities are never replaced. If the server identity
+    /// exactly matches a complete local private identity but the current device
+    /// is not yet signed by it, the missing signature is reconciled without
+    /// uploading signing keys again.
     ///
     /// Returns a reusable handle when UIAA is required. The handle retains the
     /// exact signing-key and signature requests generated for this bootstrap.
@@ -1579,6 +1584,83 @@ impl Encryption {
         let (request_id, request) = olm_machine.query_keys_for_users([user_id]);
         let response = self.client.keys_query(&request_id, request.device_keys).await?;
         if response.master_keys.contains_key(user_id) {
+            let status = olm_machine.cross_signing_status().await;
+            if !status.is_complete() {
+                return Ok(None);
+            }
+
+            let CrossSigningBootstrapRequests {
+                upload_signing_keys_req,
+                upload_signatures_req,
+                ..
+            } = olm_machine.bootstrap_cross_signing(false).await?;
+
+            let Some(local_master_key) = upload_signing_keys_req.master_key.as_ref() else {
+                return Ok(None);
+            };
+            let Some(local_self_signing_key) = upload_signing_keys_req.self_signing_key.as_ref()
+            else {
+                return Ok(None);
+            };
+            let Some(local_user_signing_key) = upload_signing_keys_req.user_signing_key.as_ref()
+            else {
+                return Ok(None);
+            };
+            let Some(server_master_key) = response.master_keys.get(user_id) else {
+                return Ok(None);
+            };
+            let Some(server_self_signing_key) = response.self_signing_keys.get(user_id) else {
+                return Ok(None);
+            };
+            let Some(server_user_signing_key) = response.user_signing_keys.get(user_id) else {
+                return Ok(None);
+            };
+
+            let local_master_key: ruma::encryption::CrossSigningKey =
+                local_master_key.to_raw().deserialize()?;
+            let local_self_signing_key: ruma::encryption::CrossSigningKey =
+                local_self_signing_key.to_raw().deserialize()?;
+            let local_user_signing_key: ruma::encryption::CrossSigningKey =
+                local_user_signing_key.to_raw().deserialize()?;
+            let server_master_key = server_master_key.deserialize()?;
+            let server_self_signing_key = server_self_signing_key.deserialize()?;
+            let server_user_signing_key = server_user_signing_key.deserialize()?;
+
+            let same_public_key =
+                |local: &ruma::encryption::CrossSigningKey,
+                 server: &ruma::encryption::CrossSigningKey| {
+                    local.user_id == server.user_id
+                        && local.usage == server.usage
+                        && local.keys == server.keys
+                };
+            if !same_public_key(&local_master_key, &server_master_key)
+                || !same_public_key(&local_self_signing_key, &server_self_signing_key)
+                || !same_public_key(&local_user_signing_key, &server_user_signing_key)
+            {
+                return Ok(None);
+            }
+
+            let Some(device_id) = self.client.device_id() else {
+                return Ok(None);
+            };
+            let Some(device_keys) =
+                response.device_keys.get(user_id).and_then(|devices| devices.get(device_id))
+            else {
+                return Ok(None);
+            };
+            let device_keys = device_keys.deserialize()?;
+            let is_signed = device_keys.signatures.get(user_id).is_some_and(|signatures| {
+                signatures.keys().any(|signature_id| {
+                    server_self_signing_key
+                        .keys
+                        .keys()
+                        .any(|self_signing_id| signature_id.as_str() == self_signing_id.as_str())
+                })
+            });
+            if !is_signed {
+                self.client.send(upload_signatures_req).await?;
+            }
+
             return Ok(None);
         }
 
@@ -2603,6 +2685,110 @@ mod tests {
         assert!(handle.auth_with_password("password").await.is_err());
         assert_eq!(handle.challenge().await.session.as_deref(), Some("bootstrap-session"));
         assert!(handle.auth_with_password("password").await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_first_device_bootstrap_reconciles_signature_after_handle_loss() {
+        let (client, server) = logged_in_client_with_server().await;
+        let uploaded_device_keys = Arc::new(StdMutex::new(None::<serde_json::Value>));
+        let uploaded_signing_keys = Arc::new(StdMutex::new(None::<serde_json::Value>));
+
+        let query_device_keys = uploaded_device_keys.clone();
+        let query_signing_keys = uploaded_signing_keys.clone();
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/(?:r0|v3)/keys/query$"))
+            .respond_with(move |_request: &Request| {
+                let device_keys = query_device_keys.lock().unwrap().clone();
+                let signing_keys = query_signing_keys.lock().unwrap().clone();
+                match (device_keys, signing_keys) {
+                    (Some(device_keys), Some(signing_keys)) => ResponseTemplate::new(200)
+                        .set_body_json(json!({
+                            "device_keys": {
+                                "@example:localhost": { "DEVICEID": device_keys },
+                            },
+                            "failures": {},
+                            "master_keys": {
+                                "@example:localhost": signing_keys["master_key"].clone(),
+                            },
+                            "self_signing_keys": {
+                                "@example:localhost": signing_keys["self_signing_key"].clone(),
+                            },
+                            "user_signing_keys": {
+                                "@example:localhost": signing_keys["user_signing_key"].clone(),
+                            },
+                        })),
+                    _ => ResponseTemplate::new(200).set_body_json(empty_key_query_response()),
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let captured_device_keys = uploaded_device_keys.clone();
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/(?:r0|v3)/keys/upload$"))
+            .respond_with(move |request: &Request| {
+                let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                *captured_device_keys.lock().unwrap() = Some(body["device_keys"].clone());
+                ResponseTemplate::new(200).set_body_json(json!({ "one_time_key_counts": {} }))
+            })
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let captured_signing_keys = uploaded_signing_keys.clone();
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/(?:r0|v3|unstable)/keys/device_signing/upload$"))
+            .respond_with(move |request: &Request| {
+                let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                if body.get("auth").is_none() {
+                    ResponseTemplate::new(401).set_body_json(json!({
+                        "flows": [{ "stages": ["m.login.password"] }],
+                        "params": {},
+                        "session": "bootstrap-session",
+                    }))
+                } else {
+                    *captured_signing_keys.lock().unwrap() = Some(body);
+                    ResponseTemplate::new(200).set_body_json(json!({}))
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let signature_attempts = Arc::new(AtomicUsize::new(0));
+        let attempts = signature_attempts.clone();
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/_matrix/client/(?:r0|v3|unstable)/keys/signatures/upload$"))
+            .respond_with(move |_request: &Request| {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ResponseTemplate::new(503).set_body_json(json!({
+                        "errcode": "M_UNAVAILABLE",
+                        "error": "try again",
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({}))
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        // Simulate the normal post-login state where device keys were already
+        // uploaded before the first cross-signing bootstrap.
+        let olm_machine = client.olm_machine().await.as_ref().unwrap().clone();
+        let (_, device_key_request) = olm_machine.upload_device_keys().await.unwrap().unwrap();
+        client.send_outgoing_request(device_key_request.into()).await.unwrap();
+
+        let handle =
+            client.encryption().start_cross_signing_bootstrap_if_needed().await.unwrap().unwrap();
+        assert!(handle.auth_with_password("password").await.is_err());
+        drop(handle);
+
+        assert!(
+            client.encryption().start_cross_signing_bootstrap_if_needed().await.unwrap().is_none()
+        );
+        assert_eq!(signature_attempts.load(Ordering::SeqCst), 2);
     }
 
     #[async_test]
