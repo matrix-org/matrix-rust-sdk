@@ -2875,4 +2875,89 @@ mod tests {
 
         Ok(())
     }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_syncing_one_time_key_counts_updates() -> Result<()> {
+        macro_rules! assert_key_count {
+            ($client: ident, $count:literal) => {{
+                let machine = $client.olm_machine().await;
+                let uploaded_key_counts =
+                    machine.as_ref().unwrap().uploaded_key_count().await.unwrap();
+                assert_eq!(uploaded_key_counts, $count)
+            }};
+        }
+
+        macro_rules! sync_with_key_count {
+            ($client: ident, $server:ident, $count:literal) => {
+                let count = Some($count);
+                sync_with_key_count!($client, $server, count);
+            };
+            ($client: ident, $server:ident, $count:ident) => {{
+                let count: Option<u32> = $count;
+
+                let template = if let Some(count) = count {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                                        "pos": "0",
+                                        "lists": {},
+                                        "extensions": {
+                                            "e2ee": {
+                                                "device_one_time_keys_count": {
+                                                    "signed_curve25519": count,
+                                                }
+                                            }
+                                        },
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                                        "pos": "0",
+                                        "lists": {},
+                                        "extensions": {
+                                            "e2ee": {}
+                                        },
+                    }))
+                };
+
+                let _sync_mock_guard = Mock::given(SlidingSyncMatcher)
+                    .respond_with(template)
+                    .mount_as_scoped($server.server())
+                    .await;
+
+                let sliding_sync = $client
+                    .sliding_sync("test")?
+                    .with_e2ee_extension(
+                        assign!(http::request::E2EE::default(), { enabled: Some(true)}),
+                    )
+                    .build()
+                    .await?;
+
+                tokio::time::timeout(Duration::from_secs(5), sliding_sync.sync_once())
+                    .await
+                    .expect("Sync did not complete in time")
+                    .expect("Sync failed");
+            }}
+        }
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_upload_keys().ok_with_signed_curve_key_count(50).mock_once().mount().await;
+
+        // In the beginning there were no uploaded keys.
+        assert_key_count!(client, 0);
+
+        // The first sync will upload 50 one-time keys.
+        sync_with_key_count!(client, server, None);
+        assert_key_count!(client, 50);
+
+        // Syncing with no key count will not modify the local key count.
+        sync_with_key_count!(client, server, None);
+        assert_key_count!(client, 50);
+
+        // Syncing with a key count, will update the key count.
+        sync_with_key_count!(client, server, 10);
+        assert_key_count!(client, 10);
+
+        Ok(())
+    }
 }

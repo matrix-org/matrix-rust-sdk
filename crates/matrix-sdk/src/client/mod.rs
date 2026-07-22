@@ -3785,7 +3785,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        Error, TransmissionProgress,
+        Error, Result, TransmissionProgress,
         client::{WeakClient, caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
@@ -5164,5 +5164,87 @@ pub(crate) mod tests {
             .await;
 
         assert_matches!(client.fetch_client_well_known().await, Some(_));
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_syncing_one_time_key_counts_updates() -> Result<()> {
+        use wiremock::ResponseTemplate;
+
+        macro_rules! assert_key_count {
+            ($client: ident, $count:literal) => {{
+                let machine = $client.olm_machine().await;
+                let uploaded_key_counts =
+                    machine.as_ref().unwrap().uploaded_key_count().await.unwrap();
+                assert_eq!(uploaded_key_counts, $count)
+            }};
+        }
+
+        macro_rules! sync_with_key_count {
+            ($client: ident, $server:ident, $count:literal) => {
+                let count = Some($count);
+                sync_with_key_count!($client, $server, count);
+            };
+            ($client: ident, $server:ident, $count:ident) => {{
+                use rand::RngExt as _;
+
+                let next_batch: String = rand::rng()
+                    .sample_iter(&rand::distr::Alphanumeric)
+                    .take(16)
+                    .map(char::from)
+                    .collect();
+
+                let count: Option<u32> = $count;
+
+                let template = if let Some(count) = count {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "next_batch": next_batch,
+                        "rooms": {"leave": {}, "join": {}, "invite": {}},
+                        "device_lists": {
+                          "changed": [],
+                          "left": [],
+                        },
+                        "device_one_time_keys_count": {
+                          "signed_curve25519": count
+                        },
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "next_batch": next_batch,
+                        "rooms": {"leave": {}, "join": {}, "invite": {}},
+                        "device_lists": {
+                          "changed": [],
+                          "left": [],
+                        },
+                        "device_one_time_keys_count": {},
+                    }))
+                };
+
+                let _sync_mock_guard = $server.mock_sync().respond_with(template).mount_as_scoped().await;
+                $client.sync_once(Default::default()).await?;
+            }}
+        }
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_upload_keys().ok_with_signed_curve_key_count(50).mock_once().mount().await;
+
+        // In the beginning there were no uploaded keys.
+        assert_key_count!(client, 0);
+
+        // The first sync will upload 50 one-time keys.
+        sync_with_key_count!(client, server, 50);
+        assert_key_count!(client, 50);
+
+        // Syncing with a key count, will update the key count.
+        sync_with_key_count!(client, server, 10);
+        assert_key_count!(client, 10);
+
+        // Syncing with no key count will set the key count to zero.
+        sync_with_key_count!(client, server, None);
+        assert_key_count!(client, 0);
+
+        Ok(())
     }
 }
