@@ -1931,6 +1931,101 @@ async fn test_try_download_file() {
     assert_eq!(decoded.as_bytes(), bundle.as_slice());
 }
 
+#[async_test]
+async fn test_get_rtc_transports() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "rtc_transports": [
+                { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
+            ]
+        })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "get-rtc-transports",
+        "org.matrix.msc4515.get_rtc_transports",
+        json!({}),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4515.get_rtc_transports");
+    assert_eq!(response["requestId"], "get-rtc-transports");
+    assert_eq!(
+        response["response"],
+        json!({
+            "rtc_transports": [
+                { "type": "livekit", "livekit_service_url": "https://livekit-jwt.example.com" }
+            ]
+        })
+    );
+}
+
+#[async_test]
+async fn test_get_rtc_transports_endpoint_unsupported() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
+
+    // The homeserver doesn't implement the discovery endpoint.
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_UNRECOGNIZED",
+            "error": "Unrecognized request",
+        })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "get-rtc-transports",
+        "org.matrix.msc4515.get_rtc_transports",
+        json!({}),
+    )
+    .await;
+
+    // The widget receives an error (as opposed to an empty list), so it can tell
+    // the endpoint apart from a homeserver that advertises no transports.
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4515.get_rtc_transports");
+    assert!(response["response"]["error"]["message"].is_string());
+}
+
+#[async_test]
+async fn test_get_rtc_transports_without_permission() {
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!([])).await;
+
+    send_request(
+        &driver_handle,
+        "get-rtc-transports",
+        "org.matrix.msc4515.get_rtc_transports",
+        json!({}),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4515.get_rtc_transports");
+    assert_eq!(
+        response["response"]["error"]["message"].as_str().unwrap(),
+        "Not allowed: missing the org.matrix.msc4515.rtc_transports capability."
+    );
+}
+
 async fn negotiate_capabilities(driver_handle: &WidgetDriverHandle, caps: JsonValue) {
     {
         // Receive toWidget capabilities request

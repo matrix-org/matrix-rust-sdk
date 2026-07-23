@@ -267,6 +267,7 @@ pub fn get_element_call_required_permissions(
         update_delayed_event: true,
         send_delayed_event: true,
         download_files: true,
+        rtc_transports: true,
     }
 }
 
@@ -334,6 +335,9 @@ pub struct WidgetCapabilities {
     pub send_delayed_event: bool,
     /// This allows the widget to download files (avatars)
     pub download_files: bool,
+    /// This allows the widget to discover the RTC transports advertised by the
+    /// homeserver (MSC4515).
+    pub rtc_transports: bool,
 }
 
 impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
@@ -345,6 +349,7 @@ impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
             update_delayed_event: value.update_delayed_event,
             send_delayed_event: value.send_delayed_event,
             download_file: value.download_files,
+            rtc_transports: value.rtc_transports,
         }
     }
 }
@@ -358,6 +363,7 @@ impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
             update_delayed_event: value.update_delayed_event,
             send_delayed_event: value.send_delayed_event,
             download_files: value.download_file,
+            rtc_transports: value.rtc_transports,
         }
     }
 }
