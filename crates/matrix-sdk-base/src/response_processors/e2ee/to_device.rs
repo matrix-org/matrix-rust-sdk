@@ -87,7 +87,7 @@ async fn process(
     unused_fallback_keys: Option<&[OneTimeKeyAlgorithm]>,
     next_batch_token: Option<String>,
     decryption_settings: &DecryptionSettings,
-    msc_4188: bool,
+    msc_4186: bool,
 ) -> Result<Output> {
     let encryption_sync_changes = EncryptionSyncChanges {
         to_device_events,
@@ -102,7 +102,7 @@ async fn process(
         // decrypts to-device events, but leaves room events alone.
         // This makes sure that we have the decryption keys for the room
         // events at hand.
-        let (events, _room_key_updates) = if msc_4188 {
+        let (events, _room_key_updates) = if msc_4186 {
             olm_machine
                 .receive_sync_changes_msc4186(encryption_sync_changes, decryption_settings)
                 .await?
