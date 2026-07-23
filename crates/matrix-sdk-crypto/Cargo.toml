@@ -120,7 +120,7 @@ matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
 proptest.workspace = true
 rmp-serde.workspace = true
-rcgen = { workspace = true, features = ["ring", "x509-parser"] }
+rcgen = { workspace = true, features = ["pem", "aws_lc_rs", "x509-parser"] }
 similar-asserts.workspace = true
 # required for async_test macro
 stream_assert.workspace = true
