@@ -48,7 +48,7 @@ async fn test_user_is_verified_if_their_msk_is_signed() -> anyhow::Result<()> {
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
 
-    let (alice_username, alice_email) = username_and_email("alice");
+    let (alice_username, alice_email) = username_and_email("alice").await;
 
     // This is the happy path.
     //
@@ -73,7 +73,7 @@ async fn test_user_is_verified_if_their_msk_is_signed() -> anyhow::Result<()> {
             .await?;
 
     // Bob can verify signatures that are properly linked to the CA
-    let (bob_username, _bob_email) = username_and_email("bob");
+    let (bob_username, _bob_email) = username_and_email("bob").await;
     let bob_x509_verifier: Arc<dyn RawX509Verifier> =
         Arc::new(RustRawX509Verifier::new_from_pem_data(&ca_cert.pem()).unwrap());
 
@@ -97,7 +97,7 @@ async fn test_user_is_not_verified_if_we_dont_trust_their_cert() -> anyhow::Resu
     let alice_span = tracing::info_span!("alice");
     let bob_span = tracing::info_span!("bob");
 
-    let (alice_username, alice_email) = username_and_email("alice");
+    let (alice_username, alice_email) = username_and_email("alice").await;
 
     // This is a failure case: Alice and Bob know about X.509, but they use a
     // different CA, so Bob doesn't trust Alice's signature.
@@ -124,7 +124,7 @@ async fn test_user_is_not_verified_if_we_dont_trust_their_cert() -> anyhow::Resu
             .await?;
 
     // Bob can verify signatures that are properly linked to their CA
-    let (bob_username, _bob_email) = username_and_email("bob");
+    let (bob_username, _bob_email) = username_and_email("bob").await;
     let bob_x509_verifier: Arc<dyn RawX509Verifier> =
         Arc::new(RustRawX509Verifier::new_from_pem_data(&bob_ca_cert.pem()).unwrap());
 
@@ -232,13 +232,18 @@ fn cert_params(common_name: &str) -> CertificateParams {
     cert_params
 }
 
-fn username_and_email(prefix: &str) -> (String, String) {
+async fn username_and_email(prefix: &str) -> (String, String) {
     let suffix: u128 = rand::rng().random();
-
     let username = format!("{prefix}{suffix}");
-    // N.B: CI uses `synapse` as server name, which we must match. This
-    // will error the local integration test setup in `ci-start.sh`.
-    let email = format!("{username}@synapse");
+
+    // Discover the server name by creating a temporary client. We need to
+    // discover it because the server name used in CI differs from that used
+    // when running locally. We need to know the server name before we create
+    // our real users because we want to embed the email address in the
+    // certificate that will sign their identity.
+    let tmp_client = TestClientBuilder::new("tmpuser").build().await.unwrap();
+    let server_name = tmp_client.user_id().unwrap().server_name();
+    let email = format!("{username}@{server_name}");
 
     (username, email)
 }
