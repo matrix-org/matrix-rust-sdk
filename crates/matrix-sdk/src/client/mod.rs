@@ -2804,12 +2804,11 @@ impl Client {
 
     /// Fetch the RTC transports advertised by the homeserver from the network,
     /// bypassing the cache.
-    ///
-    /// Unlike [`Client::rtc_transports`], this does not special-case a
-    /// homeserver that doesn't implement the endpoint: it returns the raw error
-    /// in that case. The cache is not updated with the result.
     pub async fn fetch_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
-        let response = self.send(transports::v1::Request::new()).await?;
+        let response = self
+            .send(transports::v1::Request::new())
+            .with_request_config(RequestConfig::short_retry())
+            .await?;
         Ok(response.rtc_transports)
     }
 
