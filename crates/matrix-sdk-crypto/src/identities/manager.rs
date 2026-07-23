@@ -29,6 +29,8 @@ use ruma::{
 use tokio::sync::Mutex;
 use tracing::{Level, debug, enabled, info, instrument, trace, warn};
 
+#[cfg(feature = "experimental-x509-identity-verification")]
+use crate::types::requests::OutgoingRequest;
 use crate::{
     CryptoStoreError, LocalTrust, OwnUserIdentity, SignatureError, UserIdentity,
     error::OlmResult,
@@ -76,6 +78,25 @@ pub(crate) struct IdentityManager {
 
     /// Details of the current "in-flight" key query request, if any
     keys_query_request_details: Arc<Mutex<Option<KeysQueryRequestDetails>>>,
+
+    /// The current X.509 signature re-upload request, if any.
+    ///
+    /// We re-sign our master cross-signing key with X.509 if our signer has a
+    /// later validity period than the current signature on our master
+    /// cross-signing key.  The outer `Option` indicates whether we have checked
+    /// whether the key needs re-signing or not, ad the inner `Option` indicates
+    /// the result of that check, if it was done.  In other words, this value
+    /// will be `None` if we have not yet checked the cross-signing key, it will
+    /// be `Some(None)` if we have checked the cross-signing key and it does not
+    /// need to be re-signed, and will be `Some(request)` if the cross-signing
+    /// key has been re-signed.  `request` will be an outgoing signature upload
+    /// request.
+    ///
+    /// We check whether we need to re-sign when
+    /// `get_x509_signature_upload_request` is first called, or when we receive
+    /// a master signing key from a `/keys/query` request.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    x509_signature_upload_request: Arc<Mutex<Option<Option<OutgoingRequest>>>>,
 }
 
 /// Details of an in-flight key query request
@@ -109,6 +130,8 @@ impl IdentityManager {
             key_query_manager: Default::default(),
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            x509_signature_upload_request: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -436,6 +459,16 @@ impl IdentityManager {
             if private_identity.has_master_key().await && !identity.is_verified() {
                 trace!("Marked our own identity as verified");
                 identity.mark_as_verified()
+            }
+            #[cfg(feature = "experimental-x509-identity-verification")]
+            {
+                // Check if we need to re-sign our identity with the X.509 signer.
+                *self.x509_signature_upload_request.lock().await = Some(
+                    identity
+                        .refresh_x509_signature(&self.store)
+                        .unwrap_or(None)
+                        .map(|upload_request| upload_request.into()),
+                );
             }
 
             None
@@ -814,6 +847,48 @@ impl IdentityManager {
         // We assume that there aren't too many users here; if we find a usecase that
         // requires lots of users to be up-to-date we may need to rethink this.
         (TransactionId::new(), KeysQueryRequest::new(users.into_iter().map(|u| u.to_owned())))
+    }
+
+    /// Return the current signature upload request, if any, needed for updating
+    /// the X.509 signature.
+    ///
+    /// We re-sign our master cross-signing key with X.509 if our signer has a
+    /// later validity period than the current signature on our master
+    /// cross-signing key.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) async fn get_x509_signature_upload_request(&self) -> Option<OutgoingRequest> {
+        let mut upload_request = self.x509_signature_upload_request.lock().await;
+        if upload_request.is_none() {
+            // We haven't yet checked if our identity needs re-signing, so check
+            // it now and remember the result.
+            if let Some(identity) = self
+                .store
+                .get_user_identity(self.user_id())
+                .await
+                .unwrap_or(None)
+                .and_then(UserIdentityData::into_own)
+            {
+                *upload_request = Some(
+                    identity
+                        .refresh_x509_signature(&self.store)
+                        .unwrap_or(None)
+                        .map(|upload_request| upload_request.into()),
+                );
+            }
+        }
+        upload_request.clone().unwrap_or(None)
+    }
+
+    /// Mark the outgoing X.509 signature upload request as sent.
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    pub(crate) async fn mark_x509_signature_request_as_sent(&self, request_id: &TransactionId) {
+        let mut x509_signature_upload_request = self.x509_signature_upload_request.lock().await;
+
+        if let Some(Some(request)) = x509_signature_upload_request.as_ref()
+            && request.request_id() == request_id
+        {
+            *x509_signature_upload_request = Some(None);
+        }
     }
 
     /// Get a list of key query requests needed.
@@ -1521,6 +1596,8 @@ pub(crate) mod testing {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::ops::Deref;
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use std::sync::Arc;
 
     use futures_util::pin_mut;
     use matrix_sdk_test::{async_test, ruma_response_from_json, test_json};
@@ -1530,10 +1607,16 @@ pub(crate) mod tests {
     };
     use serde_json::json;
     use stream_assert::{assert_closed, assert_pending, assert_ready};
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use tokio::sync::Mutex;
 
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use super::IdentityManager;
     use super::testing::{
         device_id, key_query, manager_test_helper, other_key_query, other_user_id, user_id,
     };
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    use crate::olm::Account;
     use crate::{
         CrossSigningKeyExport, OlmMachine,
         identities::manager::testing::{other_key_query_cross_signed, own_key_query},
@@ -2519,5 +2602,180 @@ pub(crate) mod tests {
                 .unwrap();
             igs
         }
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn test_refresh_x509_signature_after_keys_query() {
+        // Test that we check the X.509 signature on our identity to see if it
+        // needs re-signing when it is received from a `/keys/query` response.
+        let user_id = user_id!("@example1:localhost");
+        let device_id = device_id!("DEVICEID");
+
+        // We create three signers with different validity dates: an "old"
+        // signer, a "current" signer, and a "new" signer.
+        let (x509_signer_old, x509_signer_current, x509_signer_new) =
+            crate::x509::tests::signers_with_different_validity();
+
+        // We create an `IdentityManager` that uses the "current" X.509 signer
+        let manager = {
+            let account = Account::with_device_id(&user_id, device_id);
+            let identity =
+                PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
+                    .unwrap();
+            manager_with_private_identity_and_x509(identity, account, x509_signer_current.clone())
+                .await
+        };
+
+        assert!(manager.get_x509_signature_upload_request().await.is_none());
+
+        let private_identity = manager.store.private_identity();
+        let master_key =
+            private_identity.lock().await.master_public_key().await.unwrap().as_ref().clone();
+        let identity_request = {
+            let private_identity = manager.store.private_identity();
+            let private_identity = private_identity.lock().await;
+            private_identity.as_upload_request().await
+        };
+        let device_keys = manager.store.static_account().unsigned_device_keys();
+
+        // Make a `/keys/query` response where the master key is signed by the
+        // given X.509 signer.
+        let make_response = |x509_signer: &crate::x509::X509Signer| {
+            let mut master_key = master_key.clone();
+            x509_signer.sign_cross_signing_key(user_id, &mut master_key).unwrap();
+
+            let response = json!({
+                "device_keys": {
+                    user_id: {
+                        device_keys.device_id.to_string(): device_keys
+                    }
+                },
+                "master_keys": {
+                    user_id: master_key,
+                },
+                "self_signing_keys": {
+                    user_id: identity_request.self_signing_key,
+                },
+                "user_signing_keys": {
+                    user_id: identity_request.user_signing_key,
+                }
+            });
+
+            ruma_response_from_json(&response)
+        };
+
+        // We receive a master key signed by the old signer.  In this case, we
+        // should re-sign the key, since our signer has a newer validity period.
+        let response = make_response(&x509_signer_old);
+        manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+        assert!(manager.get_x509_signature_upload_request().await.is_some());
+
+        // We receive a master key signed by the same signer, so we don't need
+        // to re-sign.
+        let response = make_response(&x509_signer_current);
+        manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+        assert!(manager.get_x509_signature_upload_request().await.is_none());
+
+        // We receive a master key signed by a newer signer, so we don't need to
+        // re-sign.
+        let response = make_response(&x509_signer_new);
+        manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
+        assert!(manager.get_x509_signature_upload_request().await.is_none());
+    }
+
+    #[async_test]
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn test_refresh_x509_signature_on_startup() {
+        // Test that we check if we need to re-sign our master key with X.509
+        // without having a `/keys/query` response.
+        let user_id = user_id!("@example1:localhost");
+        let device_id = device_id!("DEVICEID");
+
+        // We create three signers with different validity dates: an "old"
+        // signer, a "current" signer, and a "new" signer.
+        let (x509_signer_old, x509_signer_current, x509_signer_new) =
+            crate::x509::tests::signers_with_different_validity();
+
+        // We create a cross-signing identity signed with the current signer.
+        let account = Account::with_device_id(&user_id, device_id);
+        let identity =
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current)).unwrap();
+
+        // If we have an identity manager with an old signer, then it won't try
+        // to re-sign the master key.
+        let manager_old = manager_with_private_identity_and_x509(
+            identity.clone(),
+            account.deep_clone(),
+            x509_signer_old,
+        )
+        .await;
+        assert!(manager_old.get_x509_signature_upload_request().await.is_none());
+
+        // If we have an identity manager with the same signer, then it won't try
+        // to re-sign the master key.
+        let manager_current = manager_with_private_identity_and_x509(
+            identity.clone(),
+            account.deep_clone(),
+            x509_signer_current,
+        )
+        .await;
+        assert!(manager_current.get_x509_signature_upload_request().await.is_none());
+
+        // If we have an identity manager with a new signer, then it will
+        // re-sign the master key.
+        let manager_new = manager_with_private_identity_and_x509(
+            identity.clone(),
+            account.deep_clone(),
+            x509_signer_new,
+        )
+        .await;
+        assert!(manager_new.get_x509_signature_upload_request().await.is_some());
+    }
+
+    #[cfg(feature = "experimental-x509-identity-verification")]
+    async fn manager_with_private_identity_and_x509(
+        identity: PrivateCrossSigningIdentity,
+        account: Account,
+        x509_signer: crate::x509::X509Signer,
+    ) -> IdentityManager {
+        use crate::{
+            store::{
+                CryptoStoreWrapper, MemoryStore, Store,
+                types::{Changes, IdentityChanges, PendingChanges},
+            },
+            verification::VerificationMachine,
+        };
+
+        let user_identity_data = identity.to_public_identity().await.unwrap();
+        let identity = Arc::new(Mutex::new(identity));
+        let static_account = account.static_data().clone();
+        let store = Arc::new(CryptoStoreWrapper::new(
+            account.user_id(),
+            account.device_id(),
+            MemoryStore::new(),
+        ));
+        let verification =
+            VerificationMachine::new(static_account.clone(), identity.clone(), store.clone());
+        let store = Store::new_with_x509(
+            static_account,
+            identity,
+            store,
+            verification,
+            None,
+            Some(x509_signer),
+        );
+        store
+            .save_changes(Changes {
+                identities: IdentityChanges {
+                    new: vec![user_identity_data.into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        store.save_pending_changes(PendingChanges { account: Some(account) }).await.unwrap();
+        IdentityManager::new(store)
     }
 }
