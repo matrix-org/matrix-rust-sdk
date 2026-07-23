@@ -1842,6 +1842,8 @@ impl OlmMachine {
     ///
     /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
     ///   a sync response.
+    /// * `decryption_settings` - Settings controlling how the to-device
+    ///   messages passed in the [`EncryptionSyncChanges`] should be decrypted.
     ///
     /// # Returns
     ///
@@ -1868,6 +1870,8 @@ impl OlmMachine {
     ///
     /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
     ///   a sync response.
+    /// * `decryption_settings` - Settings controlling how the to-device
+    ///   messages passed in the [`EncryptionSyncChanges`] should be decrypted.
     ///
     /// # Returns
     ///
