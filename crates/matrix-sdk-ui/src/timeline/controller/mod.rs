@@ -47,7 +47,7 @@ use ruma::{
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
         receipt::{Receipt, ReceiptThread, ReceiptType},
-        relation::Annotation,
+        relation::{Annotation, RelationType},
         room::message::{MessageType, Relation},
     },
     room_version_rules::RoomVersionRules,
@@ -1865,6 +1865,20 @@ impl<P: RoomDataProvider> TimelineController<P> {
     /// Returns the timeline focus of the [`TimelineController`].
     pub(super) fn focus(&self) -> &TimelineFocusKind {
         &self.focus
+    }
+
+    /// Find an event by ID in this timeline, along with its related events.
+    ///
+    /// The related events can be filtered by relation type.
+    pub(in crate::timeline) async fn find_event_with_relations(
+        &self,
+        event_id: &EventId,
+        filter: Option<Vec<RelationType>>,
+    ) -> Result<(TimelineEvent, Vec<TimelineEvent>), Error> {
+        self.room_data_provider
+            .load_or_fetch_event_with_relations(event_id, filter)
+            .await
+            .map_err(Into::into)
     }
 }
 

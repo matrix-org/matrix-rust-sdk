@@ -661,6 +661,26 @@ impl Timeline {
         Ok(item.into())
     }
 
+    /// Get the edit history for the given event.
+    ///
+    /// Returns all revisions of the event, in chronological order.
+    /// The first entry is the original event content, followed by each
+    /// edit in the order they were applied.
+    pub async fn edit_revisions(
+        &self,
+        event_id: String,
+    ) -> Result<Vec<EditRevisionRecord>, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let revisions = self.inner.edit_revisions(&event_id).await?;
+        Ok(revisions
+            .into_iter()
+            .map(|r| EditRevisionRecord {
+                content: r.content.into(),
+                timestamp: r.timestamp.map(|ts| ts.0.into()),
+            })
+            .collect())
+    }
+
     /// Redacts an event from the timeline.
     ///
     /// Only works for events that exist as timeline items.
@@ -1062,6 +1082,12 @@ impl From<ruma::events::receipt::Receipt> for Receipt {
     fn from(value: ruma::events::receipt::Receipt) -> Self {
         Receipt { timestamp: value.ts.map(|ts| ts.into()) }
     }
+}
+
+#[derive(Clone, uniffi::Record)]
+pub struct EditRevisionRecord {
+    content: TimelineItemContent,
+    timestamp: Option<u64>,
 }
 
 #[derive(Clone, uniffi::Record)]
