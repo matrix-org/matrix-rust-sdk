@@ -471,7 +471,11 @@ mod tests_latest_event {
         let sender = user_id!("@bob:example.org");
 
         let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
         let weak_client = WeakClient::from_client(&client);
 
         client.base_client().get_or_create_room(room_id, RoomState::Joined);
@@ -499,8 +503,6 @@ mod tests_latest_event {
             .unwrap();
 
         let event_cache = client.event_cache();
-        // The backfill only runs when automatic backpagination is enabled.
-        event_cache.config_mut().experimental_auto_back_pagination = true;
         event_cache.subscribe().unwrap();
 
         let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();

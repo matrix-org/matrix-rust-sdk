@@ -149,9 +149,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let event_cache = client.event_cache();
-    event_cache.config_mut().experimental_auto_back_pagination = true;
-    event_cache.subscribe()?;
+    client.event_cache().subscribe()?;
 
     let terminal = ratatui::init();
     execute!(stdout(), EnableMouseCapture)?;
@@ -918,6 +916,7 @@ async fn configure_client(cli: Cli) -> Result<Client> {
             auto_enable_backups: true,
         })
         .with_enable_share_history_on_invite(true)
+        .with_enable_automatic_back_pagination(true)
         .with_threading_support(ThreadingSupport::Enabled { with_subscriptions: true })
         .search_index_store(SearchIndexStoreKind::UnencryptedDirectory(
             session_path.join("indexData"),

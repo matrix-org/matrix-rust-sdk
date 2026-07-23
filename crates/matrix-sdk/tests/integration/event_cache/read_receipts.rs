@@ -724,10 +724,13 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
 #[async_test]
 async fn test_compute_unread_counts_triggers_backpaginations() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+        .build()
+        .await;
     let own_user_id = client.user_id().unwrap();
 
-    client.event_cache().config_mut().experimental_auto_back_pagination = true;
     client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");

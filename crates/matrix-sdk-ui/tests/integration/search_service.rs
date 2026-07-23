@@ -31,12 +31,13 @@ use ruma::{event_id, room_id, user_id};
 #[async_test]
 async fn test_search_backfill_makes_history_searchable() {
     let server = MatrixMockServer::new().await;
-    let client = server.client_builder().build().await;
+    let client = server
+        .client_builder()
+        .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+        .build()
+        .await;
 
-    let event_cache = client.event_cache();
-    // Enable before subscribing, so the back-pagination queue is spawned.
-    event_cache.config_mut().experimental_auto_back_pagination = true;
-    event_cache.subscribe().unwrap();
+    client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
     let sender = user_id!("@bob:example.org");
