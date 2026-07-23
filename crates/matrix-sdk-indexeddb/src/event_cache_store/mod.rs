@@ -282,7 +282,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
-            IdbTransactionMode::Readwrite,
+            IdbTransactionMode::Readonly,
         )?;
 
         let mut raw_chunks = Vec::new();
@@ -317,7 +317,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
-            IdbTransactionMode::Readwrite,
+            IdbTransactionMode::Readonly,
         )?;
 
         let mut raw_chunks = Vec::new();
