@@ -2141,12 +2141,12 @@ impl Client {
 
     /// Checks if the server supports the LiveKit RTC focus for placing calls.
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
-        Ok(self
-            .inner
-            .well_known_rtc_transports()
-            .await?
-            .iter()
-            .any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
+        let transports = match self.inner.rtc_transports().await? {
+            Some(transports) => transports,
+            // discovery not supported, fallback to well-known
+            None => self.inner.well_known_rtc_transports().await?,
+        };
+        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
     }
 
     /// Checks if the server supports user status.
