@@ -2327,18 +2327,6 @@ impl Client {
         }))))
     }
 
-    /// Whether to enable automatic backpagination under certain conditions
-    /// (e.g. when processing read receipts).
-    ///
-    /// This is an experimental feature, and might cause performance issues on
-    /// large accounts. Use with caution.
-    ///
-    /// This must be called after creating a client, but before subscribing to
-    /// the event cache (so, before spawning a sync service or a timeline).
-    pub fn enable_automatic_back_pagination(&self) {
-        self.inner.event_cache().config_mut().experimental_auto_back_pagination = true;
-    }
-
     /// Start a search backfill sweep in the background.
     ///
     /// Back-paginates message history for every room, down to a ~3-month floor,
@@ -2354,7 +2342,7 @@ impl Client {
             let Some(queue) = client.event_cache().back_pagination_queue() else {
                 warn!(
                     "search backfill requested but automatic backpagination is disabled; \
-                     call enable_automatic_back_pagination first"
+                     set ClientBuilder::enable_automatic_back_pagination when building the client"
                 );
                 return;
             };

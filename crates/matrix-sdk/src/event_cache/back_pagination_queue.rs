@@ -993,10 +993,13 @@ mod tests {
     #[async_test]
     async fn test_search_backfill_drains_room() {
         let server = MatrixMockServer::new().await;
-        let client = server.client_builder().build().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
 
         let event_cache = client.event_cache();
-        event_cache.config_mut().experimental_auto_back_pagination = true;
         event_cache.subscribe().unwrap();
 
         let room_id = room_id!("!omelette:fromage.fr");
