@@ -2655,7 +2655,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let rtc_foci = client.rtc_foci().await?;
+    /// let rtc_foci = client.well_known_rtc_transports().await?;
     /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
     ///     RtcTransport::LiveKit(info) => Some(info),
     ///     _ => None,
@@ -2665,7 +2665,7 @@ impl Client {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
+    pub async fn well_known_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
         let well_known = self.well_known().await;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
@@ -2687,7 +2687,7 @@ impl Client {
     ///   list may be empty if the homeserver advertises no transports),
     /// - `Ok(None)` if the homeserver doesn't implement the endpoint (this is
     ///   also cached, so the endpoint isn't hit on every call). Callers may
-    ///   want to fall back to [`Client::rtc_foci`] (the well-known foci) in
+    ///   want to fall back to [`Client::well_known_rtc_transports`] (the well-known foci) in
     ///   this case,
     /// - `Err(_)` on a transient error (not cached).
     ///
@@ -2705,7 +2705,7 @@ impl Client {
     ///     Some(transports) => transports,
     ///     // The homeserver doesn't support the discovery endpoint; fall back
     ///     // to the RTC foci advertised in the well-known.
-    ///     None => client.rtc_foci().await?,
+    ///     None => client.well_known_rtc_transports().await?,
     /// };
     /// for transport in transports {
     ///     println!("transport type: {}", transport.transport_type());
@@ -4523,10 +4523,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // This subsequent call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -4543,10 +4543,10 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(well_known_mock);
 
@@ -4556,9 +4556,9 @@ pub(crate) mod tests {
         server.mock_well_known().ok().named("second well known mock").expect(2).mount().await;
 
         // Hits network again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Force an expiry of the data.
         let well_known = client.well_known().await;
@@ -4700,10 +4700,10 @@ pub(crate) mod tests {
             .build()
             .await;
 
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // This subsequent call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -4719,10 +4719,10 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(well_known_mock);
 
@@ -4738,9 +4738,9 @@ pub(crate) mod tests {
             .await;
 
         // Hits network again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
     }
 
     #[async_test]
