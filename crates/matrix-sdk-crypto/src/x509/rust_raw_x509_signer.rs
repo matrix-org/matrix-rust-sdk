@@ -14,6 +14,7 @@
 
 use std::sync::Arc;
 
+use cms::cert::x509::{Certificate, der};
 use rustls::{
     SignatureScheme,
     crypto::ring,
@@ -42,6 +43,9 @@ pub struct RustRawX509Signer {
 
     /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
+
+    /// The "not after" time for the certificate's validity period.
+    validity_not_after: der::DateTime,
 }
 
 /// An enum of possible errors that can occur while instantiating
@@ -50,7 +54,7 @@ pub struct RustRawX509Signer {
 pub enum RustX509SignError {
     /// There was an error parsing the certificate chain.
     #[error("failed to parse certificate chain {0}")]
-    CertificateParse(rustls::pki_types::pem::Error),
+    CertificateParse(der::Error),
 
     /// No certificates were found.
     #[error("no certificates found in chain")]
@@ -80,7 +84,22 @@ impl RustRawX509Signer {
             .load_private_key(private_key)
             .map_err(RustX509SignError::PrivateKeyLoad)?;
 
-        Ok(Self { certificate_chain: certificate_chain_pem.to_owned(), signing_key })
+        let cert_chain = Certificate::load_pem_chain(certificate_chain_pem.as_bytes())
+            .map_err(RustX509SignError::CertificateParse)?;
+
+        // Pick the minimum "not after" date in the certificate chain, since the
+        // chain itself will not be valid after that time.
+        let validity_not_after = cert_chain
+            .into_iter()
+            .map(|cert| cert.tbs_certificate.validity.not_after.to_date_time())
+            .min()
+            .ok_or(RustX509SignError::CertificateNotFound)?;
+
+        Ok(Self {
+            certificate_chain: certificate_chain_pem.to_owned(),
+            signing_key,
+            validity_not_after,
+        })
     }
 }
 
@@ -104,6 +123,10 @@ impl RawX509Signer for RustRawX509Signer {
             signature_scheme: X509SignatureScheme::RsaPssSha512,
         })
     }
+
+    fn validity_not_after(&self) -> der::DateTime {
+        self.validity_not_after
+    }
 }
 
 impl std::fmt::Debug for RustRawX509Signer {
@@ -117,6 +140,8 @@ impl std::fmt::Debug for RustRawX509Signer {
 
 #[cfg(test)]
 mod tests {
+    use cms::cert::x509::der;
+
     use crate::x509::{
         RawX509Signer, raw_x509_signature::X509SignatureScheme,
         rust_raw_x509_signer::RustRawX509Signer,
@@ -132,6 +157,17 @@ mod tests {
         assert_eq!(sig.certificate_chain, TEST_CERT_CHAIN);
         assert_eq!(sig.signature_scheme, X509SignatureScheme::RsaPssSha512);
         assert_eq!(sig.signature_bytes.len(), 256);
+    }
+
+    #[test]
+    fn test_can_get_validity() {
+        let x509_sign =
+            RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
+
+        assert_eq!(
+            x509_sign.validity_not_after,
+            der::DateTime::new(2027, 6, 5, 15, 2, 16).unwrap()
+        );
     }
 
     /// A leaf and intermediate CA cert, generated with openssl
