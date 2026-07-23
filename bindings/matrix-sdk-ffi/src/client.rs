@@ -2144,7 +2144,7 @@ impl Client {
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         Ok(self
             .inner
-            .rtc_foci()
+            .well_known_rtc_transports()
             .await?
             .iter()
             .any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
