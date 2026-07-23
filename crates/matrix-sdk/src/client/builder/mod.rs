@@ -25,6 +25,7 @@ use std::{
     collections::BTreeSet,
     fmt,
     sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
 };
 
 #[cfg(feature = "sqlite")]
@@ -144,6 +145,7 @@ pub struct ClientBuilder {
     x509_verifier: Option<Arc<dyn RawX509Verifier>>,
     dm_room_definition: DmRoomDefinition,
     media_fetcher: Arc<dyn MediaFetcher>,
+    discovery_cache_timeout: Duration,
 }
 
 impl ClientBuilder {
@@ -186,6 +188,7 @@ impl ClientBuilder {
             x509_verifier: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: Arc::new(DefaultMediaFetcher),
+            discovery_cache_timeout: Duration::from_secs(60 * 60 * 24),
         }
     }
 
@@ -702,12 +705,23 @@ impl ClientBuilder {
             search_index,
             thread_subscriptions_catchup,
             self.media_fetcher.clone(),
+            self.discovery_cache_timeout,
         )
         .await;
 
         debug!("Done building the Client");
 
         Ok(Client { inner })
+    }
+
+    /// Set the duration after which cached discovery data (e.g. supported
+    /// versions, well-known info) is considered stale and needs to be
+    /// refreshed.
+    ///
+    /// By default, this is 24 hours
+    pub fn discovery_cache_timeout(mut self, stale_timeout: Duration) -> Self {
+        self.discovery_cache_timeout = stale_timeout;
+        self
     }
 }
 

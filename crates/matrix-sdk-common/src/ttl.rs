@@ -17,6 +17,7 @@
 
 use ruma::time::SystemTime;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 /// A value that expires after some time.
 ///
@@ -70,6 +71,13 @@ impl<T> TtlValue<T> {
     /// Whether this value has expired.
     pub fn has_expired(&self) -> bool {
         self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= Self::STALE_THRESHOLD)
+    }
+
+    /// Whether this value has expired, using a custom stale threshold instead
+    /// of the default `STALE_THRESHOLD`.
+    pub fn has_expired_with_timeout(&self, stale_threshold: Duration) -> bool {
+        self.last_fetch_ts
+            .is_some_and(|ts| now_timestamp_ms() - ts >= stale_threshold.as_millis() as f64)
     }
 
     /// Mark this value has expired.
