@@ -38,7 +38,7 @@ use ruma::{
     ServerName, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
-        receipt::ReceiptThread,
+        receipt::ReceiptThread as RumaReceiptThread,
         room::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
@@ -67,7 +67,8 @@ use crate::{
     },
     runtime::get_runtime_handle,
     timeline::{
-        AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
+        AbstractProgress, LatestEventValue, ReceiptThread, ReceiptType, SendHandle, Timeline,
+        UploadSource, UserReceipt,
         configuration::{TimelineConfiguration, TimelineFilter},
         threads::{ThreadListService, ThreadSubscription},
     },
@@ -713,6 +714,33 @@ impl Room {
         Ok(())
     }
 
+    /// Load the receipt of the given type for the given user in this room,
+    /// optionally scoped to a thread.
+    ///
+    /// The receipt is read from the local store, which is fed by sync, so it
+    /// also reflects receipts sent by the user's other devices. Returns
+    /// `None` if the user has no matching receipt in this room.
+    ///
+    /// Note: [`ReceiptType::FullyRead`] is a marker, not an event receipt,
+    /// and is rejected.
+    pub async fn load_user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: String,
+    ) -> Result<Option<UserReceipt>, ClientError> {
+        let user_id = UserId::parse(&*user_id)?;
+
+        Ok(self
+            .inner
+            .load_user_receipt(receipt_type.try_into()?, thread.try_into()?, &user_id)
+            .await?
+            .map(|(event_id, receipt)| UserReceipt {
+                event_id: event_id.to_string(),
+                receipt: receipt.into(),
+            }))
+    }
+
     /// Mark a room as fully read, by attaching a read receipt to the provided
     /// `event_id`.
     ///
@@ -726,7 +754,11 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         self.inner
-            .send_single_receipt(ReceiptType::FullyRead.into(), ReceiptThread::Unthreaded, event_id)
+            .send_single_receipt(
+                ReceiptType::FullyRead.into(),
+                RumaReceiptThread::Unthreaded,
+                event_id,
+            )
             .await?;
 
         Ok(())

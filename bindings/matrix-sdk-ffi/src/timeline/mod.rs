@@ -1064,6 +1064,15 @@ impl From<ruma::events::receipt::Receipt> for Receipt {
     }
 }
 
+/// A receipt of a user in a room, as read from the local store.
+#[derive(uniffi::Record)]
+pub struct UserReceipt {
+    /// The ID of the event the receipt is attached to.
+    pub event_id: String,
+    /// The receipt itself.
+    pub receipt: Receipt,
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct EventTimelineItemDebugInfo {
     model: String,
@@ -1239,6 +1248,53 @@ impl From<ReceiptType> for ruma::api::client::receipt::create_receipt::v3::Recei
             ReceiptType::ReadPrivate => Self::ReadPrivate,
             ReceiptType::FullyRead => Self::FullyRead,
         }
+    }
+}
+
+impl TryFrom<ReceiptType> for ruma::events::receipt::ReceiptType {
+    type Error = ClientError;
+
+    fn try_from(value: ReceiptType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ReceiptType::Read => Self::Read,
+            ReceiptType::ReadPrivate => Self::ReadPrivate,
+            // `m.fully_read` is a marker, not an event receipt: it has no
+            // counterpart in `ruma::events::receipt::ReceiptType`.
+            ReceiptType::FullyRead => {
+                return Err(ClientError::Generic {
+                    msg: "FullyRead is a marker, not an event receipt".to_owned(),
+                    details: None,
+                });
+            }
+        })
+    }
+}
+
+/// The thread scope of a read receipt.
+#[derive(Clone, uniffi::Enum)]
+pub enum ReceiptThread {
+    /// The receipt applies to the room, regardless of threads.
+    Unthreaded,
+    /// The receipt applies to the un-threaded main timeline only.
+    Main,
+    /// The receipt applies to the thread with the given root event.
+    Thread {
+        /// The ID of the thread's root event.
+        thread_root_event_id: String,
+    },
+}
+
+impl TryFrom<ReceiptThread> for ruma::events::receipt::ReceiptThread {
+    type Error = ruma::IdParseError;
+
+    fn try_from(value: ReceiptThread) -> Result<Self, Self::Error> {
+        Ok(match value {
+            ReceiptThread::Unthreaded => Self::Unthreaded,
+            ReceiptThread::Main => Self::Main,
+            ReceiptThread::Thread { thread_root_event_id } => {
+                Self::Thread(EventId::parse(thread_root_event_id)?)
+            }
+        })
     }
 }
 
@@ -1650,5 +1706,37 @@ mod galleries {
 
             Ok(handle)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ruma::{event_id, events::receipt::ReceiptThread as RumaReceiptThread};
+
+    use super::ReceiptThread;
+
+    #[test]
+    fn test_receipt_thread_conversion() {
+        assert_eq!(
+            RumaReceiptThread::try_from(ReceiptThread::Unthreaded),
+            Ok(RumaReceiptThread::Unthreaded)
+        );
+        assert_eq!(RumaReceiptThread::try_from(ReceiptThread::Main), Ok(RumaReceiptThread::Main));
+
+        let thread_root = event_id!("$root:example.org");
+        assert_eq!(
+            RumaReceiptThread::try_from(ReceiptThread::Thread {
+                thread_root_event_id: thread_root.to_string(),
+            }),
+            Ok(RumaReceiptThread::Thread(thread_root.to_owned()))
+        );
+
+        // An invalid thread root event ID is rejected.
+        assert!(
+            RumaReceiptThread::try_from(ReceiptThread::Thread {
+                thread_root_event_id: "not an event id".to_owned(),
+            })
+            .is_err()
+        );
     }
 }
