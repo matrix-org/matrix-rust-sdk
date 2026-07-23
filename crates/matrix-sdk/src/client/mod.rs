@@ -2644,9 +2644,10 @@ impl Client {
     /// Get information about the homeserver's advertised RTC foci by fetching
     /// the well-known file from the server or the cache.
     ///
-    /// This will be soon deprecated in favor of [`Client::rtc_transports`], which fetches the RTC
-    /// transports advertised by the homeserver through the authenticated
-    /// `GET /_matrix/client/v1/rtc/transports` endpoint.
+    /// This will be soon deprecated in favor of [`Client::rtc_transports`],
+    /// which fetches the RTC transports advertised by the homeserver
+    /// through the authenticated `GET /_matrix/client/v1/rtc/transports`
+    /// endpoint.
     ///
     /// # Examples
     /// ```no_run
@@ -2687,8 +2688,8 @@ impl Client {
     ///   list may be empty if the homeserver advertises no transports),
     /// - `Ok(None)` if the homeserver doesn't implement the endpoint (this is
     ///   also cached, so the endpoint isn't hit on every call). Callers may
-    ///   want to fall back to [`Client::well_known_rtc_transports`] (the well-known foci) in
-    ///   this case,
+    ///   want to fall back to [`Client::well_known_rtc_transports`] (the
+    ///   well-known foci) in this case,
     /// - `Err(_)` on a transient error (not cached).
     ///
     /// # Examples
