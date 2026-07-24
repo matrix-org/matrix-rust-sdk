@@ -2641,6 +2641,13 @@ impl Client {
         self.refresh_well_known_cache().await
     }
 
+    /// Get information about the homeserver's advertised RTC transports by
+    /// fetching the well-known file from the server or the cache.
+    #[deprecated = "Use `Client::rtc_transports` instead"]
+    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
+        self.well_known_rtc_transports().await
+    }
+
     /// Get information about the homeserver's advertised RTC foci by fetching
     /// the well-known file from the server or the cache.
     ///
