@@ -425,12 +425,13 @@ mod test {
 
     use assert_matches2::{assert_let, assert_matches};
     use futures_util::StreamExt;
-    use matrix_sdk_base::crypto::types::SecretsBundle;
+    use matrix_sdk_base::{CancellableIntoFutureExt, crypto::types::SecretsBundle};
     use matrix_sdk_common::executor::spawn;
     use matrix_sdk_test::async_test;
     use oauth2::{EndUserVerificationUrl, VerificationUriComplete};
     use ruma::{owned_device_id, owned_user_id};
     use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
     use tracing::debug;
 
     use super::*;
@@ -1251,6 +1252,244 @@ mod test {
 
         // Wait for all tasks to finish.
         grant.await.expect("Alice should be able to grant the login");
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
+    }
+
+    #[async_test]
+    async fn test_grant_login_with_generated_qr_code_grant_cancelled() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = Arc::new(
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await,
+        );
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server
+            .mock_upload_cross_signing_keys()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_keys")
+            .mount()
+            .await;
+        server
+            .mock_upload_cross_signing_signatures()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_signatures")
+            .mount()
+            .await;
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to set up cross signing");
+
+        // Prepare the login granting future.
+        let oauth = alice.oauth();
+
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .generate();
+        let (qr_code_tx, qr_code_rx) = oneshot::channel();
+        let (checkcode_tx, checkcode_rx) = oneshot::channel();
+
+        // Spawn the updates task.
+        let mut updates = grant.subscribe_to_progress();
+        let mut state = grant.state.get();
+        let cancel = CancellationToken::new();
+        let cancel_task = cancel.clone();
+        assert_matches!(state.clone(), GrantLoginProgress::Starting);
+        let updates_task = spawn(async move {
+            let mut qr_code_tx = Some(qr_code_tx);
+            let mut checkcode_rx = Some(checkcode_rx);
+
+            while let Some(update) = updates.next().await {
+                match &update {
+                    GrantLoginProgress::Starting => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(
+                        GeneratedQrProgress::QrReady(qr_code_data),
+                    ) => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                        qr_code_tx
+                            .take()
+                            .expect("The QR code should only be forwarded once")
+                            .send(qr_code_data.clone())
+                            .expect("Alice should be able to forward the QR code");
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(
+                        GeneratedQrProgress::QrScanned(checkcode_sender),
+                    ) => {
+                        assert_matches!(
+                            state,
+                            GrantLoginProgress::EstablishingSecureChannel(
+                                GeneratedQrProgress::QrReady(_)
+                            )
+                        );
+                        let checkcode = checkcode_rx
+                            .take()
+                            .expect("The checkcode should only be forwarded once")
+                            .await
+                            .expect("Alice should receive the checkcode");
+                        checkcode_sender
+                            .send(checkcode)
+                            .await
+                            .expect("Alice should be able to forward the checkcode");
+                        cancel_task.cancel();
+                        break;
+                    }
+                    _ => {
+                        panic!("Alice should abort the process");
+                    }
+                }
+                state = update;
+            }
+        });
+
+        // Let Bob request the login and run through the process.
+        let rendezvous_server_clone = rendezvous_server.clone();
+        let bob_task = spawn(async move {
+            request_login_with_scanned_qr_code(
+                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                qr_code_rx,
+                checkcode_tx,
+                None,
+                &rendezvous_server_clone,
+                None,
+                None,
+            )
+            .await;
+        });
+
+        // Wait for all tasks to finish / fail.
+        assert_matches!(
+            grant.cancellable(cancel).await,
+            None,
+            "Alice should abort the login with expected error"
+        );
+        updates_task.await.expect("Alice should run through all progress states");
+        bob_task.await.expect("Bob's task should finish");
+    }
+
+    #[async_test]
+    async fn test_grant_login_with_scanned_qr_code_grant_cancelled() {
+        let server = MatrixMockServer::new().await;
+        let rendezvous_server = Arc::new(
+            MockedRendezvousServer::new(server.server(), "abcdEFG12345", Duration::MAX).await,
+        );
+        debug!("Set up rendezvous server mock at {}", rendezvous_server.rendezvous_url);
+
+        server.mock_upload_keys().ok().expect(1).named("upload_keys").mount().await;
+        server
+            .mock_upload_cross_signing_keys()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_keys")
+            .mount()
+            .await;
+        server
+            .mock_upload_cross_signing_signatures()
+            .ok()
+            .expect(1)
+            .named("upload_xsigning_signatures")
+            .mount()
+            .await;
+
+        // Create a secure channel on the new client (Bob) and extract the QR code.
+        let client = HttpClient::new(reqwest::Client::new(), Default::default());
+        let channel = SecureChannel::login(client, &rendezvous_server.homeserver_url)
+            .await
+            .expect("Bob should be able to create a secure channel.");
+        let qr_code_data = channel.qr_code_data().clone();
+
+        // Create the existing client (Alice).
+        let user_id = owned_user_id!("@alice:example.org");
+        let device_id = owned_device_id!("ALICE_DEVICE");
+        let alice = server
+            .client_builder_for_crypto_end_to_end(&user_id, &device_id)
+            .logged_in_with_oauth()
+            .build()
+            .await;
+        alice
+            .encryption()
+            .bootstrap_cross_signing(None)
+            .await
+            .expect("Alice should be able to set up cross signing");
+
+        // Prepare the login granting future using the QR code.
+        let oauth = alice.oauth();
+        let grant = oauth
+            .grant_login_with_qr_code()
+            .device_creation_timeout(Duration::from_secs(2))
+            .scan(&qr_code_data);
+        let (checkcode_tx, checkcode_rx) = oneshot::channel();
+
+        // Spawn the updates task.
+        let mut updates = grant.subscribe_to_progress();
+        let mut state = grant.state.get();
+        let cancel = CancellationToken::new();
+        let cancel_task = cancel.clone();
+        assert_matches!(state.clone(), GrantLoginProgress::Starting);
+        let updates_task = spawn(async move {
+            let mut checkcode_tx = Some(checkcode_tx);
+
+            while let Some(update) = updates.next().await {
+                match &update {
+                    GrantLoginProgress::Starting => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                    }
+                    GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
+                        assert_matches!(state, GrantLoginProgress::Starting);
+                        checkcode_tx
+                            .take()
+                            .expect("The checkcode should only be forwarded once")
+                            .send(check_code.to_digit())
+                            .expect("Alice should be able to forward the checkcode");
+                        cancel_task.cancel();
+                        break;
+                    }
+                    _ => {
+                        panic!("Alice should abort the process");
+                    }
+                }
+                state = update;
+            }
+        });
+
+        let rendezvous_server_clone = rendezvous_server.clone();
+        // Let Bob request the login and run through the process.
+        let bob_task = spawn(async move {
+            request_login_with_generated_qr_code(
+                BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol,
+                channel,
+                checkcode_rx,
+                None,
+                &rendezvous_server_clone,
+                alice.homeserver(),
+                None,
+                None,
+            )
+            .await;
+        });
+
+        // Wait for all tasks to finish / fail.
+        assert_matches!(
+            grant.cancellable(cancel).await,
+            None,
+            "Alice should abort the login with expected error"
+        );
         updates_task.await.expect("Alice should run through all progress states");
         bob_task.await.expect("Bob's task should finish");
     }
