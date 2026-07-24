@@ -15,8 +15,11 @@
 use std::{str::FromStr, sync::Arc};
 
 use futures_util::StreamExt;
-use matrix_sdk::encryption::{self, backups, recovery};
-use matrix_sdk_base::crypto::types::{BackupSecrets, RoomKeyBackupInfo};
+use matrix_sdk::encryption::{self, backups, dehydrated_devices, recovery, vodozemac};
+use matrix_sdk_base::crypto::{
+    store::types::DehydratedDeviceKey,
+    types::{BackupSecrets, RoomKeyBackupInfo},
+};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use ruma::OwnedUserId;
 use serde::de::Error;
@@ -457,6 +460,128 @@ pub async fn database_contains_secrets_bundle(
     })
 }
 
+/// Lifecycle event emitted by the dehydrated-device manager.
+///
+/// Mirrors [`dehydrated_devices::DehydratedDeviceEvent`]; subscribe via
+/// [`Encryption::dehydrated_device_event_listener`].
+#[derive(uniffi::Enum)]
+pub enum DehydratedDeviceEvent {
+    /// A fresh dehydrated device was constructed in the local crypto store,
+    /// before the upload PUT.
+    Created { device_id: String },
+    /// The homeserver accepted the upload of the dehydrated device.
+    Uploaded { device_id: String },
+    /// The dehydrated device on the homeserver was deleted.
+    Deleted,
+    /// A pickle key was cached in the local crypto store.
+    KeyCached,
+    /// Rehydration of a dehydrated device began.
+    RehydrationStarted { device_id: String },
+    /// A batch of to-device events has been imported during rehydration.
+    RehydrationProgress { room_keys_imported: u64, to_device_events: u64 },
+    /// Rehydration finished successfully.
+    RehydrationCompleted { device_id: String, room_keys_imported: u64, to_device_events: u64 },
+    /// Rehydration failed.
+    RehydrationError { error: String },
+    /// A scheduled rotation tick failed; the rotation task remains scheduled.
+    RotationError { error: String },
+}
+
+impl From<dehydrated_devices::DehydratedDeviceEvent> for DehydratedDeviceEvent {
+    fn from(value: dehydrated_devices::DehydratedDeviceEvent) -> Self {
+        match value {
+            dehydrated_devices::DehydratedDeviceEvent::Created { device_id } => {
+                Self::Created { device_id: device_id.to_string() }
+            }
+            dehydrated_devices::DehydratedDeviceEvent::Uploaded { device_id } => {
+                Self::Uploaded { device_id: device_id.to_string() }
+            }
+            dehydrated_devices::DehydratedDeviceEvent::Deleted => Self::Deleted,
+            dehydrated_devices::DehydratedDeviceEvent::KeyCached => Self::KeyCached,
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationStarted { device_id } => {
+                Self::RehydrationStarted { device_id: device_id.to_string() }
+            }
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationProgress {
+                room_keys_imported,
+                to_device_events,
+            } => Self::RehydrationProgress {
+                room_keys_imported: room_keys_imported as u64,
+                to_device_events: to_device_events as u64,
+            },
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationCompleted {
+                device_id,
+                room_keys_imported,
+                to_device_events,
+            } => Self::RehydrationCompleted {
+                device_id: device_id.to_string(),
+                room_keys_imported: room_keys_imported as u64,
+                to_device_events: to_device_events as u64,
+            },
+            dehydrated_devices::DehydratedDeviceEvent::RehydrationError { error } => {
+                Self::RehydrationError { error }
+            }
+            dehydrated_devices::DehydratedDeviceEvent::RotationError { error } => {
+                Self::RotationError { error }
+            }
+        }
+    }
+}
+
+#[matrix_sdk_ffi_macros::export(callback_interface)]
+pub trait DehydratedDeviceEventListener: SyncOutsideWasm + SendOutsideWasm {
+    fn on_event(&self, event: DehydratedDeviceEvent);
+}
+
+/// Settings for [`Encryption::start_dehydrated_devices`].
+#[derive(uniffi::Record)]
+pub struct StartDehydratedDevicesSettings {
+    /// Force generation of a fresh random pickle key on start, replacing
+    /// any existing entry in Secret Storage and the local cache.
+    #[uniffi(default = false)]
+    pub create_new_key: bool,
+    /// Whether to attempt to rehydrate the existing dehydrated device, if
+    /// any, before creating the next one.
+    #[uniffi(default = true)]
+    pub rehydrate: bool,
+    /// If `true`, the call becomes a no-op when no pickle key is cached
+    /// locally.
+    #[uniffi(default = false)]
+    pub only_if_key_cached: bool,
+}
+
+/// Errors returned by the dehydrated-device FFI surface.
+#[derive(Debug, Error, uniffi::Error)]
+#[uniffi(flat_error)]
+pub enum DehydratedDeviceError {
+    /// The client is not logged in.
+    #[error("the client is not logged in")]
+    NotLoggedIn,
+    /// The supplied base64-encoded pickle key did not decode to 32 bytes.
+    #[error("the dehydrated-device pickle key must decode to 32 bytes of base64")]
+    InvalidPickleKey,
+    /// Opening Secret Storage with the supplied recovery key failed.
+    #[error("could not open Secret Storage: {0}")]
+    SecretStorage(String),
+    /// Any other failure surfaced by the SDK.
+    #[error("{0}")]
+    Sdk(String),
+}
+
+impl From<dehydrated_devices::DehydratedDeviceError> for DehydratedDeviceError {
+    fn from(value: dehydrated_devices::DehydratedDeviceError) -> Self {
+        match value {
+            dehydrated_devices::DehydratedDeviceError::NotLoggedIn => Self::NotLoggedIn,
+            other => Self::Sdk(other.to_string()),
+        }
+    }
+}
+
+fn decode_pickle_key(base64: &str) -> Result<DehydratedDeviceKey, DehydratedDeviceError> {
+    let bytes =
+        vodozemac::base64_decode(base64).map_err(|_| DehydratedDeviceError::InvalidPickleKey)?;
+    DehydratedDeviceKey::from_slice(&bytes).map_err(|_| DehydratedDeviceError::InvalidPickleKey)
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl Encryption {
     /// Get the public ed25519 key of our own device. This is usually what is
@@ -760,6 +885,105 @@ impl Encryption {
                 details: None,
             })
         }
+    }
+
+    /// Return whether the homeserver advertises support for MSC3814
+    /// dehydrated devices.
+    pub async fn is_dehydrated_device_supported(&self) -> Result<bool, DehydratedDeviceError> {
+        Ok(self.inner.dehydrated_devices().is_supported().await?)
+    }
+
+    /// Build a fresh dehydrated device, encrypt it with the supplied pickle
+    /// key, and upload it to the homeserver. Returns the new device ID.
+    ///
+    /// The pickle key is a 32-byte secret, base64 encoded. Callers are
+    /// responsible for storing the pickle key safely (typically in Secret
+    /// Storage via [`Encryption::start_dehydrated_devices`]).
+    pub async fn create_dehydrated_device(
+        &self,
+        display_name: Option<String>,
+        pickle_key: String,
+    ) -> Result<String, DehydratedDeviceError> {
+        let key = decode_pickle_key(&pickle_key)?;
+        let id = self.inner.dehydrated_devices().create(display_name.as_deref(), &key).await?;
+        Ok(id.to_string())
+    }
+
+    /// Rehydrate the dehydrated device currently on the server, if any.
+    ///
+    /// Returns `true` if a device was rehydrated end to end, `false` if the
+    /// server reports no dehydrated device or does not implement the endpoint.
+    pub async fn rehydrate_dehydrated_device(
+        &self,
+        pickle_key: String,
+    ) -> Result<bool, DehydratedDeviceError> {
+        let key = decode_pickle_key(&pickle_key)?;
+        Ok(self.inner.dehydrated_devices().rehydrate(&key).await?)
+    }
+
+    /// Delete the current dehydrated device, if one exists. Silent if no
+    /// device is on the server or the server does not implement MSC3814.
+    pub async fn delete_dehydrated_device(&self) -> Result<(), DehydratedDeviceError> {
+        Ok(self.inner.dehydrated_devices().delete().await?)
+    }
+
+    /// Start using dehydrated devices for this client, resolving the pickle
+    /// key through Secret Storage and scheduling weekly rotation.
+    ///
+    /// The Rust-side copy of the recovery key is zeroized after Secret
+    /// Storage has been unlocked; the caller keeps responsibility for the
+    /// string it passed in.
+    pub async fn start_dehydrated_devices(
+        &self,
+        mut recovery_key: String,
+        settings: StartDehydratedDevicesSettings,
+    ) -> Result<(), DehydratedDeviceError> {
+        let secret_store = self
+            .inner
+            .secret_storage()
+            .open_secret_store(&recovery_key)
+            .await
+            .map_err(|e| DehydratedDeviceError::SecretStorage(e.to_string()))?;
+        recovery_key.zeroize();
+
+        let dehydrated = self.inner.dehydrated_devices();
+        let mut start = dehydrated.start(&secret_store);
+        if settings.create_new_key {
+            start = start.create_new_key();
+        }
+        if !settings.rehydrate {
+            start = start.skip_rehydration();
+        }
+        if settings.only_if_key_cached {
+            start = start.only_if_key_cached();
+        }
+        start.await?;
+        Ok(())
+    }
+
+    /// Stop the scheduled dehydrated-device rotation.
+    ///
+    /// Has no effect when no rotation is scheduled. Existing dehydrated
+    /// devices on the server are left in place; pair with
+    /// [`Encryption::delete_dehydrated_device`] to remove them.
+    pub fn stop_dehydrated_devices(&self) {
+        self.inner.dehydrated_devices().stop();
+    }
+
+    /// Subscribe to lifecycle events emitted by the dehydrated-device
+    /// manager. The returned [`TaskHandle`] keeps the listener alive; drop
+    /// it to unsubscribe.
+    pub fn dehydrated_device_event_listener(
+        &self,
+        listener: Box<dyn DehydratedDeviceEventListener>,
+    ) -> Arc<TaskHandle> {
+        let mut events = Box::pin(self.inner.dehydrated_devices().state_stream());
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            while let Some(event) = events.next().await {
+                let Ok(event) = event else { continue };
+                listener.on_event(event.into());
+            }
+        })))
     }
 }
 
