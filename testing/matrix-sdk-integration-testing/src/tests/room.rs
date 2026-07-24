@@ -5,7 +5,7 @@ use assert_matches2::{assert_let, assert_matches};
 use eyeball::Subscriber;
 use futures::FutureExt as _;
 use matrix_sdk::{
-    Room, RoomState, assert_let_timeout,
+    Room, RoomMemberships, RoomState, assert_let_timeout,
     encryption::{BackupDownloadStrategy, EncryptionSettings, recovery::RecoveryState},
     event_cache::RoomEventCacheUpdate,
     latest_events::LatestEventValue,
@@ -706,6 +706,138 @@ async fn test_latest_event_few_rooms() -> Result<()> {
 
     debug!("Running check for second client, room2");
     assert_latest_event_is_remote_event(&room2, &mut room2_sub, &room2_msg_event_id).await;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_invite_declined_and_later_accepted() -> Result<()> {
+    // Test plan:
+    // 1. Alice creates a room
+    // 2. Alice invites Bob
+    // 3. Bob declines the invite
+    // 4. Alice invites Bob again
+    // 5. Bob accepts the invite
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let alice_user_id = alice.user_id().unwrap().to_owned();
+    let bob_user_id = bob.user_id().unwrap().to_owned();
+
+    alice.event_cache().subscribe()?;
+    bob.event_cache().subscribe()?;
+
+    // Step 1, Alice creates a room.
+    let (alice_room, event_id) = {
+        let room = alice
+            .create_room(assign!(CreateRoomRequest::new(), {
+                is_direct: true,
+            }))
+            .await?;
+
+        let event_id =
+            room.send(RoomMessageEventContent::text_plain("hello")).await?.response.event_id;
+
+        // Sync to receive the first `JoinedRoomUpdate`.
+        alice.sync_once(Default::default()).await?;
+
+        (room, event_id)
+    };
+
+    // Step 2, Alice invites Bob.
+    {
+        alice_room.invite_user_by_id(&bob_user_id).await?;
+
+        // Alice sees Bob as a member of the room!
+        alice.sync_once(Default::default()).await?;
+        let members = alice_room.members_no_sync(RoomMemberships::INVITE).await?;
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].user_id(), bob_user_id);
+    }
+
+    // Step 3, Bob declines the invite.
+    {
+        let mut sync_response = bob.sync_once(Default::default()).await?;
+        let room_id = sync_response
+            .rooms
+            .invited
+            .first_entry()
+            .expect("Expect a room invite")
+            .key()
+            .to_owned();
+
+        // Ensure we are talking about the same room.
+        assert_eq!(room_id, alice_room.room_id());
+
+        // Bob declines the invite.
+        let room = bob.get_room(&room_id).unwrap();
+        room.leave().await?;
+        bob.sync_once(Default::default()).await?;
+
+        // Alice no longer sees Bob as a member of the room.
+        alice.sync_once(Default::default()).await?;
+        assert!(alice_room.members_no_sync(RoomMemberships::INVITE).await?.is_empty());
+    }
+
+    // Step 4, Alice invites Bob again.
+    {
+        alice_room.invite_user_by_id(&bob_user_id).await?;
+
+        // Alice sees Bob as a member of the room!
+        alice.sync_once(Default::default()).await?;
+        let members = alice_room.members_no_sync(RoomMemberships::INVITE).await?;
+        assert_eq!(members.len(), 1);
+        assert_eq!(members[0].user_id(), bob_user_id);
+    }
+
+    // Step 5, Bob accepts the invite!
+    {
+        let mut sync_response = bob.sync_once(Default::default()).await?;
+        let room_id = sync_response
+            .rooms
+            .invited
+            .first_entry()
+            .expect("Expect a room invite")
+            .key()
+            .to_owned();
+
+        // Ensure we are talking about the same room.
+        assert_eq!(room_id, alice_room.room_id());
+
+        // Bob accepts the invite!
+        let room = bob.get_room(&room_id).unwrap();
+        room.join().await?;
+
+        // Alice sees Bob.
+        {
+            alice.sync_once(Default::default()).await?;
+            let members = alice_room.members_no_sync(RoomMemberships::JOIN).await?;
+            assert_eq!(members.len(), 2);
+            assert_eq!(members[0].user_id(), alice_user_id);
+            assert_eq!(members[1].user_id(), bob_user_id);
+        }
+
+        // Bob sees Alice.
+        {
+            let members = room.members(RoomMemberships::JOIN).await?;
+            assert_eq!(members.len(), 2);
+            assert_eq!(members[0].user_id(), alice_user_id);
+            assert_eq!(members[1].user_id(), bob_user_id);
+        }
+
+        // Bob can open the timeline and can see the event from Alice.
+        let timeline = TimelineBuilder::new(&room).build().await?;
+
+        // The event sent by Alice is not here yet. Be patient.
+        assert!(timeline.item_by_event_id(&event_id).await.is_none());
+
+        // Let's paginate… and…
+        timeline.paginate_backwards(42).await?;
+
+        // … event is here!
+        assert!(timeline.item_by_event_id(&event_id).await.is_some());
+    }
 
     Ok(())
 }
