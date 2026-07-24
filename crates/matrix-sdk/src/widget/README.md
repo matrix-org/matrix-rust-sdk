@@ -9,6 +9,7 @@ following MSC's:
 - [MSC2762: Allowing widgets to send/receive events](https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/widgets-send-receive-events/proposals/2762-widget-event-receiving.md)
 - [MSC4157: Delayed Events (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 - [MSC3819: Allowing widgets to send/receive to-device messages](https://github.com/matrix-org/matrix-spec-proposals/pull/3819)
+- [MSC4515: RTC transports discovery (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4515)
 
 It supports sending and reading events and provides some rudimentary client
 navigation features. There are some additional actions:
@@ -16,6 +17,7 @@ navigation features. There are some additional actions:
 - Get an OpenID token (not OAuth) to identify a user.
 - Ask for supported API versions.
 - Inform the client that the widget has loaded its content and is ready.
+- Discover the RTC transports advertised by the homeserver.
 
 ## The widget api
 

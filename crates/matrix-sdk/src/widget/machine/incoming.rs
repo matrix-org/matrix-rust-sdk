@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use ruma::{
-    api::client::{account::request_openid_token, delayed_events},
+    api::client::{account::request_openid_token, delayed_events, rtc::RtcTransport},
     events::{AnyStateEvent, AnyTimelineEvent, AnyToDeviceEvent},
     serde::Raw,
 };
@@ -89,6 +89,9 @@ pub(crate) enum MatrixDriverResponse {
     DelayedEventUpdated(delayed_events::update_delayed_event::unstable_v1::Response),
     /// The client successfully downloaded a file from a widget action.
     FileDownloaded(DownloadFileResponse),
+    /// Client fetched the RTC transports advertised by the homeserver.
+    /// A response to a [`MatrixDriverRequestData::GetRtcTransports`] command.
+    RtcTransportsReceived(Vec<RtcTransport>),
 }
 
 pub(super) struct IncomingWidgetMessage {
@@ -191,5 +194,26 @@ mod tests {
         assert_let!(FromWidgetRequest::DownloadFile(req) = incoming_request.deserialize().unwrap());
 
         assert!(!req.content_uri.is_valid());
+    }
+
+    #[test]
+    fn parse_get_rtc_transports_widget_action() {
+        let raw = r#"
+        {
+            "api": "fromWidget",
+            "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
+            "requestId": "generated-id-1234",
+            "action": "org.matrix.msc4515.get_rtc_transports",
+            "data": {}
+        }
+        "#;
+
+        assert_let!(
+            IncomingWidgetMessageKind::Request(incoming_request) =
+                serde_json::from_str::<IncomingWidgetMessage>(raw).unwrap().kind
+        );
+        assert_let!(
+            FromWidgetRequest::GetRtcTransports {} = incoming_request.deserialize().unwrap()
+        );
     }
 }

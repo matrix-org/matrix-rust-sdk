@@ -78,6 +78,32 @@ impl MatrixDriver {
             .map_err(|error| Error::Http(Box::new(error)))
     }
 
+    /// Fetches the RTC transports advertised by the homeserver.
+    ///
+    /// This delegates to [`Client::rtc_transports`], so the result is served
+    /// from (and populates) the client's in-memory cache.
+    ///
+    /// Returns an error if the homeserver doesn't implement the discovery
+    /// endpoint, so that the widget receives an error response (as opposed to
+    /// an empty list, which would be indistinguishable from a homeserver that
+    /// advertises no transports).
+    ///
+    /// [`Client::rtc_transports`]: crate::Client::rtc_transports
+    pub(crate) async fn get_rtc_transports(
+        &self,
+    ) -> Result<Vec<ruma::api::client::rtc::RtcTransport>> {
+        self.room
+            .client
+            .rtc_transports()
+            .await
+            .map_err(|error| Error::Http(Box::new(error)))?
+            .ok_or_else(|| {
+                Error::UnknownError(
+                    "the homeserver does not support RTC transport discovery".into(),
+                )
+            })
+    }
+
     /// Reads the latest `limit` events of a given `event_type` from the room's
     /// timeline.
     pub(crate) async fn read_events(
