@@ -1228,31 +1228,6 @@ impl OAuth {
 
         debug!("no other refresh happening in background, starting.");
 
-        // Fetch the authorization server metadata *before* taking the cross-process
-        // lock, checking the session hash, or reading the refresh token. This
-        // request can stall for a long time when the OS suspends the process (e.g.
-        // iOS background suspension). Doing it first means that when we resume we
-        // still (re)acquire the cross-process lock and re-check the session hash
-        // afterwards, so a refresh token that a sibling process (such as the NSE)
-        // rotated while we were suspended is detected here as a hash mismatch and
-        // handled via the optimistic exit below — instead of being exchanged while
-        // stale and getting the account hard-logged-out with `invalid_grant`.
-        let server_metadata = match self.server_metadata().await {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                warn!("couldn't get authorization server metadata: {err:?}");
-                fail!(refresh_status_guard, RefreshTokenError::OAuth(Arc::new(err.into())));
-            }
-        };
-
-        let Some(client_id) = self.client_id().cloned() else {
-            warn!("invalid state: missing client ID");
-            fail!(
-                refresh_status_guard,
-                RefreshTokenError::OAuth(Arc::new(OAuthError::NotAuthenticated))
-            );
-        };
-
         #[cfg(feature = "e2e-encryption")]
         let cross_process_guard =
             if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
@@ -1284,9 +1259,6 @@ impl OAuth {
                 None
             };
 
-        // Read the refresh token only now — after the post-metadata hash check — so
-        // we always exchange the token that is current in the store, never one that
-        // was rotated out from under us while we were suspended.
         let Some(session_tokens) = self.client.session_tokens() else {
             warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
@@ -1295,6 +1267,22 @@ impl OAuth {
         let Some(refresh_token) = session_tokens.refresh_token else {
             warn!("invalid state: missing session tokens");
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
+        };
+
+        let server_metadata = match self.server_metadata().await {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                warn!("couldn't get authorization server metadata: {err:?}");
+                fail!(refresh_status_guard, RefreshTokenError::OAuth(Arc::new(err.into())));
+            }
+        };
+
+        let Some(client_id) = self.client_id().cloned() else {
+            warn!("invalid state: missing client ID");
+            fail!(
+                refresh_status_guard,
+                RefreshTokenError::OAuth(Arc::new(OAuthError::NotAuthenticated))
+            );
         };
 
         // Do not interrupt refresh access token requests and processing, by detaching
