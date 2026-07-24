@@ -15,7 +15,10 @@
 /// A module for building a [`RoomIndex`]
 pub mod builder;
 
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
 use once_cell::sync::OnceCell;
 use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId};
@@ -74,7 +77,11 @@ pub struct RoomIndex {
     schema: RoomMessageSchema,
     query_parser: QueryParser,
     room_id: OwnedRoomId,
-    uncommitted_adds: HashSet<OwnedEventId>,
+    /// Events added but not yet committed, mapping each document's primary key
+    /// (event id) to its deletion key (original event id). The deletion key is
+    /// needed so that a [`RoomIndex::remove`] in the same uncommitted batch,
+    /// which deletes by that key, can reconcile these entries too.
+    uncommitted_adds: HashMap<OwnedEventId, OwnedEventId>,
     uncommitted_removes: HashSet<OwnedEventId>,
     /// Cached [`IndexReader`].
     ///
@@ -100,7 +107,7 @@ impl RoomIndex {
             schema,
             query_parser,
             room_id: room_id.to_owned(),
-            uncommitted_adds: HashSet::new(),
+            uncommitted_adds: HashMap::new(),
             uncommitted_removes: HashSet::new(),
             reader: OnceCell::new(),
         }
@@ -212,7 +219,7 @@ impl RoomIndex {
             writer.add(self.schema.make_doc(event.clone())?)?;
         }
         self.uncommitted_removes.remove(&event.event_id);
-        self.uncommitted_adds.insert(event.event_id);
+        self.uncommitted_adds.insert(event.event_id, event.original_event_id);
         Ok(())
     }
 
@@ -225,7 +232,23 @@ impl RoomIndex {
 
         writer.remove(&event_id);
 
+        // Committed documents matching the deletion key.
         for event in events.into_iter() {
+            self.uncommitted_adds.remove(&event);
+            self.uncommitted_removes.insert(event);
+        }
+
+        // Uncommitted documents added in this same batch also get deleted by the
+        // term above, so reconcile them too. Otherwise `contains` would still
+        // report them as present and a subsequent re-add (e.g. from an edit)
+        // would be wrongly skipped, leaving the document deleted.
+        let uncommitted: Vec<_> = self
+            .uncommitted_adds
+            .iter()
+            .filter(|(_, deletion_key)| **deletion_key == event_id)
+            .map(|(primary_key, _)| primary_key.clone())
+            .collect();
+        for event in uncommitted {
             self.uncommitted_adds.remove(&event);
             self.uncommitted_removes.insert(event);
         }
@@ -344,7 +367,7 @@ impl RoomIndex {
         match search_result {
             Ok(results) => {
                 !self.uncommitted_removes.contains(event_id)
-                    && (!results.is_empty() || self.uncommitted_adds.contains(event_id))
+                    && (!results.is_empty() || self.uncommitted_adds.contains_key(event_id))
             }
             Err(err) => {
                 warn!("Failed to check if event has been indexed, assuming it has: {err}");
@@ -611,6 +634,43 @@ mod tests {
 
         assert!(!index.contains(old_event_id), "Index should not contain old event");
         assert!(index.contains(new_event_id), "Index should contain edited event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bulk_add_then_edit_same_event_keeps_it_indexed() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+
+        let original_id = event_id!("$original:localhost");
+        let edit_id = event_id!("$edit:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id);
+
+        let edit = f
+            .text_msg("* brand new sentence")
+            .edit(
+                original_id,
+                RoomMessageEventContentWithoutRelation::text_plain("brand new sentence"),
+            )
+            .event_id(edit_id)
+            .into_original_sync_room_message_event();
+        let edit = to_indexable(&edit);
+
+        // An original and its edit arriving in the same batch produce an `Add`
+        // and an `Edit` of the same document. The `Edit`'s removal must not drop
+        // the document added earlier in the same uncommitted batch.
+        index.bulk_execute(vec![
+            RoomIndexOperation::Add(edit.clone()),
+            RoomIndexOperation::Edit(original_id.to_owned(), edit),
+        ])?;
+
+        assert!(index.contains(edit_id), "Edited document should be indexed");
+
+        let result = index.search("sentence", 10, None)?;
+        assert_eq!(result.len(), 1, "Search should find the edited document, got {result:?}");
+        assert_eq!(result[0].1, edit_id, "unexpected event id: {result:?}");
 
         Ok(())
     }
