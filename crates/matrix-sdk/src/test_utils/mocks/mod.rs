@@ -3688,6 +3688,16 @@ impl<'a> MockEndpoint<'a, UploadKeysEndpoint> {
             },
         })))
     }
+
+    /// Returns a successful response with the given number of signed curve25519
+    /// one-time keys.
+    pub fn ok_with_signed_curve_key_count(self, n: u32) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {
+                "signed_curve25519": n,
+            },
+        })))
+    }
 }
 
 /// A prebuilt mock for `POST /keys/query` request.
