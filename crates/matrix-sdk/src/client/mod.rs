@@ -62,7 +62,7 @@ use ruma::{
             membership::{join_room_by_id, join_room_by_id_or_alias},
             presence::set_presence as set_presence_status,
             room::create_room,
-            rtc::RtcTransport,
+            rtc::{RtcTransport, transports},
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
             threads::get_thread_subscriptions_changes,
@@ -454,6 +454,7 @@ impl ClientInner {
             well_known: Cache::with_value(well_known),
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
+            rtc_transports: Cache::new(),
         };
 
         let client = Self {
@@ -2640,8 +2641,20 @@ impl Client {
         self.refresh_well_known_cache().await
     }
 
+    /// Get information about the homeserver's advertised RTC transports by
+    /// fetching the well-known file from the server or the cache.
+    #[deprecated = "Use `Client::rtc_transports` instead"]
+    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
+        self.well_known_rtc_transports().await
+    }
+
     /// Get information about the homeserver's advertised RTC foci by fetching
     /// the well-known file from the server or the cache.
+    ///
+    /// This will be soon deprecated in favor of [`Client::rtc_transports`],
+    /// which fetches the RTC transports advertised by the homeserver
+    /// through the authenticated `GET /_matrix/client/v1/rtc/transports`
+    /// endpoint.
     ///
     /// # Examples
     /// ```no_run
@@ -2650,7 +2663,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let rtc_foci = client.rtc_foci().await?;
+    /// let rtc_foci = client.well_known_rtc_transports().await?;
     /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
     ///     RtcTransport::LiveKit(info) => Some(info),
     ///     _ => None,
@@ -2660,10 +2673,158 @@ impl Client {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
+    pub async fn well_known_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
         let well_known = self.well_known().await;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
+    }
+
+    /// Get the RTC transports advertised by the homeserver by fetching them
+    /// from the server or the cache.
+    ///
+    /// The transports are discovered through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint
+    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
+    ///
+    /// The result is cached in memory for a day. Use
+    /// [`Client::fetch_rtc_transports`] to bypass the cache, or
+    /// [`Client::reset_rtc_transports`] to clear it.
+    ///
+    /// Returns:
+    /// - `Ok(Some(transports))` if the homeserver supports the endpoint (the
+    ///   list may be empty if the homeserver advertises no transports),
+    /// - `Ok(None)` if the homeserver doesn't implement the endpoint (this is
+    ///   also cached, so the endpoint isn't hit on every call). Callers may
+    ///   want to fall back to [`Client::well_known_rtc_transports`] (the
+    ///   well-known foci) in this case,
+    /// - `Err(_)` on a transient error (not cached).
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use matrix_sdk::{Client, ruma::api::client::rtc::RtcTransport};
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// let client = Client::new(homeserver).await?;
+    /// // The endpoint is authenticated, so the client must be logged in.
+    /// client.matrix_auth().login_username("example", "password").send().await?;
+    ///
+    /// let transports = match client.rtc_transports().await? {
+    ///     Some(transports) => transports,
+    ///     // The homeserver doesn't support the discovery endpoint; fall back
+    ///     // to the RTC foci advertised in the well-known.
+    ///     None => client.well_known_rtc_transports().await?,
+    /// };
+    /// for transport in transports {
+    ///     println!("transport type: {}", transport.transport_type());
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn rtc_transports(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+        match self.rtc_transports_cached() {
+            CachedValue::Cached(value) => Ok(value),
+            // The cache is empty, make a request.
+            CachedValue::NotSet => self.refresh_rtc_transports_cache().await,
+        }
+    }
+
+    /// Get the RTC transports advertised by the homeserver from the cache.
+    ///
+    /// Returns [`CachedValue::NotSet`] if nothing has been cached yet. If the
+    /// cached data has expired, this triggers a background task to refresh it
+    /// and returns the stale value.
+    fn rtc_transports_cached(&self) -> CachedValue<Option<Vec<RtcTransport>>> {
+        let cache = &self.inner.caches.rtc_transports;
+
+        let CachedValue::Cached(value) = cache.value() else {
+            return CachedValue::NotSet;
+        };
+
+        // Spawn a task to refresh the cache if it has expired and we have a valid
+        // access token.
+        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+            debug!("spawning task to refresh RTC transports cache");
+
+            let client = self.clone();
+            self.task_monitor().spawn_finite_task("refresh RTC transports cache", async move {
+                if let Err(error) = client.refresh_rtc_transports_cache().await {
+                    warn!("failed to refresh RTC transports cache: {error}");
+                }
+            });
+        }
+
+        CachedValue::Cached(value.into_data())
+    }
+
+    /// Refresh the RTC transports advertised by the homeserver in the cache.
+    async fn refresh_rtc_transports_cache(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+        let cache = &self.inner.caches.rtc_transports;
+
+        let mut refresh_guard = match cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = cache.refresh_lock.lock().await;
+
+                if let Err(error) = guard.as_ref() {
+                    // There was an error in the previous refresh, return it.
+                    return Err(HttpError::Cached(error.clone()));
+                }
+
+                // Reuse the data if it was cached and it hasn't expired.
+                if let CachedValue::Cached(value) = cache.value()
+                    && !value.has_expired()
+                {
+                    return Ok(value.into_data());
+                }
+
+                // The data wasn't cached or has expired, we need to make another request.
+                guard
+            }
+        };
+
+        match self.fetch_rtc_transports().await {
+            Ok(transports) => {
+                *refresh_guard = Ok(());
+                cache.set_value(TtlValue::new(Some(transports.clone())));
+                Ok(Some(transports))
+            }
+            Err(error) if error.is_endpoint_not_implemented() => {
+                // The homeserver doesn't implement the RTC transports endpoint. Cache
+                // `None` (with the normal TTL) so we don't hit the endpoint on every
+                // call; this self-heals after the TTL in case the homeserver is
+                // upgraded. `None` is kept distinct from `Some(vec![])` (a homeserver
+                // that advertises no transports) so callers can decide whether to fall
+                // back to the well-known foci (see `Client::rtc_foci`).
+                debug!("homeserver does not implement the RTC transports endpoint");
+                *refresh_guard = Ok(());
+                cache.set_value(TtlValue::new(None));
+                Ok(None)
+            }
+            Err(error) => {
+                let error = Arc::new(error);
+                *refresh_guard = Err(error.clone());
+                Err(HttpError::Cached(error))
+            }
+        }
+    }
+
+    /// Fetch the RTC transports advertised by the homeserver from the network,
+    /// bypassing the cache.
+    pub async fn fetch_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
+        let response = self
+            .send(transports::v1::Request::new())
+            .with_request_config(RequestConfig::short_retry())
+            .await?;
+        Ok(response.rtc_transports)
+    }
+
+    /// Empty the RTC transports cache.
+    ///
+    /// Since the SDK caches the RTC transports, it's possible to have a stale
+    /// entry in the cache. This function makes it possible to force reset it.
+    pub fn reset_rtc_transports(&self) {
+        self.inner.caches.rtc_transports.reset();
     }
 
     /// Get information about the homeserver's advertised map tile server, if
@@ -4369,10 +4530,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // This subsequent call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -4389,10 +4550,10 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(well_known_mock);
 
@@ -4402,9 +4563,9 @@ pub(crate) mod tests {
         server.mock_well_known().ok().named("second well known mock").expect(2).mount().await;
 
         // Hits network again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Force an expiry of the data.
         let well_known = client.well_known().await;
@@ -4420,6 +4581,105 @@ pub(crate) mod tests {
         // user will fail, only the requests using the homeserver URL will succeed.
         sleep(Duration::from_secs(5)).await;
         assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired());
+    }
+
+    #[async_test]
+    async fn test_rtc_transports_caching() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let transports = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+
+        let transports_mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "rtc_transports": [
+                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                ]
+            })))
+            .named("first transports mock")
+            .expect(1)
+            .mount_as_scoped(server.server())
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        // First call hits the network.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+        // Subsequent call hits the in-memory cache.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+
+        drop(transports_mock);
+
+        // Reset the cache, and observe the endpoint being called again once.
+        client.reset_rtc_transports();
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "rtc_transports": [
+                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                ]
+            })))
+            .named("second transports mock")
+            .expect(2)
+            .mount(server.server())
+            .await;
+
+        // Hits network again.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+        // Hits in-memory cache again.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+
+        // Force an expiry of the data.
+        let mut ttl_value = TtlValue::new(Some(transports.clone()));
+        ttl_value.expire();
+        client.inner.caches.rtc_transports.set_value(ttl_value);
+
+        // Call the method again to trigger a cache refresh background task.
+        client.rtc_transports().await.unwrap();
+
+        // We wait for the task to finish, the endpoint should have been called again.
+        sleep(Duration::from_secs(1)).await;
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+    }
+
+    #[async_test]
+    async fn test_rtc_transports_unsupported_caching() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+
+        let server = MatrixMockServer::new().await;
+
+        // The homeserver doesn't implement the endpoint: it responds with a 404 and an
+        // `M_UNRECOGNIZED` error (as a homeserver does for an unrecognized endpoint).
+        // We expect it to be hit only once, despite several calls, thanks to the
+        // negative caching.
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_UNRECOGNIZED",
+                "error": "Unrecognized request",
+            })))
+            .named("unrecognized transports mock")
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        // First call hits the network and gets a 404, which is cached as `None`
+        // (unsupported), distinct from `Some(vec![])` (supported but empty).
+        assert_eq!(client.rtc_transports().await.unwrap(), None);
+        // Subsequent call hits the in-memory cache, without re-hitting the endpoint.
+        assert_eq!(client.rtc_transports().await.unwrap(), None);
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
     }
 
     #[async_test]
@@ -4447,10 +4707,10 @@ pub(crate) mod tests {
             .build()
             .await;
 
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // This subsequent call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -4466,10 +4726,10 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(well_known_mock);
 
@@ -4485,9 +4745,9 @@ pub(crate) mod tests {
             .await;
 
         // Hits network again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
     }
 
     #[async_test]
