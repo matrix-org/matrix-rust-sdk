@@ -336,4 +336,46 @@ pub(crate) mod tests {
         // Ignore errors: they just mean that this method was called before.
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
+
+    // Create three X.509 signers with different validity periods.
+    pub(crate) fn signers_with_different_validity() -> (X509Signer, X509Signer, X509Signer) {
+        let signing_key =
+            KeyPair::generate_for(&rcgen::PKCS_RSA_SHA512).expect("Failed to generate key pair");
+
+        let mut cert_params = CertificateParams::default();
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
+
+        // We create three signers with different validity dates
+        cert_params.not_after = rcgen::date_time_ymd(2025, 7, 1);
+        let cert_old =
+            cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+        let x509_signer_old = {
+            let rust_raw_x509_signer =
+                RustRawX509Signer::new_from_pem_data(&cert_old.pem(), &signing_key.serialize_pem())
+                    .unwrap();
+            X509Signer::new(Arc::new(rust_raw_x509_signer))
+        };
+
+        cert_params.not_after = rcgen::date_time_ymd(2026, 7, 1);
+        let cert = cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+        let x509_signer_current = {
+            let rust_raw_x509_signer =
+                RustRawX509Signer::new_from_pem_data(&cert.pem(), &signing_key.serialize_pem())
+                    .unwrap();
+            X509Signer::new(Arc::new(rust_raw_x509_signer))
+        };
+
+        cert_params.not_after = rcgen::date_time_ymd(2027, 7, 1);
+        let cert_new =
+            cert_params.self_signed(&signing_key).expect("Failed to generate certificate");
+        let x509_signer_new = {
+            let rust_raw_x509_signer =
+                RustRawX509Signer::new_from_pem_data(&cert_new.pem(), &signing_key.serialize_pem())
+                    .unwrap();
+            X509Signer::new(Arc::new(rust_raw_x509_signer))
+        };
+
+        (x509_signer_old, x509_signer_current, x509_signer_new)
+    }
 }

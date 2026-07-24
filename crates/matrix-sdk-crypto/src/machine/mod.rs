@@ -676,6 +676,13 @@ impl OlmMachine {
         requests.append(&mut self.inner.verification_machine.outgoing_messages());
         requests.append(&mut self.inner.key_request_machine.outgoing_to_device_requests().await?);
 
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(signature_upload_request) =
+            self.inner.identity_manager.get_x509_signature_upload_request().await
+        {
+            requests.push(signature_upload_request);
+        }
+
         Ok(requests)
     }
 
@@ -742,6 +749,8 @@ impl OlmMachine {
             AnyIncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
                 self.inner.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                self.inner.identity_manager.mark_x509_signature_request_as_sent(request_id).await;
             }
             AnyIncomingResponse::RoomMessage(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
