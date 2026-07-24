@@ -1222,6 +1222,20 @@ impl OwnUserIdentityData {
         }
     }
 
+    /// Update the identity with a new master key and self signing key.
+    ///
+    /// Note: This will reset the verification state if the master keys differ.
+    ///
+    /// # Arguments
+    ///
+    /// * `master_key` - The new master key of the user identity.
+    ///
+    /// * `self_signing_key` - The new self signing key of user identity.
+    ///
+    /// * `user_signing_key` - The new user signing key of user identity.
+    ///
+    /// Returns a `SignatureError` if we failed to update the identity.
+    /// Otherwise, returns `true` if there was a change to the identity and
     /// `false` if the identity is unchanged.
     pub(crate) fn update(
         &mut self,
