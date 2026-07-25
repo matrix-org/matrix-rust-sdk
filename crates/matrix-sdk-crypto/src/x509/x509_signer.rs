@@ -74,7 +74,7 @@ impl X509Signer {
     }
 
     /// Check if the signer's certificates have a later expiry than the
-    /// certificates in the existing signatures.
+    /// certificates in the provided signatures.
     ///
     /// Returns `true` if no X.509 signatures are found.  Returns `false` if the
     /// expiry is the same.  Only the validity period is checked -- no other
@@ -102,7 +102,9 @@ impl X509Signer {
                 };
                 // FIXME: should we get the minimum validity of all the certs?
                 let validity = res.leaf_cert.tbs_certificate.validity;
-                if self.x509_sign.validity_not_after() <= validity.not_after.to_date_time() {
+                if validity.not_after.to_date_time() >= self.x509_sign.validity_not_after() {
+                    // We found a signature with a certificate that has a
+                    // later-or-equal validity period.
                     return false;
                 }
             }

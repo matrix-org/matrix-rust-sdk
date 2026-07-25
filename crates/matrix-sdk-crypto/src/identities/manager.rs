@@ -84,13 +84,13 @@ pub(crate) struct IdentityManager {
     /// We re-sign our master cross-signing key with X.509 if our signer has a
     /// later validity period than the current signature on our master
     /// cross-signing key.  The outer `Option` indicates whether we have checked
-    /// whether the key needs re-signing or not, ad the inner `Option` indicates
-    /// the result of that check, if it was done.  In other words, this value
-    /// will be `None` if we have not yet checked the cross-signing key, it will
-    /// be `Some(None)` if we have checked the cross-signing key and it does not
-    /// need to be re-signed, and will be `Some(request)` if the cross-signing
-    /// key has been re-signed.  `request` will be an outgoing signature upload
-    /// request.
+    /// whether the key needs re-signing or not, and the inner `Option`
+    /// indicates the result of that check, if it was done.  In other words,
+    /// this value will be `None` if we have not yet checked the cross-signing
+    /// key, it will be `Some(None)` if we have checked the cross-signing key
+    /// and it does not need to be re-signed, and will be `Some(request)` if the
+    /// cross-signing key has been re-signed.  `request` will be an outgoing
+    /// signature upload request.
     ///
     /// We check whether we need to re-sign when
     /// `get_x509_signature_upload_request` is first called, or when we receive
