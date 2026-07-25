@@ -1187,11 +1187,22 @@ impl OwnUserIdentityData {
 
     /// Sign our own identity again, if our current X.509 signer has a later
     /// expiry than our existing X.509 signature.
+    ///
+    /// Returns the signature upload request to upload the new X.509 signature
+    /// if a new one is needed.
+    ///
+    /// Note that this function does not update our own copy of the signature
+    /// immediately.  Rather, after we upload the new signature, the server will
+    /// notify us of the changed key, we will re-fetch it, and then store the
+    /// new result at that point.
     #[cfg(feature = "experimental-x509-identity-verification")]
     pub(crate) fn refresh_x509_signature(
         &self,
         store: &Store,
     ) -> Result<Option<SignatureUploadRequest>, SignatureError> {
+        // We only re-sign our identity our identity is already verified.  If it
+        // isn't already verified, then our identity should be signed by
+        // `OwnUserIdentity::verify()` instead.
         if !self.is_verified() {
             return Ok(None);
         }

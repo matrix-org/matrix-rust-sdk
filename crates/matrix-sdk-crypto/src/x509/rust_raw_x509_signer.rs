@@ -45,6 +45,9 @@ pub struct RustRawX509Signer {
     signing_key: Arc<dyn SigningKey>,
 
     /// The "not after" time for the certificate's validity period.
+    ///
+    /// We pre-calculate this on creation to avoid needing to re-parse the
+    /// certificate chain every time.
     validity_not_after: der::DateTime,
 }
 
@@ -54,7 +57,7 @@ pub struct RustRawX509Signer {
 pub enum RustX509SignError {
     /// There was an error parsing the certificate chain.
     #[error("failed to parse certificate chain {0}")]
-    CertificateParse(der::Error),
+    CertificateParse(#[from] der::Error),
 
     /// No certificates were found.
     #[error("no certificates found in chain")]
@@ -84,8 +87,7 @@ impl RustRawX509Signer {
             .load_private_key(private_key)
             .map_err(RustX509SignError::PrivateKeyLoad)?;
 
-        let cert_chain = Certificate::load_pem_chain(certificate_chain_pem.as_bytes())
-            .map_err(RustX509SignError::CertificateParse)?;
+        let cert_chain = Certificate::load_pem_chain(certificate_chain_pem.as_bytes())?;
 
         // Pick the minimum "not after" date in the certificate chain, since the
         // chain itself will not be valid after that time.
