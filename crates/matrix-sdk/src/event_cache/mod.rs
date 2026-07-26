@@ -56,6 +56,7 @@ use crate::{
 };
 
 mod automatic_pagination;
+mod back_pagination_queue;
 mod caches;
 mod deduplicator;
 mod persistence;
