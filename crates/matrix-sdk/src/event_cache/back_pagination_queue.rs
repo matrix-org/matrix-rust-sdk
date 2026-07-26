@@ -46,7 +46,7 @@ use std::{
 
 use matrix_sdk_base::{sleep::sleep, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::spawn;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId, time::Instant};
 use tokio::{
     select,
     sync::{mpsc, oneshot},
@@ -317,6 +317,165 @@ impl BackPaginationQueue {
 
         BackPaginationHandle { _guard: token.drop_guard(), completion: Some(completion_rx) }
     }
+
+    /// Enqueue fire-and-forget and capped read-receipt back-pagination for a
+    /// room. Used when a read receipt's target event isn't loaded yet; `stop`
+    /// fires once a suitable event is loaded (see [`stop_on_event_ids`]).
+    pub(crate) fn paginate_for_read_receipt(
+        &self,
+        room_id: &RoomId,
+        stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
+    ) {
+        let room_id = room_id.to_owned();
+        debug!(%room_id, "started backfill request for read receipts");
+
+        let handle = self.enqueue(BackPaginationRequest::read_receipt(
+            room_id.clone(),
+            BATCH_SIZE,
+            READ_RECEIPT_MAX_BATCHES,
+            stop,
+        ));
+
+        // Await completion in the background purely to log when it's done; the
+        // spawned task itself is never awaited or aborted, so the request always
+        // runs to completion regardless of this function's caller.
+        spawn(async move {
+            handle.join().await;
+            debug!(%room_id, "finished backfill request for read receipts");
+        });
+    }
+
+    /// Back-paginate a room until `stop` finds a suitable latest-event
+    /// candidate or the start of the timeline is reached.
+    pub(crate) async fn paginate_for_latest_event(
+        &self,
+        room_id: &RoomId,
+        stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
+    ) -> RoomBackPaginationEnd {
+        let room_id = room_id.to_owned();
+        debug!(%room_id, "started backfill request for latest events");
+
+        let BackPaginationRunResult { end, .. } = self
+            .enqueue(BackPaginationRequest::latest_event(room_id.clone(), BATCH_SIZE, stop))
+            .join()
+            .await;
+
+        debug!(%room_id, "finished backfill request for latest events");
+
+        end
+    }
+
+    /// Sweep every room, back-paginating message history down to a
+    /// MAX_BACKFILL_WEEKS floor to populate the search index (and the event
+    /// cache).
+    ///
+    /// Coverage is front-loaded by recency: the last week is filled for all
+    /// rooms first, then the previous week, and so on, in batches of rooms.
+    /// Requests go on the shared queue at the lowest priority, so reactive work
+    /// (latest event, read receipts) always takes precedence.
+    ///
+    /// `strategy` paces how fast new rooms are introduced into the sweep:
+    /// [`BackPaginationStrategy::Foreground`] spaces them out so this doesn't
+    /// compete with interactive traffic.
+    /// [`BackPaginationStrategy::Background`] introduces them as fast as the
+    /// concurrency cap allows.
+    pub async fn run_search_backfill(&self, strategy: BackPaginationStrategy) {
+        let enqueue_delay = strategy.enqueue_delay();
+        let started = Instant::now();
+
+        let total_rooms = self.rooms_by_relevancy().len();
+        let target_age = MAX_BACKFILL_WEEKS * WEEK;
+        info!(
+            ?strategy,
+            total_rooms,
+            weeks = MAX_BACKFILL_WEEKS,
+            ?target_age,
+            "search backfill started"
+        );
+
+        // Rooms that reached the start of their timeline.
+        let mut drained: HashSet<OwnedRoomId> = HashSet::new();
+
+        for week in 1..=MAX_BACKFILL_WEEKS {
+            let max_age = week * WEEK;
+
+            let rooms = self.rooms_by_relevancy();
+            let rooms_to_process = rooms.iter().filter(|r| !drained.contains(*r)).count();
+            debug!(
+                week,
+                of = MAX_BACKFILL_WEEKS,
+                ?max_age,
+                rooms_to_process,
+                "search backfill week"
+            );
+
+            for chunk in rooms.chunks(ROOM_BATCH) {
+                // Enqueue the batch then wait for it to drain before moving to
+                // the next batch / deeper week. The queue bounds actual
+                // concurrency.
+                let mut handles = Vec::new();
+                for room_id in chunk.iter().filter(|room_id| !drained.contains(*room_id)) {
+                    if !handles.is_empty()
+                        && let Some(delay) = enqueue_delay
+                    {
+                        sleep(delay).await;
+                    }
+                    debug!(%room_id, "started search backfill");
+                    handles.push((
+                        room_id.clone(),
+                        self.enqueue(BackPaginationRequest::search(
+                            room_id.clone(),
+                            max_age,
+                            BATCH_SIZE,
+                        )),
+                    ));
+                }
+
+                for (room_id, handle) in handles {
+                    let BackPaginationRunResult { end, reached } = handle.join().await;
+                    trace!(
+                        %room_id,
+                        week,
+                        of = MAX_BACKFILL_WEEKS,
+                        reached_date = reached.map(format_date),
+                        "finished search backpagination request"
+                    );
+                    if end == RoomBackPaginationEnd::ReachedTimelineStart {
+                        drained.insert(room_id);
+                    }
+                }
+            }
+        }
+
+        info!(
+            total_rooms,
+            rooms_drained = drained.len(),
+            reached_age = ?target_age,
+            elapsed = ?started.elapsed(),
+            "search backfill finished"
+        );
+    }
+
+    /// Joined room ids, most-recently-active first.
+    fn rooms_by_relevancy(&self) -> Vec<OwnedRoomId> {
+        let Some(inner) = self.inner.event_cache.upgrade() else {
+            return Vec::new();
+        };
+        let Some(client) = inner.client.get() else {
+            return Vec::new();
+        };
+
+        let mut rooms = client.joined_rooms();
+        rooms.sort_by_key(|room| std::cmp::Reverse(room.recency_stamp()));
+        rooms.into_iter().map(|room| room.room_id().to_owned()).collect()
+    }
+}
+
+/// Format a timestamp as a calendar date (`YYYY-MM-DD`), for logging.
+fn format_date(ts: MilliSecondsSinceUnixEpoch) -> String {
+    chrono::DateTime::from_timestamp_millis(i64::from(ts.get()))
+        .map(|date| date.format("%Y-%m-%d").to_string())
+        .unwrap_or_else(|| "?".to_owned())
 }
 
 /// Identifies a coalescable run i.e. a room back-paginated at a given priority.
