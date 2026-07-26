@@ -150,7 +150,7 @@ async fn main() -> Result<()> {
     });
 
     let event_cache = client.event_cache();
-    event_cache.config_mut().experimental_auto_backpagination = true;
+    event_cache.config_mut().experimental_auto_back_pagination = true;
     event_cache.subscribe()?;
 
     let terminal = ratatui::init();

@@ -727,7 +727,7 @@ async fn test_compute_unread_counts_triggers_backpaginations() {
     let client = server.client_builder().build().await;
     let own_user_id = client.user_id().unwrap();
 
-    client.event_cache().config_mut().experimental_auto_backpagination = true;
+    client.event_cache().config_mut().experimental_auto_back_pagination = true;
     client.event_cache().subscribe().unwrap();
 
     let room_id = room_id!("!omelette:fromage.fr");
