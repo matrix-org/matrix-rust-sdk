@@ -808,12 +808,20 @@ fn stop_now(stop: &mut StopCondition, outcome: &BackPaginationOutcome) -> bool {
 mod tests {
     use std::{ops::ControlFlow, time::Duration};
 
-    use matrix_sdk_test::{BOB, event_factory::EventFactory};
+    use assert_matches::assert_matches;
+    use eyeball_im::VectorDiff;
+    use matrix_sdk_test::{BOB, JoinedRoomBuilder, async_test, event_factory::EventFactory};
     use ruma::{MilliSecondsSinceUnixEpoch, event_id, room_id, time::SystemTime};
 
     use super::{
-        BackPaginationOutcome, BackPaginationRequest, Priority, ScheduledRequest, StopCondition,
-        WEEK, next_runnable, stop_now, stop_on_event_ids, try_coalesce,
+        BackPaginationOutcome, BackPaginationRequest, BackPaginationStrategy, Priority,
+        ScheduledRequest, StopCondition, WEEK, next_runnable, stop_now, stop_on_event_ids,
+        try_coalesce,
+    };
+    use crate::{
+        assert_let_timeout,
+        event_cache::{EventsOrigin, RoomEventCacheUpdate},
+        test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     };
 
     /// Build a queued request for a room, at a priority, with an insertion seq.
@@ -978,5 +986,72 @@ mod tests {
         assert!(stop_on_event_ids(HashSet::from([owned_event_id!("$3")]))(&outcome).is_continue());
         // No targets at all → never stops on content.
         assert!(stop_on_event_ids(HashSet::new())(&outcome).is_continue());
+    }
+
+    /// A search backfill sweeps the rooms, back-paginating each until it
+    /// reaches the start of the timeline.
+    #[async_test]
+    async fn test_search_backfill_drains_room() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.config_mut().experimental_auto_back_pagination = true;
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let (room_events, mut room_cache_updates) = room_event_cache.subscribe().await.unwrap();
+        assert!(room_events.is_empty());
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+        );
+        assert_matches!(update.diffs[0], VectorDiff::Clear);
+
+        // `/messages` returns two events and no end token → start of timeline reached.
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default().events(vec![
+                f.text_msg("comté").event_id(event_id!("$2")),
+                f.text_msg("beaufort").event_id(event_id!("$1")),
+            ]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // The single room drains on the first week and is skipped afterwards, so only
+        // one `/messages` call happens (guaranteed by `mock_once`).
+        event_cache
+            .back_pagination_queue()
+            .unwrap()
+            .run_search_backfill(BackPaginationStrategy::Foreground)
+            .await;
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(update)) = room_cache_updates.recv()
+        );
+        assert_matches!(update.origin, EventsOrigin::Pagination);
+
+        let mut room_events = room_events.into();
+        for diff in update.diffs {
+            diff.apply(&mut room_events);
+        }
+        assert_eq!(room_events.len(), 2);
+        assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
+        assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
     }
 }

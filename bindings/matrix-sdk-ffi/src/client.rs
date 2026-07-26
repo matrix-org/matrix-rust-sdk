@@ -2316,7 +2316,7 @@ impl Client {
     /// This must be called after creating a client, but before subscribing to
     /// the event cache (so, before spawning a sync service or a timeline).
     pub fn enable_automatic_backpagination(&self) {
-        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
+        self.inner.event_cache().config_mut().experimental_auto_back_pagination = true;
     }
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {

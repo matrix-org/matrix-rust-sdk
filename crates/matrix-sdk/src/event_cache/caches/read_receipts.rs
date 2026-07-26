@@ -99,6 +99,8 @@
 //! [`RoomEventCache`]: super::room::RoomEventCache
 //! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
+use std::collections::HashSet;
+
 use matrix_sdk_base::{
     read_receipts::{LatestReadReceipt, RoomReadReceipts},
     serde_helpers::extract_relation,
@@ -120,7 +122,8 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    super::automatic_pagination::AutomaticPagination, event_linked_chunk::EventLinkedChunk,
+    super::back_pagination_queue::{BackPaginationQueue, stop_on_event_ids},
+    event_linked_chunk::EventLinkedChunk,
 };
 
 trait RoomReadReceiptsExt {
@@ -390,7 +393,7 @@ pub(crate) async fn compute_unread_counts(
     linked_chunk: &EventLinkedChunk,
     read_receipts: &mut RoomReadReceipts,
     with_threading_support: bool,
-    automatic_pagination: Option<&AutomaticPagination>,
+    back_pagination_queue: Option<&BackPaginationQueue>,
     state_store: &DynStateStore,
 ) {
     debug!(?read_receipts, "Starting");
@@ -434,13 +437,16 @@ pub(crate) async fn compute_unread_counts(
     }
 
     // Request a pagination: we haven't found a better receipt, but we haven't even
-    // found the latest active receipt!
-    if let Some(automatic_pagination) = automatic_pagination {
-        if automatic_pagination.run_once(room_id) {
-            trace!("Requested pagination to find a better receipt");
-        } else {
-            warn!("Failed to request pagination to find a better receipt");
-        }
+    // found the latest active receipt! Hand it the receipt event ids we're chasing
+    // so the backfill can stop as soon as one of them is loaded.
+    if let Some(back_pagination_queue) = back_pagination_queue {
+        let targets: HashSet<OwnedEventId> = read_receipts
+            .pending
+            .iter()
+            .cloned()
+            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
+            .collect();
+        back_pagination_queue.paginate_for_read_receipt(room_id, stop_on_event_ids(targets));
     }
 
     // If we haven't returned at this point, it means we don't have any new "active"
