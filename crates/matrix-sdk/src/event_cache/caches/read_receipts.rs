@@ -363,13 +363,12 @@ async fn try_find_store_receipts(
                 trace!(%event_id, ?receipt_type, ?receipt_thread, "Found a dormant receipt in the store");
 
                 if read_receipts.latest_active.is_none() {
-                    read_receipts.latest_active =
-                        Some(LatestReadReceipt { event_id: event_id.clone() });
+                    read_receipts.latest_active = Some(LatestReadReceipt { event_id });
                 } else {
                     // This loop has already flagged a read receipt as the new `latest_active`.
                     // Extra read receipts can go to the pending receipts list, as they're lower
                     // priority, by the implementation notes above.
-                    read_receipts.pending.push(event_id.clone());
+                    read_receipts.pending.push(event_id);
                 }
             }
         }
