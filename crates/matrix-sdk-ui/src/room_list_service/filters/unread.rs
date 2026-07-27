@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk_base::read_receipts::RoomReadReceipts;
+use matrix_sdk_base::read_receipts::ReadReceipts;
 
 use super::{super::RoomListItem, Filter};
 
@@ -20,7 +20,7 @@ type IsMarkedUnread = bool;
 
 fn matches<F>(read_receipts_and_unread: F, room: &RoomListItem) -> bool
 where
-    F: Fn(&RoomListItem) -> (RoomReadReceipts, IsMarkedUnread),
+    F: Fn(&RoomListItem) -> (ReadReceipts, IsMarkedUnread),
 {
     let (read_receipts, is_marked_unread) = read_receipts_and_unread(room);
 
@@ -41,7 +41,7 @@ mod tests {
     use std::ops::Not;
 
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
-    use matrix_sdk_base::read_receipts::RoomReadReceipts;
+    use matrix_sdk_base::read_receipts::ReadReceipts;
     use matrix_sdk_test::async_test;
     use ruma::room_id;
 
@@ -55,11 +55,8 @@ mod tests {
 
         for is_marked_as_unread in [true, false] {
             let read_receipts_and_unread = |_: &RoomListItem| {
-                let read_receipts = RoomReadReceipts {
-                    num_unread: 42,
-                    num_notifications: 42,
-                    ..Default::default()
-                };
+                let read_receipts =
+                    ReadReceipts { num_unread: 42, num_notifications: 42, ..Default::default() };
 
                 (read_receipts, is_marked_as_unread)
             };
@@ -76,7 +73,7 @@ mod tests {
 
         let read_receipts_and_unread = |_: &RoomListItem| {
             let read_receipts =
-                RoomReadReceipts { num_unread: 42, num_notifications: 0, ..Default::default() };
+                ReadReceipts { num_unread: 42, num_notifications: 0, ..Default::default() };
 
             (read_receipts, false)
         };
@@ -92,7 +89,7 @@ mod tests {
 
         let read_receipts_and_unread = |_: &RoomListItem| {
             let read_receipts =
-                RoomReadReceipts { num_unread: 42, num_notifications: 0, ..Default::default() };
+                ReadReceipts { num_unread: 42, num_notifications: 0, ..Default::default() };
 
             (read_receipts, true)
         };
@@ -106,7 +103,7 @@ mod tests {
         let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let read_receipts_and_unread = |_: &RoomListItem| (RoomReadReceipts::default(), false);
+        let read_receipts_and_unread = |_: &RoomListItem| (ReadReceipts::default(), false);
 
         assert!(matches(read_receipts_and_unread, &room).not());
     }
@@ -117,7 +114,7 @@ mod tests {
         let client = server.client_builder().build().await;
         let [room] = new_rooms([room_id!("!a:b.c")], &client, &server).await;
 
-        let read_receipts_and_unread = |_: &RoomListItem| (RoomReadReceipts::default(), true);
+        let read_receipts_and_unread = |_: &RoomListItem| (ReadReceipts::default(), true);
 
         assert!(matches(read_receipts_and_unread, &room));
     }

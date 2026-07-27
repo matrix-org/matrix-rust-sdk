@@ -37,7 +37,7 @@ pub struct LatestReadReceipt {
 
 /// Public data about read receipts collected during processing of that room.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct RoomReadReceipts {
+pub struct ReadReceipts {
     /// Does the room have unread messages?
     pub num_unread: u64,
 
@@ -64,7 +64,7 @@ pub struct RoomReadReceipts {
     pub pending: RingBuffer<OwnedEventId>,
 }
 
-impl Default for RoomReadReceipts {
+impl Default for ReadReceipts {
     fn default() -> Self {
         Self {
             num_unread: Default::default(),

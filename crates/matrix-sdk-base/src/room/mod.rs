@@ -71,7 +71,7 @@ use crate::{
     DmRoomDefinition, Error, StateStore,
     deserialized_responses::MemberEvent,
     notification_settings::RoomNotificationMode,
-    read_receipts::RoomReadReceipts,
+    read_receipts::ReadReceipts,
     store::{Result as StoreResult, SaveLockedStateStore, StateStoreExt},
     sync::UnreadNotificationsCount,
 };
@@ -207,7 +207,7 @@ impl Room {
     }
 
     /// Get the detailed information about read receipts for the room.
-    pub fn read_receipts(&self) -> RoomReadReceipts {
+    pub fn read_receipts(&self) -> ReadReceipts {
         self.info.read().read_receipts.clone()
     }
 
