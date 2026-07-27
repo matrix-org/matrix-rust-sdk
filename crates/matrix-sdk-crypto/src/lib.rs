@@ -164,7 +164,7 @@ pub enum RoomEventDecryptionResult {
     UnableToDecrypt(UnableToDecryptInfo),
 }
 
-#[cfg_attr(doc, aquamarine::aquamarine)]
+#[cfg_attr(doc, doc = include_str!("../../../.cargo/mermaid.html"))]
 /// A step by step guide that explains how to include [end-to-end-encryption]
 /// support in a [Matrix] client library.
 ///
