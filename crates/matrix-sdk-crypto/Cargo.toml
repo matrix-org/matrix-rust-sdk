@@ -61,7 +61,6 @@ rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustl
 
 [dependencies]
 aes = { version = "0.8.4", default-features = false }
-aquamarine.workspace = true
 as_variant.workspace = true
 async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }

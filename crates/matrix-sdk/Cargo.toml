@@ -102,7 +102,6 @@ experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-base/ex
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
-aquamarine.workspace = true
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"
