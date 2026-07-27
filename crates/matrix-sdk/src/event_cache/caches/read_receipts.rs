@@ -355,7 +355,7 @@ async fn try_find_store_receipts(
                 .get_user_room_receipt_event(
                     room_id,
                     receipt_type.clone(),
-                    receipt_thread.clone(),
+                    &receipt_thread,
                     user_id,
                 )
                 .await
