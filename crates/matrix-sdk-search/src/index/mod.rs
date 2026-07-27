@@ -25,8 +25,8 @@ use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UInt,
 };
 use tantivy::{
-    Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
-    query::QueryParser, schema::Value,
+    Index, IndexReader, ReloadPolicy, TantivyDocument, collector::TopDocs,
+    directory::error::OpenDirectoryError, query::QueryParser, schema::Value,
 };
 use tracing::{debug, error, warn};
 
@@ -156,8 +156,16 @@ impl RoomIndex {
     }
 
     /// Get or create the cached [`IndexReader`] for this index.
+    ///
+    /// The reload policy is [`ReloadPolicy::Manual`]: we are the only writer of
+    /// this index, and every commit goes through
+    /// [`RoomIndex::commit_and_reload`], which reloads explicitly. Tantivy's
+    /// default policy would instead spawn one meta file watcher thread per
+    /// index, i.e. one per room, and panics if that thread cannot be spawned.
     fn reader(&self) -> Result<&IndexReader, IndexError> {
-        self.reader.get_or_try_init(|| Ok(self.index.reader_builder().try_into()?))
+        self.reader.get_or_try_init(|| {
+            Ok(self.index.reader_builder().reload_policy(ReloadPolicy::Manual).try_into()?)
+        })
     }
 
     /// Commit added events to [`RoomIndex`]. The changes are not reflected in
