@@ -733,7 +733,7 @@ impl Room {
 
         Ok(self
             .inner
-            .load_user_receipt(receipt_type.try_into()?, thread.try_into()?, &user_id)
+            .load_user_receipt(receipt_type.try_into()?, &thread.try_into()?, &user_id)
             .await?
             .map(|(event_id, receipt)| UserReceipt {
                 event_id: event_id.to_string(),

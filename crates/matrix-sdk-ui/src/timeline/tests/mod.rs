@@ -371,12 +371,12 @@ impl RoomDataProvider for TestRoomDataProvider {
     async fn load_user_receipt<'a>(
         &'a self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        thread: &'a ReceiptThread,
         user_id: &'a UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.initial_user_receipts
             .get(&receipt_type)
-            .and_then(|thread_map| thread_map.get(&thread))
+            .and_then(|thread_map| thread_map.get(thread))
             .and_then(|user_map| user_map.get(user_id))
             .cloned()
     }
@@ -384,7 +384,7 @@ impl RoomDataProvider for TestRoomDataProvider {
     async fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
-        _receipt_thread: ReceiptThread,
+        _receipt_thread: &'a ReceiptThread,
     ) -> IndexMap<OwnedUserId, Receipt> {
         let mut map = IndexMap::new();
 

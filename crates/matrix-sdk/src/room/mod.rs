@@ -3547,7 +3547,7 @@ impl Room {
     ///
     /// * `receipt_type` - The type of receipt to get.
     ///
-    /// * `thread` - The thread containing the event of the receipt, if any.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `user_id` - The ID of the user.
     ///
@@ -3556,10 +3556,13 @@ impl Room {
     pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        self.inner.load_user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
+        self.inner
+            .load_user_receipt(receipt_type, receipt_thread, user_id)
+            .await
+            .map_err(Into::into)
     }
 
     /// Load the receipts for an event in this room from storage.
@@ -3568,7 +3571,7 @@ impl Room {
     ///
     /// * `receipt_type` - The type of receipt to get.
     ///
-    /// * `thread` - The thread containing the event of the receipt, if any.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `event_id` - The ID of the event.
     ///
@@ -3577,10 +3580,13 @@ impl Room {
     pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
+        self.inner
+            .load_event_receipts(receipt_type, receipt_thread, event_id)
+            .await
+            .map_err(Into::into)
     }
 
     /// Get the push-condition context for this room.

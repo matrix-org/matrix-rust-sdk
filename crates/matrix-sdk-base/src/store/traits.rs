@@ -274,14 +274,14 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `receipt_type` - The type of the receipt.
     ///
-    /// * `thread` - The thread containing this receipt.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `user_id` - The id of the user for whom the receipt should be fetched.
     async fn get_user_room_receipt_event(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error>;
 
@@ -294,7 +294,7 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `receipt_type` - The type of the receipts.
     ///
-    /// * `thread` - The thread containing this receipt.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `event_id` - The id of the event for which the receipts should be
     ///   fetched.
@@ -302,7 +302,7 @@ pub trait StateStore: AsyncTraitDeps {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error>;
 
@@ -698,20 +698,20 @@ impl<T: StateStore> StateStore for &T {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
-        (*self).get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
+        (*self).get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id).await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
-        (*self).get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
+        (*self).get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id).await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -1020,20 +1020,24 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
-        self.deref().get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
+        self.deref()
+            .get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id)
+            .await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
-        self.deref().get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
+        self.deref()
+            .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {
@@ -1352,11 +1356,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
         self.0
-            .get_user_room_receipt_event(room_id, receipt_type, thread, user_id)
+            .get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id)
             .await
             .map_err(Into::into)
     }
@@ -1365,11 +1369,11 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
         self.0
-            .get_event_room_receipt_events(room_id, receipt_type, thread, event_id)
+            .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
             .await
             .map_err(Into::into)
     }
@@ -1758,20 +1762,22 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>, Self::Error> {
-        self.store.get_user_room_receipt_event(room_id, receipt_type, thread, user_id).await
+        self.store.get_user_room_receipt_event(room_id, receipt_type, receipt_thread, user_id).await
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>, Self::Error> {
-        self.store.get_event_room_receipt_events(room_id, receipt_type, thread, event_id).await
+        self.store
+            .get_event_room_receipt_events(room_id, receipt_type, receipt_thread, event_id)
+            .await
     }
 
     async fn get_custom_value(&self, key: &[u8]) -> Result<Option<Vec<u8>>, Self::Error> {

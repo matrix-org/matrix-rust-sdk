@@ -549,10 +549,12 @@ impl Room {
     pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> StoreResult<Option<(OwnedEventId, Receipt)>> {
-        self.store.get_user_room_receipt_event(self.room_id(), receipt_type, thread, user_id).await
+        self.store
+            .get_user_room_receipt_event(self.room_id(), receipt_type, receipt_thread, user_id)
+            .await
     }
 
     /// Load from storage the receipts as a list of `OwnedUserId` and `Receipt`
@@ -561,11 +563,11 @@ impl Room {
     pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> StoreResult<Vec<(OwnedUserId, Receipt)>> {
         self.store
-            .get_event_room_receipt_events(self.room_id(), receipt_type, thread, event_id)
+            .get_event_room_receipt_events(self.room_id(), receipt_type, receipt_thread, event_id)
             .await
     }
 
