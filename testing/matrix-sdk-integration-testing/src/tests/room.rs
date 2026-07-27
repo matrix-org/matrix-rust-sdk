@@ -34,7 +34,7 @@ use matrix_sdk_ui::{sync_service::SyncService, timeline::TimelineBuilder};
 use tokio::{spawn, time::sleep};
 use tracing::{debug, error, warn};
 
-use crate::helpers::{TestClientBuilder, wait_for_room};
+use crate::helpers::{TestClientBuilder, wait_for_room, wait_until_some};
 
 #[tokio::test]
 async fn test_empty_room_decline_invite() -> Result<()> {
@@ -750,22 +750,32 @@ async fn test_invite_declined_and_later_accepted() -> Result<()> {
         alice_room.invite_user_by_id(&bob_user_id).await?;
 
         // Alice sees Bob as a member of the room!
-        alice.sync_once(Default::default()).await?;
-        let members = alice_room.members_no_sync(RoomMemberships::INVITE).await?;
+        let members = wait_until_some(
+            async |_| {
+                alice.sync_once(Default::default()).await.ok()?;
+                let members = alice_room.members_no_sync(RoomMemberships::INVITE).await.ok()?;
+
+                if members.is_empty() { None } else { Some(members) }
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
+
         assert_eq!(members.len(), 1);
         assert_eq!(members[0].user_id(), bob_user_id);
     }
 
     // Step 3, Bob declines the invite.
     {
-        let mut sync_response = bob.sync_once(Default::default()).await?;
-        let room_id = sync_response
-            .rooms
-            .invited
-            .first_entry()
-            .expect("Expect a room invite")
-            .key()
-            .to_owned();
+        let room_id = wait_until_some(
+            async |_| {
+                let mut sync_response = bob.sync_once(Default::default()).await.ok()?;
+
+                Some(sync_response.rooms.invited.first_entry()?.key().to_owned())
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
 
         // Ensure we are talking about the same room.
         assert_eq!(room_id, alice_room.room_id());
@@ -793,14 +803,15 @@ async fn test_invite_declined_and_later_accepted() -> Result<()> {
 
     // Step 5, Bob accepts the invite!
     {
-        let mut sync_response = bob.sync_once(Default::default()).await?;
-        let room_id = sync_response
-            .rooms
-            .invited
-            .first_entry()
-            .expect("Expect a room invite")
-            .key()
-            .to_owned();
+        let room_id = wait_until_some(
+            async |_| {
+                let mut sync_response = bob.sync_once(Default::default()).await.ok()?;
+
+                Some(sync_response.rooms.invited.first_entry()?.key().to_owned())
+            },
+            Duration::from_secs(5),
+        )
+        .await?;
 
         // Ensure we are talking about the same room.
         assert_eq!(room_id, alice_room.room_id());
