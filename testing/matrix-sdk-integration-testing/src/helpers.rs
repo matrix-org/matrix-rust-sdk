@@ -1,5 +1,4 @@
 use std::{
-    future::Future,
     ops::Deref,
     option_env,
     path::{Path, PathBuf},
@@ -279,13 +278,9 @@ impl Deref for SyncTokenAwareClient {
 ///
 /// The result of `cb` if it returned `Some`. If the timeout elapses, an error
 /// of type [`ElapsedError`].
-pub async fn wait_until_some<F, Fut, R>(
-    mut cb: F,
-    timeout_duration: Duration,
-) -> Result<R, ElapsedError>
+pub async fn wait_until_some<F, R>(mut cb: F, timeout_duration: Duration) -> Result<R, ElapsedError>
 where
-    F: FnMut(u32) -> Fut,
-    Fut: Future<Output = Option<R>>,
+    F: AsyncFnMut(u32) -> Option<R>,
 {
     let start = Instant::now();
     let mut attempt_count = 1;
