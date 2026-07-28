@@ -483,7 +483,63 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index_message(&mut index, event).expect("failed to add event: {res:?}");
+        index_message(&mut index, event).expect("failed to add event");
+    }
+
+    #[test]
+    fn test_add_event_with_no_timestamp() {
+        let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r")).build();
+
+        index
+            .execute(RoomIndexOperation::Add(IndexableEvent::new(
+                event_id!("$ev").to_owned(),
+                event_id!("$ev").to_owned(),
+                user_id!("@mnt_io:matrix.org").to_owned(),
+                None,
+                "body".to_owned(),
+            )))
+            .expect("failed to add event");
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_add_event_with_raw_malformed_timestamp_must_panic() {
+        let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r")).build();
+
+        index
+            .execute(RoomIndexOperation::Add(IndexableEvent::new(
+                event_id!("$ev").to_owned(),
+                event_id!("$ev").to_owned(),
+                user_id!("@mnt_io:matrix.org").to_owned(),
+                Some(ruma::MilliSecondsSinceUnixEpoch(ruma::UInt::new(151393755000000).unwrap())),
+                "body".to_owned(),
+            )))
+            .expect("failed to add event");
+    }
+
+    #[test]
+    fn test_add_event_with_malformed_timestamp_must_not_panic() {
+        let room_id = room_id!("!r");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+
+        let body = "body".to_owned();
+        let event = EventFactory::new()
+            .server_ts(151393755000000)
+            .text_msg(body.clone())
+            .event_id(event_id!("$ev"))
+            .room(room_id)
+            .sender(user_id!("@mnt_io:matrix.org"))
+            .into_event();
+
+        index
+            .execute(RoomIndexOperation::Add(IndexableEvent::new(
+                event.event_id().unwrap().to_owned(),
+                event.event_id().unwrap().to_owned(),
+                event.sender().unwrap(),
+                event.timestamp(),
+                body,
+            )))
+            .expect("failed to add event");
     }
 
     #[test]
