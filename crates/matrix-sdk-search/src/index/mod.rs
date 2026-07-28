@@ -49,7 +49,11 @@ pub struct IndexableEvent {
     /// The sender of the event.
     pub(crate) sender: OwnedUserId,
     /// The origin server timestamp of the event.
-    pub(crate) timestamp: MilliSecondsSinceUnixEpoch,
+    ///
+    /// Please use the `matrix_sdk_common::TimelineEvent::timestamp` as much as
+    /// possible as it protects against malformed `origin_server_ts`. At worst,
+    /// use the `matrix_sdk_common::serde_helpers::extract_timestamp` function.
+    pub(crate) timestamp: Option<MilliSecondsSinceUnixEpoch>,
     /// The text to index for this event.
     pub(crate) body: String,
 }
@@ -60,7 +64,7 @@ impl IndexableEvent {
         event_id: OwnedEventId,
         original_event_id: OwnedEventId,
         sender: OwnedUserId,
-        timestamp: MilliSecondsSinceUnixEpoch,
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
         body: String,
     ) -> Self {
         Self { event_id, original_event_id, sender, timestamp, body }
@@ -427,7 +431,7 @@ mod tests {
             event.event_id.clone(),
             original_event_id,
             event.sender.clone(),
-            event.origin_server_ts,
+            Some(event.origin_server_ts),
             content.body.clone(),
         )
     }
