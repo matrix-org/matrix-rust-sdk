@@ -56,7 +56,7 @@ use super::{
         EventLocation,
         event_linked_chunk::EventLinkedChunk,
         pagination::SharedPaginationStatus,
-        read_receipts::compute_unread_counts,
+        read_receipts::{ReadReceiptsForRoom, compute_unread_counts},
         subscriber::SubscribersHandle,
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
@@ -65,7 +65,7 @@ use crate::room::WeakRoom;
 
 pub struct RoomEventCacheState {
     /// Whether thread support has been enabled for the event cache.
-    enabled_thread_support: bool,
+    pub enabled_thread_support: bool,
 
     /// The room this state relates to.
     pub room_id: OwnedRoomId,
@@ -644,21 +644,19 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             return Ok(());
         };
 
-        let user_id = &self.state.own_user_id;
-        let room_id = &self.state.room_id;
-
         let prev_read_receipts = room.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
 
+        let client = room.client();
+        let event_filter = ReadReceiptsForRoom::new(&self.state, client.state_store());
+
         compute_unread_counts(
-            user_id,
-            room_id,
+            &self.state.own_user_id,
             receipt_event,
             &self.state.room_linked_chunk,
+            &event_filter,
             &mut read_receipts,
-            self.state.enabled_thread_support,
             self.state.automatic_pagination.as_ref(),
-            room.client().state_store(),
         )
         .await;
 
@@ -672,6 +670,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                     (room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT)
                 })
                 .await;
+
             if let Err(error) = result {
                 error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
             }
