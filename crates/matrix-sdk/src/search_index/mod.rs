@@ -290,13 +290,14 @@ fn indexable_from_room_message(event: &OriginalSyncRoomMessageEvent) -> Option<I
         Some(Relation::Replacement(replacement)) => replacement.event_id.clone(),
         _ => event.event_id.clone(),
     };
-    Some(IndexableEvent {
-        event_id: event.event_id.clone(),
+
+    Some(IndexableEvent::new(
+        event.event_id.clone(),
         original_event_id,
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
+        event.sender.clone(),
+        event.origin_server_ts,
         body,
-    })
+    ))
 }
 
 /// If the given [`OriginalSyncRoomMessageEvent`] is an edit we make an
@@ -369,13 +370,14 @@ async fn handle_room_redaction(
 /// Return a [`RoomIndexOperation::Add`] indexing a sticker's descriptive text.
 fn handle_sticker(event: SyncStickerEvent) -> Option<RoomIndexOperation> {
     let event = event.as_original()?;
-    Some(RoomIndexOperation::Add(IndexableEvent {
-        event_id: event.event_id.clone(),
-        original_event_id: event.event_id.clone(),
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
-        body: event.content.body.clone(),
-    }))
+
+    Some(RoomIndexOperation::Add(IndexableEvent::new(
+        event.event_id.clone(),
+        event.event_id.clone(),
+        event.sender.clone(),
+        event.origin_server_ts,
+        event.content.body.clone(),
+    )))
 }
 
 /// Return a [`RoomIndexOperation::Add`] indexing an unstable poll's question
@@ -398,13 +400,13 @@ fn handle_unstable_poll_start(event: SyncUnstablePollStartEvent) -> Option<RoomI
         body.push_str(&answer.text);
     }
 
-    Some(RoomIndexOperation::Add(IndexableEvent {
-        event_id: event.event_id.clone(),
-        original_event_id: event.event_id.clone(),
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
+    Some(RoomIndexOperation::Add(IndexableEvent::new(
+        event.event_id.clone(),
+        event.event_id.clone(),
+        event.sender.clone(),
+        event.origin_server_ts,
         body,
-    }))
+    )))
 }
 
 /// Return a [`RoomIndexOperation::Add`] indexing a stable poll's question and
@@ -429,13 +431,13 @@ fn handle_poll_start(event: SyncPollStartEvent) -> Option<RoomIndexOperation> {
         }
     }
 
-    Some(RoomIndexOperation::Add(IndexableEvent {
-        event_id: event.event_id.clone(),
-        original_event_id: event.event_id.clone(),
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
+    Some(RoomIndexOperation::Add(IndexableEvent::new(
+        event.event_id.clone(),
+        event.event_id.clone(),
+        event.sender.clone(),
+        event.origin_server_ts,
         body,
-    }))
+    )))
 }
 
 /// Prepare a [`TimelineEvent`] into a [`RoomIndexOperation`] for search

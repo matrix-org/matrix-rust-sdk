@@ -42,16 +42,29 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct IndexableEvent {
     /// The event's own id (primary key).
-    pub event_id: OwnedEventId,
+    pub(crate) event_id: OwnedEventId,
     /// The id used as the deletion key: the original event id for edits,
     /// otherwise the event's own id.
-    pub original_event_id: OwnedEventId,
+    pub(crate) original_event_id: OwnedEventId,
     /// The sender of the event.
-    pub sender: OwnedUserId,
+    pub(crate) sender: OwnedUserId,
     /// The origin server timestamp of the event.
-    pub timestamp: MilliSecondsSinceUnixEpoch,
+    pub(crate) timestamp: MilliSecondsSinceUnixEpoch,
     /// The text to index for this event.
-    pub body: String,
+    pub(crate) body: String,
+}
+
+impl IndexableEvent {
+    /// Create a new [`IndexableEvent`].
+    pub fn new(
+        event_id: OwnedEventId,
+        original_event_id: OwnedEventId,
+        sender: OwnedUserId,
+        timestamp: MilliSecondsSinceUnixEpoch,
+        body: String,
+    ) -> Self {
+        Self { event_id, original_event_id, sender, timestamp, body }
+    }
 }
 
 /// A struct to represent the operations on a [`RoomIndex`]
@@ -409,19 +422,21 @@ mod tests {
             Some(Relation::Replacement(replacement)) => replacement.event_id.clone(),
             _ => event.event_id.clone(),
         };
-        IndexableEvent {
-            event_id: event.event_id.clone(),
+
+        IndexableEvent::new(
+            event.event_id.clone(),
             original_event_id,
-            sender: event.sender.clone(),
-            timestamp: event.origin_server_ts,
-            body: content.body.clone(),
-        }
+            event.sender.clone(),
+            event.origin_server_ts,
+            content.body.clone(),
+        )
     }
 
     /// Helper function to add a regular message to the index
     ///
     /// # Panic
-    /// Panics when event is not a [`OriginalSyncRoomMessageEvent`] with no
+    ///
+    /// Panics when event is not an [`OriginalSyncRoomMessageEvent`] with no
     /// relations.
     fn index_message(
         index: &mut RoomIndex,
