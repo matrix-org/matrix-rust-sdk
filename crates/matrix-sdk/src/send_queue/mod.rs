@@ -130,6 +130,7 @@
 
 use std::{
     collections::{BTreeMap, HashMap},
+    future::IntoFuture,
     ops::Not,
     str::FromStr as _,
     sync::{
@@ -156,7 +157,7 @@ use matrix_sdk_base::{
     },
     task_monitor::BackgroundTaskHandle,
 };
-use matrix_sdk_common::locks::Mutex as SyncMutex;
+use matrix_sdk_common::{boxed_into_future, locks::Mutex as SyncMutex};
 use mime::Mime;
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedTransactionId, RoomId,
@@ -570,15 +571,8 @@ impl RoomSendQueue {
     /// client's sending queue will be disabled, and it will need to be
     /// manually re-enabled by the caller (e.g. after network is back, or when
     /// something has been done about the faulty requests).
-    pub async fn send(
-        &self,
-        content: AnyMessageLikeEventContent,
-    ) -> Result<SendHandle, RoomSendQueueError> {
-        self.send_raw(
-            Raw::new(&content).map_err(RoomSendQueueStorageError::JsonSerialization)?,
-            content.event_type().to_string(),
-        )
-        .await
+    pub fn send(&self, content: AnyMessageLikeEventContent) -> SendEvent<'_> {
+        SendEvent { queue: self, content, extra_content: None }
     }
 
     /// Queues a redaction of another event for sending it to this room.
@@ -1681,6 +1675,7 @@ impl QueueStorage {
         upload_file_txn: OwnedTransactionId,
         file_media_request: MediaRequestParameters,
         thumbnail: Option<QueueThumbnailInfo>,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<(), RoomSendQueueStorageError> {
         let guard = self.store.lock().await;
         let client = guard.client()?;
@@ -1712,6 +1707,7 @@ impl QueueStorage {
                     local_echo: Box::new(event),
                     file_upload: upload_file_txn.clone(),
                     thumbnail_info,
+                    extra_content,
                 },
             )
             .await?;
@@ -2057,13 +2053,17 @@ impl QueueStorage {
                     local_echo,
                     file_upload,
                     thumbnail_info,
+                    extra_content,
                 } => {
                     // Materialize as an event local echo.
                     Some(LocalEcho {
                         transaction_id: dep.own_transaction_id.clone().into(),
                         content: LocalEchoContent::Event {
-                            serialized_event: SerializableEventContent::new(&(*local_echo).into())
-                                .ok()?,
+                            serialized_event: upload::merge_extra_content(
+                                SerializableEventContent::new(&(*local_echo).into()).ok()?,
+                                extra_content,
+                            )
+                            .ok()?,
                             send_handle: SendHandle {
                                 room: room.clone(),
                                 transaction_id: dep.own_transaction_id.into(),
@@ -2330,6 +2330,7 @@ impl QueueStorage {
                 local_echo,
                 file_upload,
                 thumbnail_info,
+                extra_content,
             } => {
                 let Some(parent_key) = parent_key else {
                     // Not finished yet, we should retry later => false.
@@ -2342,6 +2343,7 @@ impl QueueStorage {
                     *local_echo,
                     file_upload,
                     thumbnail_info,
+                    extra_content,
                     new_updates,
                 )
                 .await?;
@@ -2690,6 +2692,44 @@ struct MediaHandles {
 
     /// Transaction id used when uploading the media itself.
     upload_file_txn: OwnedTransactionId,
+}
+
+/// Future returned by [`RoomSendQueue::send`].
+#[allow(missing_debug_implementations)]
+pub struct SendEvent<'a> {
+    queue: &'a RoomSendQueue,
+    content: AnyMessageLikeEventContent,
+    extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+}
+
+impl<'a> SendEvent<'a> {
+    /// Merge additional top-level fields into the outgoing event's content.
+    ///
+    /// The event's own fields take precedence on conflicts.
+    pub fn with_extra_content(
+        mut self,
+        extra_content: serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
+        self.extra_content = Some(extra_content);
+        self
+    }
+}
+
+impl<'a> IntoFuture for SendEvent<'a> {
+    type Output = Result<SendHandle, RoomSendQueueError>;
+    boxed_into_future!(extra_bounds: 'a);
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(async move {
+            let serialized = upload::merge_extra_content(
+                SerializableEventContent::new(&self.content)
+                    .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                self.extra_content,
+            )?;
+            let (raw, event_type) = serialized.into_raw();
+            self.queue.send_raw(raw, event_type).await
+        })
+    }
 }
 
 /// A handle to manipulate an event that was scheduled to be sent to a room.

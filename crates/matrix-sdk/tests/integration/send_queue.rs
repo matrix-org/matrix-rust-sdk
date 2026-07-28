@@ -2757,6 +2757,72 @@ async fn test_gallery_uploads() {
 }
 
 #[async_test]
+async fn test_media_upload_with_extra_content() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    // ----------------------
+    // Create the media to send, with extra content fields.
+    let mut extra_content = serde_json::Map::new();
+    extra_content.insert("com.example.key".to_owned(), json!("@alice:example.org"));
+    // Extra fields must never override the fields of the media event itself.
+    extra_content.insert("body".to_owned(), json!("override attempt"));
+
+    let config = AttachmentConfig::new()
+        .caption(Some(TextMessageEventContent::plain("caption")))
+        .extra_content(Some(extra_content));
+
+    // ----------------------
+    // Prepare endpoints, capturing the body of the send request.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
+
+    let sent_body = Arc::new(std::sync::Mutex::new(None));
+    let sent_body_clone = sent_body.clone();
+    mock.mock_room_send()
+        .respond_with(move |req: &Request| {
+            *sent_body_clone.lock().unwrap() =
+                Some(serde_json::from_slice::<serde_json::Value>(&req.body).unwrap());
+            ResponseTemplate::new(200).set_body_json(json!({ "event_id": "$1" }))
+        })
+        .mock_once()
+        .mount()
+        .await;
+
+    // ----------------------
+    // Send the media and wait for it to be sent.
+    q.send_attachment("village.jpg", mime::IMAGE_JPEG, b"hello world".to_vec(), config)
+        .await
+        .expect("queuing the attachment works");
+
+    let (txn, _send_handle, _content) = assert_update!((global_watch, watch) => local echo event);
+    assert_update!((global_watch, watch) => uploaded {
+        related_to = txn,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+    assert_update!((global_watch, watch) => edit local echo { txn = txn });
+    assert_update!((global_watch, watch) => sent { txn = txn, event_id = event_id!("$1") });
+
+    // The extra field was included in the sent event, and the media event's own
+    // fields were left untouched.
+    let body = sent_body.lock().unwrap().take().unwrap();
+    assert_eq!(body["com.example.key"], json!("@alice:example.org"));
+    assert_eq!(body["body"], json!("caption"));
+    assert_eq!(body["url"], json!("mxc://sdk.rs/media"));
+}
+
+#[async_test]
 async fn test_media_upload_retry() {
     let mock = MatrixMockServer::new().await;
 
