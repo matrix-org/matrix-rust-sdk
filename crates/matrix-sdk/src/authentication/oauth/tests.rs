@@ -713,7 +713,7 @@ async fn test_server_metadata_cache() {
 
     // We wait for the task to finish, the endpoint should have been called again.
     sleep(Duration::from_secs(1)).await;
-    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(value) if !value.has_expired());
+    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
 }
 
 #[async_test]

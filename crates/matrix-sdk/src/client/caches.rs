@@ -15,7 +15,10 @@
 use std::{sync::Arc, time::Duration};
 
 use matrix_sdk_base::store::WellKnownResponse;
-use matrix_sdk_common::{locks::Mutex, ttl::TtlValue};
+use matrix_sdk_common::{
+    locks::Mutex,
+    ttl::{Clock, TtlValue},
+};
 use ruma::api::{
     SupportedVersions,
     client::discovery::{
@@ -45,6 +48,8 @@ pub(crate) struct ClientCaches {
     pub(crate) homeserver_capabilities: Cache<Capabilities, Arc<HttpError>>,
     /// The duration after which cached discovery data is considered stale.
     pub(crate) discovery_cache_timeout: Duration,
+    /// The clock used to determine the current time when checking staleness.
+    pub(crate) clock: Arc<dyn Clock>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion

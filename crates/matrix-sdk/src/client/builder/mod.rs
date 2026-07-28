@@ -38,7 +38,10 @@ use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{
     BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig, ttl::TtlValue,
 };
-use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig,
+    ttl::{Clock, SystemClock},
+};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 #[cfg(not(target_family = "wasm"))]
@@ -140,6 +143,7 @@ pub struct ClientBuilder {
     dm_room_definition: DmRoomDefinition,
     media_fetcher: Arc<dyn MediaFetcher>,
     discovery_cache_timeout: Duration,
+    clock: Arc<dyn Clock>,
 }
 
 impl ClientBuilder {
@@ -178,7 +182,8 @@ impl ClientBuilder {
             search_index_store_kind: SearchIndexStoreKind::InMemory,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: Arc::new(DefaultMediaFetcher),
-            discovery_cache_timeout: Duration::from_secs(60 * 60 * 24),
+            discovery_cache_timeout: TtlValue::<()>::STALE_THRESHOLD,
+            clock: Arc::new(SystemClock),
         }
     }
 
@@ -675,6 +680,7 @@ impl ClientBuilder {
             thread_subscriptions_catchup,
             self.media_fetcher.clone(),
             self.discovery_cache_timeout,
+            self.clock.clone(),
         )
         .await;
 
@@ -690,6 +696,12 @@ impl ClientBuilder {
     /// By default, this is 24 hours
     pub fn discovery_cache_timeout(mut self, stale_timeout: Duration) -> Self {
         self.discovery_cache_timeout = stale_timeout;
+        self
+    }
+
+    /// Set a custom [`Clock`] implementation, useful for testing.
+    pub fn clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
         self
     }
 }
