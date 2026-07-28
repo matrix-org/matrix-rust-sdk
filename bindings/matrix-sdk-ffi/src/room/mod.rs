@@ -741,6 +741,28 @@ impl Room {
             }))
     }
 
+    /// Send a single receipt of the given type for the given event, optionally
+    /// scoped to a thread.
+    ///
+    /// This allows sending receipts for events without instantiating the
+    /// [`Timeline`] they belong to, e.g. marking a thread as read from its
+    /// root and latest event ids. Note that this won't check whether sending
+    /// the receipt is necessary or valid (i.e. it can move a receipt
+    /// backwards); prefer [`Timeline::send_single_receipt`] when a timeline
+    /// is available.
+    pub async fn send_single_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: String,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+
+        self.inner.send_single_receipt(receipt_type.into(), thread.try_into()?, event_id).await?;
+
+        Ok(())
+    }
+
     /// Mark a room as fully read, by attaching a read receipt to the provided
     /// `event_id`.
     ///
