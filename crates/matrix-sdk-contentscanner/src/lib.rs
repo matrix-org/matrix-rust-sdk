@@ -286,8 +286,12 @@ pub enum ErrorReason {
 #[cfg(test)]
 mod tests {
     use std::ops::Not;
+    #[cfg(feature = "e2e-encryption")]
+    use std::sync::Arc;
 
     use assert_matches2::assert_matches;
+    #[cfg(feature = "e2e-encryption")]
+    use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
     use matrix_sdk::{HttpError, RumaApiError, test_utils::mocks::MatrixMockServer};
     use matrix_sdk_test::async_test;
     use ruma::{
@@ -309,6 +313,8 @@ mod tests {
         matchers::{header_exists, method, path, path_regex},
     };
 
+    #[cfg(feature = "e2e-encryption")]
+    use crate::ContentScannerMediaFetcher;
     use crate::{ContentScanner, ContentScannerError, ErrorReason};
 
     #[async_test]
@@ -570,5 +576,64 @@ mod tests {
             ContentScannerError::deserialize(json_body).expect("deserialize");
         assert_eq!(content_scanner_error.info, "***VIRUS DETECTED***");
         assert_matches!(content_scanner_error.reason, ErrorReason::MCS_MEDIA_NOT_CLEAN);
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_content_scanner_media_fetcher_decrypts_media() {
+        let server = MatrixMockServer::new().await;
+
+        let media_fetcher = Arc::new(ContentScannerMediaFetcher::new(server.uri()));
+
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.media_fetcher(media_fetcher.clone()))
+            .server_versions(vec![MatrixVersion::V1_11])
+            .build()
+            .await;
+
+        // The original (unencrypted) media content
+        let original = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        // The encrypted media content to return
+        let encrypted: Vec<u8> = vec![0xEA, 0x10, 0x2D, 0x01, 0x53, 0xB7, 0x87, 0xF0, 0x75, 0xED];
+
+        // Set up the mock server as the content scanner one, with the expected endpoint
+        Mock::given(method("POST"))
+            .and(path("/_matrix/media_proxy/unstable/download_encrypted"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(encrypted.clone()))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let mut hashes = EncryptedFileHashes::new();
+        // The SHA256 hash of the unencrypted bytes
+        hashes.insert(EncryptedFileHash::Sha256(
+            Base64::parse("HT/BV9JX7tQgtvLt9NQs914ytE8kp4V6cBGN6SAU/do".as_bytes())
+                .expect("Hash deserialization"),
+        ));
+
+        let request = MediaRequestParameters {
+            source: MediaSource::Encrypted(Box::new(EncryptedFile::new(
+                owned_mxc_uri!("mxc://example.com/1234"),
+                EncryptedFileInfo::V2(V2EncryptedFileInfo::new(
+                    Base64::parse("QRsQvqumCgRLrZEMTZIc-DU-08Lak2c1dBQC6u5x7rE".as_bytes())
+                        .expect("k"),
+                    Base64::parse("uMwbioRbD6EAAAAAAAAAAA".as_bytes()).expect("iv"),
+                )),
+                hashes,
+            ))),
+            format: MediaFormat::File,
+        };
+
+        // If there was a decryption error, we'd be able to check the decryption took
+        // place
+        let result = client
+            .media()
+            .get_media_content(&request, false)
+            .await
+            .expect("Get media content from mock server");
+
+        // Check the original media content matches the decrypted downloaded one
+        assert_eq!(original, result);
     }
 }
