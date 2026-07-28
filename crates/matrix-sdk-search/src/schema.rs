@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use tantivy::{
-    DateTime, TantivyDocument, doc,
+    DateTime, TantivyDocument,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
 
@@ -96,21 +96,36 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
 
     /// Given an [`IndexableEvent`] return a [`TantivyDocument`].
     fn make_doc(&self, event: IndexableEvent) -> Result<TantivyDocument, IndexError> {
-        let timestamp = DateTime::from_timestamp_millis(
-            event
-                .timestamp
-                .map(|timestamp| timestamp.get().into())
-                // If the timestamp is missing, use 0 as the “no value”.
-                .unwrap_or(0),
-        );
+        let mut document = TantivyDocument::default();
 
-        let document = doc!(
-            self.event_id_field => event.event_id.to_string(),
-            self.body_field => event.body,
-            self.date_field => timestamp,
-            self.sender_field => event.sender.to_string(),
-            self.original_event_id_field => event.original_event_id.to_string(),
+        let Self {
+            event_id_field,
+            body_field,
+            date_field,
+            sender_field,
+            original_event_id_field,
+
+            inner: _,
+            default_search_fields: _,
+        } = self;
+
+        let IndexableEvent { event_id, body, timestamp, sender, original_event_id } = event;
+
+        document.add_text(*event_id_field, event_id);
+        document.add_text(*body_field, body);
+        document.add_date(
+            *date_field,
+            DateTime::from_timestamp_millis(
+                timestamp
+                    .map(|timestamp| timestamp.get().into())
+                    // If the timestamp is missing, use 0 as the “no value”.
+                    .unwrap_or(0),
+            ),
         );
+        document.add_text(*sender_field, sender);
+        document.add_text(*original_event_id_field, original_event_id);
+
+        document.shrink_to_fit();
 
         Ok(document)
     }
