@@ -2112,8 +2112,8 @@ impl Client {
 
                 for file_name in [
                     PathBuf::from(STATE_STORE_DATABASE_NAME),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.wal")),
-                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}.shm")),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}-wal")),
+                    PathBuf::from(format!("{STATE_STORE_DATABASE_NAME}-shm")),
                 ] {
                     let file_path = store_path.join(file_name);
                     if file_path.exists() {
