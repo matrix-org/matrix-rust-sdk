@@ -21,7 +21,9 @@ use std::{
 };
 
 use once_cell::sync::OnceCell;
-use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId};
+use ruma::{
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UInt,
+};
 use tantivy::{
     Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
     query::QueryParser, schema::Value,
@@ -58,15 +60,34 @@ pub struct IndexableEvent {
     pub(crate) body: String,
 }
 
+/// Maximum value for the timestamp to not overflow when converted to
+/// nanoseconds by Tantivy. See [`IndexableEvent::new`] to learn more.
+///
+/// This is the value of `i64::MAX / 1_000_000` but folded as a `u64`.
+const MAX_MILLISECONDS: u64 = 9_223_372_036_854;
+
 impl IndexableEvent {
     /// Create a new [`IndexableEvent`].
     pub fn new(
         event_id: OwnedEventId,
         original_event_id: OwnedEventId,
         sender: OwnedUserId,
-        timestamp: Option<MilliSecondsSinceUnixEpoch>,
+        mut timestamp: Option<MilliSecondsSinceUnixEpoch>,
         body: String,
     ) -> Self {
+        // Tantivy will transform the number of milliseconds to nanoseconds
+        // by multiplying by 1_000_000 [1]. If the number of milliseconds is too
+        // big, the multiplication will overflow.
+        //
+        // To avoid this panic, we cap the number of milliseconds to a maximum value.
+        //
+        // [1]: https://github.com/quickwit-oss/tantivy/blob/31ca1a8ba290b425f871d2e2384592045ec01b8d/common/src/datetime.rs#L62-L67
+        if let Some(timestamp) = &mut timestamp {
+            *timestamp = MilliSecondsSinceUnixEpoch(
+                timestamp.get().min(UInt::new_saturating(MAX_MILLISECONDS)),
+            );
+        }
+
         Self { event_id, original_event_id, sender, timestamp, body }
     }
 }
@@ -411,10 +432,11 @@ mod tests {
         room_id, user_id,
     };
 
-    use crate::{
-        error::IndexError,
-        index::{IndexableEvent, RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
+    use super::{
+        IndexableEvent, MAX_MILLISECONDS, MilliSecondsSinceUnixEpoch, RoomIndex,
+        RoomIndexOperation, UInt, builder::RoomIndexBuilder,
     };
+    use crate::error::IndexError;
 
     /// Build an [`IndexableEvent`] from a text room message (tests only handle
     /// text).
@@ -471,6 +493,12 @@ mod tests {
         index.execute(RoomIndexOperation::Edit(event_id.to_owned(), to_indexable(&new)))
     }
 
+    /// Ensure `MAX_MILLISECONDS` is correctly set to `i64::MAX / 1_000_000`.
+    #[test]
+    fn test_max_milliseconds() {
+        assert_eq!(u64::try_from(i64::MAX / 1_000_000).unwrap(), MAX_MILLISECONDS);
+    }
+
     #[test]
     fn test_add_event() {
         let room_id = room_id!("!room_id:localhost");
@@ -502,8 +530,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_add_event_with_raw_malformed_timestamp_must_panic() {
+    fn test_add_event_with_raw_malformed_timestamp_must_not_panic() {
         let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r")).build();
 
         index
@@ -511,7 +538,7 @@ mod tests {
                 event_id!("$ev").to_owned(),
                 event_id!("$ev").to_owned(),
                 user_id!("@mnt_io:matrix.org").to_owned(),
-                Some(ruma::MilliSecondsSinceUnixEpoch(ruma::UInt::new(151393755000000).unwrap())),
+                Some(MilliSecondsSinceUnixEpoch(UInt::new(151393755000000).unwrap())),
                 "body".to_owned(),
             )))
             .expect("failed to add event");
@@ -540,6 +567,33 @@ mod tests {
                 body,
             )))
             .expect("failed to add event");
+    }
+
+    #[test]
+    fn test_indexable_event_timestamp_is_capped() {
+        let event_id = event_id!("$ev").to_owned();
+        let sender = user_id!("@mnt_io:matrix.org").to_owned();
+        let body = "body".to_owned();
+
+        // Not capped.
+        let event = IndexableEvent::new(
+            event_id.clone(),
+            event_id.clone(),
+            sender.clone(),
+            Some(MilliSecondsSinceUnixEpoch(UInt::new(MAX_MILLISECONDS).unwrap())),
+            body.clone(),
+        );
+        assert_eq!(event.timestamp.unwrap().get(), UInt::new(MAX_MILLISECONDS).unwrap());
+
+        // Capped!
+        let event = IndexableEvent::new(
+            event_id.clone(),
+            event_id,
+            sender,
+            Some(MilliSecondsSinceUnixEpoch(UInt::new(MAX_MILLISECONDS + 42).unwrap())),
+            body,
+        );
+        assert_eq!(event.timestamp.unwrap().get(), UInt::new(MAX_MILLISECONDS).unwrap());
     }
 
     #[test]
