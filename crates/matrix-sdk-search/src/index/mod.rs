@@ -62,9 +62,7 @@ pub struct IndexableEvent {
 
 /// Maximum value for the timestamp to not overflow when converted to
 /// nanoseconds by Tantivy. See [`IndexableEvent::new`] to learn more.
-///
-/// This is the value of `i64::MAX / 1_000_000` but folded as a `u64`.
-const MAX_MILLISECONDS: u64 = 9_223_372_036_854;
+const MAX_MILLISECONDS: u64 = (i64::MAX / 1_000_000).cast_unsigned();
 
 impl IndexableEvent {
     /// Create a new [`IndexableEvent`].
@@ -491,12 +489,6 @@ mod tests {
         new: OriginalSyncRoomMessageEvent,
     ) -> Result<(), IndexError> {
         index.execute(RoomIndexOperation::Edit(event_id.to_owned(), to_indexable(&new)))
-    }
-
-    /// Ensure `MAX_MILLISECONDS` is correctly set to `i64::MAX / 1_000_000`.
-    #[test]
-    fn test_max_milliseconds() {
-        assert_eq!(u64::try_from(i64::MAX / 1_000_000).unwrap(), MAX_MILLISECONDS);
     }
 
     #[test]
