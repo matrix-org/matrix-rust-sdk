@@ -342,6 +342,9 @@ impl RoomIndex {
     ///
     /// This which will add/remove/edit an events in the index based on the
     /// operations.
+    ///
+    /// Waits for background merge threads to prevent racing with subsequent
+    /// calls.
     pub fn bulk_execute(&mut self, operations: Vec<RoomIndexOperation>) -> Result<(), IndexError> {
         let mut writer = self.writer()?;
         let mut operations = operations.into_iter();
@@ -353,6 +356,7 @@ impl RoomIndex {
         }
 
         self.commit_and_reload(&mut writer)?;
+        writer.wait_merging_threads()?;
 
         Ok(())
     }
