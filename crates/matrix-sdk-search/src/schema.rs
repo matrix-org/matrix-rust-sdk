@@ -96,11 +96,18 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
 
     /// Given an [`IndexableEvent`] return a [`TantivyDocument`].
     fn make_doc(&self, event: IndexableEvent) -> Result<TantivyDocument, IndexError> {
+        let timestamp = DateTime::from_timestamp_millis(
+            event
+                .timestamp
+                .map(|timestamp| timestamp.get().into())
+                // If the timestamp is missing, use 0 as the “no value”.
+                .unwrap_or(0),
+        );
+
         let document = doc!(
             self.event_id_field => event.event_id.to_string(),
             self.body_field => event.body,
-            self.date_field =>
-                DateTime::from_timestamp_millis(event.timestamp.get().into()),
+            self.date_field => timestamp,
             self.sender_field => event.sender.to_string(),
             self.original_event_id_field => event.original_event_id.to_string(),
         );
