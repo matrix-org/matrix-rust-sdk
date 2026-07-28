@@ -78,7 +78,8 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, SecondsSinceUnixEpoch,
+    ServerName,
     api::{
         FeatureFlag,
         client::{
@@ -2638,6 +2639,27 @@ impl Client {
         let (status_res, call_res) = tokio::join!(account.clear_status(), account.clear_call());
         status_res?;
         call_res?;
+        Ok(())
+    }
+
+    /// Set the current user's call indicator (MSC4426 `m.call` profile field).
+    ///
+    /// Presence of a value indicates the user is in a call. The optional
+    /// `call_joined_ts` on [`UserCall`] carries the Unix-epoch seconds when
+    /// the user joined the call, if known. Use [`Self::clear_call_status`] to
+    /// remove it when the call ends.
+    pub async fn set_call_status(&self, call: UserCall) -> Result<(), ClientError> {
+        let call_joined_ts = call
+            .call_joined_ts
+            .map(|secs| SecondsSinceUnixEpoch(UInt::try_from(secs).unwrap_or_default()));
+        self.inner.account().set_call(call_joined_ts).await?;
+        Ok(())
+    }
+
+    /// Clear the current user's call indicator (MSC4426 `m.call` profile
+    /// field).
+    pub async fn clear_call_status(&self) -> Result<(), ClientError> {
+        self.inner.account().clear_call().await?;
         Ok(())
     }
 }
