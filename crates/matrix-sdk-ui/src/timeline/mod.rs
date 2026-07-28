@@ -218,6 +218,7 @@ pub struct AttachmentConfig {
     pub caption: Option<TextMessageEventContent>,
     pub mentions: Option<Mentions>,
     pub in_reply_to: Option<OwnedEventId>,
+    pub extra_content: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
 impl Timeline {
@@ -325,7 +326,21 @@ impl Timeline {
     ///
     /// * `content` - The content of the message event.
     #[instrument(skip(self, content), fields(room_id = ?self.room().room_id()))]
-    pub async fn send(&self, mut content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
+    pub async fn send(&self, content: AnyMessageLikeEventContent) -> Result<SendHandle, Error> {
+        self.send_with_extra_content(content, None).await
+    }
+
+    /// Queues an event in this room's send queue, with additional top-level
+    /// fields merged into its content. The event's own fields take precedence
+    /// on conflicts.
+    ///
+    /// See [`Self::send`] for more details.
+    #[instrument(skip(self, content, extra_content), fields(room_id = ?self.room().room_id()))]
+    pub async fn send_with_extra_content(
+        &self,
+        mut content: AnyMessageLikeEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<SendHandle, Error> {
         // If this is a room event we're sending in a threaded timeline, we add the
         // thread relation ourselves.
         if content.relation().is_none()
@@ -368,7 +383,13 @@ impl Timeline {
             }
         }
 
-        Ok(self.room().send_queue().send(content).await?)
+        let queue = self.room().send_queue();
+        let send = queue.send(content);
+        let send = match extra_content {
+            Some(extra_content) => send.with_extra_content(extra_content),
+            None => send,
+        };
+        Ok(send.await?)
     }
 
     /// Send a reply to the given event.

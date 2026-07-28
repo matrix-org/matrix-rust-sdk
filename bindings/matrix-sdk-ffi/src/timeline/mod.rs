@@ -119,12 +119,19 @@ impl Timeline {
             assign!(TextMessageEventContent::plain(caption), { formatted })
         });
 
+        let extra_content: Option<serde_json::Map<String, serde_json::Value>> = params
+            .extra_content_json
+            .map(|json| serde_json::from_str(&json))
+            .transpose()
+            .map_err(|_| RoomError::InvalidAttachmentData)?;
+
         let attachment_config = AttachmentConfig {
             info: Some(attachment_info),
             thumbnail,
             caption,
             mentions: params.mentions.map(Into::into),
             in_reply_to: in_reply_to_event_id,
+            extra_content,
             ..Default::default()
         };
 
@@ -201,6 +208,10 @@ pub struct UploadParameters {
     mentions: Option<Mentions>,
     /// Optional Event ID to reply to.
     in_reply_to: Option<String>,
+    /// Optional additional top-level fields for the media event's content,
+    /// as a serialized JSON object.
+    #[uniffi(default = None)]
+    extra_content_json: Option<String>,
 }
 
 /// A source for uploading a file
@@ -390,7 +401,23 @@ impl Timeline {
         self: Arc<Self>,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
     ) -> Result<Arc<SendHandle>, ClientError> {
-        match self.inner.send((*msg).to_owned().with_relation(None).into()).await {
+        self.send_with_extra_content(msg, None).await
+    }
+
+    /// Like [`Self::send`], but merges the given additional top-level fields
+    /// (a JSON object, encoded as a string) into the outgoing event's content.
+    pub async fn send_with_extra_content(
+        self: Arc<Self>,
+        msg: Arc<RoomMessageEventContentWithoutRelation>,
+        extra_content_json: Option<String>,
+    ) -> Result<Arc<SendHandle>, ClientError> {
+        let extra_content: Option<serde_json::Map<String, serde_json::Value>> =
+            extra_content_json.map(|json| serde_json::from_str(&json)).transpose()?;
+        match self
+            .inner
+            .send_with_extra_content((*msg).to_owned().with_relation(None).into(), extra_content)
+            .await
+        {
             Ok(handle) => Ok(Arc::new(SendHandle::new(handle))),
             Err(err) => {
                 error!("error when sending a message: {err}");
