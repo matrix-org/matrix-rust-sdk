@@ -772,6 +772,26 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         Ok(())
     }
 
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of resolved events, and replace them, while alerting observers
+    /// about the update.
+    #[cfg(feature = "e2e-encryption")]
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub(in super::super::super) fn replace_in_memory_utds(
+        &mut self,
+        resolved_events: &[Event],
+    ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
+        Ok(if self.room_linked_chunk_mut().replace_utds(resolved_events) {
+            // Drain the updates to the store, events have already been updated with
+            // `save_events`!
+            let _ = self.room_linked_chunk_mut().store_updates().take();
+
+            Some(self.room_linked_chunk_mut().updates_as_vector_diffs())
+        } else {
+            None
+        })
+    }
+
     /// Save events into the database, without notifying observers.
     pub async fn save_events(
         &mut self,
