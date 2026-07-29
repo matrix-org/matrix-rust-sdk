@@ -21,7 +21,7 @@ use std::{
     ops::RangeBounds,
 };
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// The capacity assigned to buffers written by older versions, which did not
 /// include the logical capacity in their serialized form.
@@ -32,20 +32,26 @@ const LEGACY_DEFAULT_CAPACITY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 /// A size is provided on creation, and the ring buffer reserves that much
 /// space, and never reallocates. The logical capacity is included in the
 /// serialized representation so it survives a round trip.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RingBuffer<T> {
+    #[serde(rename = "items")]
     inner: VecDeque<T>,
 
-    /// The maximum number of items to hold.
-    ///
-    /// Tracked separately from the `VecDeque`'s own allocation capacity.
+    /// The capacity to restore for the backing `VecDeque` during
+    /// deserialization.
     capacity: NonZeroUsize,
 }
 
 impl<T> RingBuffer<T> {
     fn from_parts(mut inner: VecDeque<T>, capacity: NonZeroUsize) -> Self {
-        while inner.len() > capacity.get() {
+        let capacity_as_usize = capacity.get();
+
+        for _ in capacity_as_usize..inner.len() {
             inner.pop_front();
+        }
+
+        if let Some(extra_space) = capacity_as_usize.checked_sub(inner.len()) {
+            inner.reserve_exact(extra_space);
         }
 
         Self { inner, capacity }
@@ -81,7 +87,7 @@ impl<T> RingBuffer<T> {
     /// Appends an element to the back of the ring buffer, dropping elements
     /// from the front if it is full.
     pub fn push(&mut self, value: T) {
-        while self.inner.len() >= self.capacity.get() {
+        if self.inner.len() == self.inner.capacity() {
             self.inner.pop_front();
         }
 
@@ -129,7 +135,7 @@ impl<T> RingBuffer<T> {
 
     /// Returns the total number of elements the `RingBuffer` can hold.
     pub fn capacity(&self) -> usize {
-        self.capacity.get()
+        self.inner.capacity()
     }
 
     /// Retains only the elements specified by the predicate.
@@ -141,27 +147,8 @@ impl<T> RingBuffer<T> {
     }
 }
 
-// We implement this manually because `capacity` is part of the ring buffer's
-// logical state but was not included in the old transparent sequence format.
-// The new representation stores both the items and their capacity.
-impl<T: Serialize> Serialize for RingBuffer<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        #[derive(Serialize)]
-        struct SerializedRingBuffer<'a, T> {
-            items: &'a VecDeque<T>,
-            capacity: NonZeroUsize,
-        }
-
-        SerializedRingBuffer { items: &self.inner, capacity: self.capacity }.serialize(serializer)
-    }
-}
-
-// Accept both the new representation and the old transparent sequence format.
-// The latter is needed to read RingBuffers persisted by older SDK versions;
-// deriving `Deserialize` would only handle the new object representation.
+// Migrate from the old RingBuffer type without the capacity field to the new
+// type.
 impl<'a, T: Deserialize<'a>> Deserialize<'a> for RingBuffer<T> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -425,14 +412,20 @@ mod tests {
         // Then I get back the same items and capacity I started with
         assert_eq!(ring_buffer, new_ring_buffer);
         assert_eq!(new_ring_buffer.capacity(), 3);
+        assert_eq!(new_ring_buffer.inner.capacity(), 3);
     }
 
     #[test]
     fn test_deserializes_the_legacy_sequence_format() {
-        let ring_buffer: RingBuffer<i32> = serde_json::from_str("[1,2]").unwrap();
+        let mut ring_buffer: RingBuffer<i32> = serde_json::from_str("[1,2]").unwrap();
 
         assert_eq!(ring_buffer.iter().copied().collect::<Vec<_>>(), vec![1, 2]);
         assert_eq!(ring_buffer.capacity(), 10);
+        assert_eq!(ring_buffer.inner.capacity(), 10);
+
+        // A partially filled legacy buffer must retain room for new items.
+        ring_buffer.push(3);
+        assert_eq!(ring_buffer.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 
     #[test]
@@ -519,6 +512,7 @@ mod tests {
 
         // Then it still has its original capacity and room for two more items.
         assert_eq!(ring_buffer.capacity(), 3);
+        assert_eq!(ring_buffer.inner.capacity(), 3);
         ring_buffer.push(2);
         ring_buffer.push(3);
 
