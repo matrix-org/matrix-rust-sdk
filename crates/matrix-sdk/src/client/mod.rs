@@ -3727,7 +3727,6 @@ struct PreJoinRoomInfo {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
-    use super::*;
     use std::{sync::Arc, time::Duration};
 
     use assert_matches::assert_matches;
@@ -3744,6 +3743,8 @@ pub(crate) mod tests {
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
     };
+
+    use super::*;
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -4123,8 +4124,8 @@ pub(crate) mod tests {
     //     let clock = Arc::new(FakeClock::new(0.0));
     //     let server = MatrixMockServer::new().await;
 
-    //     // Build a client with a short, 1 second cache timeout, using our fake clock.
-    //     let client = server
+    //     // Build a client with a short, 1 second cache timeout, using our fake
+    // clock.     let client = server
     //         .client_builder()
     //         .no_server_versions()
     //         .clock(clock.clone())

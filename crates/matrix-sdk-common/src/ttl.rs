@@ -131,7 +131,7 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    use super::{TtlValue, now_timestamp_ms};
+    use super::{TtlValue, now_timestamp_ms, *};
 
     #[test]
     fn test_ttl_value_expiry() {
@@ -142,15 +142,15 @@ mod tests {
                 now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD.as_millis() as f64 - 1.0,
             ),
         };
-        assert!(ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD));
+        assert!(ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD, Arc::new(SystemClock)));
 
         // Definitely not stale.
         let ttl_value = TtlValue::new(());
-        assert!(!ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD));
+        assert!(!ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD, Arc::new(SystemClock)));
 
         // Cannot be stale.
         let ttl_value = TtlValue::without_expiry(());
-        assert!(!ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD));
+        assert!(!ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD, Arc::new(SystemClock)));
     }
 
     #[test]
