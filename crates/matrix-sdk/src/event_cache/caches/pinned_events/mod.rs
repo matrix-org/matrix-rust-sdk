@@ -36,8 +36,6 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
-#[cfg(feature = "e2e-encryption")]
-use super::super::redecryptor::ResolvedUtd;
 use super::{
     super::{
         EventCacheError, EventsOrigin, Result,
@@ -507,18 +505,22 @@ impl PinnedEventsCache {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
     pub(in super::super) async fn replace_in_memory_utds(
         &self,
-        events: &[ResolvedUtd],
+        resolved_events: &[Event],
     ) -> Result<()> {
-        let mut guard = self.inner.state.write().await?;
+        let mut state = self.inner.state.write().await?;
 
-        if guard.state.chunk.replace_utds(events) {
-            guard.propagate_changes().await?;
-            guard.notify_subscribers(EventsOrigin::Cache);
+        // Drain the updates to the store, events have already been updated before
+        // calling this method.
+        let _ = state.state.chunk.store_updates().take();
+
+        if state.state.chunk.replace_utds(resolved_events) {
+            state.propagate_changes().await?;
+            state.notify_subscribers(EventsOrigin::Cache);
         }
 
         Ok(())

@@ -32,8 +32,6 @@ use ruma::{
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
-#[cfg(feature = "e2e-encryption")]
-use super::super::super::redecryptor::ResolvedUtd;
 use super::{
     super::{
         super::{
@@ -687,17 +685,15 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub(in super::super) async fn replace_in_memory_utds(
+    pub(in super::super) fn replace_in_memory_utds(
         &mut self,
-        events: &[ResolvedUtd],
+        resolved_events: &[Event],
     ) -> Result<Option<Vec<VectorDiff<Event>>>> {
-        Ok(if self.thread_linked_chunk_mut().replace_utds(events) {
-            self.state.propagate_changes(&self.store).await?;
-
+        Ok(if self.thread_linked_chunk_mut().replace_utds(resolved_events) {
             Some(self.thread_linked_chunk_mut().updates_as_vector_diffs())
         } else {
             None

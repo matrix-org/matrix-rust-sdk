@@ -155,7 +155,8 @@ use tracing::{info, instrument, trace, warn};
 use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, TimelineVectorDiffs, caches::room::RoomEventCacheLinkedChunkUpdate,
+    RoomEventCacheUpdate, TimelineVectorDiffs,
+    caches::{EventLocation, room::RoomEventCacheLinkedChunkUpdate},
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
@@ -164,8 +165,7 @@ type OwnedSessionId = String;
 
 type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
 type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
-pub(in crate::event_cache) type ResolvedUtd =
-    (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+type ResolvedUtd = (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
 
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
@@ -355,16 +355,19 @@ impl EventCache {
             resolved_utds.iter().cloned().map(|(event_id, _, _)| event_id).collect();
 
         let all_caches = self.inner.all_caches_for_room(room_id).await?;
+        let mut resolved_events = Vec::with_capacity(resolved_utds.len());
 
-        // Resolve in-store and in-memory UTDs with the room cache.
+        // For each resolved UTD, find the corresponding event, build the resolved
+        // event, and replace it in the store. We use the room cache for that
+        // because it contains all events so far.
         {
             let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
 
-            let mut new_events = Vec::with_capacity(resolved_utds.len());
+            let mut in_memory_resolved_events = Vec::new();
 
-            for (event_id, decrypted_event, actions) in &resolved_utds {
-                if let Some((location, mut event)) = state.find_event(event_id).await?
+            for (event_id, decrypted_event, actions) in resolved_utds {
+                if let Some((location, mut event)) = state.find_event(&event_id).await?
                     && (
                         // There is a race between the multiple sources of updates. It's possible
                         // that two sources trigger a decryption for the same event (for example,
@@ -380,18 +383,26 @@ impl EventCache {
                             || event.encryption_info() != Some(&decrypted_event.encryption_info)
                     )
                 {
-                    event.kind = TimelineEventKind::Decrypted(decrypted_event.clone());
+                    event.kind = TimelineEventKind::Decrypted(decrypted_event);
 
                     if let Some(actions) = actions {
-                        event.set_push_actions(actions.clone());
+                        event.set_push_actions(actions);
                     }
 
-                    // TODO: `replace_event_at()` propagates changes to the store for every
-                    // event, we should probably have a bulk version of this?
-                    state.replace_event_at(location, event.clone()).await?;
-                    new_events.push(event);
+                    if matches!(location, EventLocation::Memory(_)) {
+                        in_memory_resolved_events.push(event.clone());
+                    }
+
+                    resolved_events.push(event);
                 }
             }
+
+            // Replace all resolved events in the store.
+            state.save_events(resolved_events.iter().cloned()).await?;
+
+            // Now, replace the in-memory events.
+            let mut timeline_event_diffs =
+                state.replace_in_memory_utds(&in_memory_resolved_events)?.unwrap_or_default();
 
             // Read receipt events aren't encrypted, so we can't have decrypted a new
             // one here. As a result, we don't have any new receipt events to
@@ -402,14 +413,14 @@ impl EventCache {
             // unreads.
             let receipt_event = None;
 
-            state.post_process_new_events(new_events, receipt_event).await?;
+            state.post_process_new_events(resolved_events.clone(), receipt_event).await?;
 
-            let updates_as_vector_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+            timeline_event_diffs.extend(state.room_linked_chunk_mut().updates_as_vector_diffs());
 
-            if !updates_as_vector_diffs.is_empty() {
-                room_cache.update_sender().send(
+            if !timeline_event_diffs.is_empty() {
+                state.update_sender.send(
                     RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                        diffs: updates_as_vector_diffs,
+                        diffs: timeline_event_diffs,
                         origin: EventsOrigin::Cache,
                     }),
                     Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned() }),
@@ -432,7 +443,7 @@ impl EventCache {
                         // If at least one event has been replaced, return the `thread_id` and the
                         // `thread_cache` to update the thread summary later.
                         thread_cache
-                            .replace_in_memory_utds(&resolved_utds)
+                            .replace_in_memory_utds(&resolved_events)
                             .await?
                             .then(|| (thread_id.clone(), thread_cache.clone())),
                     )
@@ -452,7 +463,7 @@ impl EventCache {
 
         // Resolve in-memory UTDs on the pinned-events cache.
         if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
-            pinned_events_cache.replace_in_memory_utds(&resolved_utds).await?;
+            pinned_events_cache.replace_in_memory_utds(&resolved_events).await?;
         }
 
         // Resolve in-memory UTDs on the event-focused caches.
@@ -462,7 +473,7 @@ impl EventCache {
             // accumulate over time. Consider keeping track of which linked chunk
             // contains which event ID, to avoid doing the linear searches here.
             try_join_all(all_caches.event_focused.read().await.values().map(
-                |event_focused_cache| event_focused_cache.replace_in_memory_utds(&resolved_utds),
+                |event_focused_cache| event_focused_cache.replace_in_memory_utds(&resolved_events),
             ))
             .await?;
         }
