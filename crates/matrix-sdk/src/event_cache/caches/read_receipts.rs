@@ -305,6 +305,64 @@ impl<'cache> EventFilter for RoomReadReceiptEventFilter<'cache> {
     }
 }
 
+/// Type to filter in-thread events that are candidates for read receipts.
+pub struct ThreadReadReceiptEventFilter<'cache> {
+    room_id: &'cache RoomId,
+    thread_id: &'cache EventId,
+    state_store: &'cache DynStateStore,
+}
+
+impl<'cache> ThreadReadReceiptEventFilter<'cache> {
+    /// Construct a new [`ReadReceiptsForThread`].
+    pub fn new(
+        thread_event_cache_state: &'cache super::thread::ThreadEventCacheState,
+        state_store: &'cache DynStateStore,
+    ) -> Self {
+        Self {
+            room_id: &thread_event_cache_state.room_id,
+            thread_id: &thread_event_cache_state.thread_id,
+            state_store,
+        }
+    }
+}
+
+impl<'cache> EventFilter for ThreadReadReceiptEventFilter<'cache> {
+    fn room_id(&self) -> &RoomId {
+        self.room_id
+    }
+
+    fn filter(&self, _event: &TimelineEvent) -> bool {
+        // This type is built from a `ThreadEventCacheState`. The thread event cache
+        // contains all in-thread events for this particular thread. No need to filter
+        // them.
+        true
+    }
+
+    fn receipt_thread_matches(&self, receipt_thread: &ReceiptThread) -> bool {
+        matches!(
+            receipt_thread,
+            ReceiptThread::Thread(thread_id) if self.thread_id == thread_id
+        )
+    }
+
+    async fn stored_receipt_event_for_user(
+        &self,
+        user_id: &UserId,
+        receipt_type: ReceiptType,
+    ) -> Option<(OwnedEventId, Receipt)> {
+        self.state_store
+            .get_user_room_receipt_event(
+                self.room_id,
+                receipt_type,
+                &ReceiptThread::Thread(self.thread_id.to_owned()),
+                user_id,
+            )
+            .await
+            .ok()
+            .flatten()
+    }
+}
+
 /// The receipt types we look for, in order of priority (the first ones are more
 /// likely to be ahead in the timeline, so we look for them first).
 const ALL_RECEIPT_TYPES: [ReceiptType; 2] = [ReceiptType::ReadPrivate, ReceiptType::Read];
