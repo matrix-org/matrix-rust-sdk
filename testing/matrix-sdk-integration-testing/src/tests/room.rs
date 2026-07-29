@@ -4,6 +4,7 @@ use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use eyeball::Subscriber;
 use futures::FutureExt as _;
+use http::StatusCode;
 use matrix_sdk::{
     Room, RoomMemberships, RoomState, assert_let_timeout,
     encryption::{BackupDownloadStrategy, EncryptionSettings, recovery::RecoveryState},
@@ -133,7 +134,21 @@ async fn test_empty_room_accept_invite() -> Result<()> {
         if let Some(room) = bob.get_room(&room_id)
             && matches!(room.state(), RoomState::Invited)
         {
-            room.join().await?;
+            if let Err(err) = room.join().await {
+                if let Some(api_err) = err.as_client_api_error() {
+                    if api_err.status_code == StatusCode::NOT_FOUND {
+                        // leave first
+                        room.leave().await?;
+
+                        // then forget
+                        room.forget().await?;
+                    } else {
+                        return Err(err.into());
+                    }
+                } else {
+                    return Err(err.into());
+                }
+            }
             bob_accepted = true;
             break;
         }
