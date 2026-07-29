@@ -1592,7 +1592,10 @@ mod tests {
                 "num_mentions": 0,
                 "num_notifications": 0,
                 "latest_active": null,
-                "pending": [],
+                "pending": {
+                    "items": [],
+                    "capacity": 10,
+                },
             },
             "recency_stamp": 42,
         });

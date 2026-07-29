@@ -21,23 +21,46 @@ use std::{
     ops::RangeBounds,
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// The capacity assigned to buffers written by older versions, which did not
+/// include the logical capacity in their serialized form.
+const LEGACY_DEFAULT_CAPACITY: NonZeroUsize = NonZeroUsize::new(10).unwrap();
 
 /// A simple fixed-size ring buffer implementation.
 ///
 /// A size is provided on creation, and the ring buffer reserves that much
-/// space, and never reallocates.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(transparent)]
+/// space, and never reallocates. The logical capacity is included in the
+/// serialized representation so it survives a round trip.
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct RingBuffer<T> {
+    #[serde(rename = "items")]
     inner: VecDeque<T>,
+
+    /// The capacity to restore for the backing `VecDeque` during
+    /// deserialization.
+    capacity: NonZeroUsize,
 }
 
 impl<T> RingBuffer<T> {
+    fn from_parts(mut inner: VecDeque<T>, capacity: NonZeroUsize) -> Self {
+        let capacity_as_usize = capacity.get();
+
+        for _ in capacity_as_usize..inner.len() {
+            inner.pop_front();
+        }
+
+        if let Some(extra_space) = capacity_as_usize.checked_sub(inner.len()) {
+            inner.reserve_exact(extra_space);
+        }
+
+        Self { inner, capacity }
+    }
+
     /// Create a ring buffer with the supplied capacity, reserving it so we
     /// never need to reallocate.
     pub fn new(size: NonZeroUsize) -> Self {
-        Self { inner: VecDeque::with_capacity(size.into()) }
+        Self::from_parts(VecDeque::with_capacity(size.into()), size)
     }
 
     /// Returns the number of items that are stored in this ring buffer.
@@ -61,7 +84,8 @@ impl<T> RingBuffer<T> {
         self.inner.get(index)
     }
 
-    /// Appends an element to the back of the ring buffer
+    /// Appends an element to the back of the ring buffer, dropping elements
+    /// from the front if it is full.
     pub fn push(&mut self, value: T) {
         if self.inner.len() == self.inner.capacity() {
             self.inner.pop_front();
@@ -120,6 +144,33 @@ impl<T> RingBuffer<T> {
         F: FnMut(&T) -> bool,
     {
         self.inner.retain(predicate)
+    }
+}
+
+// Migrate from the old RingBuffer type without the capacity field to the new
+// type.
+impl<'a, T: Deserialize<'a>> Deserialize<'a> for RingBuffer<T> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'a>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum SerializedRingBuffer<T> {
+            WithCapacity { items: VecDeque<T>, capacity: NonZeroUsize },
+            Legacy(VecDeque<T>),
+        }
+
+        match SerializedRingBuffer::deserialize(deserializer)? {
+            SerializedRingBuffer::WithCapacity { items, capacity } => {
+                Ok(Self::from_parts(items, capacity))
+            }
+            SerializedRingBuffer::Legacy(items) => {
+                let capacity = NonZeroUsize::new(items.len().max(LEGACY_DEFAULT_CAPACITY.get()))
+                    .expect("legacy capacity is non-zero");
+                Ok(Self::from_parts(items, capacity))
+            }
+        }
     }
 }
 
@@ -351,15 +402,30 @@ mod tests {
 
         // When I serialize it
         let json = serde_json::to_string(&ring_buffer).expect("serialisation failed");
-        // Sanity: the JSON looks as we expect
-        assert_eq!(json, r#"["1","2"]"#);
+        // Sanity: the JSON includes the logical capacity
+        assert_eq!(json, r#"{"items":["1","2"],"capacity":3}"#);
 
         // And deserialize it
         let new_ring_buffer: RingBuffer<String> =
             serde_json::from_str(&json).expect("deserialisation failed");
 
-        // Then I get back the same as I started with
+        // Then I get back the same items and capacity I started with
         assert_eq!(ring_buffer, new_ring_buffer);
+        assert_eq!(new_ring_buffer.capacity(), 3);
+        assert_eq!(new_ring_buffer.inner.capacity(), 3);
+    }
+
+    #[test]
+    fn test_deserializes_the_legacy_sequence_format() {
+        let mut ring_buffer: RingBuffer<i32> = serde_json::from_str("[1,2]").unwrap();
+
+        assert_eq!(ring_buffer.iter().copied().collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(ring_buffer.capacity(), 10);
+        assert_eq!(ring_buffer.inner.capacity(), 10);
+
+        // A partially filled legacy buffer must retain room for new items.
+        ring_buffer.push(3);
+        assert_eq!(ring_buffer.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 
     #[test]
@@ -432,6 +498,25 @@ mod tests {
 
         // Then only the last N items remain
         assert_eq!(ring_buffer.iter().map(String::as_str).collect::<Vec<_>>(), vec!["6", "7"]);
+    }
+
+    #[test]
+    fn test_capacity_survives_a_serialization_round_trip() {
+        // Given a partially filled ring buffer with a non-default capacity,
+        let mut ring_buffer = RingBuffer::new(NonZeroUsize::new(3).unwrap());
+        ring_buffer.push(1);
+
+        // When it's deserialized back,
+        let json = serde_json::to_string(&ring_buffer).unwrap();
+        let mut ring_buffer: RingBuffer<i32> = serde_json::from_str(&json).unwrap();
+
+        // Then it still has its original capacity and room for two more items.
+        assert_eq!(ring_buffer.capacity(), 3);
+        assert_eq!(ring_buffer.inner.capacity(), 3);
+        ring_buffer.push(2);
+        ring_buffer.push(3);
+
+        assert_eq!(ring_buffer.iter().copied().collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 
     #[test]
