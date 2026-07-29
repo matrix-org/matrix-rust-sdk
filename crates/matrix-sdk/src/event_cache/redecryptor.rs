@@ -356,7 +356,7 @@ impl EventCache {
 
         let all_caches = self.inner.all_caches_for_room(room_id).await?;
 
-        // Resolve on the room cache.
+        // Resolve in-store and in-memory UTDs with the room cache.
         {
             let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
@@ -417,7 +417,7 @@ impl EventCache {
             }
         }
 
-        // Resolve on the thread caches.
+        // Resolve in-memory UTDs on the thread caches.
         {
             // TODO: This ain't great for performance; there shouldn't be
             // that many thread caches alive at the same time, but they could
@@ -432,7 +432,7 @@ impl EventCache {
                         // If at least one event has been replaced, return the `thread_id` and the
                         // `thread_cache` to update the thread summary later.
                         thread_cache
-                            .replace_utds(&events)
+                            .replace_in_memory_utds(&events)
                             .await?
                             .then(|| (thread_id.clone(), thread_cache.clone())),
                     )
@@ -450,12 +450,12 @@ impl EventCache {
             }
         }
 
-        // Resolve on the pinned-events cache.
+        // Resolve in-memory UTDs on the pinned-events cache.
         if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
-            pinned_events_cache.replace_utds(&events).await?;
+            pinned_events_cache.replace_in_memory_utds(&events).await?;
         }
 
-        // Resolve on the event-focused caches.
+        // Resolve in-memory UTDs on the event-focused caches.
         {
             // TODO: This ain't great for performance; there shouldn't be that many
             // event-focused caches alive at the same time, but they could
@@ -467,7 +467,7 @@ impl EventCache {
                     .read()
                     .await
                     .values()
-                    .map(|event_focused_cache| event_focused_cache.replace_utds(&events)),
+                    .map(|event_focused_cache| event_focused_cache.replace_in_memory_utds(&events)),
             )
             .await?;
         }

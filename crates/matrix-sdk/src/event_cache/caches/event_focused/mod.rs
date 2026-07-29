@@ -662,7 +662,7 @@ impl EventFocusedCache {
     /// list of decrypted events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
-    pub async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
+    pub async fn replace_in_memory_utds(&self, events: &[ResolvedUtd]) -> Result<()> {
         let mut guard = self.inner.write().await?;
 
         if guard.chunk.replace_utds(events) {
