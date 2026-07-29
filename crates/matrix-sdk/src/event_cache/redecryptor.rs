@@ -342,9 +342,9 @@ impl EventCache {
     async fn on_resolved_utds(
         &self,
         room_id: &RoomId,
-        events: Vec<ResolvedUtd>,
+        resolved_utds: Vec<ResolvedUtd>,
     ) -> Result<(), EventCacheError> {
-        if events.is_empty() {
+        if resolved_utds.is_empty() {
             trace!("No events were redecrypted or updated, nothing to replace");
             return Ok(());
         }
@@ -352,7 +352,7 @@ impl EventCache {
         timer!("Resolving UTDs");
 
         let event_ids: BTreeSet<_> =
-            events.iter().cloned().map(|(event_id, _, _)| event_id).collect();
+            resolved_utds.iter().cloned().map(|(event_id, _, _)| event_id).collect();
 
         let all_caches = self.inner.all_caches_for_room(room_id).await?;
 
@@ -361,10 +361,10 @@ impl EventCache {
             let room_cache = &all_caches.room;
             let mut state = room_cache.state().write().await?;
 
-            let mut new_events = Vec::with_capacity(events.len());
+            let mut new_events = Vec::with_capacity(resolved_utds.len());
 
-            for (event_id, decrypted, actions) in &events {
-                if let Some((location, mut target_event)) = state.find_event(event_id).await?
+            for (event_id, decrypted_event, actions) in &resolved_utds {
+                if let Some((location, mut event)) = state.find_event(event_id).await?
                     && (
                         // There is a race between the multiple sources of updates. It's possible
                         // that two sources trigger a decryption for the same event (for example,
@@ -376,20 +376,20 @@ impl EventCache {
                         // Note that a simple check like “event's kind is `UnableToDecrypt`” is not
                         // enough. The event can already be decrypted but its encryption info can
                         // change. So we must ensure they are also different.
-                        matches!(target_event.kind, TimelineEventKind::UnableToDecrypt { .. })
-                            || target_event.encryption_info() != Some(&decrypted.encryption_info)
+                        matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. })
+                            || event.encryption_info() != Some(&decrypted_event.encryption_info)
                     )
                 {
-                    target_event.kind = TimelineEventKind::Decrypted(decrypted.clone());
+                    event.kind = TimelineEventKind::Decrypted(decrypted_event.clone());
 
                     if let Some(actions) = actions {
-                        target_event.set_push_actions(actions.clone());
+                        event.set_push_actions(actions.clone());
                     }
 
                     // TODO: `replace_event_at()` propagates changes to the store for every
                     // event, we should probably have a bulk version of this?
-                    state.replace_event_at(location, target_event.clone()).await?;
-                    new_events.push(target_event);
+                    state.replace_event_at(location, event.clone()).await?;
+                    new_events.push(event);
                 }
             }
 
@@ -432,7 +432,7 @@ impl EventCache {
                         // If at least one event has been replaced, return the `thread_id` and the
                         // `thread_cache` to update the thread summary later.
                         thread_cache
-                            .replace_in_memory_utds(&events)
+                            .replace_in_memory_utds(&resolved_utds)
                             .await?
                             .then(|| (thread_id.clone(), thread_cache.clone())),
                     )
@@ -452,7 +452,7 @@ impl EventCache {
 
         // Resolve in-memory UTDs on the pinned-events cache.
         if let Some(pinned_events_cache) = all_caches.pinned_events.get() {
-            pinned_events_cache.replace_in_memory_utds(&events).await?;
+            pinned_events_cache.replace_in_memory_utds(&resolved_utds).await?;
         }
 
         // Resolve in-memory UTDs on the event-focused caches.
@@ -461,14 +461,9 @@ impl EventCache {
             // event-focused caches alive at the same time, but they could
             // accumulate over time. Consider keeping track of which linked chunk
             // contains which event ID, to avoid doing the linear searches here.
-            try_join_all(
-                all_caches
-                    .event_focused
-                    .read()
-                    .await
-                    .values()
-                    .map(|event_focused_cache| event_focused_cache.replace_in_memory_utds(&events)),
-            )
+            try_join_all(all_caches.event_focused.read().await.values().map(
+                |event_focused_cache| event_focused_cache.replace_in_memory_utds(&resolved_utds),
+            ))
             .await?;
         }
 
