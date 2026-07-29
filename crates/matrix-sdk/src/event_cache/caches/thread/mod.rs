@@ -287,9 +287,12 @@ impl ThreadEventCache {
     ///
     /// Return `true` if at least one event has been updated.
     #[cfg(feature = "e2e-encryption")]
-    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<bool> {
+    pub(in super::super) async fn replace_in_memory_utds(
+        &self,
+        events: &[ResolvedUtd],
+    ) -> Result<bool> {
         let mut state = self.inner.state.write().await?;
-        let timeline_event_diffs = state.replace_utds(events).await?;
+        let timeline_event_diffs = state.replace_in_memory_utds(events).await?;
 
         Ok(
             if let Some(timeline_event_diffs) = timeline_event_diffs

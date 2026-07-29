@@ -691,7 +691,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub(in super::super) async fn replace_utds(
+    pub(in super::super) async fn replace_in_memory_utds(
         &mut self,
         events: &[ResolvedUtd],
     ) -> Result<Option<Vec<VectorDiff<Event>>>> {
