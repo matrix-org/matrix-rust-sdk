@@ -534,15 +534,13 @@ impl TracingConfiguration {
                     // Initialize the Sentry client with the given options.
                     let sentry_guard = sentry::init((
                         sentry_config.dsn,
-                        sentry::ClientOptions {
-                            traces_sampler: Some(Arc::new(|ctx| {
+                        sentry::ClientOptions::new()
+                            .traces_sampler(|ctx| {
                                 // Make sure bridge spans are always uploaded
                                 if ctx.name() == BRIDGE_SPAN_NAME { 1.0 } else { 0.0 }
-                            })),
-                            attach_stacktrace: true,
-                            release: Some(env!("VERGEN_GIT_SHA").into()),
-                            ..sentry::ClientOptions::default()
-                        },
+                            })
+                            .attach_stacktrace(true)
+                            .release(env!("VERGEN_GIT_SHA")),
                     ));
 
                     sentry::configure_scope(|scope| {
