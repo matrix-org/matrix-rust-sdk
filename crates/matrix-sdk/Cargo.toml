@@ -107,11 +107,11 @@ assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"
 async-stream.workspace = true
 async-trait.workspace = true
-axum = { version = "0.8.4", optional = true }
-bytes = { version = "1.11.1", default-features = false, features = ["std"] }
-bytesize = { version = "2.3.0", default-features = false, features = ["std"] }
+axum = { version = "0.8.9", optional = true }
+bytes = { version = "1.12.1", default-features = false, features = ["std"] }
+bytesize = { version = "2.4.2", default-features = false, features = ["std"] }
 cfg-if.workspace = true
-event-listener = "5.4.1"
+event-listener = "5.4.2"
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyre = { version = "0.6.12", optional = true }
@@ -153,8 +153,8 @@ sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio-stream = { workspace = true, features = ["sync"] }
-tokio-util = "0.7.17"
-tower = { version = "0.5.2", features = ["util"], optional = true }
+tokio-util = "0.7.19"
+tower = { version = "0.5.3", features = ["util"], optional = true }
 tracing = { workspace = true, features = ["attributes"] }
 uniffi = { workspace = true, optional = true }
 url = { workspace = true, features = ["serde"] }
@@ -192,11 +192,11 @@ reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true
 stream_assert.workspace = true
-tokio-test = "0.4.4"
+tokio-test = "0.4.5"
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
-ctor = "0.2.9"
+ctor = "1.0.12"
 proptest.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock.workspace = true
