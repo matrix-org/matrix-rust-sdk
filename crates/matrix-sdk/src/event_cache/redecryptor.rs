@@ -157,12 +157,11 @@ use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
     RoomEventCacheUpdate, TimelineVectorDiffs,
-    caches::{EventLocation, room::RoomEventCacheLinkedChunkUpdate},
+    caches::{
+        EventLocation, event_linked_chunk::EventLinkedChunk, room::RoomEventCacheLinkedChunkUpdate,
+    },
 };
-use crate::{
-    Client, Result, Room, encryption::backups::BackupState,
-    event_cache::caches::event_linked_chunk::EventLinkedChunk, room::PushContext,
-};
+use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
 type SessionId<'a> = &'a str;
 type OwnedSessionId = String;
