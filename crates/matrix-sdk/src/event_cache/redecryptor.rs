@@ -165,7 +165,12 @@ type OwnedSessionId = String;
 
 type EventIdAndUtd = (OwnedEventId, Raw<AnySyncTimelineEvent>);
 type EventIdAndEvent = (OwnedEventId, DecryptedRoomEvent);
-type ResolvedUtd = (OwnedEventId, DecryptedRoomEvent, Option<Vec<Action>>);
+
+struct ResolvedUtd {
+    event_id: OwnedEventId,
+    decrypted_event: DecryptedRoomEvent,
+    actions: Option<Vec<Action>>,
+}
 
 /// The information sent across the channel to the long-running task requesting
 /// that the supplied set of sessions be retried.
@@ -352,7 +357,7 @@ impl EventCache {
         timer!("Resolving UTDs");
 
         let event_ids: BTreeSet<_> =
-            resolved_utds.iter().map(|(event_id, _, _)| event_id.clone()).collect();
+            resolved_utds.iter().map(|resolved_utd| resolved_utd.event_id.clone()).collect();
 
         let all_caches = self.inner.all_caches_for_room(room_id).await?;
         let mut resolved_events = Vec::with_capacity(resolved_utds.len());
@@ -366,7 +371,7 @@ impl EventCache {
 
             let mut in_memory_resolved_events = Vec::new();
 
-            for (event_id, decrypted_event, actions) in resolved_utds {
+            for ResolvedUtd { event_id, decrypted_event, actions } in resolved_utds {
                 if let Some((location, mut event)) = state.find_event(&event_id).await?
                     && (
                         // There is a race between the multiple sources of updates. It's possible
@@ -601,7 +606,7 @@ impl EventCache {
         for (event_id, event) in events {
             // If we managed to decrypt the event, and we should have to since we received
             // the room key for this specific event, then replace the event.
-            if let Some((decrypted, actions)) = self
+            if let Some((decrypted_event, actions)) = self
                 .decrypt_event(
                     room_id,
                     room.as_ref(),
@@ -610,14 +615,14 @@ impl EventCache {
                 )
                 .await
             {
-                decrypted_events.push((event_id, decrypted, actions));
+                decrypted_events.push(ResolvedUtd { event_id, decrypted_event, actions });
             }
         }
 
         if !decrypted_events.is_empty() {
             if tracing::level_enabled!(tracing::Level::TRACE) {
                 let event_ids: BTreeSet<_> =
-                    decrypted_events.iter().map(|(event_id, _, _)| event_id).collect();
+                    decrypted_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
 
                 trace!(?event_ids, "Successfully redecrypted events");
             }
@@ -649,7 +654,11 @@ impl EventCache {
                     && event.encryption_info != new_encryption_info
                 {
                     event.encryption_info = new_encryption_info;
-                    updated_events.push((event_id, event, None));
+                    updated_events.push(ResolvedUtd {
+                        event_id,
+                        decrypted_event: event,
+                        actions: None,
+                    });
                 }
             }
         }
@@ -657,7 +666,7 @@ impl EventCache {
         if !updated_events.is_empty() {
             if tracing::level_enabled!(tracing::Level::TRACE) {
                 let event_ids: BTreeSet<_> =
-                    updated_events.iter().map(|(event_id, _, _)| event_id).collect();
+                    updated_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
 
                 trace!(?event_ids, "Replacing the encryption info of some events");
             }
