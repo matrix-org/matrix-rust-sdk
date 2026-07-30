@@ -732,13 +732,11 @@ impl EventCache {
             }
         }
 
-        if !decrypted_events.is_empty() {
-            if tracing::level_enabled!(tracing::Level::TRACE) {
-                let event_ids: BTreeSet<_> =
-                    decrypted_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
+        if !decrypted_events.is_empty() && tracing::level_enabled!(tracing::Level::TRACE) {
+            let event_ids: BTreeSet<_> =
+                decrypted_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
 
-                trace!(?event_ids, "Successfully redecrypted events");
-            }
+            trace!(?event_ids, "Successfully redecrypted events");
         }
 
         // Replace the events and notify listeners that UTDs have been replaced with
@@ -776,13 +774,11 @@ impl EventCache {
             }
         }
 
-        if !updated_events.is_empty() {
-            if tracing::level_enabled!(tracing::Level::TRACE) {
-                let event_ids: BTreeSet<_> =
-                    updated_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
+        if !updated_events.is_empty() && tracing::level_enabled!(tracing::Level::TRACE) {
+            let event_ids: BTreeSet<_> =
+                updated_events.iter().map(|resolved_utd| &resolved_utd.event_id).collect();
 
-                trace!(?event_ids, "Replacing the encryption info of some events");
-            }
+            trace!(?event_ids, "Replacing the encryption info of some events");
         }
 
         self.on_resolved_utds(room.room_id(), updated_events).await
