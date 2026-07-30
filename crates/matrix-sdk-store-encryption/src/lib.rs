@@ -184,7 +184,7 @@ impl StoreCipher {
         key: &[u8; 32],
         kdf_info: KdfInfo,
     ) -> Result<EncryptedStoreCipher, Error> {
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key = ChachaKey::cast_from_core(key);
         let cipher = XChaCha20Poly1305::new(key);
 
         let nonce = Keys::get_nonce();
@@ -194,7 +194,7 @@ impl StoreCipher {
         keys[0..32].copy_from_slice(self.inner.encryption_key.as_ref());
         keys[32..64].copy_from_slice(self.inner.mac_key_seed.as_ref());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), keys.as_ref())?;
+        let ciphertext = cipher.encrypt(XNonce::cast_from_core(&nonce), keys.as_ref())?;
 
         keys.zeroize();
 
@@ -229,7 +229,7 @@ impl StoreCipher {
         let mut decrypted = match encrypted.ciphertext_info {
             CipherTextInfo::ChaCha20Poly1305 { nonce, ciphertext } => {
                 let cipher = XChaCha20Poly1305::new(key);
-                let nonce = XNonce::from_slice(&nonce);
+                let nonce = XNonce::cast_from_core(&nonce);
                 cipher.decrypt(nonce, ciphertext.as_ref())?
             }
         };
@@ -299,7 +299,7 @@ impl StoreCipher {
             }
         };
 
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key = ChachaKey::cast_from_core(key.as_ref());
 
         Self::import_helper(key, encrypted)
     }
@@ -338,7 +338,7 @@ impl StoreCipher {
             return Err(Error::KdfMismatch);
         }
 
-        let key = ChachaKey::from_slice(key.as_ref());
+        let key = ChachaKey::cast_from_core(key);
 
         Self::import_helper(key, encrypted)
     }
@@ -455,7 +455,7 @@ impl StoreCipher {
         let nonce = Keys::get_nonce();
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_bytes())?;
+        let ciphertext = cipher.encrypt(XNonce::cast_from_core(&nonce), data.as_bytes())?;
 
         data.zeroiize();
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
@@ -604,7 +604,7 @@ impl StoreCipher {
         }
 
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
-        let nonce = XNonce::from_slice(&value.nonce);
+        let nonce = XNonce::cast_from_core(&value.nonce);
         Ok(cipher.decrypt(nonce, value.ciphertext.as_ref())?)
     }
 
@@ -743,7 +743,7 @@ impl Keys {
     }
 
     fn encryption_key(&self) -> &ChachaKey {
-        ChachaKey::from_slice(self.encryption_key.as_slice())
+        ChachaKey::cast_from_core(&self.encryption_key)
     }
 
     fn mac_key_seed(&self) -> &MacKeySeed {
