@@ -36,6 +36,8 @@ use tokio::sync::broadcast::{Receiver, Sender};
 use tracing::{debug, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
+#[cfg(feature = "e2e-encryption")]
+use super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         EventCacheError, EventsOrigin, Result,
@@ -510,7 +512,7 @@ impl PinnedEventsCache {
     #[cfg(feature = "e2e-encryption")]
     pub(in super::super) async fn replace_in_memory_utds(
         &self,
-        resolved_events: &[Event],
+        resolved_events: &[MaybeResolvedEvent],
     ) -> Result<()> {
         let mut state = self.inner.state.write().await?;
 

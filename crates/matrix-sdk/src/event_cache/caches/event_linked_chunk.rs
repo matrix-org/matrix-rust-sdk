@@ -28,6 +28,9 @@ use matrix_sdk_common::linked_chunk::{
 };
 use tracing::{instrument, trace};
 
+#[cfg(feature = "e2e-encryption")]
+use super::super::redecryptor::MaybeResolvedEvent;
+
 /// This type represents a linked chunk of events for a single room or thread.
 #[derive(Debug)]
 pub(in crate::event_cache) struct EventLinkedChunk {
@@ -474,10 +477,12 @@ impl EventLinkedChunk {
     ///
     /// Returns true if at least one event has been replaced, false otherwise.
     #[cfg(feature = "e2e-encryption")]
-    pub fn replace_utds(&mut self, resolved_events: &[Event]) -> bool {
+    pub fn replace_utds(&mut self, resolved_events: &[MaybeResolvedEvent]) -> bool {
         let mut replaced_some = false;
 
-        for resolved_event in resolved_events {
+        for resolved_event in
+            resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved())
+        {
             let Some(event_id) = resolved_event.event_id() else {
                 // No event ID? Let's skip it.
                 continue;

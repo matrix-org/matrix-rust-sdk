@@ -32,6 +32,8 @@ use ruma::{
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
+#[cfg(feature = "e2e-encryption")]
+use super::super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         super::{
@@ -691,7 +693,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
     pub(in super::super) fn replace_in_memory_utds(
         &mut self,
-        resolved_events: &[Event],
+        resolved_events: &[MaybeResolvedEvent],
     ) -> Result<Option<Vec<VectorDiff<Event>>>> {
         Ok(if self.thread_linked_chunk_mut().replace_utds(resolved_events) {
             Some(self.thread_linked_chunk_mut().updates_as_vector_diffs())
