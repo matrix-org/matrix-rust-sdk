@@ -37,7 +37,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace};
 
 use super::{
     super::{
@@ -736,7 +736,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         let Some(target_event_id) =
             extract_redaction_target(event.raw(), &self.room_version_rules.redaction)
         else {
-            warn!("missing target event id from the redaction event");
+            trace!("missing target event id from the redaction event");
             return Ok(());
         };
 
