@@ -842,6 +842,7 @@ async fn test_recover_and_reset() {
 #[async_test]
 async fn test_reset_identity() {
     let user_id = user_id!("@example:morpheus.localhost");
+    let backup_count = 4;
     let (client, server) = test_client(user_id).await;
 
     enable(user_id, &client, &server, true).await;
@@ -850,16 +851,16 @@ async fn test_reset_identity() {
     assert_eq!(client.encryption().backups().state(), BackupState::Enabled);
     assert_eq!(client.encryption().recovery().state(), RecoveryState::Enabled);
 
-    let did_delete_backup = Arc::new(Mutex::new(false));
+    let backups_remaining = Arc::new(Mutex::new(backup_count));
 
     // Disabling backups
     Mock::given(method("GET"))
         .and(path("_matrix/client/r0/room_keys/version"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with({
-            let did_delete_backup = did_delete_backup.clone();
+            let backups_remaining = backups_remaining.clone();
             move |_: &wiremock::Request| {
-                if *did_delete_backup.lock().unwrap() {
+                if *backups_remaining.lock().unwrap() == 0 {
                     ResponseTemplate::new(404).set_body_json(json!({
                         "errcode": "M_NOT_FOUND",
                         "error": "No current backup version"
@@ -878,7 +879,7 @@ async fn test_reset_identity() {
                 }
             }
         })
-        .expect(3)
+        .expect(backup_count + 3)
         .named("room_keys/version GET")
         .mount(&server)
         .await;
@@ -887,13 +888,13 @@ async fn test_reset_identity() {
         .and(path("_matrix/client/r0/room_keys/version/1"))
         .and(header("authorization", "Bearer 1234"))
         .respond_with({
-            let did_delete_backup = did_delete_backup.clone();
+            let did_delete_backup = backups_remaining.clone();
             move |_: &wiremock::Request| {
-                *did_delete_backup.lock().unwrap() = true;
+                *did_delete_backup.lock().unwrap() -= 1;
                 ResponseTemplate::new(200).set_body_json(json!({}))
             }
         })
-        .expect(1)
+        .expect(backup_count)
         .mount(&server)
         .await;
 

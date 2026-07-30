@@ -1216,7 +1216,7 @@ impl MatrixMockServer {
     /// .mount()
     /// .await;
     ///
-    /// client.account().fetch_media_preview_config_event_content().await.unwrap();
+    /// client.account().get_recent_emojis(true).await.unwrap();
     ///
     /// # anyhow::Ok(()) });
     /// ```
@@ -1241,11 +1241,12 @@ impl MatrixMockServer {
     /// let client = mock_server.client_builder().build().await;
     /// let user_id = client.user_id().unwrap();
     ///
-    /// mock.server.mock_get_recent_emojis()
+    /// mock_server.mock_get_recent_emojis()
     /// .ok(user_id, vec![(":D".to_string(), uint!(1))])
     /// .mock_once()
     /// .mount()
     /// .await;
+    ///
     /// mock_server.mock_add_recent_emojis()
     /// .ok(user_id)
     /// .mock_once()
@@ -3687,6 +3688,16 @@ impl<'a> MockEndpoint<'a, UploadKeysEndpoint> {
             },
         })))
     }
+
+    /// Returns a successful response with the given number of signed curve25519
+    /// one-time keys.
+    pub fn ok_with_signed_curve_key_count(self, n: u32) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "one_time_key_counts": {
+                "signed_curve25519": n,
+            },
+        })))
+    }
 }
 
 /// A prebuilt mock for `POST /keys/query` request.
@@ -5021,6 +5032,13 @@ impl<'a> MockEndpoint<'a, SetProfileFieldEndpoint> {
     /// Returns a successful empty response.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_empty_json()
+    }
+
+    /// Expect the request body to set the given [`ProfileFieldValue`].
+    pub fn expect_field_value(mut self, value: ProfileFieldValue) -> Self {
+        let body = BTreeMap::from([(value.field_name(), value.value())]);
+        self.mock = self.mock.and(body_json(body));
+        self
     }
 }
 

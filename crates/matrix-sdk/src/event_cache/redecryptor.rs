@@ -1280,8 +1280,16 @@ mod tests {
             self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
         }
 
-        async fn clear_all_events(&self) -> Result<(), Self::Error> {
-            self.memory_store.clear_all_events().await
+        async fn remember_thread(
+            &self,
+            room_id: &RoomId,
+            thread_id: &EventId,
+        ) -> Result<(), Self::Error> {
+            self.memory_store.remember_thread(room_id, thread_id).await
+        }
+
+        async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
+            self.memory_store.clear_all_events(room_id).await
         }
 
         async fn filter_duplicated_events(

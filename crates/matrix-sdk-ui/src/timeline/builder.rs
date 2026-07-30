@@ -23,6 +23,8 @@ use super::{
     DateDividerMode, Error, Timeline, TimelineDropHandle, TimelineFocus,
     controller::{TimelineController, TimelineSettings},
 };
+#[cfg(feature = "unstable-msc4426")]
+use crate::timeline::tasks::global_profile_updates_task;
 use crate::{
     timeline::{
         TimelineReadReceiptTracking,
@@ -243,6 +245,19 @@ impl TimelineBuilder {
                 .abort_on_drop()
         };
 
+        #[cfg(feature = "unstable-msc4426")]
+        let global_profile_updates_handle = room
+            .client()
+            .task_monitor()
+            .spawn_infinite_task(
+                "timeline::global_profile_updates",
+                global_profile_updates_task(
+                    room.client().subscribe_to_global_profile_updates(),
+                    controller.clone(),
+                ),
+            )
+            .abort_on_drop();
+
         let initial_active_call_info = ActiveCallInfo::from_info(initial_info, owned_user_id);
         if initial_active_call_info.is_some() {
             controller.handle_active_call_update(initial_active_call_info).await;
@@ -272,6 +287,8 @@ impl TimelineBuilder {
             drop_handle: Arc::new(TimelineDropHandle {
                 _crypto_drop_handles: crypto_drop_handles,
                 _room_update_join_handle: room_update_join_handle,
+                #[cfg(feature = "unstable-msc4426")]
+                _global_profile_updates_handle: global_profile_updates_handle,
                 _local_echo_listener_handle: local_echo_listener_handle,
                 _rtc_membership_listener_handle: rtc_membership_listener_handle,
                 _focus_drop_handle: focus_task,

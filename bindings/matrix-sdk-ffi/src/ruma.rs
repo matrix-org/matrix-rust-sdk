@@ -22,7 +22,7 @@ use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
 use ruma::{
     KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
-    OwnedRoomId, OwnedUserId, UInt, UserId, assign,
+    OwnedRoomId, OwnedUserId, SecondsSinceUnixEpoch, UInt, UserId, assign,
     events::{
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
@@ -79,6 +79,7 @@ use ruma::{
     },
     matrix_uri::MatrixId as RumaMatrixId,
     presence::PresenceState as RumaPresenceState,
+    profile::{CallProfileField, StatusProfileField},
     push::{
         ConditionalPushRule as RumaConditionalPushRule, PatternedPushRule as RumaPatternedPushRule,
         Ruleset as RumaRuleset, SimplePushRule as RumaSimplePushRule,
@@ -217,6 +218,50 @@ impl From<RumaPresenceState> for PresenceState {
             RumaPresenceState::Unavailable => Self::Unavailable,
             _ => Self::default(),
         }
+    }
+}
+
+/// A user-set status (MSC4426 `m.status` profile field value).
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserStatus {
+    pub emoji: String,
+    pub text: String,
+}
+
+impl From<UserStatus> for StatusProfileField {
+    fn from(value: UserStatus) -> Self {
+        Self::new(value.text, value.emoji)
+    }
+}
+
+impl From<StatusProfileField> for UserStatus {
+    fn from(value: StatusProfileField) -> Self {
+        Self { emoji: value.emoji, text: value.text }
+    }
+}
+
+/// The user's call indicator (MSC4426 `m.call` profile field value).
+///
+/// Presence of a `UserCall` value means the user is in a call. The optional
+/// `call_joined_ts` is the Unix-epoch seconds when they joined, if known.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct UserCall {
+    pub call_joined_ts: Option<u64>,
+}
+
+impl From<CallProfileField> for UserCall {
+    fn from(value: CallProfileField) -> Self {
+        Self { call_joined_ts: value.call_joined_ts.map(|ts| u64::from(ts.get())) }
+    }
+}
+
+impl From<UserCall> for CallProfileField {
+    fn from(value: UserCall) -> Self {
+        let mut field = CallProfileField::new();
+        field.call_joined_ts = value
+            .call_joined_ts
+            .map(|secs| SecondsSinceUnixEpoch(UInt::try_from(secs).unwrap_or_default()));
+        field
     }
 }
 

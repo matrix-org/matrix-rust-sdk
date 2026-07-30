@@ -32,6 +32,7 @@ use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
 use crate::{
+    HttpResult,
     config::RequestConfig,
     error::{HttpError, RetryKind},
 };
@@ -42,69 +43,115 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Result<R::IncomingResponse, HttpError>
+    ) -> HttpResult<R::IncomingResponse>
     where
         R: OutgoingRequest + Debug,
         HttpError: From<FromHttpResponseError<R::EndpointError>>,
     {
-        // These values were picked because we used to use the `backoff` crate, those
-        // were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
-        let backoff = ExponentialBuilder::new()
-            .with_min_delay(Duration::from_millis(500))
-            .with_max_delay(Duration::from_secs(60))
-            .with_total_delay(Some(Duration::from_secs(15 * 60)))
-            .without_max_times();
+        // some functions split out so they only get compiled once,
+        // not monomorphized per request type
+        fn make_backoff(config: &RequestConfig) -> ExponentialBuilder {
+            // These values were picked because we used to use the `backoff` crate, those
+            // were defined here: https://docs.rs/backoff/0.4.0/backoff/default/index.html
+            let mut backoff = ExponentialBuilder::new()
+                .with_min_delay(Duration::from_millis(500))
+                .with_max_delay(Duration::from_secs(60))
+                .with_total_delay(Some(Duration::from_secs(15 * 60)))
+                .without_max_times();
 
-        // Let's now apply any override the user or the SDK might have set.
-        let backoff = if let Some(max_delay) = config.max_retry_time {
-            backoff.with_max_delay(max_delay)
-        } else {
-            backoff
-        };
+            // Let's now apply any override the user or the SDK might have set.
+            if let Some(max_delay) = config.max_retry_time {
+                backoff = backoff.with_max_delay(max_delay)
+            }
 
-        let backoff = if let Some(max_times) = config.retry_limit {
-            // Backon behaves a bit differently to our own handcrafted max retry logic.
-            // We were counting from one while `backon` counts from zero.
-            backoff.with_max_times(max_times.saturating_sub(1))
-        } else {
+            if let Some(max_times) = config.retry_limit {
+                // Backon behaves a bit differently to our own handcrafted max retry logic.
+                // We were counting from one while `backon` counts from zero.
+                backoff = backoff.with_max_times(max_times.saturating_sub(1))
+            }
+
             backoff
-        };
+        }
+        async fn send_request_inner(
+            http_client: &reqwest::Client,
+            request: &http::Request<Bytes>,
+            timeout: Option<Duration>,
+            retry_count: &AtomicU64,
+            send_progress: SharedObservable<TransmissionProgress>,
+        ) -> HttpResult<http::Response<Bytes>> {
+            let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
+            debug!(num_attempt, "Sending request");
+            let before = ruma::time::Instant::now();
+
+            let response = execute_request(http_client, request, timeout, send_progress).await?;
+
+            let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
+
+            let status_code = response.status();
+            let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
+            tracing::Span::current()
+                .record("status", status_code.as_u16())
+                .record("response_size", response_size.display().si_short().to_string())
+                .record("request_duration", tracing::field::debug(request_duration));
+
+            // Record interesting headers. If you add more headers, ensure they're not
+            // confidential.
+            for (header_name, header_value) in response.headers() {
+                let header_name = header_name.as_str().to_lowercase();
+
+                // Header added in case of OAuth 2.0 authentication failure, so we can correlate
+                // failures with a Sentry event emitted by the OAuth 2.0 authentication server.
+                if header_name == "x-sentry-event-id" {
+                    tracing::Span::current()
+                        .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
+                }
+            }
+
+            Ok(response)
+        }
+        fn adjust_backoff(
+            err: &HttpError,
+            backon_suggested_timeout: Option<Duration>,
+            has_retry_limit: bool,
+        ) -> Option<Duration> {
+            match err.retry_kind() {
+                RetryKind::Transient { retry_after } => {
+                    // This bit is somewhat tricky but it's necessary so we respect the
+                    // `max_times` limit from `backon`.
+                    //
+                    // The exponential backoff in `backon` is implemented as an iterator that
+                    // returns `None` when we hit the `max_times` limit; if it returned `None`,
+                    // that means we ran out of attempts. So it's necessary to only override
+                    // the `backon_suggested_timeout` if it's `Some`.
+                    if backon_suggested_timeout.is_some() {
+                        retry_after.or(backon_suggested_timeout)
+                    } else {
+                        None
+                    }
+                }
+                RetryKind::Permanent => None,
+                RetryKind::NetworkFailure => {
+                    // If we ran into a network failure, only retry if there's some retry limit
+                    // associated to this request's configuration; otherwise, we would end up
+                    // running an infinite loop of network requests in offline mode.
+                    if has_retry_limit { backon_suggested_timeout } else { None }
+                }
+            }
+        }
 
         let retry_count = AtomicU64::new(1);
 
         let send_request = || {
             let send_progress = send_progress.clone();
-
             async {
-                let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
-                debug!(num_attempt, "Sending request");
-                let before = ruma::time::Instant::now();
-
-                let response =
-                    send_request(&self.inner, &request, config.timeout, send_progress).await?;
-
-                let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
-
-                let status_code = response.status();
-                let response_size = ByteSize(response.body().len().try_into().unwrap_or(u64::MAX));
-                tracing::Span::current()
-                    .record("status", status_code.as_u16())
-                    .record("response_size", response_size.display().si_short().to_string())
-                    .record("request_duration", tracing::field::debug(request_duration));
-
-                // Record interesting headers. If you add more headers, ensure they're not
-                // confidential.
-                for (header_name, header_value) in response.headers() {
-                    let header_name = header_name.as_str().to_lowercase();
-
-                    // Header added in case of OAuth 2.0 authentication failure, so we can correlate
-                    // failures with a Sentry event emitted by the OAuth 2.0 authentication server.
-                    if header_name == "x-sentry-event-id" {
-                        tracing::Span::current()
-                            .record("sentry_event_id", header_value.to_str().unwrap_or("<???>"));
-                    }
-                }
-
+                let response = send_request_inner(
+                    &self.inner,
+                    &request,
+                    config.timeout,
+                    &retry_count,
+                    send_progress,
+                )
+                .await?;
                 R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
             }
         };
@@ -112,31 +159,9 @@ impl HttpClient {
         let has_retry_limit = config.retry_limit.is_some();
 
         send_request
-            .retry(backoff)
+            .retry(make_backoff(&config))
             .adjust(|err, backon_suggested_timeout| {
-                match err.retry_kind() {
-                    RetryKind::Transient { retry_after } => {
-                        // This bit is somewhat tricky but it's necessary so we respect the
-                        // `max_times` limit from `backon`.
-                        //
-                        // The exponential backoff in `backon` is implemented as an iterator that
-                        // returns `None` when we hit the `max_times` limit; if it returned `None`,
-                        // that means we ran out of attempts. So it's necessary to only override
-                        // the `backon_suggested_timeout` if it's `Some`.
-                        if backon_suggested_timeout.is_some() {
-                            retry_after.or(backon_suggested_timeout)
-                        } else {
-                            None
-                        }
-                    }
-                    RetryKind::Permanent => None,
-                    RetryKind::NetworkFailure => {
-                        // If we ran into a network failure, only retry if there's some retry limit
-                        // associated to this request's configuration; otherwise, we would end up
-                        // running an infinite loop of network requests in offline mode.
-                        if has_retry_limit { backon_suggested_timeout } else { None }
-                    }
-                }
+                adjust_backoff(err, backon_suggested_timeout, has_retry_limit)
             })
             .await
     }
@@ -209,7 +234,7 @@ impl HttpSettings {
     }
 }
 
-pub(super) async fn send_request(
+pub(super) async fn execute_request(
     client: &reqwest::Client,
     request: &http::Request<Bytes>,
     timeout: Option<Duration>,

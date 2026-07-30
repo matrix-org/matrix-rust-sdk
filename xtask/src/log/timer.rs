@@ -81,8 +81,8 @@ pub(super) fn run(log_path: path::PathBuf, output_path: path::PathBuf) -> Result
                 let duration = duration_as_str;
 
                 // According to
-                // https://github.com/rust-lang/rust/blob/0028f344ce9f64766259577c998a1959ca1f6a0b/library/core/src/time.rs#L1488-L15
-                // 10, there is 4 possible suffixes. Let's get through them.
+                // https://github.com/rust-lang/rust/blob/0028f344ce9f64766259577c998a1959ca1f6a0b/library/core/src/time.rs#L1488-L1510,
+                // there is 4 possible suffixes. Let's get through them.
 
                 let pivot = duration.floor_char_boundary(duration.len().saturating_sub(2));
 

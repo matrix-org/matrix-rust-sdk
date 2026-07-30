@@ -319,6 +319,7 @@ pub enum StateEventContent {
     RoomTopic { topic: String },
     SpaceChild,
     SpaceParent,
+    BeaconInfo,
 }
 
 impl TryFrom<AnySyncStateEvent> for StateEventContent {
@@ -357,6 +358,7 @@ impl TryFrom<AnySyncStateEvent> for StateEventContent {
             }
             AnySyncStateEvent::SpaceChild(_) => StateEventContent::SpaceChild,
             AnySyncStateEvent::SpaceParent(_) => StateEventContent::SpaceParent,
+            AnySyncStateEvent::BeaconInfo(_) => StateEventContent::BeaconInfo,
             _ => bail!("Unsupported state event: {:?}", value.event_type()),
         };
         Ok(event)
@@ -407,6 +409,7 @@ pub enum MessageLikeEventContent {
         reason: Option<String>,
     },
     Sticker,
+    Beacon,
 }
 
 impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
@@ -486,6 +489,7 @@ impl TryFrom<AnySyncMessageLikeEvent> for MessageLikeEventContent {
                 MessageLikeEventContent::RoomRedaction { redacted_event_id, reason }
             }
             AnySyncMessageLikeEvent::Sticker(_) => MessageLikeEventContent::Sticker,
+            AnySyncMessageLikeEvent::Beacon(_) => MessageLikeEventContent::Beacon,
             _ => bail!("Unsupported Event Type: {:?}", value.event_type()),
         };
         Ok(content)

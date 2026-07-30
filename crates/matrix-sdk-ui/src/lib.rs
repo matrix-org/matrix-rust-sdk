@@ -14,6 +14,7 @@
 
 #![cfg_attr(target_family = "wasm", allow(clippy::arc_with_non_send_sync))]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![recursion_limit = "256"]
 
 pub use eyeball_im;
 use ruma::html::HtmlSanitizerMode;

@@ -33,7 +33,7 @@ use ruma::{
         receipt::{Receipt, ReceiptThread, ReceiptType},
         room::member::{MembershipState, StrippedRoomMemberEvent, SyncRoomMemberEvent},
     },
-    profile::UserProfile,
+    profile::{UserProfile, UserProfileUpdate},
     serde::Raw,
     time::Instant,
 };
@@ -540,9 +540,21 @@ impl StateStore for MemoryStore {
         }
 
         for (user_id, profile_update) in &changes.global_profiles {
-            let mut profile = inner.global_profiles.get(user_id).cloned().unwrap_or_default();
-            profile.merge(profile_update.clone());
-            inner.global_profiles.insert(user_id.clone(), profile);
+            match profile_update {
+                UserProfileUpdate::Updated(profile_changes) => {
+                    inner
+                        .global_profiles
+                        .entry(user_id.clone())
+                        .or_default()
+                        .apply(profile_changes.clone());
+                }
+                UserProfileUpdate::Dropped => {
+                    inner.global_profiles.remove(user_id);
+                }
+                _ => {
+                    warn!(%user_id, "Unhandled UserProfileUpdate variant; ignoring");
+                }
+            }
         }
 
         debug!("Saved changes in {:?}", now.elapsed());

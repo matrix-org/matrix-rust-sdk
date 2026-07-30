@@ -33,6 +33,7 @@ pub mod store;
 pub mod types;
 mod utilities;
 mod verification;
+pub mod x509;
 
 #[cfg(any(test, feature = "testing"))]
 /// Testing facilities and helpers for crypto tests
@@ -163,7 +164,7 @@ pub enum RoomEventDecryptionResult {
     UnableToDecrypt(UnableToDecryptInfo),
 }
 
-#[cfg_attr(doc, aquamarine::aquamarine)]
+#[cfg_attr(doc, doc = include_str!("../../../.cargo/mermaid.html"))]
 /// A step by step guide that explains how to include [end-to-end-encryption]
 /// support in a [Matrix] client library.
 ///

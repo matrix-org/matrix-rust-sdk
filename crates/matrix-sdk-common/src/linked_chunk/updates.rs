@@ -14,9 +14,12 @@
 
 use std::{
     collections::HashMap,
-    sync::{Arc, RwLock},
-    task::Waker,
+    pin::Pin,
+    sync::{Arc, RwLock, Weak},
+    task::{Context, Poll, Waker},
 };
+
+use futures_core::Stream;
 
 use super::{ChunkIdentifier, Position};
 
@@ -143,6 +146,8 @@ impl<Item, Gap> Update<Item, Gap> {
 ///
 /// Get a value for this type with [`LinkedChunk::updates`].
 ///
+/// All clones of this type share the same data.
+///
 /// [`LinkedChunk::updates`]: super::LinkedChunk::updates
 #[derive(Debug)]
 pub struct ObservableUpdates<Item, Gap> {
@@ -177,8 +182,7 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
     }
 
     /// Subscribe to updates by using a [`Stream`].
-    #[cfg(test)]
-    pub(super) fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
+    pub fn subscribe(&mut self) -> UpdatesSubscriber<Item, Gap> {
         // A subscriber is a new update reader, it needs its own token.
         let token = self.new_reader_token();
 
@@ -197,6 +201,25 @@ impl<Item, Gap> ObservableUpdates<Item, Gap> {
         inner.last_index_per_reader.insert(last_token, 0);
 
         last_token
+    }
+
+    /// Create a new [`ObservableUpdatesPusher`], privately.
+    pub(super) fn new_pusher(&self) -> ObservableUpdatesPusher<Item, Gap> {
+        ObservableUpdatesPusher { inner: self.inner.clone() }
+    }
+}
+
+/// This type is similar to [`ObservableUpdates`] except it has a single `push`
+/// method which takes a `&self` instead of a `&mut self` to accommodate a
+/// particular need in `Ends` for lazily get the first chunk.
+pub(super) struct ObservableUpdatesPusher<Item, Gap> {
+    inner: Arc<RwLock<UpdatesInner<Item, Gap>>>,
+}
+
+impl<Item, Gap> ObservableUpdatesPusher<Item, Gap> {
+    /// Push a new update, even if `&self` while we could expect a `&mut self`.
+    pub fn push(&self, update: Update<Item, Gap>) {
+        self.inner.write().unwrap().push(update);
     }
 }
 
@@ -236,7 +259,7 @@ pub(super) struct UpdatesInner<Item, Gap> {
     last_token: ReaderToken,
 
     /// Pending wakers for [`UpdateSubscriber`]s. A waker is removed
-    /// everytime it is called.
+    /// every time it is called.
     wakers: Vec<Waker>,
 }
 
@@ -349,42 +372,36 @@ impl<Item, Gap> UpdatesInner<Item, Gap> {
 
 /// A subscriber to [`ObservableUpdates`]. It is helpful to receive updates via
 /// a [`Stream`].
-#[cfg(test)]
-pub(super) struct UpdatesSubscriber<Item, Gap> {
+#[derive(Debug)]
+pub struct UpdatesSubscriber<Item, Gap> {
     /// Weak reference to [`UpdatesInner`].
     ///
     /// Using a weak reference allows [`ObservableUpdates`] to be dropped
     /// freely even if a subscriber exists.
-    updates: std::sync::Weak<RwLock<UpdatesInner<Item, Gap>>>,
+    updates: Weak<RwLock<UpdatesInner<Item, Gap>>>,
 
     /// The token to read the updates.
     token: ReaderToken,
 }
 
-#[cfg(test)]
 impl<Item, Gap> UpdatesSubscriber<Item, Gap> {
     /// Create a new [`Self`].
-    #[cfg(test)]
-    fn new(updates: std::sync::Weak<RwLock<UpdatesInner<Item, Gap>>>, token: ReaderToken) -> Self {
+    fn new(updates: Weak<RwLock<UpdatesInner<Item, Gap>>>, token: ReaderToken) -> Self {
         Self { updates, token }
     }
 }
 
-#[cfg(test)]
-impl<Item, Gap> futures_core::Stream for UpdatesSubscriber<Item, Gap>
+impl<Item, Gap> Stream for UpdatesSubscriber<Item, Gap>
 where
     Item: Clone,
     Gap: Clone,
 {
     type Item = Vec<Update<Item, Gap>>;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        context: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let Some(updates) = self.updates.upgrade() else {
             // The `ObservableUpdates` has been dropped. It's time to close this stream.
-            return std::task::Poll::Ready(None);
+            return Poll::Ready(None);
         };
 
         let mut updates = updates.write().unwrap();
@@ -396,15 +413,14 @@ where
             updates.wakers.push(context.waker().clone());
 
             // The stream is pending.
-            return std::task::Poll::Pending;
+            return Poll::Pending;
         }
 
         // There is updates! Let's forward them in this stream.
-        std::task::Poll::Ready(Some(the_updates.to_owned()))
+        Poll::Ready(Some(the_updates.to_owned()))
     }
 }
 
-#[cfg(test)]
 impl<Item, Gap> Drop for UpdatesSubscriber<Item, Gap> {
     fn drop(&mut self) {
         // Remove `Self::token` from `UpdatesInner::last_index_per_reader`.
@@ -454,7 +470,10 @@ mod tests {
             other_token
         };
 
-        // There is an initial update.
+        // Let's trigger the chunk creation to simplify the test.
+        let _ = linked_chunk.first_chunk();
+
+        // There is an update.
         {
             let updates = linked_chunk.updates().unwrap();
 
@@ -701,16 +720,7 @@ mod tests {
         let updates_subscriber = linked_chunk.updates().unwrap().subscribe();
         pin_mut!(updates_subscriber);
 
-        // Initial update, stream is ready.
-        assert_matches!(
-            updates_subscriber.as_mut().poll_next(&mut context),
-            Poll::Ready(Some(items)) => {
-                assert_eq!(
-                    items,
-                    &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
-                );
-            }
-        );
+        // No initial update, stream is pending.
         assert_matches!(updates_subscriber.as_mut().poll_next(&mut context), Poll::Pending);
         assert_eq!(*counter_waker.number_of_wakeup.lock().unwrap(), 0);
 
@@ -726,7 +736,10 @@ mod tests {
             Poll::Ready(Some(items)) => {
                 assert_eq!(
                     items,
-                    &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                    &[
+                        NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None },
+                        PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }
+                    ]
                 );
             }
         );
@@ -795,28 +808,10 @@ mod tests {
             let updates_subscriber2 = linked_chunk.updates().unwrap().subscribe();
             pin_mut!(updates_subscriber2);
 
-            // Initial updates, streams are ready.
-            assert_matches!(
-                updates_subscriber1.as_mut().poll_next(&mut context1),
-                Poll::Ready(Some(items)) => {
-                    assert_eq!(
-                        items,
-                        &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
-                    );
-                }
-            );
+            // No initial updates, streams are pending.
             assert_matches!(updates_subscriber1.as_mut().poll_next(&mut context1), Poll::Pending);
             assert_eq!(*counter_waker1.number_of_wakeup.lock().unwrap(), 0);
 
-            assert_matches!(
-                updates_subscriber2.as_mut().poll_next(&mut context2),
-                Poll::Ready(Some(items)) => {
-                    assert_eq!(
-                        items,
-                        &[NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None }]
-                    );
-                }
-            );
             assert_matches!(updates_subscriber2.as_mut().poll_next(&mut context2), Poll::Pending);
             assert_eq!(*counter_waker2.number_of_wakeup.lock().unwrap(), 0);
 
@@ -833,7 +828,10 @@ mod tests {
                 Poll::Ready(Some(items)) => {
                     assert_eq!(
                         items,
-                        &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                        &[
+                            NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None },
+                            PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }
+                        ]
                     );
                 }
             );
@@ -843,7 +841,10 @@ mod tests {
                 Poll::Ready(Some(items)) => {
                     assert_eq!(
                         items,
-                        &[PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }]
+                        &[
+                            NewItemsChunk { previous: None, new: ChunkIdentifier(0), next: None },
+                            PushItems { at: Position(ChunkIdentifier(0), 0), items: vec!['a'] }
+                        ]
                     );
                 }
             );

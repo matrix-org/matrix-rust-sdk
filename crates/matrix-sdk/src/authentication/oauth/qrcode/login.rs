@@ -97,7 +97,7 @@ async fn finish_login<Q>(
 
             return Err(QRCodeLoginError::UnexpectedMessage {
                 expected: "m.login.protocol_accepted",
-                received: message,
+                received: Box::new(message),
             });
         }
     }
@@ -176,7 +176,7 @@ async fn finish_login<Q>(
 
             return Err(QRCodeLoginError::UnexpectedMessage {
                 expected: "m.login.secrets",
-                received: message,
+                received: Box::new(message),
             });
         }
     };
@@ -410,7 +410,7 @@ impl<'a> IntoFuture for LoginWithGeneratedQrCode<'a> {
 
                     return Err(QRCodeLoginError::UnexpectedMessage {
                         expected: "m.login.protocols",
-                        received: message,
+                        received: Box::new(message),
                     });
                 }
             };

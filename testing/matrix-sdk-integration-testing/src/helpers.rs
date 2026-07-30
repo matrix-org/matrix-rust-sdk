@@ -1,5 +1,4 @@
 use std::{
-    future::Future,
     ops::Deref,
     option_env,
     path::{Path, PathBuf},
@@ -22,7 +21,10 @@ use matrix_sdk::{
     sync::SyncResponse,
     timeout::ElapsedError,
 };
-use matrix_sdk_base::crypto::{CollectStrategy, DecryptionSettings, TrustRequirement};
+use matrix_sdk_base::crypto::{
+    CollectStrategy, DecryptionSettings, TrustRequirement,
+    x509::{RawX509Signer, RawX509Verifier},
+};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use rand::RngExt;
 use tempfile::{TempDir, tempdir};
@@ -47,6 +49,8 @@ pub struct TestClientBuilder {
     threading_support: ThreadingSupport,
     http_proxy: Option<String>,
     cross_process_lock_config: CrossProcessLockConfig,
+    x509_signer: Option<Arc<dyn RawX509Signer>>,
+    x509_verifier: Option<Arc<dyn RawX509Verifier>>,
 }
 
 impl TestClientBuilder {
@@ -65,6 +69,8 @@ impl TestClientBuilder {
             room_key_recipient_strategy: Default::default(),
             enable_share_history_on_invite: false,
             threading_support: ThreadingSupport::Disabled,
+            x509_signer: None,
+            x509_verifier: None,
             http_proxy: None,
             cross_process_lock_config: CrossProcessLockConfig::SingleProcess,
         }
@@ -97,6 +103,16 @@ impl TestClientBuilder {
     #[allow(unused)]
     pub fn enable_threading_support(mut self, thread_support: ThreadingSupport) -> Self {
         self.threading_support = thread_support;
+        self
+    }
+
+    pub fn x509_signer(mut self, x509_signer: Option<Arc<dyn RawX509Signer>>) -> Self {
+        self.x509_signer = x509_signer;
+        self
+    }
+
+    pub fn x509_verifier(mut self, x509_verifier: Option<Arc<dyn RawX509Verifier>>) -> Self {
+        self.x509_verifier = x509_verifier;
         self
     }
 
@@ -135,6 +151,8 @@ impl TestClientBuilder {
             .with_room_key_recipient_strategy(self.room_key_recipient_strategy.clone())
             .with_enable_share_history_on_invite(self.enable_share_history_on_invite)
             .with_threading_support(self.threading_support)
+            .with_x509_signer(self.x509_signer.clone())
+            .with_x509_verifier(self.x509_verifier.clone())
             .request_config(RequestConfig::short_retry())
             .cross_process_store_config(self.cross_process_lock_config.clone());
 
@@ -260,13 +278,9 @@ impl Deref for SyncTokenAwareClient {
 ///
 /// The result of `cb` if it returned `Some`. If the timeout elapses, an error
 /// of type [`ElapsedError`].
-pub async fn wait_until_some<F, Fut, R>(
-    mut cb: F,
-    timeout_duration: Duration,
-) -> Result<R, ElapsedError>
+pub async fn wait_until_some<F, R>(mut cb: F, timeout_duration: Duration) -> Result<R, ElapsedError>
 where
-    F: FnMut(u32) -> Fut,
-    Fut: Future<Output = Option<R>>,
+    F: AsyncFnMut(u32) -> Option<R>,
 {
     let start = Instant::now();
     let mut attempt_count = 1;

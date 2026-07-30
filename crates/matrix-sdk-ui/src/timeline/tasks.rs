@@ -26,6 +26,8 @@ use matrix_sdk::{
 };
 use matrix_sdk_base::RoomInfo;
 use ruma::OwnedEventId;
+#[cfg(feature = "unstable-msc4426")]
+use ruma::{OwnedUserId, UserId};
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tracing::{error, instrument, trace, warn};
 
@@ -286,6 +288,35 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                     }
                     timeline_controller.force_update_sender_profiles(&user_ids_to_update).await;
                 }
+            }
+        }
+    }
+}
+
+/// Long-lived task that refreshes displayed sender profiles when the users'
+/// global profiles change. The controller filters to the senders it shows.
+#[cfg(feature = "unstable-msc4426")]
+pub(in crate::timeline) async fn global_profile_updates_task(
+    mut global_profile_updates_stream: Receiver<BTreeSet<OwnedUserId>>,
+    timeline_controller: TimelineController,
+) {
+    trace!("spawned the global profile updates task!");
+
+    loop {
+        match global_profile_updates_stream.recv().await {
+            Ok(user_ids) => {
+                let sender_ids: BTreeSet<&UserId> =
+                    user_ids.iter().map(|user_id| user_id.as_ref()).collect();
+                timeline_controller.force_update_sender_profiles(&sender_ids).await;
+            }
+
+            Err(RecvError::Lagged(num_missed)) => {
+                warn!("missed {num_missed} global profile updates, ignoring those missed");
+            }
+
+            Err(RecvError::Closed) => {
+                trace!("channel closed, exiting the global profile updates handler");
+                break;
             }
         }
     }

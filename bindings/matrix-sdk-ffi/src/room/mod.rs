@@ -19,8 +19,8 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
     ComposerDraft as SdkComposerDraft, ComposerDraftType as SdkComposerDraftType,
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
-    PredecessorRoom as SdkPredecessorRoom, RoomHero as SdkRoomHero, RoomMemberships, RoomState,
-    SuccessorRoom as SdkSuccessorRoom,
+    PredecessorRoom as SdkPredecessorRoom, RoomHeroWithProfile as SdkRoomHeroWithProfile,
+    RoomMemberships, RoomState, SuccessorRoom as SdkSuccessorRoom,
     encryption::LocalTrust,
     room::{
         Room as SdkRoom, RoomMemberRole, edit::EditedContent, power_levels::RoomPowerLevelChanges,
@@ -38,7 +38,7 @@ use ruma::{
     ServerName, UserId, assign,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
-        receipt::ReceiptThread,
+        receipt::ReceiptThread as RumaReceiptThread,
         room::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
@@ -62,10 +62,13 @@ use crate::{
     live_locations_observer::LiveLocationsObserver,
     room_member::{RoomMember, RoomMemberWithSenderInfo},
     room_preview::RoomPreview,
-    ruma::{AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, VideoInfo},
+    ruma::{
+        AudioInfo, FileInfo, ImageInfo, MediaSource, ThumbnailInfo, UserCall, UserStatus, VideoInfo,
+    },
     runtime::get_runtime_handle,
     timeline::{
-        AbstractProgress, LatestEventValue, ReceiptType, SendHandle, Timeline, UploadSource,
+        AbstractProgress, LatestEventValue, ReceiptThread, ReceiptType, SendHandle, Timeline,
+        UploadSource, UserReceipt,
         configuration::{TimelineConfiguration, TimelineFilter},
         threads::{ThreadListService, ThreadSubscription},
     },
@@ -196,8 +199,8 @@ impl Room {
     }
 
     /// Returns the room heroes for this room.
-    pub fn heroes(&self) -> Vec<RoomHero> {
-        self.inner.heroes().into_iter().map(Into::into).collect()
+    pub async fn heroes(&self) -> Vec<RoomHero> {
+        self.inner.heroes().await.into_iter().map(Into::into).collect()
     }
 
     /// Is there a non expired membership with application "m.call" and scope
@@ -711,6 +714,55 @@ impl Room {
         Ok(())
     }
 
+    /// Load the receipt of the given type for the given user in this room,
+    /// optionally scoped to a thread.
+    ///
+    /// The receipt is read from the local store, which is fed by sync, so it
+    /// also reflects receipts sent by the user's other devices. Returns
+    /// `None` if the user has no matching receipt in this room.
+    ///
+    /// Note: [`ReceiptType::FullyRead`] is a marker, not an event receipt,
+    /// and is rejected.
+    pub async fn load_user_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        user_id: String,
+    ) -> Result<Option<UserReceipt>, ClientError> {
+        let user_id = UserId::parse(&*user_id)?;
+
+        Ok(self
+            .inner
+            .load_user_receipt(receipt_type.try_into()?, thread.try_into()?, &user_id)
+            .await?
+            .map(|(event_id, receipt)| UserReceipt {
+                event_id: event_id.to_string(),
+                receipt: receipt.into(),
+            }))
+    }
+
+    /// Send a single receipt of the given type for the given event, optionally
+    /// scoped to a thread.
+    ///
+    /// This allows sending receipts for events without instantiating the
+    /// [`Timeline`] they belong to, e.g. marking a thread as read from its
+    /// root and latest event ids. Note that this won't check whether sending
+    /// the receipt is necessary or valid (i.e. it can move a receipt
+    /// backwards); prefer [`Timeline::send_single_receipt`] when a timeline
+    /// is available.
+    pub async fn send_single_receipt(
+        &self,
+        receipt_type: ReceiptType,
+        thread: ReceiptThread,
+        event_id: String,
+    ) -> Result<(), ClientError> {
+        let event_id = EventId::parse(event_id)?;
+
+        self.inner.send_single_receipt(receipt_type.into(), thread.try_into()?, event_id).await?;
+
+        Ok(())
+    }
+
     /// Mark a room as fully read, by attaching a read receipt to the provided
     /// `event_id`.
     ///
@@ -724,7 +776,11 @@ impl Room {
         let event_id = EventId::parse(event_id)?;
 
         self.inner
-            .send_single_receipt(ReceiptType::FullyRead.into(), ReceiptThread::Unthreaded, event_id)
+            .send_single_receipt(
+                ReceiptType::FullyRead.into(),
+                RumaReceiptThread::Unthreaded,
+                event_id,
+            )
             .await?;
 
         Ok(())
@@ -1404,14 +1460,20 @@ pub struct RoomHero {
     display_name: Option<String>,
     /// The avatar URL of the hero.
     avatar_url: Option<String>,
+    /// The hero's user-set status, taken from their global profile.
+    status: Option<UserStatus>,
+    /// The hero's call indicator, taken from their global profile.
+    call: Option<UserCall>,
 }
 
-impl From<SdkRoomHero> for RoomHero {
-    fn from(value: SdkRoomHero) -> Self {
+impl From<SdkRoomHeroWithProfile> for RoomHero {
+    fn from(value: SdkRoomHeroWithProfile) -> Self {
         Self {
             user_id: value.user_id.to_string(),
             display_name: value.display_name.clone(),
             avatar_url: value.avatar_url.as_ref().map(ToString::to_string),
+            status: value.status.map(UserStatus::from),
+            call: value.call.map(UserCall::from),
         }
     }
 }

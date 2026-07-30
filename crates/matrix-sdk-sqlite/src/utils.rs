@@ -23,7 +23,7 @@ use std::{
 use async_trait::async_trait;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
-use matrix_sdk_store_encryption::StoreCipher;
+use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
@@ -641,12 +641,15 @@ pub(crate) trait EncryptableStore {
         }
     }
 
-    fn encode_value(&self, value: Vec<u8>) -> Result<Vec<u8>> {
+    fn encode_value<V>(&self, value: V) -> Result<Vec<u8>>
+    where
+        V: EncryptableValue + Into<Vec<u8>>,
+    {
         if let Some(key) = self.get_cypher() {
             let encrypted = key.encrypt_value_data(value)?;
             Ok(rmp_serde::to_vec_named(&encrypted)?)
         } else {
-            Ok(value)
+            Ok(value.into())
         }
     }
 

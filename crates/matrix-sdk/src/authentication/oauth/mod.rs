@@ -1116,7 +1116,7 @@ impl OAuth {
         let response = OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_device_access_token(device_authorization_response)
-            .request_async(self.http_client(), tokio::time::sleep, None)
+            .request_async(self.http_client(), matrix_sdk_common::sleep::sleep, None)
             .await?;
 
         self.client.auth_ctx().set_session_tokens(SessionTokens {
@@ -1619,8 +1619,12 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     ///             GrantLoginProgress::EstablishingSecureChannel(QrProgress { check_code }) => {
     ///                 println!("Please enter the checkcode on your other device: {:?}", check_code);
     ///             }
-    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
-    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login");
+    ///
+    ///                 // Once the new login has been confirmed in the browser, we can let the
+    ///                 // client continue with the process.
+    ///                 continuation_sender.confirm().await?;
     ///             },
     ///             GrantLoginProgress::Done => break,
     ///         }
@@ -1696,8 +1700,12 @@ impl<'a> GrantLoginWithQrCodeBuilder<'a> {
     ///                 let check_code = s.trim().parse::<u8>()?;
     ///                 checkcode_sender.send(check_code).await?;
     ///             }
-    ///             GrantLoginProgress::WaitingForAuth { verification_uri } => {
-    ///                 println!("Please open {verification_uri} to confirm the new login")
+    ///             GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
+    ///                 println!("Please open {verification_uri} to confirm the new login");
+    ///
+    ///                 // Once the new login has been confirmed in the browser, we can let the
+    ///                 // client continue with the process.
+    ///                 continuation_sender.confirm().await?;
     ///             },
     ///             GrantLoginProgress::Done => break,
     ///         }

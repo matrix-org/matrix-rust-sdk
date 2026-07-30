@@ -17,8 +17,9 @@ use std::sync::Arc;
 use matrix_sdk::authentication::oauth::{
     OAuth,
     qrcode::{
-        self, CheckCodeSender as SdkCheckCodeSender, CheckCodeSenderError,
-        DeviceCodeErrorResponseType, GeneratedQrProgress, LoginFailureReason, QrProgress,
+        self, CheckCodeSender as SdkCheckCodeSender,
+        ContinuationMessageSender as SdkContinuationMessageSender, DeviceCodeErrorResponseType,
+        GeneratedQrProgress, LoginFailureReason, QrProgress, SenderError,
     },
 };
 use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
@@ -330,6 +331,10 @@ pub enum HumanQrLoginError {
     CheckCodeAlreadySent,
     #[error("The check code could not be sent.")]
     CheckCodeCannotBeSent,
+    #[error("The continuation was already confirmed or cancelled.")]
+    ContinuationAlreadySent,
+    #[error("The continuation could no longer be confirmed or cancelled.")]
+    ContinuationCannotBeSent,
     #[error("The rendezvous session was not found and might have expired")]
     NotFound,
     #[error("The QR code specifies an unsupported protocol version")]
@@ -386,15 +391,6 @@ impl From<qrcode::QRCodeLoginError> for HumanQrLoginError {
             | QRCodeLoginError::ServerReset(_) => HumanQrLoginError::Unknown,
 
             QRCodeLoginError::NotFound => HumanQrLoginError::NotFound,
-        }
-    }
-}
-
-impl From<CheckCodeSenderError> for HumanQrLoginError {
-    fn from(value: CheckCodeSenderError) -> Self {
-        match value {
-            CheckCodeSenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
-            CheckCodeSenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
         }
     }
 }
@@ -614,6 +610,12 @@ pub enum GrantQrLoginProgress {
     WaitingForAuth {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
+        /// A sender to confirm that the authorization using the verification
+        /// URI has been started in the browser and that the application is
+        /// ready to proceed. This allows applications that suspend or navigate
+        /// away while the verification URI is open to resume the process
+        /// explicitly.
+        continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
     SyncingSecrets,
@@ -640,8 +642,11 @@ impl From<qrcode::GrantLoginProgress<QrProgress>> for GrantQrLoginProgress {
                     check_code_string: format!("{check_code:02}"),
                 }
             }
-            GrantLoginProgress::WaitingForAuth { verification_uri } => {
-                Self::WaitingForAuth { verification_uri: verification_uri.into() }
+            GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
+                Self::WaitingForAuth {
+                    verification_uri: verification_uri.into(),
+                    continuation_sender: Arc::new(continuation_sender.into()),
+                }
             }
             GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
             GrantLoginProgress::Done => Self::Done,
@@ -668,6 +673,12 @@ pub enum GrantGeneratedQrLoginProgress {
     WaitingForAuth {
         /// A URI to open in a (secure) system browser to verify the new login.
         verification_uri: String,
+        /// A sender to confirm that the authorization using the verification
+        /// URI has been started in the browser and that the application is
+        /// ready to proceed. This allows applications that suspend or navigate
+        /// away while the verification URI is open to resume the process
+        /// explicitly.
+        continuation_sender: Arc<ContinuationMessageSender>,
     },
     /// We are syncing secrets.
     SyncingSecrets,
@@ -692,8 +703,11 @@ impl From<qrcode::GrantLoginProgress<GeneratedQrProgress>> for GrantGeneratedQrL
             GrantLoginProgress::EstablishingSecureChannel(GeneratedQrProgress::QrScanned(
                 inner,
             )) => Self::QrScanned { check_code_sender: Arc::new(CheckCodeSender { inner }) },
-            GrantLoginProgress::WaitingForAuth { verification_uri } => {
-                Self::WaitingForAuth { verification_uri: verification_uri.into() }
+            GrantLoginProgress::WaitingForAuth { verification_uri, continuation_sender } => {
+                Self::WaitingForAuth {
+                    verification_uri: verification_uri.into(),
+                    continuation_sender: Arc::new(continuation_sender.into()),
+                }
             }
             GrantLoginProgress::SyncingSecrets => Self::SyncingSecrets,
             GrantLoginProgress::Done => Self::Done,
@@ -701,9 +715,9 @@ impl From<qrcode::GrantLoginProgress<GeneratedQrProgress>> for GrantGeneratedQrL
     }
 }
 
-#[derive(Debug, uniffi::Object)]
 /// Used to pass back the [`CheckCode`] entered by the user to verify that the
 /// secure channel is indeed secure.
+#[derive(Debug, uniffi::Object)]
 pub struct CheckCodeSender {
     inner: SdkCheckCodeSender,
 }
@@ -718,6 +732,50 @@ impl CheckCodeSender {
     ///
     /// * `check_code` - The check code in digits representation.
     pub async fn send(&self, code: u8) -> Result<(), HumanQrLoginError> {
-        self.inner.send(code).await.map_err(HumanQrLoginError::from)
+        self.inner.send(code).await.map_err(check_code_error)
+    }
+}
+
+/// Struct used to let the QR code granting logic know that it can continue with
+/// the process since applications might suspend things while the verification
+/// URI is open.
+#[derive(Debug, Clone, uniffi::Object)]
+pub struct ContinuationMessageSender {
+    inner: SdkContinuationMessageSender,
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl ContinuationMessageSender {
+    /// Confirm the continuation of the login granting process.
+    pub async fn confirm(&self) -> Result<(), HumanQrLoginError> {
+        self.inner.confirm().await.map_err(continuation_error)
+    }
+
+    /// Cancel the login granting process.
+    pub async fn cancel(&self) -> Result<(), HumanQrLoginError> {
+        self.inner.cancel().await.map_err(continuation_error)
+    }
+}
+
+/// Map a [`SenderError`] from the check code sender to a human-readable error.
+fn check_code_error(value: SenderError) -> HumanQrLoginError {
+    match value {
+        SenderError::AlreadySent => HumanQrLoginError::CheckCodeAlreadySent,
+        SenderError::CannotSend => HumanQrLoginError::CheckCodeCannotBeSent,
+    }
+}
+
+/// Map a [`SenderError`] from the continuation sender to a human-readable
+/// error.
+fn continuation_error(value: SenderError) -> HumanQrLoginError {
+    match value {
+        SenderError::AlreadySent => HumanQrLoginError::ContinuationAlreadySent,
+        SenderError::CannotSend => HumanQrLoginError::ContinuationCannotBeSent,
+    }
+}
+
+impl From<SdkContinuationMessageSender> for ContinuationMessageSender {
+    fn from(value: SdkContinuationMessageSender) -> Self {
+        Self { inner: value }
     }
 }

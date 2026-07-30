@@ -312,7 +312,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             ReloadPreprocessing::None => {}
         }
 
-        self.shrink_to_last_chunk().await?;
+        self.shrink_to_last_reloaded_chunk().await?;
 
         Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())
     }
@@ -325,9 +325,26 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     /// pending diff updates with the result of this function.
     ///
     /// Otherwise, returns `None`.
-    async fn shrink_to_last_chunk(&mut self) -> Result<(), EventCacheError> {
+    #[instrument(skip(self))]
+    async fn shrink_to_last_reloaded_chunk(&mut self) -> Result<(), EventCacheError> {
         // Attempt to load the last chunk.
         let linked_chunk_id = LinkedChunkId::Room(&self.state.room_id);
+
+        let full_linked_chunk_metadata =
+            match load_linked_chunk_metadata(&self.store, linked_chunk_id).await {
+                Ok(metas) => metas,
+                Err(err) => {
+                    error!("error when reloading a linked chunk's metadata from the store: {err}");
+
+                    // Try to clear storage for this room.
+                    self.store
+                        .handle_linked_chunk_updates(linked_chunk_id, vec![Update::Clear])
+                        .await?;
+
+                    // Restart with an empty linked chunk.
+                    None
+                }
+            };
 
         let (last_chunk, chunk_identifier_generator) =
             match self.store.load_last_chunk(linked_chunk_id).await {
@@ -351,9 +368,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
 
         // Remove all the chunks from the linked chunks, except for the last one, and
         // updates the chunk identifier generator.
-        if let Err(err) =
-            self.state.room_linked_chunk.replace_with(last_chunk, chunk_identifier_generator)
-        {
+        if let Err(err) = self.state.room_linked_chunk.shrink_to_last_reloaded_chunk(
+            last_chunk,
+            chunk_identifier_generator,
+            full_linked_chunk_metadata,
+        ) {
             error!("error when replacing the linked chunk: {err}");
 
             self.state.room_linked_chunk.reset();
@@ -378,10 +397,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             .pagination_status
             .set(SharedPaginationStatus::Idle { hit_timeline_start: false });
 
-        // Don't propagate those updates to the store; this is only for the in-memory
-        // representation that we're doing this. Let's drain those store updates.
-        let _ = self.state.room_linked_chunk.store_updates().take();
-
         Ok(())
     }
 
@@ -403,7 +418,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // subscriber could be created, creating a race, except that this method takes a
             // `&mut`, ensuring an exclusive access to the state, ensuring no other
             // subscribers can be created.
-            self.shrink_to_last_chunk().await?;
+            self.shrink_to_last_reloaded_chunk().await?;
 
             Ok(Some(self.state.room_linked_chunk.updates_as_vector_diffs()))
         } else {
@@ -579,7 +594,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             //
             // We must do this *after* persisting these events to storage (in
             // `post_process_new_events`).
-            self.shrink_to_last_chunk().await?;
+            self.shrink_to_last_reloaded_chunk().await?;
         }
 
         let timeline_event_diffs = self.room_linked_chunk.updates_as_vector_diffs();

@@ -68,7 +68,7 @@ enum Either<Item, Gap> {
 /// This type is also designed to receive [`Update`]. Applying `Update`s
 /// directly on a [`LinkedChunk`] is not ideal and particularly not trivial as
 /// the `Update`s do _not_ match the internal data layout of the `LinkedChunk`,
-/// they have been designed for storages, like a relational database for
+/// they have been designed for databases, like a relational database for
 /// example.
 ///
 /// This type is not as performant as [`LinkedChunk`] (in terms of memory
@@ -127,6 +127,15 @@ where
     /// Create a new relational linked chunk.
     pub fn new() -> Self {
         Self { chunks: Vec::new(), items_chunks: Vec::new(), items: HashMap::new() }
+    }
+
+    /// Remove all the chunks and items for a particular room for this
+    /// relational linked chunk.
+    pub fn clear_room(&mut self, room_id: &RoomId) {
+        self.chunks.retain(|ChunkRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
+        self.items_chunks
+            .retain(|ItemRow { linked_chunk_id, .. }| linked_chunk_id.room_id() != room_id);
+        self.items.retain(|key, _| key.room_id() != room_id);
     }
 
     /// Removes all the chunks and items from this relational linked chunk.

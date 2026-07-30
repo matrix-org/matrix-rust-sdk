@@ -664,11 +664,8 @@ mod timed_tests {
         assert_matches!(
             thread_stream.recv().await,
             Ok(TimelineVectorDiffs { diffs, .. }) => {
-                assert_eq!(diffs.len(), 2);
+                assert_eq!(diffs.len(), 1);
                 assert_matches!(&diffs[0], VectorDiff::Clear);
-                assert_matches!(&diffs[1], VectorDiff::Append { values } => {
-                    assert!(values.is_empty());
-                });
             }
         );
 
@@ -699,19 +696,13 @@ mod timed_tests {
         assert!(thread_events.is_empty());
 
         // The event cache store is totally empty.
-        let linked_chunk = from_all_chunks::<3, _, _>(
+        assert!(
             event_cache_store
                 .load_all_chunks(LinkedChunkId::Thread(room_id, thread_root))
                 .await
-                .unwrap(),
-        )
-        .unwrap()
-        .unwrap();
-
-        // Note: while the event cache store could return `None` here, clearing it will
-        // reset it to its initial form, maintaining the invariant that it
-        // contains a single items chunk that's empty.
-        assert_eq!(linked_chunk.num_items(), 0);
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[async_test]

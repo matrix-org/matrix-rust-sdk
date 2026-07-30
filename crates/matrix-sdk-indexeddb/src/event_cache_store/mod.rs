@@ -39,7 +39,7 @@ use crate::{
     event_cache_store::{
         migrations::current::keys,
         transaction::IndexeddbEventCacheStoreTransaction,
-        types::{ChunkType, InBandEvent, Lease, OutOfBandEvent},
+        types::{ChunkType, InBandEvent, Lease, OutOfBandEvent, Thread},
     },
     serializer::indexed_type::{IndexedTypeSerializer, traits::Indexed},
     transaction::TransactionError,
@@ -215,7 +215,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     for (i, item) in items.into_iter().enumerate() {
                         transaction
-                            .put_event(&types::Event::InBand(InBandEvent {
+                            .add_event(&types::Event::InBand(InBandEvent {
                                 linked_chunk_id: linked_chunk_id.to_owned(),
                                 content: item,
                                 position: types::Position {
@@ -282,7 +282,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::GAPS, keys::EVENTS],
-            IdbTransactionMode::Readwrite,
+            IdbTransactionMode::Readonly,
         )?;
 
         let mut raw_chunks = Vec::new();
@@ -317,7 +317,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
         let transaction = self.transaction(
             &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
-            IdbTransactionMode::Readwrite,
+            IdbTransactionMode::Readonly,
         )?;
 
         let mut raw_chunks = Vec::new();
@@ -416,17 +416,73 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn clear_all_events(&self) -> Result<(), IndexeddbEventCacheStoreError> {
+    async fn remember_thread(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readwrite)?;
+        let thread = Thread { room_id: room_id.to_owned(), thread_id: thread_id.to_owned() };
+
+        transaction.put_thread(&thread).await?;
+        transaction.commit().await?;
+
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn clear_all_events(
+        &self,
+        room_id: Option<&RoomId>,
+    ) -> Result<(), IndexeddbEventCacheStoreError> {
         let _timer = timer!("method");
 
         let transaction = self.transaction(
-            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS],
+            &[keys::LINKED_CHUNKS, keys::EVENTS, keys::GAPS, keys::THREADS],
             IdbTransactionMode::Readwrite,
         )?;
-        transaction.clear::<types::Chunk>().await?;
-        transaction.clear::<types::Event>().await?;
-        transaction.clear::<types::Gap>().await?;
-        transaction.commit().await?;
+
+        match room_id {
+            // Clear all events.
+            None => {
+                transaction.clear::<types::Chunk>().await?;
+                transaction.clear::<types::Event>().await?;
+                transaction.clear::<types::Gap>().await?;
+                transaction.commit().await?;
+            }
+
+            // Clear events for specific room.
+            Some(room_id) => {
+                // Delete linked chunks for the room and pinned-events caches.
+                {
+                    for linked_chunk_id in
+                        [LinkedChunkId::Room(room_id), LinkedChunkId::PinnedEvents(room_id)]
+                    {
+                        // Remove all the items, gaps and events about the current `LinkedChunkId`.
+                        transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
+                        transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
+                        transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
+                    }
+                }
+
+                // Delete linked chunks for the thread caches.
+                {
+                    for thread in transaction.get_threads_by_room_id(room_id).await? {
+                        let linked_chunk_id = thread.linked_chunk();
+
+                        // Remove all the items, gaps and events about the current `LinkedChunkId`.
+                        transaction.delete_chunks_by_linked_chunk_id(linked_chunk_id).await?;
+                        transaction.delete_gaps_by_linked_chunk_id(linked_chunk_id).await?;
+                        transaction.delete_events_by_linked_chunk_id(linked_chunk_id).await?;
+                    }
+                }
+
+                // Is everything alright? Good. We can commit the transaction.
+                transaction.commit().await?;
+            }
+        }
         Ok(())
     }
 

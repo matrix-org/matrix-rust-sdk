@@ -11,6 +11,8 @@ extend-ignore-re = [
     "[0-9+][A-Za-z0-9+]{30,}[a-z0-9+]",
     "\\$[A-Z0-9+][A-Za-z0-9+]{6,}[a-z0-9+]",
     "\\b[a-z0-9+/=][A-Za-z0-9+/=]{7,}[a-z0-9+/=][A-Z]\\b",
+    # pem-encoded cert chains
+    "-----BEGIN CERTIFICATE-----\\r?\\n(?:[A-Za-z0-9+/]{1,64}={0,2}\\r?\\n)+-----END CERTIFICATE-----"
 ]
 
 [default.extend-identifiers]

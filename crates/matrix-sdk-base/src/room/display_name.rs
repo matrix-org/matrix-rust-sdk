@@ -16,6 +16,8 @@ use std::fmt;
 
 use as_variant::as_variant;
 use regex::Regex;
+#[cfg(feature = "unstable-msc4426")]
+use ruma::profile::{CallProfileField, StatusProfileField};
 use ruma::{
     OwnedMxcUri, OwnedUserId, RoomAliasId, UserId,
     events::{SyncStateEvent, member_hints::MemberHintsEventContent},
@@ -400,6 +402,47 @@ pub struct RoomHero {
     pub display_name: Option<String>,
     /// The avatar url of the hero.
     pub avatar_url: Option<OwnedMxcUri>,
+}
+
+/// A [`RoomHero`] augmented with the user's global profile fields.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RoomHeroWithProfile {
+    /// The user ID of the hero.
+    pub user_id: OwnedUserId,
+    /// The display name of the hero.
+    pub display_name: Option<String>,
+    /// The avatar URL of the hero.
+    pub avatar_url: Option<OwnedMxcUri>,
+    /// The hero's user-set status (emoji + text), from their global profile.
+    #[cfg(feature = "unstable-msc4426")]
+    pub status: Option<StatusProfileField>,
+    /// The hero's call indicator, from their global profile.
+    #[cfg(feature = "unstable-msc4426")]
+    pub call: Option<CallProfileField>,
+}
+
+impl From<RoomHero> for RoomHeroWithProfile {
+    fn from(hero: RoomHero) -> Self {
+        Self {
+            user_id: hero.user_id,
+            display_name: hero.display_name,
+            avatar_url: hero.avatar_url,
+            #[cfg(feature = "unstable-msc4426")]
+            status: None,
+            #[cfg(feature = "unstable-msc4426")]
+            call: None,
+        }
+    }
+}
+
+impl From<&RoomHeroWithProfile> for RoomHero {
+    fn from(hero: &RoomHeroWithProfile) -> Self {
+        Self {
+            user_id: hero.user_id.clone(),
+            display_name: hero.display_name.clone(),
+            avatar_url: hero.avatar_url.clone(),
+        }
+    }
 }
 
 /// The number of heroes chosen to compute a room's name, if the room didn't

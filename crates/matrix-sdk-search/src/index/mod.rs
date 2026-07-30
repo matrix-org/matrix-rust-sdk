@@ -15,10 +15,14 @@
 /// A module for building a [`RoomIndex`]
 pub mod builder;
 
-use std::{collections::HashSet, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 
+use once_cell::sync::OnceCell;
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId, events::room::message::OriginalSyncRoomMessageEvent,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, UInt,
 };
 use tantivy::{
     Index, IndexReader, TantivyDocument, collector::TopDocs, directory::error::OpenDirectoryError,
@@ -33,18 +37,71 @@ use crate::{
     writer::SearchIndexWriter,
 };
 
+/// The subset of an event's data required to index it and later retrieve it.
+///
+/// Produced by the matrix-sdk layer, which knows how to extract searchable text
+/// from each event type. This crate stays agnostic to Matrix event content.
+#[derive(Debug, Clone)]
+pub struct IndexableEvent {
+    /// The event's own id (primary key).
+    pub(crate) event_id: OwnedEventId,
+    /// The id used as the deletion key: the original event id for edits,
+    /// otherwise the event's own id.
+    pub(crate) original_event_id: OwnedEventId,
+    /// The sender of the event.
+    pub(crate) sender: OwnedUserId,
+    /// The origin server timestamp of the event.
+    ///
+    /// Please use the `matrix_sdk_common::TimelineEvent::timestamp` as much as
+    /// possible as it protects against malformed `origin_server_ts`. At worst,
+    /// use the `matrix_sdk_common::serde_helpers::extract_timestamp` function.
+    pub(crate) timestamp: Option<MilliSecondsSinceUnixEpoch>,
+    /// The text to index for this event.
+    pub(crate) body: String,
+}
+
+/// Maximum value for the timestamp to not overflow when converted to
+/// nanoseconds by Tantivy. See [`IndexableEvent::new`] to learn more.
+const MAX_MILLISECONDS: u64 = (i64::MAX / 1_000_000).cast_unsigned();
+
+impl IndexableEvent {
+    /// Create a new [`IndexableEvent`].
+    pub fn new(
+        event_id: OwnedEventId,
+        original_event_id: OwnedEventId,
+        sender: OwnedUserId,
+        mut timestamp: Option<MilliSecondsSinceUnixEpoch>,
+        body: String,
+    ) -> Self {
+        // Tantivy will transform the number of milliseconds to nanoseconds
+        // by multiplying by 1_000_000 [1]. If the number of milliseconds is too
+        // big, the multiplication will overflow.
+        //
+        // To avoid this panic, we cap the number of milliseconds to a maximum value.
+        //
+        // [1]: https://github.com/quickwit-oss/tantivy/blob/31ca1a8ba290b425f871d2e2384592045ec01b8d/common/src/datetime.rs#L62-L67
+        if let Some(timestamp) = &mut timestamp {
+            *timestamp = MilliSecondsSinceUnixEpoch(
+                timestamp.get().min(UInt::new_saturating(MAX_MILLISECONDS)),
+            );
+        }
+
+        Self { event_id, original_event_id, sender, timestamp, body }
+    }
+}
+
 /// A struct to represent the operations on a [`RoomIndex`]
 #[derive(Debug, Clone)]
 pub enum RoomIndexOperation {
     /// Add this event to the index.
-    Add(OriginalSyncRoomMessageEvent),
+    Add(IndexableEvent),
     /// Remove all documents in the index where
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id.
     Remove(OwnedEventId),
     /// Replace all documents in the index where
     /// `MatrixSearchIndexSchema::deletion_key()` matches this event id with
     /// the new event.
-    Edit(OwnedEventId, OriginalSyncRoomMessageEvent),
+    Edit(OwnedEventId, IndexableEvent),
     /// Do nothing.
     Noop,
 }
@@ -56,9 +113,17 @@ pub struct RoomIndex {
     schema: RoomMessageSchema,
     query_parser: QueryParser,
     room_id: OwnedRoomId,
-    uncommitted_adds: HashSet<OwnedEventId>,
+    /// Events added but not yet committed, mapping each document's primary key
+    /// (event id) to its deletion key (original event id). The deletion key is
+    /// needed so that a [`RoomIndex::remove`] in the same uncommitted batch,
+    /// which deletes by that key, can reconcile these entries too.
+    uncommitted_adds: HashMap<OwnedEventId, OwnedEventId>,
     uncommitted_removes: HashSet<OwnedEventId>,
-    reader: Option<IndexReader>,
+    /// Cached [`IndexReader`].
+    ///
+    /// It is costly to create one, so let's keep it in memory when needed; see
+    /// [`RoomIndex::reader`] to learn more.
+    reader: OnceCell<IndexReader>,
 }
 
 impl fmt::Debug for RoomIndex {
@@ -78,27 +143,21 @@ impl RoomIndex {
             schema,
             query_parser,
             room_id: room_id.to_owned(),
-            uncommitted_adds: HashSet::new(),
+            uncommitted_adds: HashMap::new(),
             uncommitted_removes: HashSet::new(),
-            reader: None,
+            reader: OnceCell::new(),
         }
     }
 
     /// Get a [`SearchIndexWriter`] for this index.
-    fn get_writer(&self) -> Result<SearchIndexWriter, IndexError> {
+    fn writer(&self) -> Result<SearchIndexWriter, IndexError> {
         let writer = self.index.writer(TANTIVY_INDEX_MEMORY_BUDGET)?;
         Ok(SearchIndexWriter::new(writer, self.schema.clone()))
     }
 
     /// Get or create the cached [`IndexReader`] for this index.
-    fn get_reader(&mut self) -> Result<&IndexReader, IndexError> {
-        Ok(match self.reader {
-            Some(ref reader) => reader,
-            None => {
-                let reader = self.index.reader_builder().try_into()?;
-                self.reader.insert(reader)
-            }
-        })
+    fn reader(&self) -> Result<&IndexReader, IndexError> {
+        self.reader.get_or_try_init(|| Ok(self.index.reader_builder().try_into()?))
     }
 
     /// Commit added events to [`RoomIndex`]. The changes are not reflected in
@@ -128,7 +187,7 @@ impl RoomIndex {
             self.uncommitted_adds, self.uncommitted_removes
         );
         let last_commit_opstamp = self.commit(writer)?;
-        self.get_reader()?.reload()?;
+        self.reader()?.reload()?;
         Ok(last_commit_opstamp)
     }
 
@@ -140,13 +199,13 @@ impl RoomIndex {
     /// (and there are a surplus of results)
     /// then this will return results `11, 12, 13`
     pub fn search(
-        &mut self,
+        &self,
         query: &str,
         max_number_of_results: usize,
         pagination_offset: Option<usize>,
     ) -> Result<Vec<(f32, OwnedEventId)>, IndexError> {
         let query = self.query_parser.parse_query(query)?;
-        let searcher = self.get_reader()?.searcher();
+        let searcher = self.reader()?.searcher();
 
         let offset = pagination_offset.unwrap_or(0);
 
@@ -171,10 +230,7 @@ impl RoomIndex {
         Ok(ret)
     }
 
-    fn get_events_to_be_removed(
-        &mut self,
-        event_id: &EventId,
-    ) -> Result<Vec<OwnedEventId>, IndexError> {
+    fn events_to_be_removed(&self, event_id: &EventId) -> Result<Vec<OwnedEventId>, IndexError> {
         Ok(self
             .search(
                 format!(
@@ -193,13 +249,13 @@ impl RoomIndex {
     fn add(
         &mut self,
         writer: &mut SearchIndexWriter,
-        event: OriginalSyncRoomMessageEvent,
+        event: IndexableEvent,
     ) -> Result<(), IndexError> {
         if !self.contains(&event.event_id) {
             writer.add(self.schema.make_doc(event.clone())?)?;
         }
         self.uncommitted_removes.remove(&event.event_id);
-        self.uncommitted_adds.insert(event.event_id);
+        self.uncommitted_adds.insert(event.event_id, event.original_event_id);
         Ok(())
     }
 
@@ -208,11 +264,27 @@ impl RoomIndex {
         writer: &mut SearchIndexWriter,
         event_id: OwnedEventId,
     ) -> Result<(), IndexError> {
-        let events = self.get_events_to_be_removed(&event_id)?;
+        let events = self.events_to_be_removed(&event_id)?;
 
         writer.remove(&event_id);
 
+        // Committed documents matching the deletion key.
         for event in events.into_iter() {
+            self.uncommitted_adds.remove(&event);
+            self.uncommitted_removes.insert(event);
+        }
+
+        // Uncommitted documents added in this same batch also get deleted by the
+        // term above, so reconcile them too. Otherwise `contains` would still
+        // report them as present and a subsequent re-add (e.g. from an edit)
+        // would be wrongly skipped, leaving the document deleted.
+        let uncommitted: Vec<_> = self
+            .uncommitted_adds
+            .iter()
+            .filter(|(_, deletion_key)| **deletion_key == event_id)
+            .map(|(primary_key, _)| primary_key.clone())
+            .collect();
+        for event in uncommitted {
             self.uncommitted_adds.remove(&event);
             self.uncommitted_removes.insert(event);
         }
@@ -294,7 +366,7 @@ impl RoomIndex {
     ///
     /// Prefer [`RoomIndex::bulk_execute`] for multiple operations.
     pub fn execute(&mut self, operation: RoomIndexOperation) -> Result<(), IndexError> {
-        let mut writer = self.get_writer()?;
+        let mut writer = self.writer()?;
         self.execute_with_retry(&mut writer, &operation, 5)?;
         self.commit_and_reload(&mut writer)?;
         Ok(())
@@ -307,7 +379,7 @@ impl RoomIndex {
     /// This which will add/remove/edit an events in the index based on the
     /// operations.
     pub fn bulk_execute(&mut self, operations: Vec<RoomIndexOperation>) -> Result<(), IndexError> {
-        let mut writer = self.get_writer()?;
+        let mut writer = self.writer()?;
         let mut operations = operations.into_iter();
         let mut next_operation = operations.next();
 
@@ -321,7 +393,7 @@ impl RoomIndex {
         Ok(())
     }
 
-    fn contains(&mut self, event_id: &EventId) -> bool {
+    fn contains(&self, event_id: &EventId) -> bool {
         let search_result = self.search(
             format!("{}:\"{event_id}\"", self.schema.get_field_name(self.schema.primary_key()))
                 .as_str(),
@@ -331,7 +403,7 @@ impl RoomIndex {
         match search_result {
             Ok(results) => {
                 !self.uncommitted_removes.contains(event_id)
-                    && (!results.is_empty() || self.uncommitted_adds.contains(event_id))
+                    && (!results.is_empty() || self.uncommitted_adds.contains_key(event_id))
             }
             Err(err) => {
                 warn!("Failed to check if event has been indexed, assuming it has: {err}");
@@ -350,20 +422,45 @@ mod tests {
         EventId, event_id,
         events::{
             AnySyncMessageLikeEvent,
-            room::message::{OriginalSyncRoomMessageEvent, RoomMessageEventContentWithoutRelation},
+            room::message::{
+                MessageType, OriginalSyncRoomMessageEvent, Relation,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
         room_id, user_id,
     };
 
-    use crate::{
-        error::IndexError,
-        index::{RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
+    use super::{
+        IndexableEvent, MAX_MILLISECONDS, MilliSecondsSinceUnixEpoch, RoomIndex,
+        RoomIndexOperation, UInt, builder::RoomIndexBuilder,
     };
+    use crate::error::IndexError;
+
+    /// Build an [`IndexableEvent`] from a text room message (tests only handle
+    /// text).
+    fn to_indexable(event: &OriginalSyncRoomMessageEvent) -> IndexableEvent {
+        let MessageType::Text(content) = &event.content.msgtype else {
+            panic!("test helper only supports text messages")
+        };
+        let original_event_id = match &event.content.relates_to {
+            Some(Relation::Replacement(replacement)) => replacement.event_id.clone(),
+            _ => event.event_id.clone(),
+        };
+
+        IndexableEvent::new(
+            event.event_id.clone(),
+            original_event_id,
+            event.sender.clone(),
+            Some(event.origin_server_ts),
+            content.body.clone(),
+        )
+    }
 
     /// Helper function to add a regular message to the index
     ///
     /// # Panic
-    /// Panics when event is not a [`OriginalSyncRoomMessageEvent`] with no
+    ///
+    /// Panics when event is not an [`OriginalSyncRoomMessageEvent`] with no
     /// relations.
     fn index_message(
         index: &mut RoomIndex,
@@ -373,7 +470,7 @@ mod tests {
             && let Some(ev) = ev.as_original()
             && ev.content.relates_to.is_none()
         {
-            return index.execute(RoomIndexOperation::Add(ev.clone()));
+            return index.execute(RoomIndexOperation::Add(to_indexable(ev)));
         }
         panic!("Event was not a relationless OriginalSyncRoomMessageEvent.")
     }
@@ -391,7 +488,7 @@ mod tests {
         event_id: &EventId,
         new: OriginalSyncRoomMessageEvent,
     ) -> Result<(), IndexError> {
-        index.execute(RoomIndexOperation::Edit(event_id.to_owned(), new))
+        index.execute(RoomIndexOperation::Edit(event_id.to_owned(), to_indexable(&new)))
     }
 
     #[test]
@@ -406,7 +503,89 @@ mod tests {
             .sender(user_id!("@user_id:localhost"))
             .into_any_sync_message_like_event();
 
-        index_message(&mut index, event).expect("failed to add event: {res:?}");
+        index_message(&mut index, event).expect("failed to add event");
+    }
+
+    #[test]
+    fn test_add_event_with_no_timestamp() {
+        let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r")).build();
+
+        index
+            .execute(RoomIndexOperation::Add(IndexableEvent::new(
+                event_id!("$ev").to_owned(),
+                event_id!("$ev").to_owned(),
+                user_id!("@mnt_io:matrix.org").to_owned(),
+                None,
+                "body".to_owned(),
+            )))
+            .expect("failed to add event");
+    }
+
+    #[test]
+    fn test_add_event_with_raw_malformed_timestamp_must_not_panic() {
+        let mut index = RoomIndexBuilder::new_in_memory(room_id!("!r")).build();
+
+        index
+            .execute(RoomIndexOperation::Add(IndexableEvent::new(
+                event_id!("$ev").to_owned(),
+                event_id!("$ev").to_owned(),
+                user_id!("@mnt_io:matrix.org").to_owned(),
+                Some(MilliSecondsSinceUnixEpoch(UInt::new(151393755000000).unwrap())),
+                "body".to_owned(),
+            )))
+            .expect("failed to add event");
+    }
+
+    #[test]
+    fn test_add_event_with_malformed_timestamp_must_not_panic() {
+        let room_id = room_id!("!r");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+
+        let body = "body".to_owned();
+        let event = EventFactory::new()
+            .server_ts(151393755000000)
+            .text_msg(body.clone())
+            .event_id(event_id!("$ev"))
+            .room(room_id)
+            .sender(user_id!("@mnt_io:matrix.org"))
+            .into_event();
+
+        index
+            .execute(RoomIndexOperation::Add(IndexableEvent::new(
+                event.event_id().unwrap().to_owned(),
+                event.event_id().unwrap().to_owned(),
+                event.sender().unwrap(),
+                event.timestamp(),
+                body,
+            )))
+            .expect("failed to add event");
+    }
+
+    #[test]
+    fn test_indexable_event_timestamp_is_capped() {
+        let event_id = event_id!("$ev").to_owned();
+        let sender = user_id!("@mnt_io:matrix.org").to_owned();
+        let body = "body".to_owned();
+
+        // Not capped.
+        let event = IndexableEvent::new(
+            event_id.clone(),
+            event_id.clone(),
+            sender.clone(),
+            Some(MilliSecondsSinceUnixEpoch(UInt::new(MAX_MILLISECONDS).unwrap())),
+            body.clone(),
+        );
+        assert_eq!(event.timestamp.unwrap().get(), UInt::new(MAX_MILLISECONDS).unwrap());
+
+        // Capped!
+        let event = IndexableEvent::new(
+            event_id.clone(),
+            event_id,
+            sender,
+            Some(MilliSecondsSinceUnixEpoch(UInt::new(MAX_MILLISECONDS + 42).unwrap())),
+            body,
+        );
+        assert_eq!(event.timestamp.unwrap().get(), UInt::new(MAX_MILLISECONDS).unwrap());
     }
 
     #[test]
@@ -453,7 +632,7 @@ mod tests {
     #[test]
     fn test_search_empty_index() -> Result<(), Box<dyn Error>> {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+        let index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let result = index.search("sentence", 10, None).expect("search failed with: {result:?}");
 
@@ -465,7 +644,7 @@ mod tests {
     #[test]
     fn test_index_contains_false() {
         let room_id = room_id!("!room_id:localhost");
-        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+        let index = RoomIndexBuilder::new_in_memory(room_id).build();
 
         let event_id = event_id!("$event_id:localhost");
 
@@ -576,6 +755,43 @@ mod tests {
 
         assert!(!index.contains(old_event_id), "Index should not contain old event");
         assert!(index.contains(new_event_id), "Index should contain edited event");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_bulk_add_then_edit_same_event_keeps_it_indexed() -> Result<(), Box<dyn Error>> {
+        let room_id = room_id!("!room_id:localhost");
+        let mut index = RoomIndexBuilder::new_in_memory(room_id).build();
+
+        let original_id = event_id!("$original:localhost");
+        let edit_id = event_id!("$edit:localhost");
+        let user_id = user_id!("@user_id:localhost");
+        let f = EventFactory::new().room(room_id).sender(user_id);
+
+        let edit = f
+            .text_msg("* brand new sentence")
+            .edit(
+                original_id,
+                RoomMessageEventContentWithoutRelation::text_plain("brand new sentence"),
+            )
+            .event_id(edit_id)
+            .into_original_sync_room_message_event();
+        let edit = to_indexable(&edit);
+
+        // An original and its edit arriving in the same batch produce an `Add`
+        // and an `Edit` of the same document. The `Edit`'s removal must not drop
+        // the document added earlier in the same uncommitted batch.
+        index.bulk_execute(vec![
+            RoomIndexOperation::Add(edit.clone()),
+            RoomIndexOperation::Edit(original_id.to_owned(), edit),
+        ])?;
+
+        assert!(index.contains(edit_id), "Edited document should be indexed");
+
+        let result = index.search("sentence", 10, None)?;
+        assert_eq!(result.len(), 1, "Search should find the edited document, got {result:?}");
+        assert_eq!(result[0].1, edit_id, "unexpected event id: {result:?}");
 
         Ok(())
     }

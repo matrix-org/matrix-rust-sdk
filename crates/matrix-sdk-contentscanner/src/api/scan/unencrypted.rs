@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use matrix_sdk::{RumaApiError, bytes::BufMut};
+use matrix_sdk::RumaApiError;
 use ruma::{
     api::{
-        Metadata, OutgoingRequest,
-        auth_scheme::{AccessTokenOptional, AuthScheme, SendAccessToken},
-        error::IntoHttpError,
-        path_builder::PathBuilder,
+        EmptyBody, Metadata, OutgoingRequest, auth_scheme::AccessTokenOptional,
+        error::IntoHttpError, path_builder::PathBuilder,
     },
     exports::http::Request,
     metadata,
@@ -52,15 +50,15 @@ impl MediaScanRequest {
 }
 
 impl OutgoingRequest for MediaScanRequest {
+    type Body = EmptyBody;
     type EndpointError = RumaApiError;
     type IncomingResponse = MediaScanResponse;
 
-    fn try_into_http_request<T: Default + BufMut + AsRef<[u8]>>(
+    fn try_into_http_request_inner(
         self,
         _base_url: &str,
-        authentication_input: <Self::Authentication as AuthScheme>::Input<'_>,
         path_builder_input: <Self::PathBuilder as PathBuilder>::Input<'_>,
-    ) -> Result<Request<T>, IntoHttpError> {
+    ) -> Result<Request<Self::Body>, IntoHttpError> {
         let url = Self::make_endpoint_url(
             path_builder_input,
             &self.scanner_url,
@@ -68,15 +66,6 @@ impl OutgoingRequest for MediaScanRequest {
             "",
         )?;
 
-        let mut request = Request::builder().method(Self::METHOD).uri(url).body(T::default())?;
-
-        if let Some(access_token) = authentication_input.get_required_for_endpoint() {
-            Self::Authentication::add_authentication(
-                &mut request,
-                SendAccessToken::IfRequired(access_token),
-            )?
-        }
-
-        Ok(request)
+        Ok(Request::builder().method(Self::METHOD).uri(url).body(EmptyBody)?)
     }
 }

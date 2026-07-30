@@ -90,14 +90,18 @@ docsrs = ["e2e-encryption", "sqlite", "indexeddb", "sso-login", "qrcode", "feder
 # Add support for inline media galleries via msgtypes
 unstable-msc4274 = ["ruma/unstable-msc4274", "matrix-sdk-base/unstable-msc4274"]
 
+# Add support for user status profile fields (m.status, m.call).
+unstable-msc4426 = ["matrix-sdk-base/unstable-msc4426"]
+
 experimental-search = ["matrix-sdk-search"]
 
 experimental-element-recent-emojis = ["matrix-sdk-base/experimental-element-recent-emojis"]
 
+experimental-x509-identity-verification = ["e2e-encryption", "matrix-sdk-base/experimental-x509-identity-verification"]
+
 [dependencies]
 anyhow = { workspace = true, optional = true }
 anymap2 = { version = "0.13.0", default-features = false }
-aquamarine.workspace = true
 as_variant.workspace = true
 assert_matches2 = { workspace = true, optional = true }
 async-channel = "2.5.0"
@@ -183,6 +187,7 @@ insta.workspace = true
 matrix-sdk-base = { workspace = true, features = ["testing"] }
 matrix-sdk-test.workspace = true
 matrix-sdk-test-utils.workspace = true
+rand.workspace = true
 reqwest = { workspace = true, features = ["rustls"] }
 serde_urlencoded = "0.7.1"
 similar-asserts.workspace = true

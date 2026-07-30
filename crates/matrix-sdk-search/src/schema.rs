@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ruma::events::room::message::{MessageType, OriginalSyncRoomMessageEvent, Relation};
 use tantivy::{
-    DateTime, TantivyDocument, doc,
+    DateTime, TantivyDocument,
     schema::{DateOptions, DateTimePrecision, Field, INDEXED, STORED, STRING, Schema, TEXT},
 };
 
-use crate::error::{IndexError, IndexSchemaError};
+use crate::{
+    error::{IndexError, IndexSchemaError},
+    index::IndexableEvent,
+};
 
 pub(crate) trait MatrixSearchIndexSchema {
     fn new() -> Self;
@@ -27,7 +29,7 @@ pub(crate) trait MatrixSearchIndexSchema {
     fn deletion_key(&self) -> Field;
     fn get_field_name(&self, field: Field) -> &str;
     fn as_tantivy_schema(&self) -> Schema;
-    fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError>;
+    fn make_doc(&self, event: IndexableEvent) -> Result<TantivyDocument, IndexError>;
 }
 
 #[derive(Debug, Clone)]
@@ -92,28 +94,38 @@ impl MatrixSearchIndexSchema for RoomMessageSchema {
         self.inner.clone()
     }
 
-    /// Given an [`OriginalSyncRoomMessageEvent`] return a
-    /// [`TantivyDocument`].
-    fn make_doc(&self, event: OriginalSyncRoomMessageEvent) -> Result<TantivyDocument, IndexError> {
-        let body = match &event.content.msgtype {
-            MessageType::Text(content) => Ok(content.body.clone()),
-            _ => Err(IndexError::MessageTypeNotSupported),
-        }?;
+    /// Given an [`IndexableEvent`] return a [`TantivyDocument`].
+    fn make_doc(&self, event: IndexableEvent) -> Result<TantivyDocument, IndexError> {
+        let mut document = TantivyDocument::default();
 
-        let mut document = doc!(
-            self.event_id_field => event.event_id.to_string(),
-            self.body_field => body,
-            self.date_field =>
-                DateTime::from_timestamp_millis(
-                    event.origin_server_ts.get().into()),
-            self.sender_field => event.sender.to_string(),
+        let Self {
+            event_id_field,
+            body_field,
+            date_field,
+            sender_field,
+            original_event_id_field,
+
+            inner: _,
+            default_search_fields: _,
+        } = self;
+
+        let IndexableEvent { event_id, body, timestamp, sender, original_event_id } = event;
+
+        document.add_text(*event_id_field, event_id);
+        document.add_text(*body_field, body);
+        document.add_date(
+            *date_field,
+            DateTime::from_timestamp_millis(
+                timestamp
+                    .map(|timestamp| timestamp.get().into())
+                    // If the timestamp is missing, use 0 as the “no value”.
+                    .unwrap_or(0),
+            ),
         );
+        document.add_text(*sender_field, sender);
+        document.add_text(*original_event_id_field, original_event_id);
 
-        if let Some(Relation::Replacement(replacement_data)) = &event.content.relates_to {
-            document.add_text(self.original_event_id_field, replacement_data.event_id.clone());
-        } else {
-            document.add_text(self.original_event_id_field, event.event_id);
-        }
+        document.shrink_to_fit();
 
         Ok(document)
     }

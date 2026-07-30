@@ -448,13 +448,16 @@ impl StoreCipher {
     /// assert_eq!(value, decrypted);
     /// # anyhow::Ok(()) };
     /// ```
-    pub fn encrypt_value_data(&self, mut data: Vec<u8>) -> Result<EncryptedValue, Error> {
+    pub fn encrypt_value_data<D>(&self, mut data: D) -> Result<EncryptedValue, Error>
+    where
+        D: EncryptableValue,
+    {
         let nonce = Keys::get_nonce();
         let cipher = XChaCha20Poly1305::new(self.inner.encryption_key());
 
-        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_ref())?;
+        let ciphertext = cipher.encrypt(XNonce::from_slice(&nonce), data.as_bytes())?;
 
-        data.zeroize();
+        data.zeroiize();
         Ok(EncryptedValue { version: VERSION, ciphertext, nonce })
     }
 
@@ -806,6 +809,53 @@ struct EncryptedStoreCipher {
     /// The ciphertext with it's accompanying additional data that is needed to
     /// decrypt the store cipher.
     pub ciphertext_info: CipherTextInfo,
+}
+
+/// A trait to get a slice of bytes and to zeroize a data, which are the
+/// required operations for [`StoreCipher::encrypt_value_data`].
+///
+/// The goal of this trait was to call [`Zeroize`] efficiently on `Vec<u8>` and
+/// `&[u8]`. We could call `vec.iter_mut().zeroize()` but the implementation of
+/// `Zeroize` on `Vec<u8>` does a bit more than that as it clears the vector and
+/// zeroizes the spare capacity as a best effort.
+pub trait EncryptableValue {
+    /// Get the encodable value as bytes.
+    fn as_bytes(&self) -> &[u8];
+
+    /// Zeroize the encodable value.
+    ///
+    /// Called `zeroiize` to avoid clashes with [`Zeroize::zeroize`].
+    fn zeroiize(&mut self);
+}
+
+impl EncryptableValue for Vec<u8> {
+    fn as_bytes(&self) -> &[u8] {
+        AsRef::as_ref(self)
+    }
+
+    fn zeroiize(&mut self) {
+        Zeroize::zeroize(self);
+    }
+}
+
+impl EncryptableValue for String {
+    fn as_bytes(&self) -> &[u8] {
+        str::as_bytes(self)
+    }
+
+    fn zeroiize(&mut self) {
+        Zeroize::zeroize(self);
+    }
+}
+
+impl EncryptableValue for &mut [u8] {
+    fn as_bytes(&self) -> &[u8] {
+        self
+    }
+
+    fn zeroiize(&mut self) {
+        self.iter_mut().zeroize();
+    }
 }
 
 #[cfg(test)]

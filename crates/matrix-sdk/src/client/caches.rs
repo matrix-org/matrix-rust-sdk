@@ -21,9 +21,12 @@ use matrix_sdk_common::{
 };
 use ruma::api::{
     SupportedVersions,
-    client::discovery::{
-        get_authorization_server_metadata::v1::AuthorizationServerMetadata,
-        get_capabilities::v3::Capabilities,
+    client::{
+        discovery::{
+            get_authorization_server_metadata::v1::AuthorizationServerMetadata,
+            get_capabilities::v3::Capabilities,
+        },
+        rtc::RtcTransport,
     },
 };
 use tokio::sync::Mutex as AsyncMutex;
@@ -50,6 +53,13 @@ pub(crate) struct ClientCaches {
     pub(crate) discovery_cache_timeout: Duration,
     /// The clock used to determine the current time when checking staleness.
     pub(crate) clock: Arc<dyn Clock>,
+    /// RTC transports advertised by the homeserver
+    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
+    ///
+    /// `None` is cached to represent a homeserver that doesn't implement the
+    /// discovery endpoint, as distinct from one that advertises no transports
+    /// (`Some(vec![])`).
+    pub(crate) rtc_transports: Cache<Option<Vec<RtcTransport>>, Arc<HttpError>>,
 }
 
 /// A cached value that can either be set or not set, used to avoid confusion

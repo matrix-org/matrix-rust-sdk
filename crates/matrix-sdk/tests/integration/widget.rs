@@ -111,13 +111,28 @@ async fn run_test_driver(
 async fn run_test_driver_e2e(
     init_on_content_load: bool,
 ) -> (Client, Client, MatrixMockServer, WidgetDriverHandle) {
+    run_test_driver_e2e_with_room_encryption(init_on_content_load, true).await
+}
+
+/// Like [`run_test_driver_e2e`], but lets the caller decide whether the room
+/// the widget lives in is end-to-end encrypted. The crypto machinery for Alice
+/// and Bob is always set up, so encrypted to-device messages can be exchanged
+/// even when the room itself is in the clear.
+async fn run_test_driver_e2e_with_room_encryption(
+    init_on_content_load: bool,
+    is_room_e2ee: bool,
+) -> (Client, Client, MatrixMockServer, WidgetDriverHandle) {
     let mock_server = MatrixMockServer::new().await;
     mock_server.mock_crypto_endpoints_preset().await;
     let (alice, bob) = mock_server.set_up_alice_and_bob_for_encryption().await;
 
     let room = mock_server.sync_joined_room(&alice, &ROOM_ID).await;
 
-    mock_server.mock_room_state_encryption().encrypted().mount().await;
+    if is_room_e2ee {
+        mock_server.mock_room_state_encryption().encrypted().mount().await;
+    } else {
+        mock_server.mock_room_state_encryption().plain().mount().await;
+    }
     let (driver, handle) = WidgetDriver::new(
         WidgetSettings::new(WIDGET_ID.to_owned(), init_on_content_load, "https://foo.bar/widget")
             .unwrap(),
@@ -565,6 +580,9 @@ async fn test_receive_live_events() {
     assert_eq!(to_device["api"], "toWidget");
     assert_eq!(to_device["action"], "send_to_device");
     assert_eq!(to_device["data"]["type"], "my.custom.to.device");
+    // The message was received in the clear, so the widget is told it is not
+    // encrypted.
+    assert_eq!(to_device["data"]["encrypted"], false);
 
     // No more messages from the driver
     assert_matches!(recv_message(&driver_handle).now_or_never(), None);
@@ -651,9 +669,105 @@ async fn test_accept_encrypted_to_device_in_e2ee_room() {
     assert_eq!(data["type"], "my.custom.to.device");
     assert_eq!(data["content"]["call_id"], "");
     assert_eq!(data["sender"], "@bob:example.org");
-    // Only these 3 fields should be exposed to the widget (no
+    // The message was received encrypted, so the widget is told so.
+    assert_eq!(data["encrypted"], true);
+    // Only these 4 fields should be exposed to the widget (no
     // `sender_device_keys`/`keys`/..)
-    assert_eq!(data.len(), 3);
+    assert_eq!(data.len(), 4);
+}
+
+/// The `encrypted` flag tracks the message, not the room: an encrypted
+/// to-device message received in a clear room must still be forwarded with
+/// `encrypted: true`.
+#[async_test]
+async fn test_encrypted_to_device_flag_in_clear_room() {
+    let (alice, bob, mock_server, driver_handle) =
+        run_test_driver_e2e_with_room_encryption(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.receive.to_device:my.custom.to.device"]),
+    )
+    .await;
+
+    let bob_alice_device = bob
+        .encryption()
+        .get_device(alice.user_id().unwrap(), alice.device_id().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let content_raw = Raw::new(&json!({
+        "call_id": "",
+    }))
+    .unwrap()
+    .cast_unchecked();
+
+    let event_synced_future =
+        mock_server.mock_capture_put_to_device_then_sync_back(bob.user_id().unwrap(), &alice).await;
+
+    bob.encryption()
+        .encrypt_and_send_raw_to_device(
+            vec![&bob_alice_device],
+            "my.custom.to.device",
+            content_raw,
+            CollectStrategy::AllDevices,
+        )
+        .await
+        .unwrap();
+
+    event_synced_future.await;
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["api"], "toWidget");
+    assert_eq!(msg["action"], "send_to_device");
+
+    let data = msg["data"].as_object().unwrap();
+    assert_eq!(data["type"], "my.custom.to.device");
+    assert_eq!(data["sender"], "@bob:example.org");
+    // Even though the room is in the clear, the message arrived encrypted.
+    assert_eq!(data["encrypted"], true);
+    assert_eq!(data.len(), 4);
+}
+
+/// A clear to-device event that carries a forged top-level `encrypted: true`
+/// must not be able to spoof the flag: the SDK's own value (`false`, since the
+/// message was received in the clear) wins.
+#[async_test]
+async fn test_spoofed_encrypted_flag_is_ignored() {
+    let (client, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc3819.receive.to_device:my.custom.to.device"]),
+    )
+    .await;
+
+    assert_matches!(recv_message(&driver_handle).now_or_never(), None);
+
+    mock_server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_to_device_event(json!({
+                "sender": "@alice:example.com",
+                "type": "my.custom.to.device",
+                // Forged flag that a malicious sender might inject.
+                "encrypted": true,
+                "content": {
+                    "a": "test",
+                }
+            }));
+        })
+        .await;
+
+    let msg = recv_message(&driver_handle).await;
+    assert_eq!(msg["action"], "send_to_device");
+
+    let data = msg["data"].as_object().unwrap();
+    assert_eq!(data["type"], "my.custom.to.device");
+    // The wire value must be ignored; the message was received in the clear.
+    assert_eq!(data["encrypted"], false);
+    assert_eq!(data.len(), 4);
 }
 
 /// Test that "internal" to-device messages are never forwarded to the widgets.

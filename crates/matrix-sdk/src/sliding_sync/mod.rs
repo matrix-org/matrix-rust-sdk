@@ -1020,12 +1020,16 @@ mod tests {
         events::{direct::DirectEvent, room::member::MembershipState},
         owned_room_id,
         presence::PresenceState,
+        profile::{
+            AvatarUrl, DisplayName, ProfileFieldName, UserProfileChanges, UserProfileUpdate,
+        },
         room_id,
         serde::Raw,
         uint,
     };
     use serde::Deserialize;
     use serde_json::json;
+    use stream_assert::assert_pending;
     use wiremock::{
         Match, Mock, MockServer, Request, ResponseTemplate, http::Method, matchers::method,
     };
@@ -1064,6 +1068,78 @@ mod tests {
         let sliding_sync = sliding_sync_builder.build().await?;
 
         Ok((server, sliding_sync))
+    }
+
+    #[async_test]
+    async fn test_subscribe_to_own_profile() {
+        let client = logged_in_client(None).await;
+        let own_user_id = client.user_id().expect("client should be logged in").to_owned();
+
+        // Given a stored global profile for the current user, received through a
+        // previous sync.
+        let mut response = http::Response::new("0".to_owned());
+
+        let mut profile_changes = UserProfileChanges::new();
+        profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Example"));
+
+        response
+            .extensions
+            .profiles
+            .users
+            .insert(own_user_id.clone(), UserProfileUpdate::Updated(profile_changes));
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        // Subscribing emits the currently stored value immediately.
+        let stream = client.subscribe_to_own_profile().expect("client should be logged in");
+        pin_mut!(stream);
+
+        let profile = stream.next().await.expect("should emit the initial profile");
+        assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Example"));
+
+        // An update for another user only is ignored: nothing is emitted.
+        let mut response = http::Response::new("1".to_owned());
+
+        let mut profile_changes = UserProfileChanges::new();
+        profile_changes.updated.insert(ProfileFieldName::DisplayName, json!("Alice"));
+        response
+            .extensions
+            .profiles
+            .users
+            .insert(ALICE.to_owned(), UserProfileUpdate::Updated(profile_changes));
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        assert_pending!(stream);
+
+        // An update for the current user is emitted with the merged value.
+        let mut response = http::Response::new("2".to_owned());
+
+        let mut profile_changes = UserProfileChanges::new();
+        profile_changes
+            .updated
+            .insert(ProfileFieldName::AvatarUrl, json!("mxc://example.org/avatar"));
+
+        response
+            .extensions
+            .profiles
+            .users
+            .insert(own_user_id.clone(), UserProfileUpdate::Updated(profile_changes));
+        client
+            .process_sliding_sync_test_helper(&response, &RequestedRequiredStates::default())
+            .await
+            .expect("Failed to process sync");
+
+        let profile = stream.next().await.expect("should emit the updated profile");
+        assert_eq!(profile.get_static::<DisplayName>().unwrap().as_deref(), Some("Example"));
+        assert_eq!(
+            profile.get_static::<AvatarUrl>().unwrap().map(|url| url.to_string()).as_deref(),
+            Some("mxc://example.org/avatar")
+        );
     }
 
     #[async_test]
@@ -2796,6 +2872,91 @@ mod tests {
             .await
             .expect("Event handler did not complete in time")
             .expect("Event handler failed");
+
+        Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_syncing_one_time_key_counts_updates() -> Result<()> {
+        macro_rules! assert_key_count {
+            ($client: ident, $count:literal) => {{
+                let machine = $client.olm_machine().await;
+                let uploaded_key_counts =
+                    machine.as_ref().unwrap().uploaded_key_count().await.unwrap();
+                assert_eq!(uploaded_key_counts, $count)
+            }};
+        }
+
+        macro_rules! sync_with_key_count {
+            ($client: ident, $server:ident, $count:literal) => {
+                let count = Some($count);
+                sync_with_key_count!($client, $server, count);
+            };
+            ($client: ident, $server:ident, $count:ident) => {{
+                let count: Option<u32> = $count;
+
+                let template = if let Some(count) = count {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                                        "pos": "0",
+                                        "lists": {},
+                                        "extensions": {
+                                            "e2ee": {
+                                                "device_one_time_keys_count": {
+                                                    "signed_curve25519": count,
+                                                }
+                                            }
+                                        },
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                                        "pos": "0",
+                                        "lists": {},
+                                        "extensions": {
+                                            "e2ee": {}
+                                        },
+                    }))
+                };
+
+                let _sync_mock_guard = Mock::given(SlidingSyncMatcher)
+                    .respond_with(template)
+                    .mount_as_scoped($server.server())
+                    .await;
+
+                let sliding_sync = $client
+                    .sliding_sync("test")?
+                    .with_e2ee_extension(
+                        assign!(http::request::E2EE::default(), { enabled: Some(true)}),
+                    )
+                    .build()
+                    .await?;
+
+                tokio::time::timeout(Duration::from_secs(5), sliding_sync.sync_once())
+                    .await
+                    .expect("Sync did not complete in time")
+                    .expect("Sync failed");
+            }}
+        }
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_upload_keys().ok_with_signed_curve_key_count(50).mock_once().mount().await;
+
+        // In the beginning there were no uploaded keys.
+        assert_key_count!(client, 0);
+
+        // The first sync will upload 50 one-time keys.
+        sync_with_key_count!(client, server, None);
+        assert_key_count!(client, 50);
+
+        // Syncing with no key count will not modify the local key count.
+        sync_with_key_count!(client, server, None);
+        assert_key_count!(client, 50);
+
+        // Syncing with a key count, will update the key count.
+        sync_with_key_count!(client, server, 10);
+        assert_key_count!(client, 10);
 
         Ok(())
     }
