@@ -34,6 +34,8 @@ use tracing::{instrument, trace};
 use self::pagination::ThreadPagination;
 pub(in super::super) use self::state::ThreadEventCacheState;
 pub(super) use self::updates::ThreadEventCacheUpdateSender;
+#[cfg(feature = "e2e-encryption")]
+use super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         Result,
@@ -287,7 +289,7 @@ impl ThreadEventCache {
     #[cfg(feature = "e2e-encryption")]
     pub(in super::super) async fn replace_in_memory_utds(
         &self,
-        resolved_events: &[Event],
+        resolved_events: &[MaybeResolvedEvent],
     ) -> Result<bool> {
         let mut state = self.inner.state.write().await?;
         let timeline_event_diffs = state.replace_in_memory_utds(resolved_events)?;

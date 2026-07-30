@@ -39,6 +39,8 @@ use ruma::{
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace, warn};
 
+#[cfg(feature = "e2e-encryption")]
+use super::super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         super::{
@@ -779,7 +781,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
     pub(in super::super::super) fn replace_in_memory_utds(
         &mut self,
-        resolved_events: &[Event],
+        resolved_events: &[MaybeResolvedEvent],
     ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
         Ok(if self.room_linked_chunk_mut().replace_utds(resolved_events) {
             // Drain the updates to the store, events have already been updated with
