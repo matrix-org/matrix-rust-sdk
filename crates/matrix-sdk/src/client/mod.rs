@@ -4314,6 +4314,7 @@ pub(crate) mod tests {
             Self { now_ms: std::sync::Mutex::new(start_ms) }
         }
 
+        #[allow(dead_code)] // Only used by the currently-shelved test_discovery_cache_respects_timeout
         fn advance(&self, duration: Duration) {
             let mut now = self.now_ms.lock().unwrap();
             *now += duration.as_millis() as f64;
@@ -5444,8 +5445,7 @@ pub(crate) mod tests {
         assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(1));
 
         let data = vec![1, 2];
-        let upload_request =
-            ruma::api::client::media::create_content::v3::Request::new(data.clone());
+        let upload_request = media::create_content::v3::Request::new(data.clone());
         let request = SendRequest {
             client: client.clone(),
             request: upload_request,
