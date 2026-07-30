@@ -352,7 +352,7 @@ impl EventCache {
         timer!("Resolving UTDs");
 
         let event_ids: BTreeSet<_> =
-            resolved_utds.iter().cloned().map(|(event_id, _, _)| event_id).collect();
+            resolved_utds.iter().map(|(event_id, _, _)| event_id.clone()).collect();
 
         let all_caches = self.inner.all_caches_for_room(room_id).await?;
         let mut resolved_events = Vec::with_capacity(resolved_utds.len());
