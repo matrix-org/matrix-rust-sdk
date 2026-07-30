@@ -396,7 +396,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkCommonDeserializedResponses, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
-    (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Debug),
+    (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Info),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
@@ -831,7 +831,7 @@ mod tests {
             matrix_sdk_common::deserialized_responses=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
-            matrix_sdk_base::response_processors=debug,
+            matrix_sdk_base::response_processors=info,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -926,7 +926,7 @@ mod tests {
             matrix_sdk_common::deserialized_responses=trace,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
-            matrix_sdk_base::response_processors=debug,
+            matrix_sdk_base::response_processors=info,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())
