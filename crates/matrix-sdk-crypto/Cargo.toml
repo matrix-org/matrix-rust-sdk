@@ -54,20 +54,20 @@ testing = ["matrix-sdk-test"]
 experimental-push-secrets = []
 
 # Enable experimental support for verifying user identities via X.509 certificates
-experimental-x509-identity-verification = ["dep:cms", "dep:pkcs1", "sha2/oid"]
+experimental-x509-identity-verification = ["dep:cms", "dep:pkcs1", "dep:sha2_0_10"]
 
 # Enable a pure-rust implementation of the X.509 signer and verifier, via `rustls`.
 rust-x509-verifier-impl = ["experimental-x509-identity-verification", "dep:rustls", "dep:rustls-pki-types", "dep:rustls-webpki", "dep:ring"]
 
 [dependencies]
-aes = { version = "0.8.4", default-features = false }
+aes = { version = "0.9.2", default-features = false }
 as_variant.workspace = true
 async-trait.workspace = true
 bs58 = { version = "0.5.1", default-features = false, features = ["std"] }
 byteorder.workspace = true
 cfg-if.workspace = true
 cms = { version = "0.2.3", default-features = false, features = ["std"], optional = true }
-ctr = { version = "0.9.2", default-features = false }
+ctr = { version = "0.10.1", default-features = false }
 eyeball.workspace = true
 futures-core.workspace = true
 futures-util.workspace = true
@@ -90,6 +90,9 @@ rustls-webpki = { version = "0.103.13", default-features = false, optional = tru
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 sha2.workspace = true
+# This copy of the sha2 crate is necessary because we require an older version
+# of the const-oid crate for it to be compatible with the rest of the x509 deps
+sha2_0_10 = { package = "sha2", version = "0.10.9", features = ["oid"], optional = true }
 subtle = { version = "2.6.1", default-features = false, features = ["std", "i128"] }
 thiserror.workspace = true
 time = { version = "0.3.54", default-features = false, features = ["std", "formatting"] }

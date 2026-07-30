@@ -31,7 +31,7 @@ use cms::{
         SignerInfos,
     },
 };
-use pkcs1::RsaPssParams;
+use pkcs1::{RsaPssParams, der::oid::AssociatedOid};
 use ruma::OwnedDeviceId;
 use vodozemac::base64_encode;
 
@@ -408,11 +408,9 @@ impl X509SignatureScheme {
     /// `AlgorithmIdentifier`, though obviously we expect it to identify a
     /// digest algorithm like SHA-512.)
     pub fn get_digest_algorithm(&self) -> AlgorithmIdentifierOwned {
-        use der::oid::AssociatedOid;
-
         match self {
             X509SignatureScheme::RsaPssSha512 => AlgorithmIdentifierOwned {
-                oid: sha2::Sha512::OID,
+                oid: sha2_0_10::Sha512::OID,
                 parameters: Some(der::Any::null()),
             },
         }
@@ -443,7 +441,7 @@ impl X509SignatureScheme {
                 AlgorithmIdentifierOwned {
                     oid: const_oid::db::rfc5912::ID_RSASSA_PSS,
                     parameters: Some(
-                        der::Any::encode_from(&RsaPssParams::new::<sha2::Sha512>(64))
+                        der::Any::encode_from(&RsaPssParams::new::<sha2_0_10::Sha512>(64))
                             .expect("Unable to encode RSA-PSS parameters"),
                     ),
                 }

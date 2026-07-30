@@ -1135,7 +1135,7 @@ impl OAuth {
         #[cfg(feature = "e2e-encryption")] cross_process_lock: Option<CrossProcessRefreshLockGuard>,
     ) -> Result<(), OAuthError> {
         trace!(
-            "Token refresh: attempting to refresh with refresh_token {:x}",
+            "Token refresh: attempting to refresh with refresh_token {}",
             hash_str(&refresh_token)
         );
 
@@ -1153,11 +1153,8 @@ impl OAuth {
         let new_refresh_token = response.refresh_token().map(RefreshToken::secret).cloned();
 
         trace!(
-            "Token refresh: new refresh_token: {} / access_token: {:x}",
-            new_refresh_token
-                .as_deref()
-                .map(|token| format!("{:x}", hash_str(token)))
-                .unwrap_or_else(|| "<none>".to_owned()),
+            "Token refresh: new refresh_token: {} / access_token: {}",
+            new_refresh_token.as_deref().map(hash_str).unwrap_or_else(|| "<none>".to_owned()),
             hash_str(&new_access_token)
         );
 
@@ -1821,8 +1818,8 @@ struct AuthorizationError {
     state: CsrfToken,
 }
 
-fn hash_str(x: &str) -> impl fmt::LowerHex {
-    sha2::Sha256::new().chain_update(x).finalize()
+fn hash_str(x: &str) -> String {
+    hex::encode(sha2::Sha256::new().chain_update(x).finalize())
 }
 
 /// Data to register or restore a client.
