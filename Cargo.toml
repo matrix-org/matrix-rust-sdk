@@ -118,7 +118,7 @@ uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4
 url = { version = "2.5.8", default-features = false }
 uuid = { version = "1.24.0", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
-vodozemac = { version = "0.10.0", default-features = false, features = ["libolm-compat", "insecure-pk-encryption", "experimental-session-config"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "f978854", features = ["insecure-pk-encryption", "experimental-session-config"] }
 wasm-bindgen = { version = "0.2.105", default-features = false }
 wasm-bindgen-test = { version = "0.3.55", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.103", default-features = false }

@@ -482,9 +482,7 @@ mod test {
         .expect("Bob should be able to connect the secure channel");
 
         // Let Alice know about the checkcode so she can verify the channel.
-        check_code_tx
-            .send(bob.check_code().to_digit())
-            .expect("Bob should be able to send the checkcode");
+        check_code_tx.send(bob.check_code()).expect("Bob should be able to send the checkcode");
 
         match behaviour {
             BobBehaviour::UnexpectedMessageInsteadOfLoginProtocol => {
@@ -1075,7 +1073,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth {
@@ -1208,7 +1206,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth {
@@ -1456,7 +1454,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -1710,7 +1708,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     _ => {
@@ -1971,7 +1969,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth {
@@ -2365,7 +2363,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -2634,7 +2632,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth {
@@ -2920,7 +2918,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth {
@@ -3168,7 +3166,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                         break;
                     }
@@ -3434,7 +3432,7 @@ mod test {
                         checkcode_tx
                             .take()
                             .expect("The checkcode should only be forwarded once")
-                            .send(check_code.to_digit())
+                            .send(*check_code)
                             .expect("Alice should be able to forward the checkcode");
                     }
                     GrantLoginProgress::WaitingForAuth {

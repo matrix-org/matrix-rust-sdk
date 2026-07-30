@@ -37,7 +37,6 @@ use ruma::api::error::ErrorKind;
 use thiserror::Error;
 use tokio::sync::Mutex;
 use url::Url;
-use vodozemac::ecies::CheckCode;
 pub use vodozemac::ecies::{Error as EciesError, MessageDecodeError};
 
 mod grant;
@@ -315,12 +314,12 @@ pub enum SecureChannelError {
 /// this device is the one scanning the QR code.
 ///
 /// We have established the secure channel, but we need to let the other
-/// side know about the [`CheckCode`] so they can verify that the secure
+/// side know about the check code so they can verify that the secure
 /// channel is indeed secure.
 #[derive(Clone, Debug)]
 pub struct QrProgress {
     /// The check code we need to, out of band, send to the other device.
-    pub check_code: CheckCode,
+    pub check_code: u8,
 }
 
 /// Metadata to be used with [`LoginProgress::EstablishingSecureChannel`] and
