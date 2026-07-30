@@ -41,7 +41,7 @@ use matrix_sdk_base::{
     sync::RoomUpdates,
     task_monitor::BackgroundTaskHandle,
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId};
 use tokio::sync::{
     OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
@@ -264,6 +264,7 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
+                ignored_users: Default::default(),
                 automatic_pagination: OnceLock::new(),
                 thread_subscriber_sender,
             }),
@@ -616,6 +617,9 @@ struct EventCacheInner {
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
 
+    /// The list of ignored users, shared across all rooms.
+    ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
+
     /// State for the automatic pagination mechanism.
     ///
     /// Depends on the [`EventCacheConfig::experimental_auto_backpagination`]
@@ -760,6 +764,7 @@ impl EventCacheInner {
                     ),
                     &self.state,
                     self.automatic_pagination.get().cloned(),
+                    self.ignored_users.clone(),
                 )
                 .await?;
 

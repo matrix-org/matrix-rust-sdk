@@ -61,12 +61,22 @@ impl Builder {
         let mut room_has_been_emptied = true;
         let mut current_value_must_be_erased = false;
 
+        // Snapshot ignored users before iterating.
+        let ignored_users = room_event_cache.ignored_users().read().await.clone();
+
         // Track the most recent edit for each event.
         let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
 
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event| {
-                // At least one event lives in-memory: we consider the room is not empty.
+                // Skip events from ignored users.
+                if let Some(sender) = event.sender()
+                    && ignored_users.contains(&sender)
+                {
+                    return None;
+                }
+
+                // At least one non-ignored event lives in-memory: we consider the room is not empty.
                 room_has_been_emptied = false;
 
                 match filter_timeline_event(

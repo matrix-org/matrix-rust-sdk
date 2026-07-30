@@ -23,7 +23,7 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId, RoomId};
+use ruma::{OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId};
 use tokio::{
     select,
     sync::{
@@ -36,7 +36,7 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 
 use super::{
     AutoShrinkMessage, Caches, CachesByRoom, EventCacheError, EventCacheInner,
-    RoomEventCacheLinkedChunkUpdate,
+    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     client::WeakClient,
@@ -90,8 +90,8 @@ pub(super) async fn room_updates_task(
     }
 }
 
-/// Listen to _ignore user list update changes_ to clear the rooms when a user
-/// is ignored or unignored.
+/// Listen to _ignore user list update changes_ to recompute the latest events
+/// when a user is ignored or unignored.
 #[instrument(skip_all)]
 pub(super) async fn ignore_user_list_update_task(
     inner: Arc<EventCacheInner>,
@@ -101,11 +101,19 @@ pub(super) async fn ignore_user_list_update_task(
     span.follows_from(Span::current());
 
     async move {
-        while ignore_user_list_stream.next().await.is_some() {
+        while let Some(users) = ignore_user_list_stream.next().await {
             info!("Received an ignore user list change");
 
-            if let Err(err) = inner.clear_all_rooms().await {
-                error!("when clearing room storage after ignore user list change: {err}");
+            let parsed: Vec<OwnedUserId> =
+                users.iter().filter_map(|u| OwnedUserId::try_from(u.as_str()).ok()).collect();
+            *inner.ignored_users.write().await = parsed;
+
+            if let Ok(client) = inner.client() {
+                for room in client.joined_rooms() {
+                    let _ = inner
+                        .generic_update_sender
+                        .send(RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() });
+                }
             }
         }
 

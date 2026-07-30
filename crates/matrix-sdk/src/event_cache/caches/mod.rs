@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
-use ruma::{OwnedEventId, RoomId, room_version_rules::RoomVersionRules};
+use ruma::{OwnedEventId, OwnedUserId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
@@ -83,6 +83,7 @@ struct CachesInternals {
 
 impl Caches {
     /// Create a new [`Caches`].
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         weak_client: &WeakClient,
         room_id: &RoomId,
@@ -91,6 +92,7 @@ impl Caches {
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         state: &states::StateLock,
         automatic_pagination: Option<AutomaticPagination>,
+        ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
     ) -> Result<Self> {
         let Some(client) = weak_client.get() else {
             return Err(EventCacheError::ClientDropped);
@@ -146,6 +148,7 @@ impl Caches {
             pagination_status,
             auto_shrink_sender.clone(),
             update_sender,
+            ignored_users,
         );
 
         // If at least one event has been loaded, it means there is a timeline. Let's

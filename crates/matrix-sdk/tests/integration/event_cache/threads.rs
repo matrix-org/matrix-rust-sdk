@@ -180,12 +180,8 @@ async fn test_ignored_user_empties_threads() {
         })
         .await;
 
-    // We do receive a clear.
-    {
-        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
-        assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Clear = &diffs[0]);
-    }
+    // Thread events are NOT cleared when ignoring a user (only latest_event
+    // computation filters them). We do not receive any update here.
 
     // Receiving new events still works.
     server

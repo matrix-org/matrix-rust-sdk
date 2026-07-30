@@ -178,17 +178,8 @@ async fn test_ignored_unignored() {
         })
         .await;
 
-    // We do receive a clear.
-    {
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                room_stream.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Clear = &diffs[0]);
-    }
-
-    // We do receive the new event.
+    // We do receive the new event (room events are NOT cleared when ignoring a
+    // user, only the latest_event computation filters them).
     {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
@@ -201,12 +192,13 @@ async fn test_ignored_unignored() {
         assert_event_matches_msg(&events[0], "i don't like this dexter");
     }
 
-    // The other room has been cleared too.
+    // The other room still has its events (not cleared).
     {
         let room = client.get_room(other_room_id).unwrap();
         let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
         let events = room_event_cache.events().await.unwrap();
-        assert!(events.is_empty());
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "demat!");
     }
 
     // That's all, folks!
