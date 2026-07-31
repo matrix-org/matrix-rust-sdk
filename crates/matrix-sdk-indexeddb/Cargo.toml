@@ -8,6 +8,9 @@ edition = "2024"
 rust-version.workspace = true
 readme = "README.md"
 
+[package.metadata.cargo-machete]
+ignored = ["serde_bytes"] # Used in the indexed types, by the IndexedMediaContentData (aka media content).
+
 [package.metadata.docs.rs]
 all-features = true
 default-target = "wasm32-unknown-unknown"
