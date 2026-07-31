@@ -657,6 +657,7 @@ pub struct IndexedMediaContent {
     /// The primary key of the object store
     pub id: IndexedMediaContentIdKey,
     /// The (possibly) encrypted content - i.e., [`MediaContent::data`]
+    #[serde(with = "serde_bytes")]
     pub content: IndexedMediaContentData,
 }
 
