@@ -25,7 +25,7 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fmt::Debug,
     future::Future,
-    sync::{Arc, RwLock as StdRwLock, RwLockWriteGuard as StdRwLockWriteGuard},
+    sync::{Arc, RwLock as StdRwLock},
     time::Duration,
 };
 
@@ -145,7 +145,7 @@ impl SlidingSync {
         cancel_in_flight_request: bool,
     ) {
         let subscriptions_have_changed = add_room_subscriptions(
-            self.inner.room_subscriptions.write().unwrap(),
+            &mut self.inner.room_subscriptions.write().unwrap(),
             &self.inner.client,
             room_ids,
             settings,
@@ -209,7 +209,7 @@ impl SlidingSync {
 
         // Add the subscriptions to the rooms that aren't subscribed yet.
         let a_subscription_has_been_added =
-            add_room_subscriptions(room_subscriptions, &self.inner.client, room_ids, settings);
+            add_room_subscriptions(&mut room_subscriptions, &self.inner.client, room_ids, settings);
 
         // The in-flight request must be cancelled as soon as the set of subscriptions
         // has changed.
@@ -236,7 +236,7 @@ impl SlidingSync {
         room_subscriptions.clear();
 
         let subscriptions_have_changed =
-            add_room_subscriptions(room_subscriptions, &self.inner.client, room_ids, settings);
+            add_room_subscriptions(&mut room_subscriptions, &self.inner.client, room_ids, settings);
 
         if cancel_in_flight_request && subscriptions_have_changed {
             self.inner.internal_channel_send_if_possible(
@@ -872,10 +872,7 @@ impl SlidingSync {
 /// caller can have other reasons to cancel it, e.g. having removed a
 /// subscription.
 fn add_room_subscriptions(
-    mut room_subscriptions: StdRwLockWriteGuard<
-        '_,
-        BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
-    >,
+    room_subscriptions: &mut BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
     client: &Client,
     room_ids: &[&RoomId],
     settings: Option<http::request::RoomSubscription>,
