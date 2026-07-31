@@ -43,6 +43,8 @@ allow-git = [
     "https://github.com/tokio-rs/tracing.git",
     # Well, it's Ruma.
     "https://github.com/ruma/ruma",
+    # Vodozemac won't block us as we're doing the releases.
+    "https://github.com/matrix-org/vodozemac",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
     "https://github.com/jplatte/const_panic",
     # A patch override for the bindings: https://github.com/smol-rs/async-compat/pull/22
