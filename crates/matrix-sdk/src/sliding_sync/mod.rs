@@ -144,13 +144,14 @@ impl SlidingSync {
         settings: Option<http::request::RoomSubscription>,
         cancel_in_flight_request: bool,
     ) {
-        if subscribe_to_rooms(
+        let subscriptions_have_changed = subscribe_to_rooms(
             self.inner.room_subscriptions.write().unwrap(),
             &self.inner.client,
             room_ids,
             settings,
-            cancel_in_flight_request,
-        ) {
+        );
+
+        if cancel_in_flight_request && subscriptions_have_changed {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -160,15 +161,15 @@ impl SlidingSync {
     /// Remove subscriptions to many rooms.
     pub fn unsubscribe_to_rooms(&self, room_ids: &[&RoomId], cancel_in_flight_request: bool) {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
-        let mut skip_over_current_sync_loop_iteration = false;
+        let mut subscriptions_have_changed = false;
 
         for room_id in room_ids {
             if room_subscriptions.remove(*room_id).is_some() {
-                skip_over_current_sync_loop_iteration = true;
+                subscriptions_have_changed = true;
             }
         }
 
-        if cancel_in_flight_request && skip_over_current_sync_loop_iteration {
+        if cancel_in_flight_request && subscriptions_have_changed {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -199,25 +200,22 @@ impl SlidingSync {
         cancel_in_flight_request: bool,
     ) {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
-        let mut skip_over_current_sync_loop_iteration = false;
 
-        // Remove rooms that are no longer subscribed.
-        room_subscriptions.retain(|room_id, _| {
-            if room_ids.contains(&room_id.as_ref()) {
-                true
-            } else {
-                skip_over_current_sync_loop_iteration = true;
-                false
-            }
-        });
+        // Remove the subscriptions to the rooms that are not in `room_ids` anymore.
+        let number_of_subscriptions_before = room_subscriptions.len();
+        room_subscriptions.retain(|room_id, _| room_ids.contains(&room_id.as_ref()));
+        let a_subscription_has_been_removed =
+            room_subscriptions.len() != number_of_subscriptions_before;
 
-        if subscribe_to_rooms(
-            room_subscriptions,
-            &self.inner.client,
-            room_ids,
-            settings,
-            cancel_in_flight_request && skip_over_current_sync_loop_iteration,
-        ) {
+        // Add the subscriptions to the rooms that aren't subscribed yet.
+        let a_subscription_has_been_added =
+            subscribe_to_rooms(room_subscriptions, &self.inner.client, room_ids, settings);
+
+        // The in-flight request must be cancelled as soon as the set of subscriptions
+        // has changed.
+        if cancel_in_flight_request
+            && (a_subscription_has_been_added || a_subscription_has_been_removed)
+        {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -237,13 +235,10 @@ impl SlidingSync {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
         room_subscriptions.clear();
 
-        if subscribe_to_rooms(
-            room_subscriptions,
-            &self.inner.client,
-            room_ids,
-            settings,
-            cancel_in_flight_request,
-        ) {
+        let subscriptions_have_changed =
+            subscribe_to_rooms(room_subscriptions, &self.inner.client, room_ids, settings);
+
+        if cancel_in_flight_request && subscriptions_have_changed {
             self.inner.internal_channel_send_if_possible(
                 SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
             );
@@ -868,8 +863,14 @@ impl SlidingSync {
     }
 }
 
-/// Private implementation for [`SlidingSync::subscribe_to_rooms`] and
+/// Private implementation for [`SlidingSync::subscribe_to_rooms`],
+/// [`SlidingSync::resubscribe_to_rooms`] and
 /// [`SlidingSync::clear_and_subscribe_to_rooms`].
+///
+/// It returns whether at least one subscription has been added. It is up to the
+/// caller to decide whether this warrants cancelling the in-flight request: a
+/// caller can have other reasons to cancel it, e.g. having removed a
+/// subscription.
 fn subscribe_to_rooms(
     mut room_subscriptions: StdRwLockWriteGuard<
         '_,
@@ -878,10 +879,9 @@ fn subscribe_to_rooms(
     client: &Client,
     room_ids: &[&RoomId],
     settings: Option<http::request::RoomSubscription>,
-    cancel_in_flight_request: bool,
 ) -> bool {
     let settings = settings.unwrap_or_default();
-    let mut skip_over_current_sync_loop_iteration = false;
+    let mut subscriptions_have_changed = false;
 
     for room_id in room_ids {
         if let Entry::Vacant(entry) = room_subscriptions.entry((*room_id).to_owned()) {
@@ -891,11 +891,11 @@ fn subscribe_to_rooms(
 
             entry.insert(settings.clone());
 
-            skip_over_current_sync_loop_iteration = true;
+            subscriptions_have_changed = true;
         }
     }
 
-    cancel_in_flight_request && skip_over_current_sync_loop_iteration
+    subscriptions_have_changed
 }
 
 impl SlidingSyncInner {
@@ -1035,8 +1035,8 @@ mod tests {
     };
 
     use super::{
-        SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder, SlidingSyncMode,
-        cache::restore_sliding_sync_state, http,
+        SlidingSync, SlidingSyncBuilder, SlidingSyncInternalMessage, SlidingSyncList,
+        SlidingSyncListBuilder, SlidingSyncMode, cache::restore_sliding_sync_state, http,
     };
     use crate::{
         Client, Result,
@@ -1359,6 +1359,50 @@ mod tests {
             assert!(room_subscriptions.contains_key(room_id_2));
             assert!(room_subscriptions.contains_key(room_id_3));
         }
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_resubscribe_to_rooms_cancels_the_in_flight_request() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
+        .await?;
+
+        let room_id_0 = room_id!("!r0:bar.org");
+        let room_id_1 = room_id!("!r1:bar.org");
+
+        let mut internal_channel = sliding_sync.inner.internal_channel.subscribe();
+
+        // A first-ever subscription: nothing is removed, but a subscription is added,
+        // so the in-flight request must be cancelled.
+        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, true);
+
+        assert_matches!(
+            internal_channel.try_recv(),
+            Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+        );
+
+        // Resubscribing to the same room: nothing is added nor removed, no
+        // cancellation.
+        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, true);
+
+        assert!(internal_channel.try_recv().is_err());
+
+        // A subscription is removed: the in-flight request must be cancelled.
+        sliding_sync.resubscribe_to_rooms(&[room_id_1], None, true);
+
+        assert_matches!(
+            internal_channel.try_recv(),
+            Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+        );
+
+        // Finally, no cancellation is asked: no cancellation happens.
+        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, false);
+
+        assert!(internal_channel.try_recv().is_err());
 
         Ok(())
     }
