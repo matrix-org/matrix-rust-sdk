@@ -22,8 +22,12 @@ use matrix_sdk::authentication::oauth::{
         GeneratedQrProgress, LoginFailureReason, QrProgress, SenderError,
     },
 };
-use matrix_sdk_base::crypto::types::qr_login::{self, QrCodeIntent};
+use matrix_sdk_base::{
+    CancellableIntoFutureExt,
+    crypto::types::qr_login::{self, QrCodeIntent},
+};
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm, stream::StreamExt};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     authentication::OAuthConfiguration, runtime::get_runtime_handle, task_handle::TaskHandle,
@@ -34,11 +38,12 @@ use crate::{
 pub struct LoginWithQrCodeHandler {
     oauth: OAuth,
     oauth_configuration: OAuthConfiguration,
+    cancel: CancellationToken,
 }
 
 impl LoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth, oauth_configuration: OAuthConfiguration) -> Self {
-        Self { oauth, oauth_configuration }
+        Self { oauth, oauth_configuration, cancel: CancellationToken::new() }
     }
 }
 
@@ -89,7 +94,7 @@ impl LoginWithQrCodeHandler {
             }
         }));
 
-        login.await?;
+        login.cancellable(self.cancel.clone()).await.ok_or(HumanQrLoginError::Cancelled)??;
 
         Ok(())
     }
@@ -133,9 +138,15 @@ impl LoginWithQrCodeHandler {
             }
         }));
 
-        login.await?;
+        login.cancellable(self.cancel.clone()).await.ok_or(HumanQrLoginError::Cancelled)??;
 
         Ok(())
+    }
+
+    /// Request the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then return the `Cancelled` error.
+    pub fn abort(&self) {
+        self.cancel.cancel();
     }
 }
 
@@ -143,11 +154,12 @@ impl LoginWithQrCodeHandler {
 #[derive(uniffi::Object)]
 pub struct GrantLoginWithQrCodeHandler {
     oauth: OAuth,
+    cancel: CancellationToken,
 }
 
 impl GrantLoginWithQrCodeHandler {
     pub(crate) fn new(oauth: OAuth) -> Self {
-        Self { oauth }
+        Self { oauth, cancel: CancellationToken::new() }
     }
 }
 
@@ -189,7 +201,7 @@ impl GrantLoginWithQrCodeHandler {
             }
         }));
 
-        grant.await?;
+        grant.cancellable(self.cancel.clone()).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
 
         Ok(())
     }
@@ -227,9 +239,15 @@ impl GrantLoginWithQrCodeHandler {
             }
         }));
 
-        grant.await?;
+        grant.cancellable(self.cancel.clone()).await.ok_or(HumanQrGrantLoginError::Cancelled)??;
 
         Ok(())
+    }
+
+    /// Request the handler to abort cooperatively. This will make the handler
+    /// tear down its running task and then return the `Cancelled` error.
+    pub fn abort(&self) {
+        self.cancel.cancel();
     }
 }
 
