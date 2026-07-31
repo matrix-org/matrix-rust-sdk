@@ -341,6 +341,9 @@ enum LogTarget {
     // SDK UI modules.
     MatrixSdkUiTimeline,
     MatrixSdkUiNotificationClient,
+
+    // SDK search modules
+    MatrixSdkSearch,
 }
 
 impl LogTarget {
@@ -370,6 +373,7 @@ impl LogTarget {
             LogTarget::MatrixSdkEventCacheStore => "matrix_sdk_sqlite::event_cache_store",
             LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
             LogTarget::MatrixSdkUiNotificationClient => "matrix_sdk_ui::notification_client",
+            LogTarget::MatrixSdkSearch => "matrix_sdk_search",
         }
     }
 }
@@ -397,6 +401,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
     (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Info),
+    (LogTarget::MatrixSdkSearch, LogLevel::Info),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
@@ -423,6 +428,8 @@ pub enum TraceLogPacks {
     SyncProfiling,
     /// Enables all the logs relevant to the latest events.
     LatestEvents,
+    /// Enables all the logs relevant to message search.
+    Search,
 }
 
 impl TraceLogPacks {
@@ -455,6 +462,7 @@ impl TraceLogPacks {
                 LogTarget::MatrixSdkSendQueue,
                 LogTarget::MatrixSdkEventCache,
             ],
+            TraceLogPacks::Search => &[LogTarget::MatrixSdkSearch],
         }
     }
 }
@@ -830,6 +838,7 @@ mod tests {
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=info,
+            matrix_sdk_search=info,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -877,6 +886,7 @@ mod tests {
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=trace,
             matrix_sdk_base::response_processors=trace,
+            matrix_sdk_search=trace,
             super_duper_app=trace,
             some_other_span=trace"#
                 .split('\n')
@@ -925,6 +935,7 @@ mod tests {
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=info,
+            matrix_sdk_search=info,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())
