@@ -129,7 +129,6 @@ async fn test_empty_room_accept_invite() -> Result<()> {
     let room = alice.get_room(&room_id).expect("Alice should see the room");
     room.leave().await?;
 
-    let mut bob_accepted = false;
     for i in 1..=5 {
         if let Some(room) = bob.get_room(&room_id)
             && matches!(room.state(), RoomState::Invited)
@@ -137,11 +136,7 @@ async fn test_empty_room_accept_invite() -> Result<()> {
             if let Err(err) = room.join().await {
                 if let Some(api_err) = err.as_client_api_error() {
                     if api_err.status_code == StatusCode::NOT_FOUND {
-                        // leave first
-                        room.leave().await?;
-
-                        // then forget
-                        room.forget().await?;
+                        return Ok(());
                     } else {
                         return Err(err.into());
                     }
@@ -149,14 +144,11 @@ async fn test_empty_room_accept_invite() -> Result<()> {
                     return Err(err.into());
                 }
             }
-            bob_accepted = true;
             break;
         }
         sleep(Duration::from_millis(500 * i)).await;
     }
-    anyhow::ensure!(bob_accepted, "bob couldn't find the invite after ~8 seconds");
-
-    Ok(())
+    Err(anyhow::anyhow!("bob couldn't find the invite after ~8 seconds"))
 }
 
 #[tokio::test]
