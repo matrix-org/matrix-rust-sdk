@@ -59,6 +59,17 @@ impl Room {
         self.info.read().active_room_call_participants()
     }
 
+    /// See [`RoomInfo::is_device_in_active_room_call`].
+    ///
+    /// [`RoomInfo::is_device_in_active_room_call`]: crate::RoomInfo::is_device_in_active_room_call
+    pub fn is_device_in_active_room_call(
+        &self,
+        user_id: &ruma::UserId,
+        device_id: &ruma::DeviceId,
+    ) -> bool {
+        self.info.read().is_device_in_active_room_call(user_id, device_id)
+    }
+
     /// Get the consensus call intent for the current call, based on what
     /// members are advertising.
     pub fn active_room_call_consensus_intent(&self) -> CallIntentConsensus {
@@ -450,5 +461,34 @@ mod tests {
             let consensus_intent = room.active_room_call_consensus_intent();
             assert_eq!(expected, consensus_intent, "Failed case: {}", description);
         }
+    }
+
+    #[test]
+    fn is_device_in_active_room_call_matches_own_device_only() {
+        let (_, room) = make_room_test_helper(RoomState::Joined);
+
+        let alice_a = session_member_state_event(
+            event_id!("$alice_a"),
+            &ALICE,
+            Some(InitData { device_id: device_id!("DEVICE_A"), minutes_ago: 1 }),
+        );
+        let alice_b = session_member_state_event(
+            event_id!("$alice_b"),
+            &ALICE,
+            Some(InitData { device_id: device_id!("DEVICE_B"), minutes_ago: 1 }),
+        );
+        let bob_a = session_member_state_event(
+            event_id!("$bob_a"),
+            &BOB,
+            Some(InitData { device_id: device_id!("DEVICE_A"), minutes_ago: 1 }),
+        );
+
+        receive_state_events(&room, vec![alice_a, alice_b, bob_a]);
+
+        assert!(room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_A")));
+        assert!(room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_B")));
+        assert!(!room.is_device_in_active_room_call(&ALICE, device_id!("DEVICE_C")));
+        assert!(room.is_device_in_active_room_call(&BOB, device_id!("DEVICE_A")));
+        assert!(!room.is_device_in_active_room_call(&BOB, device_id!("DEVICE_B")));
     }
 }
