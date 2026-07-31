@@ -50,6 +50,7 @@ matrix-sdk-store-encryption.workspace = true
 rmp-serde.workspace = true
 ruma.workspace = true
 serde.workspace = true
+serde_bytes.workspace = true
 serde-wasm-bindgen = { version = "0.6.5", default-features = false }
 serde_json.workspace = true
 sha2.workspace = true
