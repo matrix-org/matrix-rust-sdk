@@ -144,7 +144,7 @@ impl SlidingSync {
         settings: Option<http::request::RoomSubscription>,
         cancel_in_flight_request: bool,
     ) {
-        let subscriptions_have_changed = subscribe_to_rooms(
+        let subscriptions_have_changed = add_room_subscriptions(
             self.inner.room_subscriptions.write().unwrap(),
             &self.inner.client,
             room_ids,
@@ -209,7 +209,7 @@ impl SlidingSync {
 
         // Add the subscriptions to the rooms that aren't subscribed yet.
         let a_subscription_has_been_added =
-            subscribe_to_rooms(room_subscriptions, &self.inner.client, room_ids, settings);
+            add_room_subscriptions(room_subscriptions, &self.inner.client, room_ids, settings);
 
         // The in-flight request must be cancelled as soon as the set of subscriptions
         // has changed.
@@ -236,7 +236,7 @@ impl SlidingSync {
         room_subscriptions.clear();
 
         let subscriptions_have_changed =
-            subscribe_to_rooms(room_subscriptions, &self.inner.client, room_ids, settings);
+            add_room_subscriptions(room_subscriptions, &self.inner.client, room_ids, settings);
 
         if cancel_in_flight_request && subscriptions_have_changed {
             self.inner.internal_channel_send_if_possible(
@@ -863,15 +863,15 @@ impl SlidingSync {
     }
 }
 
-/// Private implementation for [`SlidingSync::subscribe_to_rooms`],
-/// [`SlidingSync::resubscribe_to_rooms`] and
-/// [`SlidingSync::clear_and_subscribe_to_rooms`].
+/// Add a subscription for each room of `room_ids` that isn't subscribed yet.
+///
+/// Rooms that are already subscribed are left untouched.
 ///
 /// It returns whether at least one subscription has been added. It is up to the
 /// caller to decide whether this warrants cancelling the in-flight request: a
 /// caller can have other reasons to cancel it, e.g. having removed a
 /// subscription.
-fn subscribe_to_rooms(
+fn add_room_subscriptions(
     mut room_subscriptions: StdRwLockWriteGuard<
         '_,
         BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
