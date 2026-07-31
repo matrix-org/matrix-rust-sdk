@@ -152,9 +152,7 @@ impl SlidingSync {
         );
 
         if cancel_in_flight_request && subscriptions_have_changed {
-            self.inner.internal_channel_send_if_possible(
-                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-            );
+            self.inner.cancel_in_flight_request();
         }
     }
 
@@ -170,9 +168,7 @@ impl SlidingSync {
         }
 
         if cancel_in_flight_request && subscriptions_have_changed {
-            self.inner.internal_channel_send_if_possible(
-                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-            );
+            self.inner.cancel_in_flight_request();
         }
     }
 
@@ -216,9 +212,7 @@ impl SlidingSync {
         if cancel_in_flight_request
             && (a_subscription_has_been_added || a_subscription_has_been_removed)
         {
-            self.inner.internal_channel_send_if_possible(
-                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-            );
+            self.inner.cancel_in_flight_request();
         }
     }
 
@@ -239,9 +233,7 @@ impl SlidingSync {
             add_room_subscriptions(&mut room_subscriptions, &self.inner.client, room_ids, settings);
 
         if cancel_in_flight_request && subscriptions_have_changed {
-            self.inner.internal_channel_send_if_possible(
-                SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
-            );
+            self.inner.cancel_in_flight_request();
         }
     }
 
@@ -908,6 +900,14 @@ impl SlidingSyncInner {
     fn internal_channel_send_if_possible(&self, message: SlidingSyncInternalMessage) {
         // If there is no receiver, the send will fail, but that's OK here.
         let _ = self.internal_channel.send(message);
+    }
+
+    /// Cancel the in-flight request (if any) so that the sync loop immediately
+    /// starts a new iteration, with a fresh request.
+    fn cancel_in_flight_request(&self) {
+        self.internal_channel_send_if_possible(
+            SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration,
+        );
     }
 }
 
