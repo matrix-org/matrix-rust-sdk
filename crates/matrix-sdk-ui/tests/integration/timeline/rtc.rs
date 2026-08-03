@@ -351,7 +351,6 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
     let timeline = room.timeline().await.unwrap();
     let (_, mut timeline_stream) = timeline.subscribe().await;
 
-
     let items = timeline.items().await;
     let notification = items.iter().filter_map(|item| item.as_event()).next().unwrap();
     assert_eq!(notification.event_id().unwrap(), notification_event_id);
@@ -380,9 +379,9 @@ async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
     let items = timeline.items().await;
     let notification = items.iter().filter_map(|item| item.as_event()).next().unwrap();
     assert_let!(
-            TimelineItemContent::RtcNotification { active_call_info: None, .. } =
-                notification.content()
-        );
+        TimelineItemContent::RtcNotification { active_call_info: None, .. } =
+            notification.content()
+    );
 }
 
 // There is an order in which the initial events are sent, first the membership

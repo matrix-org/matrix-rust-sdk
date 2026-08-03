@@ -275,8 +275,12 @@ impl TimelineBuilder {
                     );
                     span.follows_from(Span::current());
 
-                    rtc_membership_update_task(room_info_subscriber, controller.clone(), initial_active_call_info)
-                        .instrument(span)
+                    rtc_membership_update_task(
+                        room_info_subscriber,
+                        controller.clone(),
+                        initial_active_call_info,
+                    )
+                    .instrument(span)
                 })
                 .abort_on_drop()
         };
