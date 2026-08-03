@@ -193,6 +193,11 @@ impl TimelineBuilder {
         )
         .await?;
 
+        let initial_active_call_info = ActiveCallInfo::from_info(initial_info, owned_user_id);
+        if initial_active_call_info.is_some() {
+            controller.handle_active_call_update(initial_active_call_info.clone()).await;
+        }
+
         let InitFocusResult { focus_task, has_events } = controller.init_focus().await?;
 
         let room_update_join_handle = room
@@ -258,10 +263,6 @@ impl TimelineBuilder {
             )
             .abort_on_drop();
 
-        let initial_active_call_info = ActiveCallInfo::from_info(initial_info, owned_user_id);
-        if initial_active_call_info.is_some() {
-            controller.handle_active_call_update(initial_active_call_info).await;
-        }
         let rtc_membership_listener_handle = {
             let room_info_subscriber = room.subscribe_info();
             room.client()
@@ -274,7 +275,7 @@ impl TimelineBuilder {
                     );
                     span.follows_from(Span::current());
 
-                    rtc_membership_update_task(room_info_subscriber, controller.clone())
+                    rtc_membership_update_task(room_info_subscriber, controller.clone(), initial_active_call_info)
                         .instrument(span)
                 })
                 .abort_on_drop()
