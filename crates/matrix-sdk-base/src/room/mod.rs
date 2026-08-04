@@ -506,6 +506,10 @@ impl Room {
         // Merge any fields from the user's persisted global profile.
         #[cfg(feature = "unstable-msc4426")]
         {
+            if heroes.is_empty() {
+                return Vec::new();
+            }
+
             let user_ids = heroes.iter().map(|hero| hero.user_id.clone()).collect::<Vec<_>>();
 
             let mut global_profiles =

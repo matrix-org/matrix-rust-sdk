@@ -48,7 +48,10 @@ use ruma::{
 };
 use tracing::error;
 
-use self::{power_levels::RoomPowerLevels, room_info::RoomInfo};
+use self::{
+    power_levels::RoomPowerLevels,
+    room_info::{RoomInfo, RoomSummaryDetails},
+};
 use crate::{
     TaskHandle,
     chunk_iterator::ChunkIterator,
@@ -385,6 +388,13 @@ impl Room {
 
     pub async fn room_info(&self) -> Result<RoomInfo, ClientError> {
         RoomInfo::new(&self.inner).await
+    }
+
+    /// Get a [`RoomSummaryDetails`] for this room: the data needed to render
+    /// a room-list entry (including the latest event) in a single call,
+    /// without the state-store queries that [`Self::room_info`] performs.
+    pub async fn room_summary_details(&self) -> Result<RoomSummaryDetails, ClientError> {
+        RoomSummaryDetails::new(&self.inner).await
     }
 
     pub fn subscribe_to_room_info_updates(

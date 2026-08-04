@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use matrix_sdk::{CallIntentConsensus, EncryptionState, RoomState};
+use matrix_sdk_ui::timeline::RoomExt;
 use tracing::warn;
 
 use crate::{
@@ -26,6 +27,7 @@ use crate::{
     },
     room_member::RoomMember,
     ruma::RtcCallIntent,
+    timeline::LatestEventValue,
 };
 
 #[derive(Clone, uniffi::Enum)]
@@ -219,6 +221,99 @@ impl RoomInfo {
                 .and_then(|version| version.rules())
                 .map(|rules| rules.authorization.explicitly_privilege_room_creators)
                 .unwrap_or_default(),
+        })
+    }
+}
+
+/// A slim snapshot of the data needed to render a room in a room list,
+/// including the room's latest event.
+///
+/// Unlike [`RoomInfo`], building this is cheap: it never queries the state
+/// store for power levels or the DM heuristics. The only store reads are the
+/// latest event's sender profile, hero profiles (rooms without a name), and
+/// the inviter (invited rooms).
+#[derive(uniffi::Record)]
+pub struct RoomSummaryDetails {
+    id: String,
+    /// The room's name from the room state event if received from sync, or one
+    /// that's been computed otherwise.
+    display_name: Option<String>,
+    avatar_url: Option<String>,
+    is_direct: bool,
+    is_space: bool,
+    canonical_alias: Option<String>,
+    alternative_aliases: Vec<String>,
+    membership: Membership,
+    /// Member who invited the current user to a room that's in the invited
+    /// state.
+    ///
+    /// Can be missing if the room membership invite event is missing from the
+    /// store.
+    inviter: Option<RoomMember>,
+    heroes: Vec<RoomHero>,
+    active_members_count: u64,
+    /// "Interesting" messages received in that room, independently of the
+    /// notification settings.
+    num_unread_messages: u64,
+    /// Events that will notify the user, according to their
+    /// notification settings.
+    num_unread_notifications: u64,
+    /// Events causing mentions/highlights for the user, according to their
+    /// notification settings.
+    num_unread_mentions: u64,
+    cached_user_defined_notification_mode: Option<RoomNotificationMode>,
+    has_room_call: bool,
+    active_room_call_consensus_intent: RtcCallIntentConsensus,
+    /// Whether this room has been explicitly marked as unread.
+    is_marked_unread: bool,
+    is_favourite: bool,
+    /// If present, it means the room has been archived/upgraded.
+    successor_room: Option<SuccessorRoom>,
+    /// The latest event of the room, tailored for a room-list entry.
+    latest_event: LatestEventValue,
+}
+
+impl RoomSummaryDetails {
+    pub(crate) async fn new(room: &matrix_sdk::Room) -> Result<Self, ClientError> {
+        let state = room.state();
+
+        let inviter = match state {
+            RoomState::Invited => room
+                .invite_details()
+                .await
+                .ok()
+                .and_then(|details| details.inviter)
+                .map(TryInto::try_into)
+                .transpose()
+                .ok()
+                .flatten(),
+            _ => None,
+        };
+
+        Ok(Self {
+            id: room.room_id().to_string(),
+            display_name: room.cached_display_name().map(|name| name.to_string()),
+            avatar_url: room.avatar_url().map(Into::into),
+            is_direct: room.is_direct().await?,
+            is_space: room.is_space(),
+            canonical_alias: room.canonical_alias().map(Into::into),
+            alternative_aliases: room.alt_aliases().into_iter().map(Into::into).collect(),
+            membership: state.into(),
+            inviter,
+            heroes: room.heroes().await.into_iter().map(Into::into).collect(),
+            active_members_count: room.active_members_count(),
+            num_unread_messages: room.num_unread_messages(),
+            num_unread_notifications: room.num_unread_notifications(),
+            num_unread_mentions: room.num_unread_mentions(),
+            cached_user_defined_notification_mode: room
+                .cached_user_defined_notification_mode()
+                .map(Into::into),
+            has_room_call: room.has_active_room_call(),
+            active_room_call_consensus_intent: room.active_room_call_consensus_intent().into(),
+            is_marked_unread: room.is_marked_unread(),
+            is_favourite: room.is_favourite(),
+            successor_room: room.successor_room().map(Into::into),
+            latest_event: RoomExt::latest_event(room).await.into(),
         })
     }
 }
