@@ -22,7 +22,7 @@ use crate::{
     SignatureError,
     olm::utility::to_signable_json,
     types::{CrossSigningKey, Signature, Signatures, X509_SIGNATURE_ALGORITHM},
-    x509::raw_x509_signature::{RawX509Signature, RawX509SignatureAndFirstCertificate},
+    x509::raw_x509_signature::RawX509Signature,
 };
 
 /// Hold one of these if you want to sign cross-signing keys, and call
@@ -90,19 +90,38 @@ impl X509Signer {
         // them have a strictly earlier expiry, so we return `true`.
         for sig in this_user_sigs.values() {
             if let Ok(Signature::X509(sig)) = sig {
-                let res: RawX509SignatureAndFirstCertificate = match sig.try_into() {
-                    Ok(res) => res,
-                    Err(e) => {
-                        tracing::warn!(
-                            "X509: has_later_expiry_than(): unable to parse X509 signature: {}",
-                            e
-                        );
-                        continue;
-                    }
+                // We get the earliest expiry date from all the certificates in the signature.
+                let data: cms::signed_data::SignedData =
+                    match sig.get_signature().content.decode_as() {
+                        Ok(res) => res,
+                        Err(e) => {
+                            tracing::warn!(
+                                "X509: has_later_expiry_than(): unable to parse X509 signature: {}",
+                                e
+                            );
+                            continue;
+                        }
+                    };
+                let Some(certificate_set) = data.certificates else {
+                    tracing::warn!("X509: has_later_expiry_than(): no certificates found");
+                    continue;
                 };
-                // FIXME: should we get the minimum validity of all the certs?
-                let validity = res.leaf_cert.tbs_certificate.validity;
-                if validity.not_after.to_date_time() >= self.x509_sign.validity_not_after() {
+                let Some(validity_not_after) = certificate_set
+                    .0
+                    .iter()
+                    .filter_map(|cert| match cert {
+                        cms::cert::CertificateChoices::Certificate(c) => {
+                            Some(c.tbs_certificate.validity.not_after.to_date_time())
+                        }
+                        _ => None,
+                    })
+                    .min()
+                else {
+                    tracing::warn!("X509: has_later_expiry_than(): no certificates found");
+                    continue;
+                };
+
+                if validity_not_after >= self.x509_sign.validity_not_after() {
                     // We found a signature with a certificate that has a
                     // later-or-equal validity period.
                     return false;
