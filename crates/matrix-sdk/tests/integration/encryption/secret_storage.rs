@@ -577,89 +577,63 @@ async fn test_is_secret_storage_enabled() {
         },
         tokens: mock_session_tokens(),
     };
-    let (client, server) = no_retry_test_client_with_server().await;
+    let (client, _server) = no_retry_test_client_with_server().await;
     client.restore_session(session).await.unwrap();
 
-    {
-        let _scope = Mock::given(method("GET"))
-            .and(path(format!(
-                "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
-            )))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-                "errcode": "M_NOT_FOUND",
-                "error": "Account data not found"
-            })))
-            .expect(1..)
-            .named("default_key account data GET")
-            .mount_as_scoped(&server)
-            .await;
-
-        let enabled = client
-            .encryption()
-            .secret_storage()
-            .is_enabled()
-            .await
-            .expect("We should be able to check if secret storage is enabled");
-
-        assert!(
-            !enabled,
-            "If we didn't find the default key account data event, we should assume that \
-             secret storage is disabled."
+    // is_enabled() is computed from the local copy of the account data these days,
+    // so the states are provided through the store rather than mocked server GETs.
+    async fn seed_default_key(client: &matrix_sdk::Client, content: serde_json::Value) {
+        let mut changes = matrix_sdk_base::StateChanges::default();
+        changes.account_data.insert(
+            "m.secret_storage.default_key".into(),
+            serde_json::from_value(
+                json!({ "type": "m.secret_storage.default_key", "content": content }),
+            )
+            .unwrap(),
         );
+        client.state_store().save_changes(&changes).await.unwrap();
     }
 
-    {
-        let _scope = Mock::given(method("GET"))
-            .and(path(format!(
-                "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
-            )))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
-            .expect(1)
-            .named("default_key account data GET")
-            .mount_as_scoped(&server)
-            .await;
+    let enabled = client
+        .encryption()
+        .secret_storage()
+        .is_enabled()
+        .await
+        .expect("We should be able to check if secret storage is enabled");
 
-        let enabled = client
-            .encryption()
-            .secret_storage()
-            .is_enabled()
-            .await
-            .expect("We should be able to check if secret storage is enabled");
+    assert!(
+        !enabled,
+        "If we didn't find the default key account data event, we should assume that \
+         secret storage is disabled."
+    );
 
-        assert!(
-            !enabled,
-            "If deserialization of the default key account data event failed, we should assume \
-             that secret storage is disabled"
-        );
-    }
+    seed_default_key(&client, json!({})).await;
 
-    {
-        let _scope = Mock::given(method("GET"))
-            .and(path(format!(
-                "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
-            )))
-            .and(header("authorization", "Bearer 1234"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-                "key": "some_key_id",
-            })))
-            .expect(1)
-            .named("default_key account data GET")
-            .mount_as_scoped(&server)
-            .await;
+    let enabled = client
+        .encryption()
+        .secret_storage()
+        .is_enabled()
+        .await
+        .expect("We should be able to check if secret storage is enabled");
 
-        let enabled = client
-            .encryption()
-            .secret_storage()
-            .is_enabled()
-            .await
-            .expect("We should be able to check if secret storage is enabled");
+    assert!(
+        !enabled,
+        "If deserialization of the default key account data event failed, we should assume \
+         that secret storage is disabled"
+    );
 
-        assert!(
-            enabled,
-            "If there is a default key event and deserialization did not fail, we're assuming \
-             that secret storage is enabled"
-        );
-    }
+    seed_default_key(&client, json!({ "key": "some_key_id" })).await;
+
+    let enabled = client
+        .encryption()
+        .secret_storage()
+        .is_enabled()
+        .await
+        .expect("We should be able to check if secret storage is enabled");
+
+    assert!(
+        enabled,
+        "If there is a default key event and deserialization did not fail, we're assuming \
+         that secret storage is enabled"
+    );
 }

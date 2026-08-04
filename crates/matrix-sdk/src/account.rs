@@ -71,7 +71,7 @@ use ruma::{
     thirdparty::Medium,
 };
 use serde::Deserialize;
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{Client, Error, Result, config::RequestConfig};
 
@@ -1042,11 +1042,7 @@ impl Account {
     where
         T: GlobalAccountDataEventContent,
     {
-        let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
-
-        let request = set_global_account_data::v3::Request::new(own_user.to_owned(), &content)?;
-
-        Ok(self.client.send(request).await?)
+        self.set_account_data_raw(content.event_type(), Raw::new(&content)?.cast_unchecked()).await
     }
 
     /// Set the given raw account data event.
@@ -1057,10 +1053,30 @@ impl Account {
     ) -> Result<set_global_account_data::v3::Response> {
         let own_user = self.client.user_id().ok_or(Error::AuthenticationRequired)?;
 
-        let request =
-            set_global_account_data::v3::Request::new_raw(own_user.to_owned(), event_type, content);
+        let request = set_global_account_data::v3::Request::new_raw(
+            own_user.to_owned(),
+            event_type.clone(),
+            content.clone(),
+        );
 
-        Ok(self.client.send(request).await?)
+        let response = self.client.send(request).await?;
+
+        // The server acknowledged the write: update the local copy immediately, so
+        // readers of the store (e.g. the recovery state computation) see it without
+        // having to wait for sync to echo it back.
+        let event = Raw::new(&serde_json::json!({
+            "type": event_type.to_string(),
+            "content": content,
+        }))
+        .expect("We should be able to serialize the account data event we just sent")
+        .cast_unchecked();
+        let mut changes = matrix_sdk_base::StateChanges::default();
+        changes.account_data.insert(event_type, event);
+        if let Err(error) = self.client.state_store().save_changes(&changes).await {
+            warn!("Failed to update the local copy of freshly set account data: {error}");
+        }
+
+        Ok(response)
     }
 
     /// Marks the room identified by `room_id` as a "direct chat" with each

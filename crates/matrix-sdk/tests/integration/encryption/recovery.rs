@@ -43,6 +43,19 @@ use wiremock::{
 
 use crate::{encryption::mock_secret_store_with_backup_key, logged_in_client_with_server};
 
+/// Seed the client's state store with a global account data event, as sync
+/// would: the recovery state is computed from the local copies these days, so
+/// tests provide them through the store rather than mocking server GETs.
+async fn seed_account_data(client: &Client, event_type: &str, content: Value) {
+    let mut changes = matrix_sdk_base::StateChanges::default();
+    changes.account_data.insert(
+        event_type.into(),
+        serde_json::from_value(json!({ "type": event_type, "content": content }))
+            .expect("We should be able to create a raw account data event"),
+    );
+    client.state_store().save_changes(&changes).await.expect("We should be able to seed the store");
+}
+
 async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
     let session = MatrixSession {
         meta: SessionMeta { user_id: user_id.into(), device_id: owned_device_id!("DEVICEID") },
@@ -61,19 +74,8 @@ async fn test_client(user_id: &UserId) -> (Client, wiremock::MockServer) {
         .await
         .unwrap();
 
-    let _guard = Mock::given(method("GET"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-            "errcode": "M_NOT_FOUND",
-            "error": "Account data not found"
-        })))
-        .expect(2)
-        .named("m.secret_storage.default_key account data GET")
-        .mount_as_scoped(&server)
-        .await;
+    // No m.secret_storage.default_key mock: the recovery state is computed from
+    // the local account data copies, so no server GET happens any more.
 
     let _guard = Mock::given(method("POST"))
         .and(path("_matrix/client/r0/keys/upload"))
@@ -159,9 +161,12 @@ async fn mock_put_new_default_secret_storage_key(user_id: &UserId, server: &wire
 
 #[async_test]
 async fn test_recovery_status_server_unavailable() {
+    // The recovery state is computed from the local account data copies, so an
+    // unavailable server no longer leaves it Unknown: an empty store reads as
+    // recovery being disabled, and sync updates correct it later.
     let (client, _) = logged_in_client_with_server().await;
     client.encryption().wait_for_e2ee_initialization_tasks().await;
-    assert_eq!(client.encryption().recovery().state(), RecoveryState::Unknown);
+    assert_eq!(client.encryption().recovery().state(), RecoveryState::Disabled);
 }
 
 #[async_test]
@@ -178,6 +183,7 @@ async fn test_recovery_status_secret_storage_set_up() {
 
     mock_secret_store_with_backup_key(user_id, KEY_ID, &server).await;
 
+    seed_account_data(&client, "m.secret_storage.default_key", json!({ "key": KEY_ID })).await;
     client.restore_session(session).await.unwrap();
     client.encryption().wait_for_e2ee_initialization_tasks().await;
 
@@ -197,19 +203,8 @@ async fn test_recovery_status_secret_storage_not_set_up() {
 
     let (client, server) = no_retry_test_client_with_server().await;
 
-    Mock::given(method("GET"))
-        .and(path(format!(
-            "_matrix/client/r0/user/{user_id}/account_data/m.secret_storage.default_key"
-        )))
-        .and(header("authorization", "Bearer 1234"))
-        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
-            "errcode": "M_NOT_FOUND",
-            "error": "Account data not found"
-        })))
-        .expect(1..)
-        .mount(&server)
-        .await;
-
+    // No m.secret_storage.default_key in the local store: recovery is disabled,
+    // without any server round trip.
     client.restore_session(session).await.unwrap();
     client.encryption().wait_for_e2ee_initialization_tasks().await;
 
@@ -349,7 +344,8 @@ async fn enable(
                 ResponseTemplate::new(404)
             }
         })
-        .expect(2)
+        // No count expectation: the recovery state is computed from the local copy
+        // (updated on write-through), so these GETs only happen for explicit fetches.
         .mount_as_scoped(server)
         .await;
 
@@ -706,7 +702,9 @@ async fn test_recovery_disabling() {
                 ResponseTemplate::new(404)
             }
         })
-        .expect(3)
+        // Only disable()'s explicit fetch hits the server now; the recovery state
+        // recomputations read the local copy.
+        .expect(1)
         .named("m.secret_storage.default_key account data GET")
         .mount(&server)
         .await;
@@ -824,6 +822,7 @@ async fn test_recover_and_reset() {
 
     mock_put_new_default_secret_storage_key(user_id, &server).await;
 
+    seed_account_data(&client, "m.secret_storage.default_key", json!({ "key": KEY_ID })).await;
     client.restore_session(session).await.unwrap();
     client.encryption().wait_for_e2ee_initialization_tasks().await;
 
