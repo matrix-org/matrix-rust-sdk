@@ -650,18 +650,22 @@ impl Recovery {
         Ok(())
     }
 
-    /// Run a network request to figure whether backups have been disabled at
-    /// the account level.
+    /// Figure out whether backups have been marked as disabled at the account
+    /// level, from the local copy of the account data.
+    ///
+    /// The local copy is kept up to date by sync's account data handling; this
+    /// gets recomputed several times around startup and must not cost a server
+    /// round trip each time.
     async fn are_backups_marked_as_disabled(&self) -> Result<bool> {
         if let Some(key_backup_content) =
-            self.client.account().fetch_account_data_static::<KeyBackupContent>().await?
+            self.client.account().account_data::<KeyBackupContent>().await?
         {
             Ok(key_backup_content.deserialize().map(|event| !event.enabled).unwrap_or(false))
         } else {
             Ok(self
                 .client
                 .account()
-                .fetch_account_data_static::<BackupDisabledContent>()
+                .account_data::<BackupDisabledContent>()
                 .await?
                 .map(|event| event.deserialize().map(|event| event.disabled).unwrap_or(false))
                 .unwrap_or(false))

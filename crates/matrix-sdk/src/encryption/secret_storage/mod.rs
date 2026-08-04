@@ -341,7 +341,7 @@ impl SecretStorage {
 
     /// Run a network request to find if secret storage is set up for this user.
     pub async fn is_enabled(&self) -> crate::Result<bool> {
-        if let Some(content) = self.fetch_default_key_id().await? {
+        if let Some(content) = self.default_key_id().await? {
             // Since we can't delete account data events, we're going to treat
             // deserialization failures as secret storage being disabled.
             Ok(content.deserialize().is_ok())
@@ -349,6 +349,19 @@ impl SecretStorage {
             // No account data event found, must be disabled.
             Ok(false)
         }
+    }
+
+    /// Get the `m.secret_storage.default_key` event from the local state
+    /// store.
+    ///
+    /// The local copy is kept up to date by sync's account data handling, so
+    /// this avoids a server round trip on every (re)computation of the
+    /// recovery state. Use [`SecretStorage::fetch_default_key_id()`] when the
+    /// server's current view is required.
+    pub async fn default_key_id(
+        &self,
+    ) -> crate::Result<Option<Raw<SecretStorageDefaultKeyEventContent>>> {
+        self.client.account().account_data::<SecretStorageDefaultKeyEventContent>().await
     }
 
     /// Fetch the `m.secret_storage.default_key` event from the server.

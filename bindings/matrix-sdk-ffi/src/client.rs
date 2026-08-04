@@ -1803,8 +1803,11 @@ impl Client {
     // Ignored users
 
     pub async fn ignored_users(&self) -> Result<Vec<String>, ClientError> {
+        // Read the local copy: the list is global account data kept up to date by
+        // sync, and this is called at every startup where a server round trip
+        // (and its retries) would race the first sync for no benefit.
         if let Some(raw_content) =
-            self.inner.account().fetch_account_data_static::<IgnoredUserListEventContent>().await?
+            self.inner.account().account_data::<IgnoredUserListEventContent>().await?
         {
             let content = raw_content.deserialize()?;
             let user_ids: Vec<String> =

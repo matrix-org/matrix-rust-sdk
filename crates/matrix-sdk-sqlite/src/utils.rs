@@ -537,34 +537,52 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        mut secret: Secret,
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
-        let cipher = if let Some(encrypted) = encrypted_cipher {
-            match secret {
-                Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
-                Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
-            }
-        } else {
-            let cipher = StoreCipher::new()?;
-            let export = match secret {
-                Secret::PassPhrase(ref passphrase) => {
-                    #[cfg(not(test))]
-                    {
-                        cipher.export(passphrase)
-                    }
-                    #[cfg(test)]
-                    {
-                        cipher._insecure_export_fast_for_testing(passphrase)
-                    }
-                }
-                Secret::Key(ref key) => cipher.export_with_key(key),
-            };
-            self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
-            cipher
-        };
-        secret.zeroize();
+        // The passphrase-based import/export paths run a deliberately slow KDF
+        // (hundreds of ms of pure CPU). Several stores are opened concurrently at
+        // startup, each with its own cipher: run the KDF on a blocking thread so
+        // those opens actually parallelise instead of serialising on one task.
+        let (cipher, export) = tokio::task::spawn_blocking(
+            move || -> Result<(StoreCipher, Option<Vec<u8>>), OpenStoreError> {
+                let mut secret = secret;
+                let result = if let Some(encrypted) = encrypted_cipher {
+                    let cipher = match secret {
+                        Secret::PassPhrase(ref passphrase) => {
+                            StoreCipher::import(passphrase, &encrypted)?
+                        }
+                        Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
+                    };
+                    (cipher, None)
+                } else {
+                    let cipher = StoreCipher::new()?;
+                    let export = match secret {
+                        Secret::PassPhrase(ref passphrase) => {
+                            #[cfg(not(test))]
+                            {
+                                cipher.export(passphrase)
+                            }
+                            #[cfg(test)]
+                            {
+                                cipher._insecure_export_fast_for_testing(passphrase)
+                            }
+                        }
+                        Secret::Key(ref key) => cipher.export_with_key(key),
+                    };
+                    (cipher, Some(export?))
+                };
+                secret.zeroize();
+                Ok(result)
+            },
+        )
+        .await
+        .expect("The store cipher task should never panic")?;
+
+        if let Some(export) = export {
+            self.set_kv("cipher", export).await.map_err(OpenStoreError::SaveCipher)?;
+        }
         Ok(cipher)
     }
 }

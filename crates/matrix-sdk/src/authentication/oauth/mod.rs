@@ -1266,7 +1266,10 @@ impl OAuth {
             fail!(refresh_status_guard, RefreshTokenError::RefreshTokenRequired);
         };
 
-        let server_metadata = match self.server_metadata().await {
+        // Use the cached metadata when available: refreshing the token is on the
+        // critical path of the first authenticated request after expiry, and the
+        // token endpoint changing is rare enough that stale-while-revalidate is fine.
+        let server_metadata = match self.cached_server_metadata().await {
             Ok(metadata) => metadata,
             Err(err) => {
                 warn!("couldn't get authorization server metadata: {err:?}");
