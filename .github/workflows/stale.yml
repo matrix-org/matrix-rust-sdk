@@ -1,0 +1,33 @@
+name: Close stale issues and pull requests.
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+
+permissions: {}
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@4391f3da665fdf50b6810c1a66712fb9ba21aa93 # v11
+        with:
+          labels-to-remove-when-unstale: "needs-info"
+
+          # Issues
+          only-issue-labels: "needs-info"
+          days-before-issue-stale: 30
+          days-before-issue-close: 7
+          stale-issue-label: "stale"
+          stale-issue-message: "This issue has been awaiting further information for the past 30 days so will now be marked as stale. Please provide the requested information within the next 7 days to keep it open."
+          close-issue-message: "This issue is being closed due to inactivity after further information was requested."
+
+          # Pull requests
+          days-before-pr-stale: 30
+          days-before-pr-close: 7
+          stale-pr-label: "stale"
+          stale-pr-message: "This pull request has seen no activity for the past 30 days and will now be marked as stale. Please update it or leave a comment within the next 7 days to keep it open."
+          close-pr-message: "This pull request is being closed due to inactivity."
