@@ -55,7 +55,7 @@ impl Builder {
         let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
 
         if let Ok(Some(event)) = room_event_cache
-            .rfind_map_event_in_memory_by(|event| {
+            .rfind_map_event_in_memory_before_gap_by(|event| {
                 match filter_timeline_event(
                     event,
                     current_event.event_id().as_ref(),
@@ -115,16 +115,18 @@ impl Builder {
         {
             Some(LatestEventValue::Remote(event))
         } else {
-            // No suitable event has been found in the in-memory events.
+            // No suitable event has been found in the in-memory events before
+            // the first gap.
             //
-            // It means either the room has been emptied, or every in-memory
-            // event is non-displayable (e.g. a reaction, a redaction, an
-            // unable-to-decrypt event) and any previously computed value is
-            // out-of-date: newer events exist, we just cannot display any of
-            // them. In both cases, keeping the previous value would display a
-            // preview that is not the latest event of the room, without any
-            // mechanism to ever correct it. Let's erase it instead: no
-            // preview is better than a wrong preview.
+            // It means either the room has been emptied, or every event in the
+            // most recent contiguous span is non-displayable (e.g. a reaction,
+            // a redaction, an unable-to-decrypt event). A displayable event
+            // might exist on the other side of a gap (or in the storage), but
+            // nothing is known about what lies in between, so it cannot be
+            // trusted as “the latest event”. Keeping the previous value would
+            // display a preview that is not the latest event of the room,
+            // without any mechanism to ever correct it. Let's erase it
+            // instead: no preview is better than a wrong preview.
             Some(LatestEventValue::default())
         }
     }

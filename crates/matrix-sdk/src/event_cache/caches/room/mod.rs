@@ -152,13 +152,17 @@ impl RoomEventCache {
     ///
     /// The `predicate` receives the current event as its single argument.
     ///
+    /// The search stops at the first gap: an event on the other side of a gap
+    /// is not contiguous with the most recent events, nothing is known about
+    /// what lies in between, so it must not be reported as a match.
+    ///
     /// **Warning**! It looks into the loaded events from the in-memory linked
     /// chunk **only**. It doesn't look inside the storage.
-    pub async fn rfind_map_event_in_memory_by<O, P>(&self, predicate: P) -> Result<Option<O>>
+    pub async fn rfind_map_event_in_memory_before_gap_by<O, P>(&self, predicate: P) -> Result<Option<O>>
     where
         P: FnMut(&Event) -> Option<O>,
     {
-        Ok(self.inner.state.read().await?.rfind_map_event_in_memory_by(predicate))
+        Ok(self.inner.state.read().await?.rfind_map_event_in_memory_before_gap_by(predicate))
     }
 
     /// Try to find an event by ID in this room.
@@ -1887,7 +1891,7 @@ mod timed_tests {
     }
 
     #[async_test]
-    async fn test_rfind_map_event_in_memory_by() {
+    async fn test_rfind_map_event_in_memory_before_gap_by() {
         let user_id = user_id!("@mnt_io:matrix.org");
         let room_id = room_id!("!raclette:patate.ch");
         let client = MockClientBuilder::new(None).build().await;
@@ -1954,7 +1958,7 @@ mod timed_tests {
         // Look for an event from `BOB`: it must be `event_0`.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event| {
+                .rfind_map_event_in_memory_before_gap_by(|event| {
                     (event.sender().as_deref() == Some(*BOB)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
@@ -1967,7 +1971,7 @@ mod timed_tests {
         // because events are looked for in reverse order.
         assert_matches!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event| {
+                .rfind_map_event_in_memory_before_gap_by(|event| {
                     (event.sender().as_deref() == Some(*ALICE)).then(|| event.event_id().map(ToOwned::to_owned))
                 })
                 .await,
@@ -1979,7 +1983,7 @@ mod timed_tests {
         // Look for an event that is inside the storage, but not loaded.
         assert!(
             room_event_cache
-                .rfind_map_event_in_memory_by(|event| {
+                .rfind_map_event_in_memory_before_gap_by(|event| {
                     (event.sender().as_deref() == Some(user_id))
                         .then(|| event.event_id().map(ToOwned::to_owned))
                 })
@@ -1990,7 +1994,89 @@ mod timed_tests {
 
         // Look for an event that doesn't exist.
         assert!(
-            room_event_cache.rfind_map_event_in_memory_by(|_| None::<()>).await.unwrap().is_none()
+            room_event_cache.rfind_map_event_in_memory_before_gap_by(|_| None::<()>).await.unwrap().is_none()
+        );
+    }
+
+    #[async_test]
+    async fn test_rfind_map_event_in_memory_before_gap_by_stops_at_gap() {
+        let room_id = room_id!("!raclette:patate.ch");
+        let client = MockClientBuilder::new(None).build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let event_factory = EventFactory::new().room(room_id);
+
+        // A first sync brings an event from `ALICE`.
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: None,
+                    events: vec![
+                        event_factory
+                            .text_msg("hello")
+                            .sender(*ALICE)
+                            .event_id(event_id!("$ev0"))
+                            .into_event(),
+                    ],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // A limited sync brings an event from `BOB`, behind a gap.
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("raclette".to_owned()),
+                    events: vec![
+                        event_factory
+                            .text_msg("world")
+                            .sender(*BOB)
+                            .event_id(event_id!("$ev1"))
+                            .into_event(),
+                    ],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Reload the previous chunk in memory, so that the in-memory linked
+        // chunk is [`ALICE`'s event, gap, `BOB`'s event].
+        room_event_cache.pagination().load_more_events_backwards().await.unwrap();
+
+        // `BOB`'s event is on the near side of the gap: it is found.
+        assert!(
+            room_event_cache
+                .rfind_map_event_in_memory_before_gap_by(|event| {
+                    (event.sender().as_deref() == Some(*BOB))
+                        .then(|| event.event_id().map(ToOwned::to_owned))
+                })
+                .await
+                .unwrap()
+                .is_some()
+        );
+
+        // `ALICE`'s event is in memory but on the other side of the gap:
+        // nothing is known about what lies in between, it must NOT be found.
+        assert!(
+            room_event_cache
+                .rfind_map_event_in_memory_before_gap_by(|event| {
+                    (event.sender().as_deref() == Some(*ALICE))
+                        .then(|| event.event_id().map(ToOwned::to_owned))
+                })
+                .await
+                .unwrap()
+                .is_none()
         );
     }
 
@@ -2618,7 +2704,7 @@ mod timed_tests {
 
     async fn event_loaded(room_event_cache: &RoomEventCache, event_id: &EventId) -> bool {
         room_event_cache
-            .rfind_map_event_in_memory_by(|event| {
+            .rfind_map_event_in_memory_before_gap_by(|event| {
                 (event.event_id() == Some(event_id)).then_some(())
             })
             .await

@@ -24,7 +24,7 @@ use matrix_sdk_base::{
     serde_helpers::extract_redaction_target,
     sync::Timeline,
 };
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{executor::spawn, linked_chunk::ChunkContent};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
@@ -242,14 +242,31 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
     ///
     /// The `predicate` receives the current event as its single argument.
     ///
+    /// The search stops at the first gap: an event on the other side of a gap
+    /// is not contiguous with the most recent events, nothing is known about
+    /// what lies in between, so it must not be reported as a match.
+    ///
     /// **Warning**! It looks into the loaded events from the in-memory
     /// linked chunk **only**. It doesn't look inside the storage,
     /// contrary to [`Self::find_event`].
-    pub fn rfind_map_event_in_memory_by<O, P>(&self, mut predicate: P) -> Option<O>
+    pub fn rfind_map_event_in_memory_before_gap_by<O, P>(&self, mut predicate: P) -> Option<O>
     where
         P: FnMut(&Event) -> Option<O>,
     {
-        self.state.room_linked_chunk.revents().find_map(|(_, event)| predicate(event))
+        for chunk in self.state.room_linked_chunk.rchunks() {
+            match chunk.content() {
+                ChunkContent::Gap(_) => return None,
+                ChunkContent::Items(events) => {
+                    for event in events.iter().rev() {
+                        if let Some(output) = predicate(event) {
+                            return Some(output);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     #[cfg(test)]
