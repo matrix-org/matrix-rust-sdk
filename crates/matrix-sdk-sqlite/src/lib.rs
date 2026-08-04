@@ -57,6 +57,11 @@ pub enum Secret {
     Key(Box<[u8; 32]>),
     // Passphrase used to open the store
     PassPhrase(Zeroizing<String>),
+    // A passphrase with high entropy (e.g. randomly generated rather than
+    // human-chosen), for which the expensive brute-force-resistant KDF adds no
+    // security: the store may cache a cheaply-derivable copy of the store
+    // cipher next to the database and skip the KDF on subsequent opens.
+    HighEntropyPassPhrase(Zeroizing<String>),
 }
 
 /// A configuration structure used for opening a store.
@@ -139,6 +144,21 @@ impl SqliteStoreConfig {
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
         self.secret =
             passphrase.map(|passphrase| Secret::PassPhrase(Zeroizing::new(passphrase.to_owned())));
+        self
+    }
+
+    /// Define the passphrase if the store is encoded, declaring it
+    /// high-entropy (e.g. a randomly generated secret rather than something a
+    /// human chose and could plausibly be brute-forced).
+    ///
+    /// The expensive KDF run protects weak passphrases against offline
+    /// brute-force and adds nothing for high-entropy ones, so the store caches
+    /// a cheaply-derivable copy of the store cipher next to the database and
+    /// skips the KDF on subsequent opens. Do NOT use this with human-chosen
+    /// passphrases: the cached copy would bypass their brute-force protection.
+    pub fn high_entropy_passphrase(mut self, passphrase: Option<&str>) -> Self {
+        self.secret = passphrase
+            .map(|passphrase| Secret::HighEntropyPassPhrase(Zeroizing::new(passphrase.to_owned())));
         self
     }
 

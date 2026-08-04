@@ -64,6 +64,7 @@ mod sqlite {
     pub struct SqliteStoreBuilder {
         paths: StorePaths,
         passphrase: Zeroizing<Option<String>>,
+        passphrase_is_high_entropy: bool,
         key: Zeroizing<Option<Vec<u8>>>,
         pool_max_size: Option<usize>,
         cache_size: Option<u32>,
@@ -76,6 +77,7 @@ mod sqlite {
             Self {
                 paths: StorePaths { data_path, cache_path },
                 passphrase: Zeroizing::new(None),
+                passphrase_is_high_entropy: false,
                 key: Zeroizing::new(None),
                 pool_max_size: None,
                 cache_size: None,
@@ -103,6 +105,25 @@ mod sqlite {
         pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
             let mut builder = unwrap_or_clone_arc(self);
             builder.passphrase = Zeroizing::new(passphrase);
+            builder.passphrase_is_high_entropy = false;
+            builder.key = Zeroizing::new(None);
+            Arc::new(builder)
+        }
+
+        /// Set the passphrase for the stores, declaring it high-entropy (e.g. a
+        /// randomly generated secret rather than something a human chose and
+        /// could plausibly be brute-forced), and removes any [`Self::key`]
+        /// previously set.
+        ///
+        /// The stores then cache a cheaply-derivable copy of their store cipher
+        /// next to the database and skip the expensive brute-force-resistant
+        /// KDF on subsequent opens. Do NOT use this with human-chosen
+        /// passphrases: the cached copy would bypass their brute-force
+        /// protection.
+        pub fn high_entropy_passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+            let mut builder = unwrap_or_clone_arc(self);
+            builder.passphrase = Zeroizing::new(passphrase);
+            builder.passphrase_is_high_entropy = true;
             builder.key = Zeroizing::new(None);
             Arc::new(builder)
         }
@@ -201,7 +222,11 @@ mod sqlite {
                     Err(_) => return Err(ClientBuildError::InvalidRawKey),
                 }
             } else if let Some(passphrase) = self.passphrase.as_deref() {
-                sqlite_store_config = sqlite_store_config.passphrase(Some(passphrase));
+                sqlite_store_config = if self.passphrase_is_high_entropy {
+                    sqlite_store_config.high_entropy_passphrase(Some(passphrase))
+                } else {
+                    sqlite_store_config.passphrase(Some(passphrase))
+                };
             }
 
             if let Some(size) = self.pool_max_size {

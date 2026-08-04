@@ -2599,6 +2599,36 @@ mod encrypted_tests {
     }
 
     #[async_test]
+    async fn test_high_entropy_passphrase_fast_open() {
+        let tmpdir_path = new_state_store_workspace();
+
+        // Create the store with a regular passphrase: only the slow-KDF cipher
+        // copy exists.
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("secret"));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // Reopening with the passphrase declared high-entropy migrates
+        // transparently (and caches the fast-open cipher copy).
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some("secret"));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // Reopening again uses the fast-open copy.
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some("secret"));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // Rolling back to the regular passphrase path must still work: the
+        // slow-KDF copy is never replaced.
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("secret"));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // The wrong passphrase must fail on both paths.
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some("wrong"));
+        assert!(SqliteStateStore::open_with_config(&config).await.is_err());
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("wrong"));
+        assert!(SqliteStateStore::open_with_config(&config).await.is_err());
+    }
+
+    #[async_test]
     async fn test_pool_size() {
         let tmpdir_path = new_state_store_workspace();
         let store_open_config = SqliteStoreConfig::new(tmpdir_path).pool_max_size(42);

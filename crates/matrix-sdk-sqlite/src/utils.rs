@@ -541,25 +541,48 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     ) -> Result<StoreCipher, OpenStoreError> {
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
+        // For high-entropy passphrases a cheaply-derivable copy of the cipher may
+        // have been cached next to the slow-KDF one; see `fast_open_key`.
+        let fast_encrypted_cipher = match &secret {
+            Secret::HighEntropyPassPhrase(_) => {
+                self.get_kv("cipher_fast").await.map_err(OpenStoreError::LoadCipher)?
+            }
+            _ => None,
+        };
+
         // The passphrase-based import/export paths run a deliberately slow KDF
         // (hundreds of ms of pure CPU). Several stores are opened concurrently at
         // startup, each with its own cipher: run the KDF on a blocking thread so
         // those opens actually parallelise instead of serialising on one task.
-        let (cipher, export) = tokio::task::spawn_blocking(
-            move || -> Result<(StoreCipher, Option<Vec<u8>>), OpenStoreError> {
+        let (cipher, exports) = tokio::task::spawn_blocking(
+            move || -> Result<(StoreCipher, Vec<(&'static str, Vec<u8>)>), OpenStoreError> {
                 let mut secret = secret;
-                let result = if let Some(encrypted) = encrypted_cipher {
-                    let cipher = match secret {
-                        Secret::PassPhrase(ref passphrase) => {
-                            StoreCipher::import(passphrase, &encrypted)?
+                let mut exports = Vec::new();
+
+                // Fast path: open with the cached HKDF-wrapped copy, no KDF.
+                if let (Secret::HighEntropyPassPhrase(passphrase), Some(fast)) =
+                    (&secret, &fast_encrypted_cipher)
+                    && let Ok(cipher) = StoreCipher::import_with_key(&fast_open_key(passphrase), fast)
+                {
+                    secret.zeroize();
+                    return Ok((cipher, exports));
+                }
+                // A stale or corrupt cached copy falls through to the slow path
+                // below, which rewrites it.
+
+                let cipher = if let Some(encrypted) = &encrypted_cipher {
+                    match &secret {
+                        Secret::PassPhrase(passphrase)
+                        | Secret::HighEntropyPassPhrase(passphrase) => {
+                            StoreCipher::import(passphrase, encrypted)?
                         }
-                        Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
-                    };
-                    (cipher, None)
+                        Secret::Key(key) => StoreCipher::import_with_key(key, encrypted)?,
+                    }
                 } else {
                     let cipher = StoreCipher::new()?;
-                    let export = match secret {
-                        Secret::PassPhrase(ref passphrase) => {
+                    let export = match &secret {
+                        Secret::PassPhrase(passphrase)
+                        | Secret::HighEntropyPassPhrase(passphrase) => {
                             #[cfg(not(test))]
                             {
                                 cipher.export(passphrase)
@@ -569,19 +592,29 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                                 cipher._insecure_export_fast_for_testing(passphrase)
                             }
                         }
-                        Secret::Key(ref key) => cipher.export_with_key(key),
+                        Secret::Key(key) => cipher.export_with_key(key),
                     };
-                    (cipher, Some(export?))
+                    // The slow-KDF-wrapped copy is always written, even for
+                    // high-entropy passphrases: older versions of the code (after a
+                    // rollback) only know how to open that one.
+                    exports.push(("cipher", export?));
+                    cipher
                 };
+
+                if let Secret::HighEntropyPassPhrase(passphrase) = &secret {
+                    exports
+                        .push(("cipher_fast", cipher.export_with_key(&fast_open_key(passphrase))?));
+                }
+
                 secret.zeroize();
-                Ok(result)
+                Ok((cipher, exports))
             },
         )
         .await
         .expect("The store cipher task should never panic")?;
 
-        if let Some(export) = export {
-            self.set_kv("cipher", export).await.map_err(OpenStoreError::SaveCipher)?;
+        for (key, export) in exports {
+            self.set_kv(key, export).await.map_err(OpenStoreError::SaveCipher)?;
         }
         Ok(cipher)
     }
@@ -633,6 +666,22 @@ pub(crate) fn time_to_timestamp(time: SystemTime) -> i64 {
         // It is unlikely to happen unless the time on the system is seriously wrong, but we always
         // need a value.
         .unwrap_or(0)
+}
+
+/// Derive the 32-byte key wrapping the `cipher_fast` cached copy of the store
+/// cipher from a high-entropy passphrase.
+///
+/// A single cheap HKDF expansion: its only job is turning an arbitrary-length
+/// high-entropy string into uniform key material with domain separation. It
+/// deliberately provides no brute-force stretching - that is what the slow-KDF
+/// `cipher` copy is for, and callers must only ask for this with passphrases
+/// that cannot be brute-forced.
+fn fast_open_key(passphrase: &str) -> Box<[u8; 32]> {
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, passphrase.as_bytes());
+    let mut key = Box::new([0u8; 32]);
+    hkdf.expand(b"matrix-sdk-sqlite.store-cipher.fast-open.v1", key.as_mut_slice())
+        .expect("32 bytes is a valid HKDF-SHA256 output length");
+    key
 }
 
 /// Trait for a store that can encrypt its values, based on the presence of a
