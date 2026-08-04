@@ -1490,34 +1490,18 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Assert the dynamic entries.
-    // It's pushed on the front because rooms are sorted by recency.
+    // The new rooms are inserted at their sorted positions, in one batch.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        push front [ "!r1:bar.org" ];
-        push front [ "!r4:bar.org" ];
+        insert [ 0 ] [ "!r4:bar.org" ];
+        insert [ 1 ] [ "!r1:bar.org" ];
         end;
     };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
+    // The room info notable updates are drained in one batch, and deduplicated
+    // by room: one `set` per room.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 0 ] [ "!r4:bar.org" ];
-        end;
-    };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
         set [ 0 ] [ "!r4:bar.org" ];
         end;
     };
@@ -1596,36 +1580,18 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
     };
 
     // Assert the dynamic entries.
+    // The new rooms are inserted at their sorted positions, in one batch.
     assert_entries_batch! {
         [dynamic_entries_stream]
-        push front [ "!r5:bar.org" ];
-        push front [ "!r7:bar.org" ];
+        insert [ 0 ] [ "!r7:bar.org" ];
+        insert [ 1 ] [ "!r5:bar.org" ];
         end;
     };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
+    // The room info notable updates are drained in one batch, and deduplicated
+    // by room: one `set` per room.
     assert_entries_batch! {
         [dynamic_entries_stream]
         set [ 1 ] [ "!r5:bar.org" ];
-        end;
-    };
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 0 ] [ "!r7:bar.org" ];
-        end;
-    };
-
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
-        set [ 1 ] [ "!r5:bar.org" ];
-        end;
-    };
-    // TODO (@hywan): Remove as soon as `RoomInfoNotableUpdateReasons::NONE` is
-    // removed.
-    assert_entries_batch! {
-        [dynamic_entries_stream]
         set [ 0 ] [ "!r7:bar.org" ];
         end;
     };
@@ -1747,14 +1713,15 @@ async fn test_dynamic_entries_stream() -> Result<(), Error> {
 
     // Assert the dynamic entries.
     // `!r0:bar.org` has a new state event. The room must move in the room list
-    // because it has the highest recency.
+    // because it has the highest recency. The removal at its old position is
+    // invisible (beyond the page limit), so only the insertion and the
+    // truncation to the page size are visible.
     assert_entries_batch! {
         [dynamic_entries_stream]
         pop back;
-        push front [ "!r0:bar.org" ];
+        insert [ 0 ] [ "!r0:bar.org" ];
         end;
     };
-    assert_pending!(dynamic_entries_stream);
 
     // Let's ask one more page again, because it's fun.
     dynamic_entries.add_one_page();
@@ -1948,52 +1915,19 @@ async fn test_room_sorting() -> Result<(), Error> {
         },
     };
 
-    // Assert rooms are moving because their recency (based on the latest event)
-    // have changed.
-
-    // `!r0` is moving.
-    assert_entries_batch! {
-        [stream]
-        remove [ 3 ];
-        push front [ "!r0:bar.org" ];
-        end;
-    };
-
-    // `!r1` is moving.
-    assert_entries_batch! {
-        [stream]
-        remove [ 3 ];
-        insert [ 1 ] [ "!r1:bar.org" ];
-        end;
-    };
-
-    // `!r2` is supposed to move, but meanwhile, `!r0` receives a read receipt
-    // update.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r0:bar.org" ];
-        end;
-    };
-
-    // `!r2` is moving.
+    // Assert rooms are moving because their recency has changed. All the
+    // room info notable updates (bump stamps, read receipts, freshly
+    // computed latest events) are drained and coalesced into ONE atomic
+    // batch: the rooms that keep their relative order (`!r4` and `!r3`)
+    // don't move at all, and there is no room-by-room trickle.
     assert_entries_batch! {
         [stream]
         remove [ 4 ];
-        push front [ "!r2:bar.org" ];
-        end;
-    };
-
-    // `!r1` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r1:bar.org" ];
-        end;
-    };
-
-    // `!r2` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r2:bar.org" ];
+        remove [ 3 ];
+        remove [ 2 ];
+        insert [ 0 ] [ "!r2:bar.org" ];
+        insert [ 1 ] [ "!r0:bar.org" ];
+        insert [ 2 ] [ "!r1:bar.org" ];
         end;
     };
 
@@ -2059,7 +1993,8 @@ async fn test_room_sorting() -> Result<(), Error> {
         },
     };
 
-    // `!r6` is being inserted.
+    // `!r6` is a new room: it is inserted at its sorted position. Its bump
+    // stamp (8) slots it between `!r2` (recency 9) and `!r0` (recency 7).
     assert_entries_batch! {
         [stream]
         insert [ 1 ] [ "!r6:bar.org" ];
@@ -2077,25 +2012,15 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 4     | !r4     | 5       |      |
     // | 5     | !r3     | 4       |      |
 
-    // `!r6` receives an unknown reason update.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // `!r6` receives a latest event update.
-    assert_entries_batch! {
-        [stream]
-        set [ 1 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // `!r3` is moving.
+    // All the remaining updates (`!r3`'s new bump stamp and latest event,
+    // `!r6`'s name, latest event and read receipts) are drained and coalesced
+    // into ONE atomic batch: `!r3` moves to the front, `!r6` is refreshed in
+    // place.
     assert_entries_batch! {
         [stream]
         remove [ 5 ];
-        push front [ "!r3:bar.org" ];
+        insert [ 0 ] [ "!r3:bar.org" ];
+        set [ 2 ] [ "!r6:bar.org" ];
         end;
     };
 
@@ -2109,27 +2034,6 @@ async fn test_room_sorting() -> Result<(), Error> {
     // | 3     | !r0     | 7       | Bbb  |
     // | 4     | !r1     | 6       | Aaa  |
     // | 5     | !r4     | 5       |      |
-
-    // `!r6` receives a new name.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
-        end;
-    };
-
-    // `!r3` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 0 ] [ "!r3:bar.org" ];
-        end;
-    };
-
-    // `!r6` receives a read receipt update.
-    assert_entries_batch! {
-        [stream]
-        set [ 2 ] [ "!r6:bar.org" ];
-        end;
-    };
 
     assert_pending!(stream);
 

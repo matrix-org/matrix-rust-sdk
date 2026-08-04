@@ -51,24 +51,11 @@ impl Builder {
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
     ) -> Option<LatestEventValue> {
-        // If we are computing a value from the Event Cache, it's because we have
-        // received an update from the Event Cache. This update falls in two categories:
-        // either an event has been added or updated, or the room has been emptied (via
-        // `EventCache::clear_all_rooms` for example).
-        //
-        // We consider the room has been emptied by default. If we are able to scan at
-        // least one in-memory event, we consider the room has not been emptied.
-        let mut room_has_been_emptied = true;
-        let mut current_value_must_be_erased = false;
-
         // Track the most recent edit for each event.
         let mut latest_edit_for_event: HashMap<OwnedEventId, TimelineEvent> = HashMap::new();
 
         if let Ok(Some(event)) = room_event_cache
             .rfind_map_event_in_memory_by(|event| {
-                // At least one event lives in-memory: we consider the room is not empty.
-                room_has_been_emptied = false;
-
                 match filter_timeline_event(
                     event,
                     current_event.event_id().as_ref(),
@@ -77,11 +64,9 @@ impl Builder {
                 ) {
                     // Let's continue, event is not suitable.
                     ControlFlow::Continue(FilterContinue {
-                        current_value_must_be_erased: erased,
+                        current_value_must_be_erased: _,
                         edited_event_id,
                     }) => {
-                        current_value_must_be_erased = erased;
-
                         if let Some(edited_event_id) = edited_event_id {
                             // This is an edit. Store it if we haven't seen an edit for the
                             // targeted event yet.
@@ -130,12 +115,17 @@ impl Builder {
         {
             Some(LatestEventValue::Remote(event))
         } else {
-            // When the room has been emptied, we must erase any previous value.
-            if room_has_been_emptied {
-                current_value_must_be_erased = true;
-            }
-
-            current_value_must_be_erased.then(LatestEventValue::default)
+            // No suitable event has been found in the in-memory events.
+            //
+            // It means either the room has been emptied, or every in-memory
+            // event is non-displayable (e.g. a reaction, a redaction, an
+            // unable-to-decrypt event) and any previously computed value is
+            // out-of-date: newer events exist, we just cannot display any of
+            // them. In both cases, keeping the previous value would display a
+            // preview that is not the latest event of the room, without any
+            // mechanism to ever correct it. Let's erase it instead: no
+            // preview is better than a wrong preview.
+            Some(LatestEventValue::default())
         }
     }
 
@@ -1918,10 +1908,11 @@ mod builder_tests {
 
         // Compute a new remote value: not able to find a relevant candidate.
         //
-        // No candidate is found, so it's just `None` here.
+        // No candidate is found: the value is erased (which is a no-op here,
+        // since the current value is already `None`).
         assert_matches!(
             Builder::new_remote(&room_event_cache, current_value, user_id, None,).await,
-            None
+            Some(LatestEventValue::None)
         );
     }
 
@@ -2034,10 +2025,13 @@ mod builder_tests {
 
         // Compute a new remote value: with no candidate.
         //
-        // No candidate is found, so it's just a `None` here.
+        // No candidate is found: the previous value is erased. The newest
+        // events are non-displayable, so keeping the previous value would
+        // display a preview that is not the latest event of the room. No
+        // preview is better than a wrong preview.
         assert_matches!(
             Builder::new_remote(&room_event_cache, current_value, user_id, None).await,
-            None
+            Some(LatestEventValue::None)
         );
     }
 
@@ -2641,11 +2635,10 @@ mod builder_tests {
 
         let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
 
-        // We get no latest event value because no candidate event is known.
-        assert!(
-            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None)
-                .await
-                .is_none()
+        // No candidate event is known: the value is erased.
+        assert_matches!(
+            Builder::new_remote(&room_event_cache, LatestEventValue::None, user_id, None).await,
+            Some(LatestEventValue::None)
         );
     }
 
@@ -3192,7 +3185,9 @@ mod builder_tests {
                 new_content,
             };
 
-            // The `LatestEventValue` has changed!
+            // The `LatestEventValue` has changed: it is erased, because there
+            // is no other alternative, neither in the buffer nor in the event
+            // cache.
             assert_matches!(
                 Builder::new_local(
                     &update,
@@ -3203,7 +3198,7 @@ mod builder_tests {
                     None
                 )
                 .await,
-                None
+                Some(LatestEventValue::None)
             );
 
             assert_eq!(buffer.buffer.len(), 0);

@@ -25,7 +25,7 @@ use matrix_sdk::{
     Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     task_monitor::BackgroundTaskHandle,
 };
-use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons};
+use matrix_sdk_base::RoomInfoNotableUpdate;
 use ruma::MilliSecondsSinceUnixEpoch;
 use tokio::{
     select,
@@ -33,13 +33,7 @@ use tokio::{
 };
 use tracing::{error, trace};
 
-use super::{
-    Error, State,
-    filters::BoxedFilterFn,
-    sorters::{
-        new_sorter_latest_event, new_sorter_lexicographic, new_sorter_name, new_sorter_recency,
-    },
-};
+use super::{Error, State, filters::BoxedFilterFn, ordering};
 
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
@@ -166,20 +160,17 @@ impl RoomList {
                 // Combine normal stream events with other updates from rooms
                 let stream = merge_stream_and_receiver(values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
 
-                let (values, stream) = (values, stream)
-                    .filter(filter_fn)
-                    .sort_by(new_sorter_lexicographic(vec![
-                        // Sort by latest event's kind, i.e. put the rooms with a
-                        // **local** latest event first.
-                        Box::new(new_sorter_latest_event()),
-                        // Sort rooms by their recency (either by looking
-                        // at their latest event's timestamp, or their
-                        // `recency_stamp`).
-                        Box::new(new_sorter_recency()),
-                        // Finally, sort by name.
-                        Box::new(new_sorter_name()),
-                    ]))
-                    .dynamic_head_with_initial_value(page_size, limit_stream.clone());
+                let (values, stream) = (values, stream).filter(filter_fn);
+
+                // Sort the rooms: unsent local latest events first, then by
+                // recency (latest event timestamp, with timestamp-less rooms
+                // slotted in by their bump stamp), then by name. See the
+                // `ordering` module for the exact semantics. The order is
+                // recomputed per batch of updates, so reorders are atomic.
+                let (values, stream) = ordering::sorted_by_recency(values, stream);
+
+                let (values, stream) =
+                    (values, stream).dynamic_head_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
                 yield stream::once(ready(vec![VectorDiff::Reset { values }]))
@@ -230,28 +221,55 @@ fn merge_stream_and_receiver(
                 update = room_info_notable_update_receiver.recv() => {
                     match update {
                         Ok(update) => {
-                            // Filter which _reason_ can trigger an update of
-                            // the room list.
-                            //
-                            // If the update is strictly about the
-                            // `RECENCY_STAMP`, let's ignore it, because the
-                            // Latest Event type is used to sort the room list
-                            // by recency already. We don't want to trigger an
-                            // update because of `RECENCY_STAMP`.
-                            //
-                            // If the update contains more reasons than
-                            // `RECENCY_STAMP`, then it's fine. That's why we
-                            // are using `==` instead of `contains`.
-                            if update.reasons == RoomInfoNotableUpdateReasons::RECENCY_STAMP {
-                                continue;
+                            // Drain every update already sitting in the
+                            // channel, so that a burst of updates (e.g. a
+                            // batch of freshly computed latest events, or the
+                            // per-room updates of one sync response) is
+                            // processed as a single batch of `VectorDiff`s.
+                            // Downstream, the ordering is recomputed per
+                            // batch, so this makes the resulting reorder
+                            // atomic instead of a room-by-room trickle.
+                            let mut updates = vec![update];
+
+                            loop {
+                                use broadcast::error::TryRecvError;
+
+                                match room_info_notable_update_receiver.try_recv() {
+                                    Ok(update) => updates.push(update),
+                                    Err(TryRecvError::Lagged(n)) => {
+                                        error!(number_of_missed_updates = n, "Lag when receiving room info notable update");
+                                    }
+                                    Err(TryRecvError::Empty | TryRecvError::Closed) => break,
+                                }
                             }
 
-                            // Emit a `VectorDiff::Set` for the specific rooms.
-                            if let Some(index) = current_values.iter().position(|room| room.room_id() == update.room_id) {
-                                let mut room = current_values[index].clone();
-                                room.refresh_cached_data();
+                            // Emit a `VectorDiff::Set` for each updated room,
+                            // at most once per room.
+                            //
+                            // Note that `RECENCY_STAMP`-only updates are NOT
+                            // filtered out: the bump stamp participates in the
+                            // ordering (it is the sort key for rooms without a
+                            // computed latest event), so the room list must
+                            // re-evaluate the order when it changes.
+                            let mut diffs = Vec::with_capacity(updates.len());
+                            let mut seen = std::collections::HashSet::new();
 
-                                yield vec![VectorDiff::Set { index, value: room }];
+                            for update in updates {
+                                if !seen.insert(update.room_id.clone()) {
+                                    continue;
+                                }
+
+                                if let Some(index) = current_values.iter().position(|room| room.room_id() == update.room_id) {
+                                    let mut room = current_values[index].clone();
+                                    room.refresh_cached_data();
+                                    current_values.set(index, room.clone());
+
+                                    diffs.push(VectorDiff::Set { index, value: room });
+                                }
+                            }
+
+                            if !diffs.is_empty() {
+                                yield diffs;
                             }
                         }
 
