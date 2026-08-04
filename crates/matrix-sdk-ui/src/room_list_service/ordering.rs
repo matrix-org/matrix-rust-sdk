@@ -23,11 +23,17 @@
 //!    - a room without a computed latest event is slotted in by its bump stamp
 //!      (`RoomInfo::recency_stamp`, the server-side `bump_stamp` of MSC4186),
 //!      relative to the bump stamps of the other rooms. Concretely, it borrows
-//!      the timestamp of the room with the nearest bump stamp among rooms that
-//!      have both a timestamp and a bump stamp, and is then sub-ordered by its
-//!      own bump stamp. The result is a deterministic order which is primarily
-//!      by timestamp, with timestamp-less rooms placed next to rooms of
-//!      similar server-side recency;
+//!      the smallest timestamp among the _anchors_ (rooms having both a
+//!      timestamp and a bump stamp) whose bump stamp is at or above its own,
+//!      and is then sub-ordered by its own bump stamp. This guarantees that a
+//!      room without a preview never ranks above a room the server considers
+//!      more recent that has one: a single anchor with an inconsistent
+//!      (fresh timestamp, stale bump stamp) pair - a just-sent local message
+//!      before its sync echo, say - cannot drag its bump-stamp neighbours to
+//!      the top of the list. A room whose bump stamp is above every anchor's
+//!      borrows the top anchor's timestamp and sits just above it, so a
+//!      genuinely new event in a room with no computable preview still
+//!      surfaces;
 //!    - before any latest event has been computed (e.g. at startup), this
 //!      degenerates into a pure bump-stamp order, which is the server's view
 //!      of recency, so the initial order is immediately meaningful.
@@ -125,12 +131,16 @@ impl KeyInputs {
 /// Compute the [`Recency`] of every room in `items`.
 ///
 /// Rooms with a latest event timestamp use it directly. Rooms without one
-/// borrow the timestamp of the _anchor_ (a room having both a timestamp and a
-/// bump stamp) whose bump stamp is nearest to theirs, and are sub-ordered by
-/// their own bump stamp. Rooms with neither a timestamp nor a bump stamp have
-/// no recency and sort last.
+/// borrow a timestamp from the _anchors_ (rooms having both a timestamp and a
+/// bump stamp) via [`borrowed_timestamp`], and are sub-ordered by their own
+/// bump stamp. Rooms with neither a timestamp nor a bump stamp have no
+/// recency and sort last.
 fn compute_recencies(items: &[&RoomListItem]) -> Vec<Option<Recency>> {
-    // The anchors, sorted by bump stamp.
+    // The anchors, sorted by bump stamp, with each timestamp replaced by the
+    // minimum timestamp of all anchors at or above that bump stamp (a suffix
+    // minimum). This makes the bump-stamp -> borrowed-timestamp mapping
+    // monotone, so one anchor with an inconsistently fresh timestamp cannot
+    // promote its neighbours.
     let mut anchors: Vec<(u64, u64)> = items
         .iter()
         .filter_map(|room| {
@@ -144,6 +154,14 @@ fn compute_recencies(items: &[&RoomListItem]) -> Vec<Option<Recency>> {
         .collect();
     anchors.sort_unstable();
 
+    let top_anchor_timestamp = anchors.last().map(|&(_, timestamp)| timestamp);
+
+    let mut suffix_min = u64::MAX;
+    for (_, timestamp) in anchors.iter_mut().rev() {
+        suffix_min = suffix_min.min(*timestamp);
+        *timestamp = suffix_min;
+    }
+
     items
         .iter()
         .map(|room| {
@@ -154,40 +172,37 @@ fn compute_recencies(items: &[&RoomListItem]) -> Vec<Option<Recency>> {
                 (Some(timestamp), Some(bump_stamp)) => Some((timestamp, bump_stamp)),
                 // No bump stamp: sub-order below rooms with the same timestamp.
                 (Some(timestamp), None) => Some((timestamp, 0)),
-                (None, Some(bump_stamp)) => {
-                    Some((nearest_anchor_timestamp(&anchors, bump_stamp), bump_stamp))
-                }
+                (None, Some(bump_stamp)) => Some((
+                    borrowed_timestamp(&anchors, top_anchor_timestamp, bump_stamp),
+                    bump_stamp,
+                )),
                 (None, None) => None,
             }
         })
         .collect()
 }
 
-/// Find the timestamp of the anchor whose bump stamp is nearest to
-/// `bump_stamp`. On an exact tie in distance, the anchor with the smaller
-/// (older) bump stamp wins, so that a room is not promoted more than
-/// necessary. Returns 0 (the oldest possible timestamp) when there is no
-/// anchor at all, degenerating into a pure bump-stamp order.
-fn nearest_anchor_timestamp(anchors: &[(u64, u64)], bump_stamp: u64) -> u64 {
-    match anchors.binary_search_by_key(&bump_stamp, |&(anchor_bump_stamp, _)| anchor_bump_stamp) {
-        Ok(index) => anchors[index].1,
-        Err(index) => {
-            let below = index.checked_sub(1).and_then(|below| anchors.get(below));
-            let above = anchors.get(index);
+/// The timestamp a room without a latest event borrows, given its bump stamp:
+/// the smallest timestamp among the anchors whose bump stamp is at or above
+/// `bump_stamp` (`anchors` already carries suffix minima, so this is one
+/// lookup). The result can only be exceeded by out-ranking every one of those
+/// anchors' own timestamps, so a previewless room never sorts above a room
+/// the server considers more recent that has a visible message.
+///
+/// A bump stamp above every anchor's borrows the top anchor's timestamp (and
+/// the caller's bump-stamp sub-order places it just above that anchor). No
+/// anchors at all returns 0 (the oldest possible timestamp), degenerating
+/// into a pure bump-stamp order.
+fn borrowed_timestamp(
+    anchors: &[(u64, u64)],
+    top_anchor_timestamp: Option<u64>,
+    bump_stamp: u64,
+) -> u64 {
+    let index = anchors.partition_point(|&(anchor_bump_stamp, _)| anchor_bump_stamp < bump_stamp);
 
-            match (below, above) {
-                (Some(&(below_bump, below_ts)), Some(&(above_bump, above_ts))) => {
-                    if bump_stamp - below_bump <= above_bump - bump_stamp {
-                        below_ts
-                    } else {
-                        above_ts
-                    }
-                }
-                (Some(&(_, below_ts)), None) => below_ts,
-                (None, Some(&(_, above_ts))) => above_ts,
-                (None, None) => 0,
-            }
-        }
+    match anchors.get(index) {
+        Some(&(_, suffix_min_timestamp)) => suffix_min_timestamp,
+        None => top_anchor_timestamp.unwrap_or(0),
     }
 }
 
@@ -527,23 +542,30 @@ mod tests {
     }
 
     #[test]
-    fn test_nearest_anchor_timestamp() {
+    fn test_borrowed_timestamp() {
         // No anchors: 0, i.e. pure bump-stamp order.
-        assert_eq!(nearest_anchor_timestamp(&[], 42), 0);
+        assert_eq!(borrowed_timestamp(&[], None, 42), 0);
 
+        // Consistent anchors (timestamps increase with bump stamps), already
+        // carrying their suffix minima (which leave them unchanged here).
         let anchors = [(10, 100), (20, 200), (40, 400)];
 
-        // Exact match.
-        assert_eq!(nearest_anchor_timestamp(&anchors, 20), 200);
-        // Nearest below/above.
-        assert_eq!(nearest_anchor_timestamp(&anchors, 12), 100);
-        assert_eq!(nearest_anchor_timestamp(&anchors, 18), 200);
-        // Exact tie: the older (smaller bump stamp) anchor wins.
-        assert_eq!(nearest_anchor_timestamp(&anchors, 15), 100);
-        assert_eq!(nearest_anchor_timestamp(&anchors, 30), 200);
-        // Out of range on both sides.
-        assert_eq!(nearest_anchor_timestamp(&anchors, 5), 100);
-        assert_eq!(nearest_anchor_timestamp(&anchors, 100), 400);
+        // At or below an anchor's bump stamp: that anchor's timestamp.
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 20), 200);
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 12), 200);
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 5), 100);
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 30), 400);
+        // Above every anchor: the top anchor's timestamp.
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 100), 400);
+
+        // An inconsistent anchor (fresh timestamp, stale bump stamp at bump
+        // 10): the suffix minima flatten it out for everything above it.
+        let anchors = [(10, 200), (20, 200), (40, 400)];
+
+        // Rooms at/below the poisoned anchor's bump stamp cannot borrow its
+        // fresh timestamp beyond the smallest above them.
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 5), 200);
+        assert_eq!(borrowed_timestamp(&anchors, Some(400), 15), 200);
     }
 
     fn room_ids(ids: &[&str]) -> Vec<OwnedRoomId> {
@@ -674,6 +696,57 @@ mod tests {
         );
 
         assert_pending!(stream);
+    }
+
+    /// Reproduces the "poisoned anchor" failure mode seen when dogfooding on a
+    /// real account: one room whose latest-event timestamp is fresh but whose
+    /// bump stamp is stale (e.g. a just-sent local message before the sync
+    /// echo, or any bump/timestamp inconsistency) becomes the nearest anchor
+    /// for every timestamp-less room in its bump neighbourhood. They all
+    /// borrow its fresh timestamp and pile up at the top of the list with
+    /// blank previews, above genuinely recent rooms.
+    #[async_test]
+    async fn test_inconsistent_anchor_promotes_previewless_rooms() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let [mut poisoned, mut recent, mut old_a, mut old_b] = new_rooms(
+            [room_id!("!p:x.y"), room_id!("!n:x.y"), room_id!("!olda:x.y"), room_id!("!oldb:x.y")],
+            &client,
+            &server,
+        )
+        .await;
+
+        // A genuinely recent room: high bump stamp, fresh visible message.
+        set_bump_stamp(&mut recent, 100.into()).await;
+        set_latest_event(&mut recent, remote(500)).await;
+
+        // The poisoned anchor: stale bump stamp but a fresher timestamp.
+        set_bump_stamp(&mut poisoned, 5.into()).await;
+        set_latest_event(&mut poisoned, remote(1000)).await;
+
+        // Two ancient rooms with no computable latest event (blank preview).
+        set_bump_stamp(&mut old_a, 3.into()).await;
+        set_bump_stamp(&mut old_b, 4.into()).await;
+
+        let initial: Vector<RoomListItem> =
+            [poisoned.clone(), recent.clone(), old_a.clone(), old_b.clone()]
+                .into_iter()
+                .collect();
+
+        let (values, _stream) = sorted_by_recency(initial, futures_util::stream::pending());
+
+        let order: Vec<&RoomId> = values.iter().map(|room| room.room_id()).collect();
+
+        // What the user should see: the room with the fresh visible message
+        // first (or at least the blank ancient rooms nowhere near the top).
+        // What the poisoned anchor produces instead is
+        // [poisoned, old_b, old_a, recent]: both ancient blank-preview rooms
+        // outrank the genuinely recent room.
+        assert_eq!(
+            order,
+            [poisoned.room_id(), recent.room_id(), old_b.room_id(), old_a.room_id()],
+            "ancient previewless rooms must not outrank a room with a fresh visible message"
+        );
     }
 
     #[async_test]
