@@ -605,7 +605,7 @@ impl Recovery {
         Ok(self.client.inner.e2ee.encryption_settings.auto_enable_backups
             && !self.client.encryption().backups().are_enabled().await
             && !self.client.encryption().backups().fetch_exists_on_server().await?
-            && !self.are_backups_marked_as_disabled().await?)
+            && !self.fetch_are_backups_marked_as_disabled().await?)
     }
 
     pub(crate) async fn setup(&self) -> Result<()> {
@@ -655,7 +655,8 @@ impl Recovery {
     ///
     /// The local copy is kept up to date by sync's account data handling; this
     /// gets recomputed several times around startup and must not cost a server
-    /// round trip each time.
+    /// round trip each time. Decisions with side effects should use
+    /// [`Self::fetch_are_backups_marked_as_disabled()`] instead.
     async fn are_backups_marked_as_disabled(&self) -> Result<bool> {
         if let Some(key_backup_content) =
             self.client.account().account_data::<KeyBackupContent>().await?
@@ -666,6 +667,29 @@ impl Recovery {
                 .client
                 .account()
                 .account_data::<BackupDisabledContent>()
+                .await?
+                .map(|event| event.deserialize().map(|event| event.disabled).unwrap_or(false))
+                .unwrap_or(false))
+        }
+    }
+
+    /// Run a network request to figure out whether backups have been disabled
+    /// at the account level.
+    ///
+    /// Unlike [`Self::are_backups_marked_as_disabled()`] this reflects the
+    /// server's current view even when the local store hasn't caught up yet
+    /// (e.g. right after login, before the first sync) - required when the
+    /// answer gates a side effect such as auto-enabling backups.
+    async fn fetch_are_backups_marked_as_disabled(&self) -> Result<bool> {
+        if let Some(key_backup_content) =
+            self.client.account().fetch_account_data_static::<KeyBackupContent>().await?
+        {
+            Ok(key_backup_content.deserialize().map(|event| !event.enabled).unwrap_or(false))
+        } else {
+            Ok(self
+                .client
+                .account()
+                .fetch_account_data_static::<BackupDisabledContent>()
                 .await?
                 .map(|event| event.deserialize().map(|event| event.disabled).unwrap_or(false))
                 .unwrap_or(false))
