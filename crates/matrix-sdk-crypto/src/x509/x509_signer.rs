@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use cms::cert::x509::der;
 use ruma::{DeviceKeyId, UserId, canonical_json::to_canonical_value};
+use thiserror::Error;
 use tracing::info;
 
 use crate::{
@@ -85,6 +86,14 @@ impl X509Signer {
             return true;
         };
 
+        let Ok(signer_validity_not_after) = self.x509_sign.validity_not_after() else {
+            // If we can't get our own signer's validity period, we return
+            // `false` which will result in the signer not being used to re-sign
+            // any key.
+            info!("X509: has_later_expiry_than(): signer has invalid validity period");
+            return false;
+        };
+
         // We check all the available X.509 signatures.  If any of them has a
         // later or equal expiry, then we return `false`.  Otherwise, all of
         // them have a strictly earlier expiry, so we return `true`.
@@ -121,7 +130,7 @@ impl X509Signer {
                     continue;
                 };
 
-                if validity_not_after >= self.x509_sign.validity_not_after() {
+                if validity_not_after >= signer_validity_not_after {
                     // We found a signature with a certificate that has a
                     // later-or-equal validity period.
                     return false;
@@ -141,8 +150,13 @@ pub trait RawX509Signer: std::fmt::Debug + Send + Sync {
     fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError>;
 
     /// Return the "not after" time for the certificate's validity period.
-    fn validity_not_after(&self) -> der::DateTime;
+    fn validity_not_after(&self) -> Result<der::DateTime, ValidityError>;
 }
+
+/// Failure to get the validity period of the X.509 certificate.
+#[derive(Error, Debug)]
+#[error("Failed to get X.509 certificate validity period")]
+pub struct ValidityError;
 
 #[cfg(test)]
 mod tests {
