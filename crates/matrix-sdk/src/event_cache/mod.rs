@@ -536,7 +536,7 @@ impl EventCacheConfig {
 
     /// The default maximum number of concurrent background back-paginations
     /// (see also [`EventCacheConfig::max_concurrent_back_paginations`]).
-    pub const DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS: usize = 3;
+    pub const DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS: usize = 6;
 }
 
 impl Default for EventCacheConfig {
