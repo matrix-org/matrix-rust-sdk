@@ -23,7 +23,14 @@ pub enum LatestEventValue {
         event_id: Option<OwnedEventId>,
 
         /// The timestamp of the invite event.
-        timestamp: MilliSecondsSinceUnixEpoch,
+        ///
+        /// Usually `None`: invites arrive as stripped state events, which carry
+        /// no `origin_server_ts`. Room-list ordering then falls back to the
+        /// room's recency (bump) stamp, which the server derives from the
+        /// invite's arrival. Synthesising a timestamp here (e.g. `now()`)
+        /// instead makes every invite sort at whatever moment the value was
+        /// first computed - all bunched at login time on a fresh session.
+        timestamp: Option<MilliSecondsSinceUnixEpoch>,
 
         /// The user ID of the inviter.
         inviter: Option<OwnedUserId>,
@@ -69,7 +76,7 @@ impl LatestEventValue {
         match self {
             Self::None => None,
             Self::Remote(remote_latest_event_value) => remote_latest_event_value.timestamp(),
-            Self::RemoteInvite { timestamp, .. } => Some(*timestamp),
+            Self::RemoteInvite { timestamp, .. } => *timestamp,
             Self::LocalIsSending(LocalLatestEventValue { timestamp, .. })
             | Self::LocalHasBeenSent { value: LocalLatestEventValue { timestamp, .. }, .. }
             | Self::LocalCannotBeSent(LocalLatestEventValue { timestamp, .. }) => Some(*timestamp),
