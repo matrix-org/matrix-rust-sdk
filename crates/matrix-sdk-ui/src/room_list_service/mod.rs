@@ -56,6 +56,7 @@ mod ordering;
 mod room_list;
 pub mod sorters;
 mod state;
+mod viewport;
 
 use std::{sync::Arc, time::Duration};
 
@@ -130,6 +131,10 @@ pub struct RoomListService {
     ///
     /// `RoomListService` is a simple state-machine.
     state_machine: StateMachine,
+
+    /// The dedicated viewport connection (see [`viewport`]), created lazily on
+    /// the first [`RoomListService::subscribe_to_visible_rooms`] call.
+    viewport: tokio::sync::OnceCell<viewport::Viewport>,
 }
 
 impl RoomListService {
@@ -279,7 +284,7 @@ impl RoomListService {
         // Eagerly subscribe the event cache to sync responses.
         client.event_cache().subscribe()?;
 
-        Ok(Self { client, sliding_sync, state_machine })
+        Ok(Self { client, sliding_sync, state_machine, viewport: tokio::sync::OnceCell::new() })
     }
 
     /// Start to sync the room list.
@@ -493,9 +498,10 @@ impl RoomListService {
     ///
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
-    pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
-        // Calculate the settings for the room subscriptions.
-        let settings = assign!(http::request::RoomSubscription::default(), {
+    /// The settings shared by every room subscription, whichever connection
+    /// carries it.
+    fn room_subscription_settings() -> http::request::RoomSubscription {
+        assign!(http::request::RoomSubscription::default(), {
             required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
                 (state_event.clone(), (*value).to_owned())
             })
@@ -506,7 +512,44 @@ impl RoomListService {
             )
             .collect(),
             timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
-        });
+        })
+    }
+
+    /// Subscribe to the rooms currently visible in the room-list viewport, on
+    /// the dedicated viewport connection.
+    ///
+    /// Unlike [`RoomListService::subscribe_to_rooms`], whose data rides the
+    /// main long-poll loop (and thus waits for the in-flight round, which can
+    /// be many seconds during a catch-up, restarting on every change), this
+    /// sends one immediate, listless request carrying only the subscriptions:
+    /// the subscribed rooms' timeline and state arrive within a single short
+    /// round-trip. See the [`viewport`] module documentation.
+    ///
+    /// `room_ids` is the full viewport, in display order: rooms from previous
+    /// calls that are no longer visible are unsubscribed.
+    pub async fn subscribe_to_visible_rooms(&self, room_ids: &[&RoomId]) -> Result<(), Error> {
+        let viewport =
+            self.viewport.get_or_try_init(|| viewport::Viewport::new(&self.client)).await?;
+
+        // Before subscribing, let's listen to these rooms to calculate their
+        // latest events (same as `subscribe_to_rooms`).
+        if self.client.event_cache().has_subscribed() {
+            let latest_events = self.client.latest_events().await;
+
+            for room_id in room_ids {
+                if let Err(error) = latest_events.listen_to_room(room_id).await {
+                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+                }
+            }
+        }
+
+        viewport.subscribe(room_ids, Self::room_subscription_settings());
+
+        Ok(())
+    }
+
+    pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+        let settings = Self::room_subscription_settings();
 
         // Decide whether the in-flight request (if any) should be cancelled if needed.
         let cancel_in_flight_request = match self.state_machine.get() {

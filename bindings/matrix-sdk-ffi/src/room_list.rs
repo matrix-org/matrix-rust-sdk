@@ -142,6 +142,27 @@ impl RoomListService {
         })))
     }
 
+    /// Subscribe to the rooms currently visible in the room-list viewport,
+    /// on a dedicated listless sliding sync connection: their timeline and
+    /// state arrive within one immediate round-trip instead of riding (and
+    /// restarting) the main long-poll loop. Pass the full viewport in display
+    /// order; rooms from previous calls are unsubscribed.
+    async fn subscribe_to_visible_rooms(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
+        let room_ids = room_ids
+            .into_iter()
+            .map(|room_id| {
+                RoomId::parse(&room_id).map_err(|_| RoomListError::InvalidRoomId { error: room_id })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.inner
+            .subscribe_to_visible_rooms(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
+            .await
+            .map_err(RoomListError::from)?;
+
+        Ok(())
+    }
+
     async fn subscribe_to_rooms(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
         let room_ids = room_ids
             .into_iter()

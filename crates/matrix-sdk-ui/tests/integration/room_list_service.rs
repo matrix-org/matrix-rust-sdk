@@ -2156,6 +2156,67 @@ async fn test_room_not_found() -> Result<(), Error> {
     Ok(())
 }
 
+/// `subscribe_to_visible_rooms` drives the dedicated listless `viewport`
+/// connection: one immediate (`timeout: 0`) request carrying only the room
+/// subscriptions.
+#[async_test]
+async fn test_subscribe_to_visible_rooms() -> Result<(), Error> {
+    use wiremock::{Mock, ResponseTemplate, matchers::body_partial_json};
+
+    let (_, server, room_list) = new_room_list_service().await?;
+
+    let room_id = room_id!("!r0:bar.org");
+
+    // The viewport connection's rounds land here.
+    Mock::given(crate::sliding_sync::SlidingSyncMatcher)
+        .and(body_partial_json(serde_json::json!({ "conn_id": "viewport" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "pos": "v0",
+            "rooms": {},
+            "extensions": {},
+        })))
+        .mount(server.server())
+        .await;
+
+    room_list.subscribe_to_visible_rooms(&[room_id]).await?;
+
+    // The round is sent by a background task: wait for it.
+    let mut viewport_request = None;
+
+    for _ in 0..100 {
+        let requests = server.server().received_requests().await.unwrap_or_default();
+
+        if let Some(request) = requests.iter().find(|request| {
+            request.url.path().ends_with("/sync")
+                && request
+                    .body_json::<serde_json::Value>()
+                    .is_ok_and(|body| body["conn_id"] == "viewport")
+        }) {
+            viewport_request =
+                Some((request.url.clone(), request.body_json::<serde_json::Value>().unwrap()));
+            break;
+        }
+
+        sleep(std::time::Duration::from_millis(50)).await;
+    }
+
+    let (url, body) =
+        viewport_request.expect("the viewport connection has not sent any request");
+
+    // Fetch-style: an immediate response is requested, no long-poll (the
+    // timeout rides the query string in MSC4186).
+    assert_eq!(
+        url.query_pairs().find(|(name, _)| name == "timeout").map(|(_, value)| value.into_owned()),
+        Some("0".to_owned())
+    );
+    // No lists ride this connection.
+    assert!(body["lists"].as_object().is_none_or(|lists| lists.is_empty()));
+    // The subscription, with the usual settings.
+    assert_eq!(body["room_subscriptions"][room_id.as_str()]["timeline_limit"], 20);
+
+    Ok(())
+}
+
 #[async_test]
 async fn test_room_subscription() -> Result<(), Error> {
     let (_, server, room_list) = new_room_list_service().await?;
