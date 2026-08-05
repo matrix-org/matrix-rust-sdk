@@ -17,7 +17,10 @@ use tokio::sync::MutexGuard;
 use tracing::error;
 
 use super::{SlidingSync, SlidingSyncBuilder};
-use crate::{Client, Result, sync::subscribe_to_room_latest_events};
+use crate::{
+    Client, Result,
+    sync::{compute_missing_room_latest_events, subscribe_to_room_latest_events},
+};
 
 /// A sliding sync version.
 #[derive(Clone, Debug)]
@@ -227,6 +230,12 @@ impl SlidingSyncResponseProcessor {
             .base_client()
             .process_sliding_sync(response, requested_required_states, state_store_guard)
             .await?;
+
+        // Rooms the client did not know before this response (a newly joined room, or
+        // every room when syncing on top of a cleared state store) could not compute
+        // their initial latest event when they were registered above: they exist now,
+        // so re-trigger the computation.
+        compute_missing_room_latest_events(&self.client, response.rooms.keys()).await;
 
         handle_receipts_extension(&self.client, response, &mut sync_response, state_store_guard)
             .await?;

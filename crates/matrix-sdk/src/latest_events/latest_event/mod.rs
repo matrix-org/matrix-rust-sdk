@@ -71,6 +71,11 @@ impl LatestEvent {
         self.current_value.subscribe().await
     }
 
+    /// Whether the current value is [`LatestEventValue::None`].
+    pub async fn value_is_none(&self) -> bool {
+        self.current_value.get().await.is_none()
+    }
+
     #[cfg(test)]
     pub async fn get(&self) -> LatestEventValue {
         self.current_value.get().await

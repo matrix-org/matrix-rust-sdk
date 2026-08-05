@@ -159,6 +159,12 @@ impl Client {
 
         let response = Box::pin(self.base_client().receive_sync_response(response)).await?;
 
+        compute_missing_room_latest_events(
+            self,
+            response.rooms.joined.keys().chain(response.rooms.left.keys()),
+        )
+        .await;
+
         // Some new keys might have been received, so trigger a backup if needed.
         #[cfg(feature = "e2e-encryption")]
         self.encryption().backups().maybe_trigger_backup();
@@ -355,6 +361,14 @@ impl Client {
 ///
 /// That way, the latest event is computed and updated for all rooms receiving
 /// an update from the sync.
+///
+/// This must be called BEFORE the sync response is processed, so that the
+/// rooms are registered by the time the event cache broadcasts its updates
+/// for the response. The flip side is that a room the client doesn't know yet
+/// (a newly joined room, or every room when syncing on top of a cleared state
+/// store) cannot compute its initial latest event at registration time:
+/// [`compute_missing_room_latest_events`] must be called once the response
+/// has been processed to catch these up.
 #[instrument(skip_all)]
 pub(crate) async fn subscribe_to_room_latest_events<'a, R>(client: &'a Client, room_ids: R)
 where
@@ -371,4 +385,22 @@ where
             error!(?error, ?room_id, "Failed to listen to the latest event for this room");
         }
     }
+}
+
+/// Trigger a latest-event computation for the rooms of a sync response that
+/// were registered by [`subscribe_to_room_latest_events`] before the client
+/// knew them, and therefore still have no latest-event value.
+///
+/// This must be called AFTER the sync response has been processed, i.e. once
+/// the rooms exist.
+#[instrument(skip_all)]
+pub(crate) async fn compute_missing_room_latest_events<'a, R>(client: &'a Client, room_ids: R)
+where
+    R: Iterator<Item = &'a OwnedRoomId>,
+{
+    if !client.event_cache().has_subscribed() {
+        return;
+    }
+
+    client.latest_events().await.trigger_computation_for_rooms_with_no_value(room_ids).await;
 }

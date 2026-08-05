@@ -208,6 +208,35 @@ impl LatestEvents {
         Ok(Some(latest_event.subscribe().await))
     }
 
+    /// Trigger a `LatestEventValue` computation for every given room that is
+    /// registered but whose current value is still [`LatestEventValue::None`].
+    ///
+    /// A room can be registered (usually by
+    /// [`subscribe_to_room_latest_events`][crate::sync::subscribe_to_room_latest_events])
+    /// before the client knows the room, i.e. while the sync response creating
+    /// the room is still being processed: the initial computation is skipped
+    /// in that case (see `create_and_insert_room_latest_events`). This method
+    /// exists to re-trigger these computations once the sync response has been
+    /// fully processed.
+    pub(crate) async fn trigger_computation_for_rooms_with_no_value<'a>(
+        &self,
+        room_ids: impl Iterator<Item = &'a OwnedRoomId>,
+    ) {
+        let rooms = self.state.registered_rooms.rooms.read().await;
+
+        for room_id in room_ids {
+            if let Some(room_latest_events) = rooms.get(room_id)
+                && room_latest_events.read().await.for_room().value_is_none().await
+            {
+                let _ = self
+                    .state
+                    .registered_rooms
+                    .latest_event_queue_sender
+                    .send(LatestEventQueueUpdate::EventCache { room_id: room_id.clone() });
+            }
+        }
+    }
+
     /// Forget a room.
     ///
     /// It means that [`LatestEvents`] will stop listening to updates for the
@@ -280,11 +309,11 @@ impl RegisteredRooms {
             event_cache: &EventCache,
             latest_event_queue_sender: &mpsc::UnboundedSender<LatestEventQueueUpdate>,
         ) {
+            let weak_room = WeakRoom::new(weak_client.clone(), room_id.to_owned());
+            let room_exists = weak_room.get().is_some();
+
             let (room_latest_events, is_latest_event_value_none) =
-                With::unzip(RoomLatestEvents::new(
-                    WeakRoom::new(weak_client.clone(), room_id.to_owned()),
-                    event_cache,
-                ));
+                With::unzip(RoomLatestEvents::new(weak_room, event_cache));
 
             // Insert the new `RoomLatestEvents`.
             rooms.insert(room_id.to_owned(), room_latest_events);
@@ -294,7 +323,15 @@ impl RegisteredRooms {
             // usually) or the Send Queue. Maybe the system has migrated to a new version
             // and the `LatestEventValue` has been erased, while it is still possible to
             // compute a correct value.
-            if is_latest_event_value_none {
+            //
+            // This is pointless if the client doesn't know the room (yet): the
+            // computation would fail and be dropped. This happens when a room is
+            // registered while the sync response that creates it is still being
+            // processed (a newly joined room, or every room when syncing on top of a
+            // cleared state store): `compute_missing_room_latest_events` (see
+            // [`crate::sync`]) re-triggers the computation once the sync response has
+            // been fully processed and the room exists.
+            if is_latest_event_value_none && room_exists {
                 let _ = latest_event_queue_sender
                     .send(LatestEventQueueUpdate::EventCache { room_id: room_id.to_owned() });
             }
@@ -1492,6 +1529,76 @@ mod tests {
             );
             assert!(latest_event_queue_receiver.is_empty());
         }
+    }
+
+    #[async_test]
+    async fn test_latest_event_value_computation_is_deferred_until_the_room_exists() {
+        let room_id = owned_room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+        let event_id_0 = event_id!("$ev0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let latest_events = client.latest_events().await;
+
+        // Register the room BEFORE the client knows it, as
+        // `subscribe_to_room_latest_events` does when it runs ahead of the
+        // processing of the sync response that creates the room (a newly
+        // joined room, or every room when syncing on top of a cleared state
+        // store).
+        let mut latest_event_stream =
+            latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
+
+        // No initial computation can happen: the room cannot be resolved.
+        yield_now().await;
+        assert_matches!(latest_event_stream.next_now().await, LatestEventValue::None);
+
+        // The sync response has been processed: the room exists now, with one
+        // event in the event cache.
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .expect("Could not acquire the event cache lock")
+            .as_clean()
+            .expect("Could not acquire a clean event cache lock")
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![event_factory.text_msg("hello").event_id(event_id_0).into()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        // Re-trigger the computation, as `compute_missing_room_latest_events`
+        // does once a sync response has been processed.
+        latest_events
+            .trigger_computation_for_rooms_with_no_value(std::iter::once(&room_id))
+            .await;
+
+        // The value is computed now.
+        assert_matches!(
+            timeout(Duration::from_secs(2), latest_event_stream.next())
+                .await
+                .expect("timed out waiting for the latest event value")
+                .expect("the stream must not be closed"),
+            LatestEventValue::Remote(_)
+        );
     }
 
     #[async_test]
