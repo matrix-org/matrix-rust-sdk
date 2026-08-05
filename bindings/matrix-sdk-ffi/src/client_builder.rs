@@ -582,10 +582,11 @@ impl ClientBuilder {
                 }
 
                 fn validity_not_after(&self) -> Result<DateTime, ValidityError> {
-                    DateTime::from_unix_duration(std::time::Duration::from_secs(
-                        self.0.validity_not_after(),
-                    ))
-                    .or(Err(ValidityError))
+                    let Ok(validity_not_after) = self.0.validity_not_after() else {
+                        return Err(ValidityError);
+                    };
+                    DateTime::from_unix_duration(std::time::Duration::from_secs(validity_not_after))
+                        .or(Err(ValidityError))
                 }
             }
 
