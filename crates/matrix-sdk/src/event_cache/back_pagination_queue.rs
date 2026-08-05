@@ -115,12 +115,16 @@ impl BackPaginationStrategy {
 enum Priority {
     /// Bulk work with no deadline (search backfill).
     Low,
+    /// Speculative work that saves a network round-trip later (timeline
+    /// prefetch for viewport rooms): above the search sweep, below all
+    /// reactive work.
+    Prefetch,
     /// Reactive work backing a background computation (read receipts).
     Normal,
     /// Reactive, user-facing work that wants a result promptly (latest event).
     High,
-    /// The user is looking at the room right now (room-list viewport preload):
-    /// beats everything else.
+    /// The user is looking at the room right now (room-list viewport preview
+    /// fill): beats everything else.
     Viewport,
 }
 
@@ -219,6 +223,19 @@ impl BackPaginationRequest {
             stop: StopCondition::WhenBatch(Box::new(stop)),
             batch_size,
             max_batches: Some(VIEWPORT_MAX_BATCHES),
+        }
+    }
+
+    /// A prefetch request: load one batch of history at [`Prefetch`] priority,
+    /// so that e.g. opening the room later needs no network round-trip.
+    fn prefetch(room_id: OwnedRoomId, batch_size: u16) -> Self {
+        Self {
+            room_id,
+            priority: Priority::Prefetch,
+            // One batch is the request: stop as soon as it has loaded.
+            stop: StopCondition::WhenBatch(Box::new(|_| ControlFlow::Break(()))),
+            batch_size,
+            max_batches: Some(1),
         }
     }
 
@@ -397,6 +414,21 @@ impl BackPaginationQueue {
             self.enqueue(BackPaginationRequest::viewport(room_id.clone(), BATCH_SIZE, stop)).join().await;
 
         debug!(%room_id, ?end, "finished backfill request for the viewport");
+
+        end
+    }
+
+    /// Prefetch one batch of a room's history (e.g. so that opening it from
+    /// the room list needs no network round-trip), at [`Prefetch`] priority:
+    /// below all reactive work, above the search sweep.
+    pub(crate) async fn paginate_for_prefetch(&self, room_id: &RoomId) -> RoomBackPaginationEnd {
+        let room_id = room_id.to_owned();
+        debug!(%room_id, "started prefetch request");
+
+        let BackPaginationRunResult { end, .. } =
+            self.enqueue(BackPaginationRequest::prefetch(room_id.clone(), BATCH_SIZE)).join().await;
+
+        debug!(%room_id, ?end, "finished prefetch request");
 
         end
     }

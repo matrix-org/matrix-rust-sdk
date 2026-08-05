@@ -81,6 +81,12 @@ use crate::{
     send_queue::{RoomSendQueueUpdate, SendQueue, SendQueueUpdate},
 };
 
+/// How many timeline events a viewport room is topped up to by
+/// [`LatestEvents::prioritize_rooms`], so opening it from the room list needs
+/// no network round-trip. A screenful, mirroring what sliding-sync room
+/// subscriptions used to deliver (`timeline_limit: 20`).
+const TIMELINE_PREFETCH_EVENT_COUNT: usize = 20;
+
 /// The entry point to fetch the [`LatestEventValue`] for rooms or threads.
 #[derive(Clone, Debug)]
 pub struct LatestEvents {
@@ -241,17 +247,24 @@ impl LatestEvents {
 
     /// Declare the rooms currently visible in the room-list viewport.
     ///
-    /// Ensures each room has at least `number_of_visible_events` displayable
-    /// events in the event cache, back-paginating (at a priority beating every
-    /// other queued back-pagination) when needed: previews and initial
-    /// timeline content become available without waiting for a sync
-    /// round-trip. Rooms are processed in the given order, so callers should
-    /// pass them in display order.
+    /// Two-tiered, preview first:
+    ///
+    /// 1. Every room is guaranteed at least `number_of_visible_events`
+    ///    displayable events in the event cache, back-paginating at a priority
+    ///    beating every other queued back-pagination when needed: previews
+    ///    become available without waiting for a sync round-trip. Rooms are
+    ///    processed in the given order, so callers should pass them in display
+    ///    order.
+    /// 2. Once a room's preview is settled, it is topped up to a screenful of
+    ///    timeline events ([`TIMELINE_PREFETCH_EVENT_COUNT`]) at a background
+    ///    priority (below all reactive work), so opening it needs no network
+    ///    round-trip either.
     ///
     /// The work happens in a detached background task: this method returns
     /// immediately, and can be called on every viewport change; requests for
-    /// rooms already being paginated are coalesced. No-op if automatic
-    /// back-pagination is disabled.
+    /// rooms already being paginated are coalesced, and already-satisfied
+    /// rooms cost no network at all. No-op if automatic back-pagination is
+    /// disabled.
     pub fn prioritize_rooms(&self, room_ids: Vec<OwnedRoomId>, number_of_visible_events: usize) {
         let registered_rooms = self.state.registered_rooms.clone();
 
@@ -281,64 +294,90 @@ impl LatestEvents {
                 // room's head, so they cannot serve as its most recent
                 // content.
                 let mut already_loaded = 0;
-                let satisfied = room_event_cache
-                    .rfind_map_event_in_memory_before_gap_by(|event| {
-                        matches!(
-                            filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
-                            ControlFlow::Break(())
-                        )
-                        .then(|| {
-                            already_loaded += 1;
+                let preview_satisfied = {
+                    let own_user_id = &own_user_id;
+                    let power_levels = power_levels.as_ref();
 
-                            (already_loaded >= number_of_visible_events).then_some(())
+                    room_event_cache
+                        .rfind_map_event_in_memory_before_gap_by(|event| {
+                            matches!(
+                                filter_timeline_event(event, None, own_user_id, power_levels),
+                                ControlFlow::Break(())
+                            )
+                            .then(|| {
+                                already_loaded += 1;
+
+                                (already_loaded >= number_of_visible_events).then_some(())
+                            })
+                            .flatten()
                         })
-                        .flatten()
-                    })
-                    .await
-                    .is_ok_and(|found| found.is_some());
-
-                if satisfied {
-                    continue;
-                }
-
-                // Back-paginate until the missing displayable events are
-                // loaded.
-                let mut remaining = number_of_visible_events - already_loaded;
-                let stop = move |outcome: &BackPaginationOutcome| {
-                    for event in &outcome.events {
-                        if matches!(
-                            filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
-                            ControlFlow::Break(())
-                        ) {
-                            remaining -= 1;
-
-                            if remaining == 0 {
-                                return ControlFlow::Break(());
-                            }
-                        }
-                    }
-
-                    ControlFlow::Continue(())
+                        .await
+                        .is_ok_and(|found| found.is_some())
                 };
 
                 let queue = queue.clone();
-                let latest_event_queue_sender =
-                    registered_rooms.latest_event_queue_sender.clone();
+                let latest_event_queue_sender = registered_rooms.latest_event_queue_sender.clone();
 
                 spawn(async move {
-                    let end = queue.paginate_for_viewport(&room_id, stop).await;
+                    // Tier 1: fill the preview, at top priority.
+                    if preview_satisfied.not() {
+                        let mut remaining = number_of_visible_events - already_loaded;
+                        let stop = move |outcome: &BackPaginationOutcome| {
+                            for event in &outcome.events {
+                                if matches!(
+                                    filter_timeline_event(
+                                        event,
+                                        None,
+                                        &own_user_id,
+                                        power_levels.as_ref()
+                                    ),
+                                    ControlFlow::Break(())
+                                ) {
+                                    remaining -= 1;
 
-                    // Make sure the room's `LatestEventValue` picks up the
-                    // loaded events (see the same pattern in
-                    // `backfill_latest_event`).
-                    if matches!(
-                        end,
-                        RoomBackPaginationEnd::StopConditionMet
-                            | RoomBackPaginationEnd::ReachedTimelineStart
-                            | RoomBackPaginationEnd::BatchLimitReached
-                    ) {
-                        let _ = latest_event_queue_sender
-                            .send(LatestEventQueueUpdate::BackfillCompleted { room_id });
+                                    if remaining == 0 {
+                                        return ControlFlow::Break(());
+                                    }
+                                }
+                            }
+
+                            ControlFlow::Continue(())
+                        };
+
+                        let end = queue.paginate_for_viewport(&room_id, stop).await;
+
+                        // Make sure the room's `LatestEventValue` picks up the
+                        // loaded events (see the same pattern in
+                        // `backfill_latest_event`).
+                        if matches!(
+                            end,
+                            RoomBackPaginationEnd::StopConditionMet
+                                | RoomBackPaginationEnd::ReachedTimelineStart
+                                | RoomBackPaginationEnd::BatchLimitReached
+                        ) {
+                            let _ = latest_event_queue_sender
+                                .send(LatestEventQueueUpdate::BackfillCompleted {
+                                    room_id: room_id.clone(),
+                                });
+                        }
+                    }
+
+                    // Tier 2: top the room up to a screenful of timeline
+                    // events, in the background. Counted over ALL events (not
+                    // just displayable ones): the timeline renders more than
+                    // preview-suitable events.
+                    let mut events_in_memory = 0;
+                    let timeline_satisfied = room_event_cache
+                        .rfind_map_event_in_memory_before_gap_by(|_event| {
+                            events_in_memory += 1;
+
+                            (events_in_memory >= TIMELINE_PREFETCH_EVENT_COUNT).then_some(())
+                        })
+                        .await
+                        .is_ok_and(|found| found.is_some());
+
+                    if timeline_satisfied.not() {
+                        queue.paginate_for_prefetch(&room_id).await;
                     }
                 });
             }

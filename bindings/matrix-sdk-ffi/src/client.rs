@@ -2358,12 +2358,13 @@ impl Client {
     /// Declare the rooms currently visible in the room-list viewport, in
     /// display order.
     ///
-    /// Each room is guaranteed at least `number_of_visible_events` displayable
-    /// events in the event cache, back-paginating at top priority when needed:
-    /// previews and initial timeline content become available without waiting
-    /// for a sync round-trip. Cheap to call on every viewport change: the work
-    /// is a no-op for rooms already satisfied, and in-flight paginations are
-    /// coalesced.
+    /// Two-tiered, preview first: each room is guaranteed at least
+    /// `number_of_visible_events` displayable events in the event cache
+    /// (back-paginating at top priority when needed), then topped up to a
+    /// screenful of timeline events at a background priority so opening it
+    /// needs no network round-trip either. Cheap to call on every viewport
+    /// change: the work is a no-op for rooms already satisfied, and in-flight
+    /// paginations are coalesced.
     ///
     /// Requires [`Self::enable_automatic_back_pagination`] to have been
     /// enabled, otherwise this no-ops.
