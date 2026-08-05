@@ -63,7 +63,7 @@ use latest_event::{LatestEvent, With};
 pub use latest_event::{LatestEventValue, LocalLatestEventValue, RemoteLatestEventValue};
 use matrix_sdk_base::{RoomInfoNotableUpdate, RoomInfoNotableUpdateReasons, timer};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
-use room_latest_events::{RoomLatestEvents, RoomLatestEventsWriteGuard};
+use room_latest_events::{BackfillState, RoomLatestEvents, RoomLatestEventsWriteGuard};
 use ruma::{EventId, OwnedRoomId, RoomId};
 use tokio::{
     select,
@@ -74,7 +74,9 @@ use tracing::{error, info, warn};
 use crate::{
     Room,
     client::WeakClient,
-    event_cache::{EventCache, RoomEventCacheGenericUpdate},
+    event_cache::{
+        BackPaginationOutcome, EventCache, RoomBackPaginationEnd, RoomEventCacheGenericUpdate,
+    },
     room::WeakRoom,
     send_queue::{RoomSendQueueUpdate, SendQueue, SendQueueUpdate},
 };
@@ -489,6 +491,18 @@ enum LatestEventQueueUpdate {
         /// The notable update reasons.
         reasons: RoomInfoNotableUpdateReasons,
     },
+
+    /// An automatic backfill for the room finished (see
+    /// [`backfill_latest_event`]) and may have loaded more events into the
+    /// event cache: recompute the `LatestEventValue`.
+    ///
+    /// Unlike [`LatestEventQueueUpdate::EventCache`], this does not reset the
+    /// room's [`BackfillState`]: a recomputation that still finds no value must
+    /// not trigger another backfill.
+    BackfillCompleted {
+        /// The ID of the room whose backfill finished.
+        room_id: OwnedRoomId,
+    },
 }
 
 /// The task responsible to listen to the [`EventCache`], the [`SendQueue`] and
@@ -664,9 +678,44 @@ async fn compute_latest_events(
     // each other's results, exactly as when persisting was interleaved.
     let mut pending_persists: Vec<(Room, Vec<LatestEventValue>)> = Vec::new();
 
+    // Rooms that received a genuine event-cache update in this batch: they are
+    // candidates for an automatic backfill in phase 3 if they still have no
+    // value after phases 1 and 2.
+    let mut backfill_candidates: Vec<OwnedRoomId> = Vec::new();
+
     for latest_event_queue_update in latest_event_queue_updates {
         match latest_event_queue_update {
             LatestEventQueueUpdate::EventCache { room_id } => {
+                // A genuine event-cache update grants the room a fresh
+                // automatic backfill attempt (see phase 3).
+                {
+                    let rooms = registered_rooms.rooms.read().await;
+
+                    if let Some(room_latest_events) = rooms.get(room_id) {
+                        room_latest_events.backfill().reset();
+                    }
+                }
+
+                if backfill_candidates.contains(room_id).not() {
+                    backfill_candidates.push(room_id.clone());
+                }
+
+                let ControlFlow::Break(mut room_latest_events) =
+                    room_latest_events_write_guard(registered_rooms, room_id).await
+                else {
+                    continue;
+                };
+
+                let pending_values = room_latest_events.update_with_event_cache().await;
+
+                if let Some(room) = room_latest_events.room()
+                    && !pending_values.is_empty()
+                {
+                    pending_persists.push((room, pending_values));
+                }
+            }
+
+            LatestEventQueueUpdate::BackfillCompleted { room_id } => {
                 let ControlFlow::Break(mut room_latest_events) =
                     room_latest_events_write_guard(registered_rooms, room_id).await
                 else {
@@ -721,6 +770,105 @@ async fn compute_latest_events(
         for pending_value in pending_values {
             persist_latest_event_value(&room, pending_value).await;
         }
+    }
+
+    // Phase 3: rooms that received a genuine event-cache update but still have
+    // no value get an automatic backfill: back-paginate the room (on the event
+    // cache's back-pagination queue) until a suitable candidate is loaded, then
+    // re-enqueue a computation via `LatestEventQueueUpdate::BackfillCompleted`.
+    //
+    // The backfill runs in a detached task: it must NOT be awaited here,
+    // otherwise a slow `/messages` request would stall this whole computation
+    // pipeline, and defeat the phase 1/2 batching.
+    for room_id in backfill_candidates {
+        let (room, backfill) = {
+            let rooms = registered_rooms.rooms.read().await;
+
+            let Some(room_latest_events) = rooms.get(&room_id) else {
+                continue;
+            };
+
+            let backfill = room_latest_events.backfill().clone();
+            let room_latest_events = room_latest_events.read().await;
+
+            // Release the lock on `registered_rooms`.
+            drop(rooms);
+
+            if room_latest_events.for_room().value_is_none().await.not() {
+                // The room has a value: no backfill needed.
+                continue;
+            }
+
+            let Some(room) = room_latest_events.room() else {
+                continue;
+            };
+
+            (room, backfill)
+        };
+
+        if backfill.try_begin() {
+            spawn(backfill_latest_event(
+                room,
+                backfill,
+                registered_rooms.latest_event_queue_sender.clone(),
+            ));
+        }
+    }
+}
+
+/// Back-paginate `room` until a suitable latest-event candidate is loaded into
+/// the event cache (or the start of the timeline, or the batch limit, is
+/// reached), then notify [`compute_latest_events_task`] so the room's
+/// `LatestEventValue` is recomputed.
+///
+/// The pagination is enqueued on the event cache's
+/// [`BackPaginationQueue`][crate::event_cache::BackPaginationQueue]: requests
+/// are bounded, prioritized, coalesced and per-room single-flight over there.
+/// No-op if automatic back-pagination is disabled.
+async fn backfill_latest_event(
+    room: Room,
+    backfill: BackfillState,
+    latest_event_queue_sender: mpsc::UnboundedSender<LatestEventQueueUpdate>,
+) {
+    let room_id = room.room_id().to_owned();
+
+    let end = if let Some(queue) = room.client().event_cache().back_pagination_queue() {
+        let own_user_id = room.own_user_id().to_owned();
+        let power_levels = room.power_levels().await.ok();
+
+        let stop = move |outcome: &BackPaginationOutcome| {
+            let found = outcome.events.iter().any(|event| {
+                matches!(
+                    filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
+                    ControlFlow::Break(())
+                )
+            });
+
+            if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        };
+
+        Some(queue.paginate_for_latest_event(&room_id, stop).await)
+    } else {
+        None
+    };
+
+    backfill.mark_attempted();
+
+    // All these end states may have loaded events into memory:
+    // `StopConditionMet` found a candidate, `ReachedTimelineStart` means the
+    // remaining history (which can include the candidate) was pulled in a final
+    // batch, and `BatchLimitReached` loaded batches that are worth a recompute
+    // even though the stop predicate did not fire on them. The other end states
+    // loaded nothing worth recomputing for.
+    if matches!(
+        end,
+        Some(
+            RoomBackPaginationEnd::StopConditionMet
+                | RoomBackPaginationEnd::ReachedTimelineStart
+                | RoomBackPaginationEnd::BatchLimitReached
+        )
+    ) {
+        let _ = latest_event_queue_sender.send(LatestEventQueueUpdate::BackfillCompleted { room_id });
     }
 }
 
@@ -1402,6 +1550,105 @@ mod tests {
         );
 
         assert_pending!(latest_event_stream);
+    }
+
+    /// When a room has no latest-event candidate in memory, but one exists
+    /// behind a gap, an automatic backfill is spawned (see
+    /// `backfill_latest_event`): it back-paginates until a candidate is
+    /// loaded, then triggers a recomputation.
+    #[async_test]
+    async fn test_latest_event_value_is_backfilled_automatically() {
+        use matrix_sdk_base::event_cache::Gap;
+
+        use crate::test_utils::mocks::RoomMessagesResponseTemplate;
+
+        let room_id = owned_room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        // Create the room.
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+        // A linked chunk with a single gap: no events in memory (so no candidate),
+        // but a token to paginate from.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![Update::NewGapChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                    gap: Gap { token: "prev_batch".to_owned() },
+                }],
+            )
+            .await
+            .unwrap();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // A displayable message lives behind the gap.
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default()
+                .events(vec![event_factory.text_msg("hello").event_id(event_id!("$ev0"))]))
+            .mock_once()
+            .mount()
+            .await;
+
+        let latest_events = client.latest_events().await;
+
+        // Subscribe to the latest event values for this room. Registering the
+        // room triggers a computation; it finds no candidate in memory, and
+        // spawns the automatic backfill, which surfaces the message behind the
+        // gap and triggers a recomputation.
+        let mut latest_event_stream =
+            latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
+
+        loop {
+            let value = timeout(Duration::from_secs(5), latest_event_stream.next())
+                .await
+                .expect("waiting for the backfilled latest event value has timed out")
+                .expect("the latest event stream has been closed");
+
+            match value {
+                // The initial computation can yield a `None` value before the
+                // backfill kicks in.
+                LatestEventValue::None => continue,
+                LatestEventValue::Remote(RemoteLatestEventValue {
+                    kind: TimelineEventKind::PlainText { event },
+                    ..
+                }) => {
+                    assert_matches!(
+                        event.deserialize().unwrap(),
+                        AnySyncTimelineEvent::MessageLike(
+                            AnySyncMessageLikeEvent::RoomMessage(
+                                SyncMessageLikeEvent::Original(message_content)
+                            )
+                        ) => {
+                            assert_eq!(message_content.content.body(), "hello");
+                        }
+                    );
+
+                    break;
+                }
+                other => panic!("unexpected latest event value: {other:?}"),
+            }
+        }
     }
 
     #[async_test]

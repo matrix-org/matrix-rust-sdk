@@ -12,7 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU8, Ordering},
+    },
+};
 
 use matrix_sdk_base::RoomInfoNotableUpdateReasons;
 use ruma::{EventId, OwnedEventId};
@@ -30,11 +36,67 @@ use crate::{
     send_queue::RoomSendQueueUpdate,
 };
 
+/// Tracks the automatic latest-event backfill of one room, so that a room gets
+/// at most one backfill attempt per genuine event-cache update: a backfill
+/// whose recomputation still yields no value must not immediately trigger
+/// another backfill, otherwise the loop would never converge.
+///
+/// The state lives outside the [`RoomLatestEvents`] lock: it is read and
+/// written by the computation task and by detached backfill tasks.
+#[derive(Clone, Debug)]
+pub(super) struct BackfillState {
+    state: Arc<AtomicU8>,
+}
+
+const BACKFILL_IDLE: u8 = 0;
+const BACKFILL_IN_FLIGHT: u8 = 1;
+const BACKFILL_ATTEMPTED: u8 = 2;
+
+impl BackfillState {
+    fn new() -> Self {
+        Self { state: Arc::new(AtomicU8::new(BACKFILL_IDLE)) }
+    }
+
+    /// A genuine event-cache update arrived for the room: allow a new backfill
+    /// attempt.
+    pub fn reset(&self) {
+        self.state.store(BACKFILL_IDLE, Ordering::Release);
+    }
+
+    /// Try to claim the backfill attempt. Returns `false` if one is already in
+    /// flight, or if one has already been attempted for the current data.
+    pub fn try_begin(&self) -> bool {
+        self.state
+            .compare_exchange(
+                BACKFILL_IDLE,
+                BACKFILL_IN_FLIGHT,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    /// The claimed backfill attempt finished. If the state has been `reset` in
+    /// the meantime (a genuine update arrived mid-flight), the reset wins and a
+    /// new attempt remains allowed.
+    pub fn mark_attempted(&self) {
+        let _ = self.state.compare_exchange(
+            BACKFILL_IN_FLIGHT,
+            BACKFILL_ATTEMPTED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+}
+
 /// Type holding the [`LatestEvent`] for a room and for all its threads.
 #[derive(Debug)]
 pub(super) struct RoomLatestEvents {
     /// The state of this type.
     state: Arc<RwLock<RoomLatestEventsState>>,
+
+    /// The state of the automatic latest-event backfill for this room.
+    backfill: BackfillState,
 }
 
 impl RoomLatestEvents {
@@ -53,7 +115,13 @@ impl RoomLatestEvents {
                 event_cache: event_cache.clone(),
                 room_event_cache: OnceCell::new(),
             })),
+            backfill: BackfillState::new(),
         })
+    }
+
+    /// The state of the automatic latest-event backfill for this room.
+    pub fn backfill(&self) -> &BackfillState {
+        &self.backfill
     }
 
     fn create_latest_event(
@@ -116,6 +184,11 @@ impl RoomLatestEventsReadGuard {
     #[cfg(test)]
     pub fn per_thread(&self) -> &HashMap<OwnedEventId, LatestEvent> {
         &self.inner.per_thread
+    }
+
+    /// The room these latest events belong to, if it still exists.
+    pub fn room(&self) -> Option<Room> {
+        self.inner.weak_room.get()
     }
 }
 

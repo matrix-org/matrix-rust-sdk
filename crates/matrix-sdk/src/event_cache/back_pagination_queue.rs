@@ -31,10 +31,10 @@
 //!   than paginating the same history twice.
 //!
 //! Requests are meant to be short, so a higher-priority request for a busy
-//! room only waits for the current run, not a full sweep. Search requests
-//! enforce this with a batch cap while latest-event and read receipt requests
-//! rely on predicates that fire once a suitable candidate is loaded, so they
-//! don't run indefinitely.
+//! room only waits for the current run, not a full sweep. Latest-event and
+//! read-receipt requests rely on predicates that fire once a suitable
+//! candidate is loaded, and every request kind additionally carries a batch
+//! cap, so no request runs indefinitely.
 
 use std::{
     cmp::Ordering,
@@ -68,6 +68,14 @@ const ROOM_BATCH: usize = 100;
 
 /// Number of read-receipt paginations allowed per request.
 const READ_RECEIPT_MAX_BATCHES: usize = 20;
+
+/// Number of paginations allowed per latest-event request.
+///
+/// The stop predicate usually fires on the first batch. This cap is the safety
+/// net for a room with no suitable candidate within reach (e.g. a long run of
+/// non-displayable events): without it, such a room would paginate all the way
+/// to the start of its history.
+const LATEST_EVENT_MAX_BATCHES: usize = 3;
 
 /// Number of events requested per background pagination batch.
 const BATCH_SIZE: u16 = 30;
@@ -171,7 +179,7 @@ impl BackPaginationRequest {
     }
 
     /// A latest-event request: back-paginate until `stop` finds a candidate, at
-    /// [`High`] priority.
+    /// [`High`] priority, capped at [`LATEST_EVENT_MAX_BATCHES`] batches.
     fn latest_event(
         room_id: OwnedRoomId,
         batch_size: u16,
@@ -182,7 +190,7 @@ impl BackPaginationRequest {
             priority: Priority::High,
             stop: StopCondition::WhenBatch(Box::new(stop)),
             batch_size,
-            max_batches: None,
+            max_batches: Some(LATEST_EVENT_MAX_BATCHES),
         }
     }
 
