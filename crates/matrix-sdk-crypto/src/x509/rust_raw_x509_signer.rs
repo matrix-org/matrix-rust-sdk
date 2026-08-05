@@ -26,7 +26,7 @@ use thiserror::Error;
 use crate::{
     SignatureError,
     x509::{
-        X509SignatureSigningError,
+        ValidityError, X509SignatureSigningError,
         raw_x509_signature::{RawX509Signature, X509SignatureScheme},
         x509_signer::RawX509Signer,
     },
@@ -126,8 +126,8 @@ impl RawX509Signer for RustRawX509Signer {
         })
     }
 
-    fn validity_not_after(&self) -> der::DateTime {
-        self.validity_not_after
+    fn validity_not_after(&self) -> Result<der::DateTime, ValidityError> {
+        Ok(self.validity_not_after)
     }
 }
 

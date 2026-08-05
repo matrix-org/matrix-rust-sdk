@@ -335,6 +335,10 @@ pub trait RawX509Signer: SyncOutsideWasm + SendOutsideWasm + Debug {
     ///
     /// Returns (key ID, signature)
     fn sign(&self, message: Vec<u8>) -> Result<RawX509Signature, ClientError>;
+
+    /// Return the "not after" time for the certificate's validity period as a
+    /// UNIX timestamp.
+    fn validity_not_after(&self) -> u64;
 }
 
 /// A foreign trait for low-level types which can verify messages which were
