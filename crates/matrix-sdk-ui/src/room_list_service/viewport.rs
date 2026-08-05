@@ -97,11 +97,18 @@ impl Viewport {
     ///
     /// Subscriptions for rooms no longer in the viewport are removed
     /// client-side; already-synced data stays in the caches.
+    ///
+    /// The in-flight round (if any) is NEVER cancelled: rounds are short, and
+    /// aborting a response the server has already computed loses data for the
+    /// subscriptions that rode it (the server does not re-send it on the
+    /// pos-reverted retry, so the affected rooms would stay blank forever;
+    /// observed against synapse). A kick during a round coalesces into one
+    /// follow-up round carrying the newest viewport.
     pub fn subscribe(&self, room_ids: &[&RoomId], settings: http::request::RoomSubscription) {
         *self.current_rooms.write().unwrap() =
             room_ids.iter().map(|room_id| (*room_id).to_owned()).collect();
 
-        self.sliding_sync.resubscribe_to_rooms(room_ids, Some(settings), true);
+        self.sliding_sync.resubscribe_to_rooms(room_ids, Some(settings), false);
 
         let _ = self.kick_sender.send(());
     }
