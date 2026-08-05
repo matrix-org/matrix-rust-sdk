@@ -169,6 +169,7 @@ async fn set_all_rooms_to_growing_sync_mode(sliding_sync: &SlidingSync) -> Resul
     sliding_sync
         .on_list(ALL_ROOMS_LIST_NAME, |list| {
             list.set_sync_mode(SlidingSyncMode::new_growing(ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE));
+            list.set_timeline_limit(ALL_ROOMS_GROWING_TIMELINE_LIMIT);
 
             ready(())
         })
@@ -182,6 +183,7 @@ async fn set_all_rooms_to_selective_sync_mode(sliding_sync: &SlidingSync) -> Res
             list.set_sync_mode(
                 SlidingSyncMode::new_selective().add_range(ALL_ROOMS_DEFAULT_SELECTIVE_RANGE),
             );
+            list.set_timeline_limit(super::DEFAULT_LIST_TIMELINE_LIMIT);
 
             ready(())
         })
@@ -195,7 +197,33 @@ pub const ALL_ROOMS_DEFAULT_SELECTIVE_RANGE: Range = 0..=19;
 
 /// Default `batch_size` for the growing sync-mode of the `ALL_ROOMS_LIST_NAME`
 /// list.
-pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 100;
+///
+/// Small on purpose: combined with [`ALL_ROOMS_GROWING_TIMELINE_LIMIT`], each
+/// growing round delivers a full preview's worth of timeline for a block of
+/// rooms, so the room list's order and previews are settled top-down before
+/// the user scrolls into them, rather than reactively when they do.
+pub const ALL_ROOMS_DEFAULT_GROWING_BATCH_SIZE: u32 = 20;
+
+/// The `timeline_limit` applied to the `ALL_ROOMS_LIST_NAME` list once it
+/// switches to the growing sync-mode.
+///
+/// The first sync round runs with the configured initial timeline limit
+/// (usually [`super::DEFAULT_LIST_TIMELINE_LIMIT`], i.e. 1) over
+/// [`ALL_ROOMS_DEFAULT_SELECTIVE_RANGE`] for the fastest possible first paint.
+/// Raising the limit when entering the growing mode makes the server re-send
+/// an expanded timeline chunk for those first rooms (Synapse's
+/// `unstable_expanded_timeline` trickling triggers whenever a room's effective
+/// timeline limit increases), and every subsequently grown block gets this
+/// many recent events up front. With this many events per room, the latest
+/// displayable event (and therefore the room's position in a
+/// recency-ordered list) is likely known without any reactive per-room
+/// back-pagination, even in encrypted rooms where the most recent events can
+/// be non-displayable or still undecrypted.
+///
+/// Going back to the selective sync-mode (see
+/// [`set_all_rooms_to_selective_sync_mode`]) resets the limit to
+/// [`super::DEFAULT_LIST_TIMELINE_LIMIT`] so that recovery rounds stay small.
+pub const ALL_ROOMS_GROWING_TIMELINE_LIMIT: u32 = 10;
 
 #[cfg(test)]
 mod tests {
@@ -387,6 +415,14 @@ mod tests {
             Some(true)
         );
 
+        // … with the initial timeline limit.
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.timeline_limit()))
+                .await,
+            Some(crate::room_list_service::DEFAULT_LIST_TIMELINE_LIMIT)
+        );
+
         // Run the action!
         set_all_rooms_to_growing_sync_mode(sliding_sync).await.unwrap();
 
@@ -403,6 +439,14 @@ mod tests {
             Some(true)
         );
 
+        // … and the timeline limit has been expanded.
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.timeline_limit()))
+                .await,
+            Some(ALL_ROOMS_GROWING_TIMELINE_LIMIT)
+        );
+
         // Run the other action!
         set_all_rooms_to_selective_sync_mode(sliding_sync).await.unwrap();
 
@@ -415,6 +459,15 @@ mod tests {
                 )))
                 .await,
             Some(true)
+        );
+
+        // … and the timeline limit is back to the initial one, so that
+        // recovery rounds stay small.
+        assert_eq!(
+            sliding_sync
+                .on_list(ALL_ROOMS_LIST_NAME, |list| ready(list.timeline_limit()))
+                .await,
+            Some(crate::room_list_service::DEFAULT_LIST_TIMELINE_LIMIT)
         );
 
         Ok(())
