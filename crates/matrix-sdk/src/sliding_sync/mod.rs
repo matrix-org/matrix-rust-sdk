@@ -33,7 +33,6 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 use matrix_sdk_base::RequestedRequiredStates;
-#[cfg(feature = "e2e-encryption")]
 use matrix_sdk_common::executor::JoinHandleExt as _;
 use matrix_sdk_common::{executor::spawn, timer};
 use ruma::{
@@ -477,7 +476,29 @@ impl SlidingSync {
 
             let _timer = timer!("acquiring the `position` lock");
 
-            self.inner.position.clone().lock_owned().await
+            // The position lock is held by the (uncancellable, detached)
+            // response handling of the previous request until it completes: if
+            // that handling is stuck, this is where the sync loop silently
+            // stalls forever. Surface it instead of waiting quietly.
+            let position = self.inner.position.clone();
+            let mut wait_secs = 0u64;
+
+            loop {
+                match tokio::time::timeout(Duration::from_secs(5), position.clone().lock_owned())
+                    .await
+                {
+                    Ok(position_guard) => break position_guard,
+                    Err(_) => {
+                        wait_secs += 5;
+                        warn!(
+                            conn_id = self.inner.id,
+                            wait_secs,
+                            "Still waiting to acquire the `position` lock; the response \
+                             handling of the previous request may be stuck"
+                        );
+                    }
+                }
+            }
         };
 
         debug!(pos = ?position_guard.pos, "Got a position");
@@ -666,6 +687,32 @@ impl SlidingSync {
         // cancelled if this method is cancelled.
         let future = async move {
             debug!("Start handling response");
+
+            // This handling is detached and uncancellable, and holds the
+            // `position` lock (and, while processing, the `state_store_lock`):
+            // if it ever parks, the whole connection (and every other consumer
+            // of those locks) silently stalls. Let a watchdog shout about it.
+            // It lives inside this future (not in the cancellable caller), so
+            // it keeps shouting even after the sync loop has been stopped.
+            let _watchdog = spawn({
+                let conn_id = this.inner.id.clone();
+
+                async move {
+                    let mut elapsed_secs = 0u64;
+
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        elapsed_secs += 10;
+                        warn!(
+                            conn_id,
+                            elapsed_secs,
+                            "Response handling is still running; it holds the `position` \
+                             lock, so the sync loop cannot proceed until it completes"
+                        );
+                    }
+                }
+            })
+            .abort_on_drop();
 
             // In case the task running this future is detached, we must
             // ensure responses are handled one at a time. At this point we still own
