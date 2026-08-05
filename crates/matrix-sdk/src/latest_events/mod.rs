@@ -69,9 +69,10 @@ use tokio::{
     select,
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, broadcast, mpsc},
 };
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::{
+    Room,
     client::WeakClient,
     event_cache::{EventCache, RoomEventCacheGenericUpdate},
     room::WeakRoom,
@@ -610,6 +611,22 @@ async fn compute_latest_events(
         }
     }
 
+    // Phase 1: compute the new `LatestEventValue`s, without persisting them.
+    //
+    // Each computation is slow (power levels and event cache reads, possibly a
+    // decryption attempt), so persisting values as they are computed would
+    // broadcast one `RoomInfoNotableUpdate` every few tens of milliseconds:
+    // the room list would re-order once per room, which is visible as a
+    // flicker of rapid successive updates. Instead, the new values are
+    // collected here, and persisted back-to-back in the phase 2, so the
+    // broadcasts land close enough together to be coalesced into a single
+    // atomic room list update.
+    //
+    // The in-memory values (`LatestEvent::current_value`) are updated during
+    // this phase, so successive updates for the same room in this batch see
+    // each other's results, exactly as when persisting was interleaved.
+    let mut pending_persists: Vec<(Room, Vec<LatestEventValue>)> = Vec::new();
+
     for latest_event_queue_update in latest_event_queue_updates {
         match latest_event_queue_update {
             LatestEventQueueUpdate::EventCache { room_id } => {
@@ -619,7 +636,13 @@ async fn compute_latest_events(
                     continue;
                 };
 
-                room_latest_events.update_with_event_cache().await;
+                let pending_values = room_latest_events.update_with_event_cache().await;
+
+                if let Some(room) = room_latest_events.room()
+                    && !pending_values.is_empty()
+                {
+                    pending_persists.push((room, pending_values));
+                }
             }
 
             LatestEventQueueUpdate::SendQueue { room_id, update } => {
@@ -629,7 +652,13 @@ async fn compute_latest_events(
                     continue;
                 };
 
-                room_latest_events.update_with_send_queue(update).await;
+                let pending_values = room_latest_events.update_with_send_queue(update).await;
+
+                if let Some(room) = room_latest_events.room()
+                    && !pending_values.is_empty()
+                {
+                    pending_persists.push((room, pending_values));
+                }
             }
 
             LatestEventQueueUpdate::RoomInfo { room_id, reasons } => {
@@ -639,9 +668,42 @@ async fn compute_latest_events(
                     continue;
                 };
 
-                room_latest_events.update_with_room_info(*reasons).await;
+                let pending_values = room_latest_events.update_with_room_info(*reasons).await;
+
+                if let Some(room) = room_latest_events.room()
+                    && !pending_values.is_empty()
+                {
+                    pending_persists.push((room, pending_values));
+                }
             }
         }
+    }
+
+    // Phase 2: persist all the new values back-to-back.
+    for (room, pending_values) in pending_persists {
+        for pending_value in pending_values {
+            persist_latest_event_value(&room, pending_value).await;
+        }
+    }
+}
+
+/// Update the `RoomInfo` associated to `room` to set the new
+/// [`LatestEventValue`], and persist it in the
+/// [`StateStore`][matrix_sdk_base::StateStore] (the one from
+/// [`Client::state_store`][crate::Client::state_store]).
+///
+/// This broadcasts a [`RoomInfoNotableUpdate`] with the
+/// [`RoomInfoNotableUpdateReasons::LATEST_EVENT`] reason.
+pub(super) async fn persist_latest_event_value(room: &Room, new_value: LatestEventValue) {
+    let result = room
+        .update_and_save_room_info(|mut info| {
+            info.set_latest_event(new_value);
+            (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
+        })
+        .await;
+
+    if let Err(error) = result {
+        error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
     }
 }
 

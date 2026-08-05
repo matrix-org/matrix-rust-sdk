@@ -21,9 +21,10 @@ use tracing::error;
 
 use super::{
     LatestEvent,
-    latest_event::{IsLatestEventValueNone, With},
+    latest_event::{IsLatestEventValueNone, LatestEventValue, With},
 };
 use crate::{
+    Room,
     event_cache::{EventCache, EventCacheError, RoomEventCache},
     room::WeakRoom,
     send_queue::RoomSendQueueUpdate,
@@ -144,9 +145,18 @@ impl RoomLatestEventsWriteGuard {
         self.inner.per_thread.remove(thread_id);
     }
 
+    /// The room these latest events belong to, if it still exists.
+    pub fn room(&self) -> Option<Room> {
+        self.inner.weak_room.get()
+    }
+
     /// Update the latest events for the room and its threads, based on the
     /// event cache data.
-    pub async fn update_with_event_cache(&mut self) {
+    ///
+    /// Returns the new values (for the room, then its threads, in that order)
+    /// that must be persisted in the `RoomInfo` (see
+    /// [`super::persist_latest_event_value`]).
+    pub async fn update_with_event_cache(&mut self) -> Vec<LatestEventValue> {
         // Get the power levels of the user for the current room if the `WeakRoom` is
         // still valid.
         //
@@ -156,7 +166,7 @@ impl RoomLatestEventsWriteGuard {
             // No room? Let's stop the update.
             error!(room = ?self.inner.weak_room, "Room is unknown");
 
-            return;
+            return Vec::new();
         };
         let own_user_id = room.own_user_id();
         let power_levels = room.power_levels().await.ok();
@@ -181,24 +191,39 @@ impl RoomLatestEventsWriteGuard {
             Ok(room_event_cache) => room_event_cache,
             Err(err) => {
                 error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
-                return;
+                return Vec::new();
             }
         };
 
-        for_the_room
-            .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
-            .await;
+        let mut pending_values = Vec::new();
+
+        pending_values.extend(
+            for_the_room
+                .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
+                .await,
+        );
 
         for latest_event in per_thread.values_mut() {
-            latest_event
-                .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
-                .await;
+            pending_values.extend(
+                latest_event
+                    .update_with_event_cache(room_event_cache, own_user_id, power_levels.as_ref())
+                    .await,
+            );
         }
+
+        pending_values
     }
 
     /// Update the latest events for the room and its threads, based on the
     /// send queue update.
-    pub async fn update_with_send_queue(&mut self, send_queue_update: &RoomSendQueueUpdate) {
+    ///
+    /// Returns the new values (for the room, then its threads, in that order)
+    /// that must be persisted in the `RoomInfo` (see
+    /// [`super::persist_latest_event_value`]).
+    pub async fn update_with_send_queue(
+        &mut self,
+        send_queue_update: &RoomSendQueueUpdate,
+    ) -> Vec<LatestEventValue> {
         // Get the power levels of the user for the current room if the `WeakRoom` is
         // still valid.
         //
@@ -206,7 +231,7 @@ impl RoomLatestEventsWriteGuard {
         // the room and its threads).
         let Some(room) = self.inner.weak_room.get() else {
             // No room? Let's stop the update.
-            return;
+            return Vec::new();
         };
         let own_user_id = room.own_user_id();
         let power_levels = room.power_levels().await.ok();
@@ -231,40 +256,54 @@ impl RoomLatestEventsWriteGuard {
             Ok(room_event_cache) => room_event_cache,
             Err(err) => {
                 error!(room_id = ?room.room_id(), ?err, "Failed to fetch the `RoomEventCache`");
-                return;
+                return Vec::new();
             }
         };
 
-        for_the_room
-            .update_with_send_queue(
-                send_queue_update,
-                room_event_cache,
-                own_user_id,
-                power_levels.as_ref(),
-            )
-            .await;
+        let mut pending_values = Vec::new();
 
-        for latest_event in per_thread.values_mut() {
-            latest_event
+        pending_values.extend(
+            for_the_room
                 .update_with_send_queue(
                     send_queue_update,
                     room_event_cache,
                     own_user_id,
                     power_levels.as_ref(),
                 )
-                .await;
+                .await,
+        );
+
+        for latest_event in per_thread.values_mut() {
+            pending_values.extend(
+                latest_event
+                    .update_with_send_queue(
+                        send_queue_update,
+                        room_event_cache,
+                        own_user_id,
+                        power_levels.as_ref(),
+                    )
+                    .await,
+            );
         }
+
+        pending_values
     }
 
     /// Update the latest events for the room and its threads, based on the room
     /// info.
-    pub async fn update_with_room_info(&mut self, reasons: RoomInfoNotableUpdateReasons) {
+    ///
+    /// Returns the new values that must be persisted in the `RoomInfo` (see
+    /// [`super::persist_latest_event_value`]).
+    pub async fn update_with_room_info(
+        &mut self,
+        reasons: RoomInfoNotableUpdateReasons,
+    ) -> Vec<LatestEventValue> {
         // Get the state of the current room if the `WeakRoom` is still valid.
         let Some(room) = self.inner.weak_room.get() else {
             // No room? Let's stop the update.
-            return;
+            return Vec::new();
         };
 
-        self.inner.for_the_room.update_with_room_info(room, reasons).await;
+        self.inner.for_the_room.update_with_room_info(room, reasons).await.into_iter().collect()
     }
 }

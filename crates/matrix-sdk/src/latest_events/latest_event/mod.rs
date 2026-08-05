@@ -24,7 +24,7 @@ pub use matrix_sdk_base::latest_event::{
 };
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{info, trace};
 
 use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
 
@@ -33,9 +33,6 @@ use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomS
 /// Use [`LatestEvent::subscribe`] to get a stream of updates.
 #[derive(Debug)]
 pub(super) struct LatestEvent {
-    /// The room owning this latest event.
-    weak_room: WeakRoom,
-
     /// The thread (if any) owning this latest event.
     _thread_id: Option<OwnedEventId>,
 
@@ -61,7 +58,6 @@ impl LatestEvent {
 
         With {
             result: Self {
-                weak_room: weak_room.clone(),
                 _thread_id: thread_id.map(ToOwned::to_owned),
                 buffer_of_values_for_local_events: BufferOfValuesForLocalEvents::new(),
                 current_value: SharedObservable::new_async(latest_event_value),
@@ -89,17 +85,20 @@ impl LatestEvent {
     /// send queue. Indeed, anything coming from the send queue has the priority
     /// over the anything coming from the event cache. We believe it provides a
     /// better user experience.
+    ///
+    /// Returns the new value if it must be persisted in the `RoomInfo` (see
+    /// [`Self::update`]).
     pub async fn update_with_event_cache(
         &mut self,
         room_event_cache: &RoomEventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
-    ) {
+    ) -> Option<LatestEventValue> {
         if self.buffer_of_values_for_local_events.is_empty().not() {
             // At least one `LatestEventValue` exists for local events (i.e. coming from the
             // send queue). In this case, we don't overwrite the current value with a newly
             // computed one from the event cache.
-            return;
+            return None;
         }
 
         let current_event = self.current_value.get().await;
@@ -108,20 +107,21 @@ impl LatestEvent {
 
         trace!(value = ?new_value, "Computed a remote `LatestEventValue`");
 
-        if let Some(new_value) = new_value {
-            self.update(new_value).await;
-        }
+        if let Some(new_value) = new_value { self.update(new_value).await } else { None }
     }
 
     /// Update the inner latest event value, based on the send queue
     /// (specifically with the [`RoomSendQueueUpdate`]).
+    ///
+    /// Returns the new value if it must be persisted in the `RoomInfo` (see
+    /// [`Self::update`]).
     pub async fn update_with_send_queue(
         &mut self,
         send_queue_update: &RoomSendQueueUpdate,
         room_event_cache: &RoomEventCache,
         own_user_id: &UserId,
         power_levels: Option<&RoomPowerLevels>,
-    ) {
+    ) -> Option<LatestEventValue> {
         let current_event = self.current_value.get().await;
         let new_value = Builder::new_local(
             send_queue_update,
@@ -135,17 +135,18 @@ impl LatestEvent {
 
         trace!(value = ?new_value, "Computed a local `LatestEventValue`");
 
-        if let Some(new_value) = new_value {
-            self.update(new_value).await;
-        }
+        if let Some(new_value) = new_value { self.update(new_value).await } else { None }
     }
 
     /// Update the inner latest event value, based on the room info.
+    ///
+    /// Returns the new value if it must be persisted in the `RoomInfo` (see
+    /// [`Self::update`]).
     pub async fn update_with_room_info(
         &mut self,
         room: Room,
         reasons: RoomInfoNotableUpdateReasons,
-    ) {
+    ) -> Option<LatestEventValue> {
         // If the `RoomInfo` has been updated due to a change of the own membership.
         if reasons.contains(RoomInfoNotableUpdateReasons::MEMBERSHIP) {
             let new_value = match room.state() {
@@ -167,7 +168,7 @@ impl LatestEvent {
                         self.current_value.read().await.deref(),
                         LatestEventValue::RemoteInvite { .. }
                     ) {
-                        return;
+                        return None;
                     }
 
                     let new_value = Builder::new_remote_for_invite(&room).await;
@@ -182,22 +183,32 @@ impl LatestEvent {
                         "Skipping the computation of a remote `LatestEventValue` from a `RoomInfo`"
                     );
 
-                    return;
+                    return None;
                 }
             };
 
-            self.update(new_value).await;
+            return self.update(new_value).await;
         }
+
+        None
     }
 
-    /// Update [`Self::current_value`], and persist the `new_value` in the
-    /// store.
+    /// Update [`Self::current_value`], and return the `new_value` if it must
+    /// be persisted in the `RoomInfo` (with
+    /// [`super::persist_latest_event_value`]).
+    ///
+    /// Persisting is deliberately left to the caller: the compute task
+    /// processes its queue in two phases, first computing new values (this
+    /// method), then persisting all of them back-to-back, so that the
+    /// resulting `RoomInfoNotableUpdate`s are broadcast as one tight burst
+    /// that the room list can coalesce into a single atomic update, instead
+    /// of one visible reorder per computed room.
     ///
     /// If the `new_value` is [`LatestEventValue::None`], it is accepted: if the
     /// previous latest event value has been redacted and no other candidate has
     /// been found, we want to latest event value to be `None`, so that it is
     /// erased correctly.
-    async fn update(&mut self, new_value: LatestEventValue) {
+    async fn update(&mut self, new_value: LatestEventValue) -> Option<LatestEventValue> {
         // Ideally, we would set `new_value` if and only if it is different from the
         // previous value. However, `LatestEventValue` cannot implement `PartialEq` at
         // the time of writing (2025-12-12). So we are only updating if:
@@ -229,33 +240,11 @@ impl LatestEvent {
             if do_update {
                 ObservableWriteGuard::set(&mut guard, new_value.clone());
 
-                // Release the write guard over the current value before hitting the store.
-                drop(guard);
-
-                self.store(new_value).await;
+                return Some(new_value);
             }
         }
-    }
 
-    /// Update the `RoomInfo` associated to this room to set the new
-    /// [`LatestEventValue`], and persist it in the
-    /// [`StateStore`][matrix_sdk_base::StateStore] (the one from
-    /// [`Client::state_store`][crate::Client::state_store]).
-    #[instrument(skip_all)]
-    async fn store(&mut self, new_value: LatestEventValue) {
-        let Some(room) = self.weak_room.get() else {
-            warn!(room_id = ?self.weak_room.room_id(), "Cannot store the latest event value because the room cannot be accessed");
-            return;
-        };
-        let result = room
-            .update_and_save_room_info(|mut info| {
-                info.set_latest_event(new_value);
-                (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
-            })
-            .await;
-        if let Err(error) = result {
-            error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
-        }
+        None
     }
 }
 
@@ -781,15 +770,25 @@ mod tests_latest_event {
                 assert_matches!(latest_event, LatestEventValue::None);
             }
 
-            // Generate a new `LatestEventValue`.
+            // Generate a new `LatestEventValue`, and persist it, as the
+            // compute task does in its two phases.
             {
                 let mut latest_event = LatestEvent::new(&weak_room, None);
-                latest_event.update_with_event_cache(&room_event_cache, user_id, None).await;
+                let pending_value = latest_event
+                    .update_with_event_cache(&room_event_cache, user_id, None)
+                    .await
+                    .expect("the new value must be pending a persist");
 
                 assert_matches!(
                     latest_event.current_value.get().await,
                     LatestEventValue::Remote(_)
                 );
+
+                super::super::persist_latest_event_value(
+                    &client.get_room(&room_id).unwrap(),
+                    pending_value,
+                )
+                .await;
             }
 
             // We see the `RoomInfoNotableUpdateReasons`.
