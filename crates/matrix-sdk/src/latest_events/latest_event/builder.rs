@@ -153,10 +153,11 @@ impl Builder {
 
         LatestEventValue::RemoteInvite {
             event_id,
-            // If the event is a stripped state event, it should not have a timestamp. Let's use
-            // `now()` as a fallback so that the `LatestEventValue` can be used to sort rooms in a
-            // room list for example.
-            timestamp: timestamp.unwrap_or_else(MilliSecondsSinceUnixEpoch::now),
+            // A stripped state event has no timestamp, and none is synthesised: room-list
+            // ordering falls back to the room's recency (bump) stamp, which reflects the
+            // invite's arrival on the server. A `now()` fallback here would bunch every
+            // invite at the moment the value was first computed (i.e. at login).
+            timestamp,
             inviter: inviter_id,
         }
     }
