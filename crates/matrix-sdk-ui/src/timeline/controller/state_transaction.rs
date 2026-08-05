@@ -666,7 +666,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 // Remember the event before returning prematurely.
                 // See [`ObservableItems::all_remote_events`].
                 self.add_or_update_remote_event(
-                    EventMeta::new(event_id, false, false, None),
+                    EventMeta::new(event_id, sender.as_deref(), false, false, None),
                     sender.as_deref(),
                     origin_server_ts,
                     position,
@@ -890,7 +890,13 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // Remember the event.
         // See [`ObservableItems::all_remote_events`].
         self.add_or_update_remote_event(
-            EventMeta::new(event_id.clone(), should_add, can_show_read_receipts, thread_root),
+            EventMeta::new(
+                event_id.clone(),
+                Some(&sender),
+                should_add,
+                can_show_read_receipts,
+                thread_root,
+            ),
             Some(&sender),
             Some(timestamp),
             position,

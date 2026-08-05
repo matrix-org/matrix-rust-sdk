@@ -1702,6 +1702,12 @@ async fn test_send_read_receipts() {
                         .sender(*BOB)
                         .in_thread(&thread_root, event_id!("$3"))
                         .event_id(event_id!("$4")),
+                )
+                // The server already has a real read receipt for the user on Alice's `$1`.
+                .add_receipt(
+                    f.read_receipts()
+                        .add(event_id!("$1"), user_id, ReceiptType::Read, receipt_thread.clone())
+                        .into_event(),
                 ),
         )
         .await;
@@ -1754,13 +1760,14 @@ async fn test_send_read_receipts() {
     assert_eq!(rr.len(), 1);
     assert_eq!(rr[*BOB].thread, receipt_thread);
 
-    // If the user tries to send a read receipt for an event sent before one of
-    // theirs, it is a no-op.
+    // `$1` is already covered by the user's real read receipt, so sending one there
+    // is a no-op.
     let did_send =
         timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$1")).await.unwrap();
     assert!(did_send.not());
 
-    // If the user tries to send a read receipt for their own event, it is a no-op.
+    // `$2` is the user's own event with their receipt is directly before it. Also a
+    // no-op.
     let did_send =
         timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$2")).await.unwrap();
     assert!(did_send.not());
@@ -1836,6 +1843,138 @@ async fn test_send_read_receipts() {
 
     // Trying to mark the thread as read again is a no-op.
     let did_send = timeline.mark_as_read(SendReceiptType::Read).await.unwrap();
+    assert!(did_send.not());
+}
+
+#[async_test]
+async fn test_send_read_receipt_moves_real_receipt_forward() {
+    // Sending a read receipt for an unread message from someone else moves the
+    // real receipt forward to it.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+    client.event_cache().subscribe().unwrap();
+
+    let user_id = client.user_id().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root = owned_event_id!("$root");
+    let receipt_thread = ReceiptThread::Thread(thread_root.clone());
+
+    let f = EventFactory::new();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("first")
+                        .sender(*ALICE)
+                        .in_thread(&thread_root, &thread_root)
+                        .event_id(event_id!("$0")),
+                )
+                .add_timeline_event(
+                    f.text_msg("second")
+                        .sender(*ALICE)
+                        .in_thread(&thread_root, event_id!("$0"))
+                        .event_id(event_id!("$1")),
+                )
+                // The user's real read receipt currently sits on `$0`.
+                .add_receipt(
+                    f.read_receipts()
+                        .add(event_id!("$0"), user_id, ReceiptType::Read, receipt_thread.clone())
+                        .into_event(),
+                ),
+        )
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut initial_items, mut stream) = timeline.subscribe().await;
+    if initial_items.is_empty() {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        for up in timeline_updates {
+            up.apply(&mut initial_items);
+        }
+    }
+
+    // `$1` isn't the user's and is after the user's real receipt, so it's sent,
+    // moving the real receipt forward from `$0` to `$1`.
+    server
+        .mock_send_receipt(SendReceiptType::Read)
+        .match_thread(receipt_thread.clone())
+        .match_event_id(event_id!("$1"))
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    let did_send =
+        timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$1")).await.unwrap();
+    assert!(did_send);
+}
+
+#[async_test]
+async fn test_send_read_receipt_with_only_own_events_is_a_no_op() {
+    // Sending a read receipt is a no-op when the target and everything before it
+    // are the user's own events, since a receipt is never sent to one of those.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+    client.event_cache().subscribe().unwrap();
+
+    let user_id = client.user_id().unwrap();
+
+    let room_id = room_id!("!a:b.c");
+    let thread_root = owned_event_id!("$root");
+
+    let f = EventFactory::new();
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("mine")
+                        .sender(user_id)
+                        .in_thread(&thread_root, &thread_root)
+                        .event_id(event_id!("$1")),
+                )
+                .add_timeline_event(
+                    f.text_msg("also mine")
+                        .sender(user_id)
+                        .in_thread(&thread_root, event_id!("$1"))
+                        .event_id(event_id!("$2")),
+                ),
+        )
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Thread { root_event_id: thread_root.clone() })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut initial_items, mut stream) = timeline.subscribe().await;
+    if initial_items.is_empty() {
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        for up in timeline_updates {
+            up.apply(&mut initial_items);
+        }
+    }
+
+    // Both the user's latest event and the one before it are the user's, so both
+    // bail.
+    let did_send =
+        timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$2")).await.unwrap();
+    assert!(did_send.not());
+
+    let did_send =
+        timeline.send_single_receipt(SendReceiptType::Read, owned_event_id!("$1")).await.unwrap();
     assert!(did_send.not());
 }
 

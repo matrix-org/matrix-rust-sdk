@@ -102,6 +102,18 @@ pub(super) use aggregations::*;
 pub(super) use decryption_retry_task::{CryptoDropHandles, spawn_crypto_tasks};
 use matrix_sdk_base::{CallIntentConsensus, RoomInfo};
 
+/// The outcome of [`TimelineController::should_send_receipt`].
+pub(super) enum SendReceiptDecision {
+    /// No read receipt should be sent.
+    DoNotSend,
+
+    /// A read receipt should be sent, targeting this event.
+    ///
+    /// This may differ from the event the caller asked about, since a read
+    /// receipt should not point at one of the user's own events.
+    SendTo(OwnedEventId),
+}
+
 /// Data associated to the current timeline focus.
 ///
 /// This is the private counterpart of [`TimelineFocus`], and it is an augmented
@@ -1205,7 +1217,12 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.state
             .read()
             .await
-            .latest_user_read_receipt(user_id, receipt_thread, &self.room_data_provider)
+            .latest_user_read_receipt(
+                user_id,
+                receipt_thread,
+                &self.room_data_provider,
+                read_receipts::ImplicitReadReceipts::Include,
+            )
             .await
     }
 
@@ -1688,19 +1705,98 @@ impl TimelineController {
         }
     }
 
-    /// Check whether the given receipt should be sent.
+    /// Decide whether a read receipt should be sent, and which event it should
+    /// target.
     ///
-    /// Returns `false` if the given receipt is older than the current one.
+    /// The returned event may differ from `event_id`: a read receipt should not
+    /// point at one of the user's own events (see the Matrix spec's [Receipts
+    /// module]), so if `event_id` is one of theirs, the latest unread event
+    /// before it that is targeted instead.
+    ///
+    /// - When there's no such earlier event and `is_marking_room_as_read` is
+    ///   `false`, [`SendReceiptDecision::DoNotSend`] is returned.
+    /// - When `is_marking_room_as_read` is `true`, the receipt falls back to
+    ///   `event_id` itself if it is explicitly unread, so that the homeserver
+    ///   still recomputes the push/badge count.
+    ///
+    /// [Receipts module]: https://spec.matrix.org/latest/client-server-api/#receipts
     pub(super) async fn should_send_receipt(
         &self,
         receipt_type: &SendReceiptType,
         receipt_thread: &ReceiptThread,
         event_id: &EventId,
-    ) -> bool {
+        is_marking_room_as_read: bool,
+    ) -> SendReceiptDecision {
         let own_user_id = self.room().own_user_id();
         let state = self.state.read().await;
         let room = self.room();
+        let all_remote_events = state.items.all_remote_events();
 
+        // Resolve the event the receipt should target, redirecting away from the
+        // user's own events for read receipts.
+        let target_event_id = match receipt_type {
+            SendReceiptType::Read | SendReceiptType::ReadPrivate => {
+                let is_own_event = all_remote_events
+                    .get_by_event_id(event_id)
+                    .and_then(|event_meta| event_meta.sender.as_deref())
+                    == Some(own_user_id);
+
+                if is_own_event {
+                    let filter_out_thread_events = match self.focus() {
+                        TimelineFocusKind::Thread { .. } | TimelineFocusKind::Event { .. } => false,
+                        TimelineFocusKind::Live { hide_threaded_events, .. } => {
+                            *hide_threaded_events
+                        }
+                        TimelineFocusKind::PinnedEvents { .. } => true,
+                    };
+
+                    let previous_event = all_remote_events
+                        .iter()
+                        .rev()
+                        // Only consider the events that precede the requested one.
+                        .skip_while(|event_meta| event_meta.event_id != *event_id)
+                        .skip(1)
+                        // Never point a read receipt at one of the user's own events.
+                        .filter(|event_meta| event_meta.sender.as_deref() != Some(own_user_id))
+                        .find_map(|event_meta| {
+                            if !filter_out_thread_events {
+                                Some(event_meta.event_id.clone())
+                            } else if event_meta.thread_root_id.is_none() {
+                                if let Some(TimelineEventItemId::EventId(aggregated_event_id)) =
+                                    state.meta.aggregations.is_aggregation_of(
+                                        &TimelineEventItemId::EventId(event_meta.event_id.clone()),
+                                    )
+                                    && let Some(target_meta) =
+                                        all_remote_events.get_by_event_id(aggregated_event_id)
+                                    && target_meta.thread_root_id.is_some()
+                                {
+                                    None
+                                } else {
+                                    Some(event_meta.event_id.clone())
+                                }
+                            } else {
+                                None
+                            }
+                        });
+
+                    match previous_event {
+                        Some(event_id) => event_id,
+                        // Nothing from another user to point at. When marking the room as read,
+                        // fall back to the user's own event so the homeserver still recomputes
+                        // its push/badge count; otherwise there's nothing to send.
+                        None if is_marking_room_as_read => event_id.to_owned(),
+                        None => return SendReceiptDecision::DoNotSend,
+                    }
+                } else {
+                    event_id.to_owned()
+                }
+            }
+
+            _ => event_id.to_owned(),
+        };
+
+        // Only send if the resolved event is more recent than the real receipt the
+        // homeserver already knows about.
         match receipt_type {
             SendReceiptType::Read => {
                 if let Some((old_pub_read, _)) = state
@@ -1710,20 +1806,22 @@ impl TimelineController {
                         ReceiptType::Read,
                         receipt_thread.clone(),
                         room,
-                        state.items.all_remote_events(),
+                        all_remote_events,
+                        read_receipts::ImplicitReadReceipts::Exclude,
                     )
                     .await
                 {
                     trace!(%old_pub_read, "found a previous public receipt");
                     if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
                         &old_pub_read,
-                        event_id,
-                        state.items.all_remote_events(),
+                        &target_event_id,
+                        all_remote_events,
                     ) {
-                        trace!(
-                            "event referred to new receipt is {relative_pos:?} the previous receipt"
-                        );
-                        return relative_pos == RelativePosition::After;
+                        return if relative_pos == RelativePosition::After {
+                            SendReceiptDecision::SendTo(target_event_id)
+                        } else {
+                            SendReceiptDecision::DoNotSend
+                        };
                     }
                 }
             }
@@ -1731,19 +1829,26 @@ impl TimelineController {
             // Implicit read receipts are saved as public read receipts, so get the latest. It also
             // doesn't make sense to have a private read receipt behind a public one.
             SendReceiptType::ReadPrivate => {
-                if let Some((old_priv_read, _)) =
-                    state.latest_user_read_receipt(own_user_id, receipt_thread.clone(), room).await
+                if let Some((old_priv_read, _)) = state
+                    .latest_user_read_receipt(
+                        own_user_id,
+                        receipt_thread.clone(),
+                        room,
+                        read_receipts::ImplicitReadReceipts::Exclude,
+                    )
+                    .await
                 {
                     trace!(%old_priv_read, "found a previous private receipt");
                     if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
                         &old_priv_read,
-                        event_id,
-                        state.items.all_remote_events(),
+                        &target_event_id,
+                        all_remote_events,
                     ) {
-                        trace!(
-                            "event referred to new receipt is {relative_pos:?} the previous receipt"
-                        );
-                        return relative_pos == RelativePosition::After;
+                        return if relative_pos == RelativePosition::After {
+                            SendReceiptDecision::SendTo(target_event_id)
+                        } else {
+                            SendReceiptDecision::DoNotSend
+                        };
                     }
                 }
             }
@@ -1752,19 +1857,24 @@ impl TimelineController {
                 if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
                     && let Some(relative_pos) = TimelineMetadata::compare_events_positions(
                         &prev_event_id,
-                        event_id,
-                        state.items.all_remote_events(),
+                        &target_event_id,
+                        all_remote_events,
                     )
                 {
-                    return relative_pos == RelativePosition::After;
+                    return if relative_pos == RelativePosition::After {
+                        SendReceiptDecision::SendTo(target_event_id)
+                    } else {
+                        SendReceiptDecision::DoNotSend
+                    };
                 }
             }
 
             _ => {}
         }
 
-        // Let the server handle unknown receipts.
-        true
+        // No previous receipt was found (or it's an unknown one): let the server
+        // handle it.
+        SendReceiptDecision::SendTo(target_event_id)
     }
 
     /// Returns the latest event identifier, even if it's not visible, or if
