@@ -359,6 +359,8 @@ impl SlidingSync {
                 // notifications can be properly generated based on the thread subscriptions,
                 // for the events in threads we've subscribed to.
                 if self.is_thread_subscriptions_enabled() {
+                    debug!("Handling the thread subscriptions");
+
                     response_processor
                         .handle_thread_subscriptions(
                             position.pos.as_deref(),
@@ -371,6 +373,8 @@ impl SlidingSync {
 
                 #[cfg(feature = "e2e-encryption")]
                 if self.is_e2ee_enabled() {
+                    debug!("Handling the encryption extensions");
+
                     response_processor
                         .handle_encryption(&sliding_sync_response.extensions, &state_store_guard)
                         .await?
