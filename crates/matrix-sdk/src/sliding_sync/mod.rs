@@ -308,6 +308,25 @@ impl SlidingSync {
 
         trace!(yes = must_process_rooms_response, "Must process rooms response?");
 
+        // Register the response's rooms with the latest-events machinery. This
+        // must happen BEFORE the response is processed (so the rooms are
+        // registered by the time the event cache broadcasts its updates), but
+        // deliberately OUTSIDE the `state_store_lock` region below: it does
+        // not touch the state store, and it awaits latest-events and event
+        // cache locks that must not be coupled with the store lock.
+        if must_process_rooms_response {
+            debug!(
+                rooms = sliding_sync_response.rooms.len(),
+                "Subscribing the response's rooms to latest events"
+            );
+
+            crate::sync::subscribe_to_room_latest_events(
+                &self.inner.client,
+                sliding_sync_response.rooms.keys(),
+            )
+            .await;
+        }
+
         // Transform a Sliding Sync Response to a `SyncResponse`.
         //
         // We may not need the `sync_response` in the future (once `SyncResponse` will
@@ -377,6 +396,22 @@ impl SlidingSync {
 
             response_processor.process_and_take_response().await?
         };
+
+        // Rooms the client did not know before this response (a newly joined
+        // room, or every room when syncing on top of a cleared state store)
+        // could not compute their initial latest event when they were
+        // registered above: they exist now, so re-trigger the computation.
+        // Like the registration above, this runs outside the
+        // `state_store_lock` region: it only enqueues computations.
+        if must_process_rooms_response {
+            debug!("Re-triggering missing latest event computations");
+
+            crate::sync::compute_missing_room_latest_events(
+                &self.inner.client,
+                sliding_sync_response.rooms.keys(),
+            )
+            .await;
+        }
 
         debug!("Sliding Sync response has been handled by the client");
         trace!(?sync_response);
