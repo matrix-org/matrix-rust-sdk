@@ -22,6 +22,8 @@ use std::{
 use futures_util::future::join_all;
 use itertools::Itertools;
 use matrix_sdk_common::{executor::spawn, failures_cache::FailuresCache};
+#[cfg(feature = "experimental-x509-identity-verification")]
+use ruma::api::client::keys::upload_signatures::v3::Request as SignatureUploadRequest;
 use ruma::{
     OwnedDeviceId, OwnedServerName, OwnedTransactionId, OwnedUserId, ServerName, TransactionId,
     UserId, api::client::keys::get_keys::v3::Response as KeysQueryResponse, serde::Raw,
@@ -65,6 +67,36 @@ enum IdentityUpdateResult {
     Unchanged(UserIdentityData),
 }
 
+/// This enum tracks the status of the outgoing X.509 signature upload request,
+/// if any.
+#[cfg(feature = "experimental-x509-identity-verification")]
+#[derive(Debug)]
+enum X509SignatureUploadRequest {
+    /// We have not yet checked if we need to upload a new signature.
+    Unknown,
+    /// We do not need to upload a new signature.
+    None,
+    /// We have a new signature to upload.
+    Some(OutgoingRequest),
+}
+
+#[cfg(feature = "experimental-x509-identity-verification")]
+impl X509SignatureUploadRequest {
+    fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+}
+
+#[cfg(feature = "experimental-x509-identity-verification")]
+impl From<Option<SignatureUploadRequest>> for X509SignatureUploadRequest {
+    fn from(request: Option<SignatureUploadRequest>) -> Self {
+        match request {
+            None => Self::None,
+            Some(request) => Self::Some(request.into()),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct IdentityManager {
     /// Servers that have previously appeared in the `failures` section of a
@@ -81,22 +113,11 @@ pub(crate) struct IdentityManager {
 
     /// The current X.509 signature re-upload request, if any.
     ///
-    /// We re-sign our master cross-signing key with X.509 if our signer has a
-    /// later validity period than the current signature on our master
-    /// cross-signing key.  The outer `Option` indicates whether we have checked
-    /// whether the key needs re-signing or not, and the inner `Option`
-    /// indicates the result of that check, if it was done.  In other words,
-    /// this value will be `None` if we have not yet checked the cross-signing
-    /// key, it will be `Some(None)` if we have checked the cross-signing key
-    /// and it does not need to be re-signed, and will be `Some(request)` if the
-    /// cross-signing key has been re-signed.  `request` will be an outgoing
-    /// signature upload request.
-    ///
     /// We check whether we need to re-sign when
     /// `get_x509_signature_upload_request` is first called, or when we receive
     /// a master signing key from a `/keys/query` request.
     #[cfg(feature = "experimental-x509-identity-verification")]
-    x509_signature_upload_request: Arc<Mutex<Option<Option<OutgoingRequest>>>>,
+    x509_signature_upload_request: Arc<Mutex<X509SignatureUploadRequest>>,
 }
 
 /// Details of an in-flight key query request
@@ -131,7 +152,9 @@ impl IdentityManager {
             failures: Default::default(),
             keys_query_request_details: keys_query_request_details.into(),
             #[cfg(feature = "experimental-x509-identity-verification")]
-            x509_signature_upload_request: Arc::new(Mutex::new(None)),
+            x509_signature_upload_request: Arc::new(Mutex::new(
+                X509SignatureUploadRequest::Unknown,
+            )),
         }
     }
 
@@ -463,12 +486,8 @@ impl IdentityManager {
             #[cfg(feature = "experimental-x509-identity-verification")]
             {
                 // Check if we need to re-sign our identity with the X.509 signer.
-                *self.x509_signature_upload_request.lock().await = Some(
-                    identity
-                        .refresh_x509_signature(&self.store)
-                        .unwrap_or(None)
-                        .map(|upload_request| upload_request.into()),
-                );
+                *self.x509_signature_upload_request.lock().await =
+                    identity.refresh_x509_signature(&self.store).unwrap_or(None).into();
             }
 
             None
@@ -858,7 +877,7 @@ impl IdentityManager {
     #[cfg(feature = "experimental-x509-identity-verification")]
     pub(crate) async fn get_x509_signature_upload_request(&self) -> Option<OutgoingRequest> {
         let mut upload_request = self.x509_signature_upload_request.lock().await;
-        if upload_request.is_none() {
+        if upload_request.is_unknown() {
             // We haven't yet checked if our identity needs re-signing, so check
             // it now and remember the result.
             if let Some(identity) = self
@@ -868,15 +887,14 @@ impl IdentityManager {
                 .unwrap_or(None)
                 .and_then(UserIdentityData::into_own)
             {
-                *upload_request = Some(
-                    identity
-                        .refresh_x509_signature(&self.store)
-                        .unwrap_or(None)
-                        .map(|upload_request| upload_request.into()),
-                );
+                *upload_request =
+                    identity.refresh_x509_signature(&self.store).unwrap_or(None).into();
             }
         }
-        upload_request.clone().unwrap_or(None)
+        match &*upload_request {
+            X509SignatureUploadRequest::Some(request) => Some(request.clone()),
+            _ => None,
+        }
     }
 
     /// Mark the outgoing X.509 signature upload request as sent.
@@ -884,10 +902,10 @@ impl IdentityManager {
     pub(crate) async fn mark_x509_signature_request_as_sent(&self, request_id: &TransactionId) {
         let mut x509_signature_upload_request = self.x509_signature_upload_request.lock().await;
 
-        if let Some(Some(request)) = x509_signature_upload_request.as_ref()
+        if let X509SignatureUploadRequest::Some(request) = &*x509_signature_upload_request
             && request.request_id() == request_id
         {
-            *x509_signature_upload_request = Some(None);
+            *x509_signature_upload_request = X509SignatureUploadRequest::None;
         }
     }
 
