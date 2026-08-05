@@ -14,7 +14,7 @@ use ruma::{
     events::GlobalAccountDataEventType,
 };
 use tokio::sync::MutexGuard;
-use tracing::error;
+use tracing::{debug, error};
 
 use super::{SlidingSync, SlidingSyncBuilder};
 use crate::{
@@ -216,6 +216,12 @@ impl SlidingSyncResponseProcessor {
         requested_required_states: &RequestedRequiredStates,
         state_store_guard: &MutexGuard<'_, ()>,
     ) -> Result<()> {
+        // The `debug!` step markers in this method run while the
+        // `state_store_lock` is held: if the sync loop wedges, the last one
+        // logged names the await that parked (see the response-handling
+        // watchdog in `send_sync_request`).
+        debug!(rooms = response.rooms.len(), "Subscribing the response's rooms to latest events");
+
         subscribe_to_room_latest_events(&self.client, response.rooms.keys()).await;
 
         let previously_joined_rooms = self
@@ -224,6 +230,8 @@ impl SlidingSyncResponseProcessor {
             .into_iter()
             .map(|r| r.room_id().to_owned())
             .collect::<BTreeSet<_>>();
+
+        debug!("Processing the sliding sync response");
 
         let mut sync_response = self
             .client
@@ -235,10 +243,16 @@ impl SlidingSyncResponseProcessor {
         // every room when syncing on top of a cleared state store) could not compute
         // their initial latest event when they were registered above: they exist now,
         // so re-trigger the computation.
+        debug!("Re-triggering missing latest event computations");
+
         compute_missing_room_latest_events(&self.client, response.rooms.keys()).await;
+
+        debug!("Handling the receipts extension");
 
         handle_receipts_extension(&self.client, response, &mut sync_response, state_store_guard)
             .await?;
+
+        debug!("Updating the in-memory caches");
 
         update_in_memory_caches(&self.client, &previously_joined_rooms, &sync_response).await;
 

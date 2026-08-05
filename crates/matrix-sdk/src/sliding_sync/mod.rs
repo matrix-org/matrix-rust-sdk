@@ -324,8 +324,12 @@ impl SlidingSync {
                 let state_store_guard = {
                     let _timer = timer!("acquiring the `state_store_lock`");
 
+                    debug!("Acquiring the `state_store_lock`");
+
                     self.inner.client.base_client().state_store_lock().lock().await
                 };
+
+                debug!("Acquired the `state_store_lock`");
 
                 let mut response_processor =
                     SlidingSyncResponseProcessor::new(self.inner.client.clone());
@@ -369,6 +373,8 @@ impl SlidingSync {
             };
 
             // Release the lock before calling event handlers
+            debug!("Released the `state_store_lock`; running the sync response handlers");
+
             response_processor.process_and_take_response().await?
         };
 
