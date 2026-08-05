@@ -26,7 +26,12 @@ use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
 use tracing::{info, trace};
 
-use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
+use crate::{
+    Room,
+    event_cache::RoomEventCache,
+    room::WeakRoom,
+    send_queue::RoomSendQueueUpdate,
+};
 
 /// The latest event of a room or a thread.
 ///

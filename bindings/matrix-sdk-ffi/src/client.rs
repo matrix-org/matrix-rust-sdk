@@ -179,6 +179,26 @@ pub struct HttpPusherData {
     pub default_payload: Option<String>,
 }
 
+/// How aggressively a search backfill should run.
+#[derive(Clone, uniffi::Enum)]
+pub enum BackPaginationStrategy {
+    /// The app is in the foreground: pause between paginations so this
+    /// doesn't compete with interactive traffic sharing the same connection.
+    Foreground,
+    /// A background task that can paginate flat out since there's no
+    /// interactive traffic to protect
+    Background,
+}
+
+impl From<BackPaginationStrategy> for matrix_sdk::event_cache::BackPaginationStrategy {
+    fn from(value: BackPaginationStrategy) -> Self {
+        match value {
+            BackPaginationStrategy::Foreground => Self::Foreground,
+            BackPaginationStrategy::Background => Self::Background,
+        }
+    }
+}
+
 #[derive(Clone, uniffi::Enum)]
 pub enum PusherKind {
     Http { data: HttpPusherData },
@@ -2311,16 +2331,28 @@ impl Client {
         }))))
     }
 
-    /// Whether to enable automatic backpagination under certain conditions
-    /// (e.g. when processing read receipts).
+    /// Start a search backfill sweep in the background.
     ///
-    /// This is an experimental feature, and might cause performance issues on
-    /// large accounts. Use with caution.
+    /// Back-paginates message history for every room, down to a ~3-month floor,
+    /// front-loaded by recency (the last week for all rooms first, then the
+    /// previous week, and so on), to populate the search index.
     ///
-    /// This must be called after creating a client, but before subscribing to
-    /// the event cache (so, before spawning a sync service or a timeline).
-    pub fn enable_automatic_backpagination(&self) {
-        self.inner.event_cache().config_mut().experimental_auto_backpagination = true;
+    /// Requires [`Self::enable_automatic_back_pagination`] to have been enabled
+    /// otherwise this no-ops.
+    pub fn run_search_backfill(&self, strategy: BackPaginationStrategy) -> Arc<TaskHandle> {
+        let client = self.inner.clone();
+
+        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
+            let Some(queue) = client.event_cache().back_pagination_queue() else {
+                warn!(
+                    "search backfill requested but automatic backpagination is disabled; \
+                     set ClientBuilder::enable_automatic_back_pagination when building the client"
+                );
+                return;
+            };
+
+            queue.run_search_backfill(strategy.into()).await;
+        })))
     }
 
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
