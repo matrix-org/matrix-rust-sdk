@@ -380,7 +380,7 @@ where
 
     let latest_events = client.latest_events().await;
 
-    for room_id in room_ids {
+    for room_id in sort_by_recency(client, room_ids) {
         if let Err(error) = latest_events.listen_to_room(room_id).await {
             error!(?error, ?room_id, "Failed to listen to the latest event for this room");
         }
@@ -402,5 +402,25 @@ where
         return;
     }
 
-    client.latest_events().await.trigger_computation_for_rooms_with_no_value(room_ids).await;
+    client
+        .latest_events()
+        .await
+        .trigger_computation_for_rooms_with_no_value(sort_by_recency(client, room_ids).into_iter())
+        .await;
+}
+
+/// Sort room ids most-recently-active first (rooms without a recency stamp
+/// last), so per-room latest-event work runs in reverse chronological order
+/// and the room list fills in accurately from the top down.
+fn sort_by_recency<'a, R>(client: &Client, room_ids: R) -> Vec<&'a OwnedRoomId>
+where
+    R: Iterator<Item = &'a OwnedRoomId>,
+{
+    let mut room_ids = room_ids.collect::<Vec<_>>();
+
+    room_ids.sort_by_key(|room_id| {
+        std::cmp::Reverse(client.get_room(room_id).and_then(|room| room.recency_stamp()))
+    });
+
+    room_ids
 }

@@ -23,7 +23,11 @@
 //! The executor:
 //! - runs at most [`EventCacheConfig::max_concurrent_back_paginations`]
 //!   requests at once
-//! - schedules by [`Priority`], higher first, FIFO within a priority
+//! - schedules by [`Priority`], higher first; within a priority, requests
+//!   carrying a room recency stamp run most-recent first (so e.g. the
+//!   latest-event backlog drains in reverse chronological order, keeping the
+//!   room list accurate from the top down), and requests without one run FIFO
+//!   after them
 //! - never runs two requests for the same room concurrently, per-room
 //!   single-flight
 //! - coalesces a request for a room already queued or running at the same
@@ -44,7 +48,7 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::{sleep::sleep, task_monitor::TaskMonitor};
+use matrix_sdk_base::{RoomRecencyStamp, sleep::sleep, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::spawn;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::{
@@ -170,6 +174,9 @@ struct BackPaginationRequest {
     room_id: OwnedRoomId,
     /// Scheduling priority.
     priority: Priority,
+    /// The room's recency stamp at enqueue time, if the caller wants requests
+    /// of the same priority scheduled most-recent room first rather than FIFO.
+    recency: Option<RoomRecencyStamp>,
     /// When to stop.
     stop: StopCondition,
     /// Number of events to request per pagination.
@@ -186,6 +193,7 @@ impl BackPaginationRequest {
         Self {
             room_id,
             priority: Priority::Low,
+            recency: None,
             stop: StopCondition::OlderThan(floor),
             batch_size,
             max_batches: Some(SEARCH_MAX_BATCHES_PER_ROOM),
@@ -194,14 +202,20 @@ impl BackPaginationRequest {
 
     /// A latest-event request: back-paginate until `stop` finds a candidate, at
     /// [`High`] priority, capped at [`LATEST_EVENT_MAX_BATCHES`] batches.
+    ///
+    /// `recency` is the room's recency stamp: the pending latest-event backlog
+    /// is scheduled most-recent room first, so the room list fills in
+    /// accurately from the top down.
     fn latest_event(
         room_id: OwnedRoomId,
+        recency: Option<RoomRecencyStamp>,
         batch_size: u16,
         stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
     ) -> Self {
         Self {
             room_id,
             priority: Priority::High,
+            recency,
             stop: StopCondition::WhenBatch(Box::new(stop)),
             batch_size,
             max_batches: Some(LATEST_EVENT_MAX_BATCHES),
@@ -220,6 +234,7 @@ impl BackPaginationRequest {
         Self {
             room_id,
             priority: Priority::Viewport,
+            recency: None,
             stop: StopCondition::WhenBatch(Box::new(stop)),
             batch_size,
             max_batches: Some(VIEWPORT_MAX_BATCHES),
@@ -232,6 +247,7 @@ impl BackPaginationRequest {
         Self {
             room_id,
             priority: Priority::Prefetch,
+            recency: None,
             // One batch is the request: stop as soon as it has loaded.
             stop: StopCondition::WhenBatch(Box::new(|_| ControlFlow::Break(()))),
             batch_size,
@@ -252,6 +268,7 @@ impl BackPaginationRequest {
         Self {
             room_id,
             priority: Priority::Normal,
+            recency: None,
             stop: StopCondition::WhenBatch(Box::new(stop)),
             batch_size,
             max_batches: Some(max_batches),
@@ -435,16 +452,22 @@ impl BackPaginationQueue {
 
     /// Back-paginate a room until `stop` finds a suitable latest-event
     /// candidate or the start of the timeline is reached.
+    ///
+    /// `recency` is the room's recency stamp: pending latest-event requests
+    /// are scheduled most-recent room first (a request without a stamp runs
+    /// after all stamped ones), so the room list fills in accurately from the
+    /// top down.
     pub(crate) async fn paginate_for_latest_event(
         &self,
         room_id: &RoomId,
+        recency: Option<RoomRecencyStamp>,
         stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
     ) -> RoomBackPaginationEnd {
         let room_id = room_id.to_owned();
         debug!(%room_id, "started backfill request for latest events");
 
         let BackPaginationRunResult { end, .. } = self
-            .enqueue(BackPaginationRequest::latest_event(room_id.clone(), BATCH_SIZE, stop))
+            .enqueue(BackPaginationRequest::latest_event(room_id.clone(), recency, BATCH_SIZE, stop))
             .join()
             .await;
 
@@ -613,8 +636,14 @@ impl PartialOrd for ScheduledRequest {
 
 impl Ord for ScheduledRequest {
     fn cmp(&self, other: &Self) -> Ordering {
-        // Higher priority first, then earlier `seq` first
-        self.request.priority.cmp(&other.request.priority).then_with(|| other.seq.cmp(&self.seq))
+        // Higher priority first; within a priority, higher recency stamp first
+        // (`None < Some(_)`, so requests without a stamp sort after every
+        // request with one); then earlier `seq` first.
+        self.request
+            .priority
+            .cmp(&other.request.priority)
+            .then_with(|| self.request.recency.cmp(&other.request.recency))
+            .then_with(|| other.seq.cmp(&self.seq))
     }
 }
 
@@ -917,10 +946,22 @@ mod tests {
 
     /// Build a queued request for a room, at a priority, with an insertion seq.
     fn queued(room_id: ruma::OwnedRoomId, priority: Priority, seq: u64) -> ScheduledRequest {
+        queued_with_recency(room_id, priority, None, seq)
+    }
+
+    /// Build a queued request for a room, at a priority, with a recency stamp
+    /// and an insertion seq.
+    fn queued_with_recency(
+        room_id: ruma::OwnedRoomId,
+        priority: Priority,
+        recency: Option<super::RoomRecencyStamp>,
+        seq: u64,
+    ) -> ScheduledRequest {
         ScheduledRequest {
             request: BackPaginationRequest {
                 room_id,
                 priority,
+                recency,
                 // Scheduling tests never evaluate the stop condition.
                 stop: StopCondition::WhenBatch(Box::new(|_| ControlFlow::Continue(()))),
                 batch_size: 10,
@@ -954,6 +995,54 @@ mod tests {
 
         // High first (b before d by FIFO), then Normal, then Low.
         assert_eq!(picked, vec![b.to_owned(), d.to_owned(), c.to_owned(), a.to_owned()]);
+    }
+
+    /// Within a priority, requests carrying a recency stamp run most-recent
+    /// room first regardless of enqueue order, and requests without one run
+    /// FIFO after all stamped ones.
+    #[test]
+    fn test_scheduling_recency_within_priority() {
+        use std::collections::BinaryHeap;
+
+        let (a, b, c, d, e) = (
+            room_id!("!a:e"),
+            room_id!("!b:e"),
+            room_id!("!c:e"),
+            room_id!("!d:e"),
+            room_id!("!e:e"),
+        );
+
+        let mut scheduled_requests = BinaryHeap::new();
+        // Enqueue stamped requests out of recency order, interleaved with
+        // unstamped ones, all at the same priority.
+        scheduled_requests.push(queued_with_recency(a.to_owned(), Priority::High, None, 0));
+        scheduled_requests.push(queued_with_recency(b.to_owned(), Priority::High, Some(10.into()), 1));
+        scheduled_requests.push(queued_with_recency(c.to_owned(), Priority::High, Some(30.into()), 2));
+        scheduled_requests.push(queued_with_recency(d.to_owned(), Priority::High, None, 3));
+        scheduled_requests.push(queued_with_recency(e.to_owned(), Priority::High, Some(20.into()), 4));
+        // A higher priority still beats the highest recency stamp.
+        let f = room_id!("!f:e");
+        scheduled_requests.push(queued_with_recency(f.to_owned(), Priority::Viewport, None, 5));
+
+        let mut active_requests = Vec::new();
+        let picked: Vec<_> = next_runnable(&mut scheduled_requests, &mut active_requests, 10)
+            .into_iter()
+            .map(|r| r.request.room_id)
+            .collect();
+
+        // Viewport first; then the stamped High requests by recency
+        // descending (c, e, b); then the unstamped ones FIFO (a, d).
+        assert_eq!(
+            picked,
+            vec![
+                f.to_owned(),
+                c.to_owned(),
+                e.to_owned(),
+                b.to_owned(),
+                a.to_owned(),
+                d.to_owned()
+            ]
+        );
     }
 
     /// `next_runnable` never returns more than `max_concurrent`.

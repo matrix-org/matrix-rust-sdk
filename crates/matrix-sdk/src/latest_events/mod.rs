@@ -993,7 +993,7 @@ async fn backfill_latest_event(
             if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
         };
 
-        Some(queue.paginate_for_latest_event(&room_id, stop).await)
+        Some(queue.paginate_for_latest_event(&room_id, room.recency_stamp(), stop).await)
     } else {
         None
     };
