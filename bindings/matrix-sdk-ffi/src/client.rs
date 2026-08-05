@@ -2355,6 +2355,37 @@ impl Client {
         })))
     }
 
+    /// Declare the rooms currently visible in the room-list viewport, in
+    /// display order.
+    ///
+    /// Each room is guaranteed at least `number_of_visible_events` displayable
+    /// events in the event cache, back-paginating at top priority when needed:
+    /// previews and initial timeline content become available without waiting
+    /// for a sync round-trip. Cheap to call on every viewport change: the work
+    /// is a no-op for rooms already satisfied, and in-flight paginations are
+    /// coalesced.
+    ///
+    /// Requires [`Self::enable_automatic_back_pagination`] to have been
+    /// enabled, otherwise this no-ops.
+    pub async fn prioritize_visible_rooms(
+        &self,
+        room_ids: Vec<String>,
+        number_of_visible_events: u32,
+    ) -> Result<(), ClientError> {
+        let room_ids = room_ids
+            .into_iter()
+            .map(RoomId::parse)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ClientError::from)?;
+
+        self.inner
+            .latest_events()
+            .await
+            .prioritize_rooms(room_ids, number_of_visible_events as usize);
+
+        Ok(())
+    }
+
     pub fn homeserver_capabilities(&self) -> HomeserverCapabilities {
         HomeserverCapabilities::new(self.inner.homeserver_capabilities())
     }

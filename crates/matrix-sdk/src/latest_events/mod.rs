@@ -239,6 +239,112 @@ impl LatestEvents {
         }
     }
 
+    /// Declare the rooms currently visible in the room-list viewport.
+    ///
+    /// Ensures each room has at least `number_of_visible_events` displayable
+    /// events in the event cache, back-paginating (at a priority beating every
+    /// other queued back-pagination) when needed: previews and initial
+    /// timeline content become available without waiting for a sync
+    /// round-trip. Rooms are processed in the given order, so callers should
+    /// pass them in display order.
+    ///
+    /// The work happens in a detached background task: this method returns
+    /// immediately, and can be called on every viewport change; requests for
+    /// rooms already being paginated are coalesced. No-op if automatic
+    /// back-pagination is disabled.
+    pub fn prioritize_rooms(&self, room_ids: Vec<OwnedRoomId>, number_of_visible_events: usize) {
+        let registered_rooms = self.state.registered_rooms.clone();
+
+        spawn(async move {
+            let Some(client) = registered_rooms.weak_client.get() else {
+                return;
+            };
+            let Some(queue) = client.event_cache().back_pagination_queue() else {
+                return;
+            };
+
+            for room_id in room_ids {
+                let Some(room) = client.get_room(&room_id) else {
+                    continue;
+                };
+                let own_user_id = room.own_user_id().to_owned();
+                let power_levels = room.power_levels().await.ok();
+
+                let Ok((room_event_cache, _drop_handles)) =
+                    registered_rooms.event_cache.room(&room_id).await
+                else {
+                    continue;
+                };
+
+                // Count the displayable events already in memory, before the
+                // first gap: events behind a gap are not contiguous with the
+                // room's head, so they cannot serve as its most recent
+                // content.
+                let mut already_loaded = 0;
+                let satisfied = room_event_cache
+                    .rfind_map_event_in_memory_before_gap_by(|event| {
+                        matches!(
+                            filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
+                            ControlFlow::Break(())
+                        )
+                        .then(|| {
+                            already_loaded += 1;
+
+                            (already_loaded >= number_of_visible_events).then_some(())
+                        })
+                        .flatten()
+                    })
+                    .await
+                    .is_ok_and(|found| found.is_some());
+
+                if satisfied {
+                    continue;
+                }
+
+                // Back-paginate until the missing displayable events are
+                // loaded.
+                let mut remaining = number_of_visible_events - already_loaded;
+                let stop = move |outcome: &BackPaginationOutcome| {
+                    for event in &outcome.events {
+                        if matches!(
+                            filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
+                            ControlFlow::Break(())
+                        ) {
+                            remaining -= 1;
+
+                            if remaining == 0 {
+                                return ControlFlow::Break(());
+                            }
+                        }
+                    }
+
+                    ControlFlow::Continue(())
+                };
+
+                let queue = queue.clone();
+                let latest_event_queue_sender =
+                    registered_rooms.latest_event_queue_sender.clone();
+
+                spawn(async move {
+                    let end = queue.paginate_for_viewport(&room_id, stop).await;
+
+                    // Make sure the room's `LatestEventValue` picks up the
+                    // loaded events (see the same pattern in
+                    // `backfill_latest_event`).
+                    if matches!(
+                        end,
+                        RoomBackPaginationEnd::StopConditionMet
+                            | RoomBackPaginationEnd::ReachedTimelineStart
+                            | RoomBackPaginationEnd::BatchLimitReached
+                    ) {
+                        let _ = latest_event_queue_sender
+                            .send(LatestEventQueueUpdate::BackfillCompleted { room_id });
+                    }
+                });
+            }
+        });
+    }
+
     /// Forget a room.
     ///
     /// It means that [`LatestEvents`] will stop listening to updates for the
@@ -492,9 +598,10 @@ enum LatestEventQueueUpdate {
         reasons: RoomInfoNotableUpdateReasons,
     },
 
-    /// An automatic backfill for the room finished (see
-    /// [`backfill_latest_event`]) and may have loaded more events into the
-    /// event cache: recompute the `LatestEventValue`.
+    /// A background backfill for the room (an automatic latest-event backfill,
+    /// see [`backfill_latest_event`], or a viewport preload, see
+    /// [`LatestEvents::prioritize_rooms`]) finished and may have loaded more
+    /// events into the event cache: recompute the `LatestEventValue`.
     ///
     /// Unlike [`LatestEventQueueUpdate::EventCache`], this does not reset the
     /// room's [`BackfillState`]: a recomputation that still finds no value must
@@ -1641,6 +1748,102 @@ mod tests {
                             )
                         ) => {
                             assert_eq!(message_content.content.body(), "hello");
+                        }
+                    );
+
+                    break;
+                }
+                other => panic!("unexpected latest event value: {other:?}"),
+            }
+        }
+    }
+
+    /// `LatestEvents::prioritize_rooms` back-paginates the viewport rooms (at
+    /// top priority) until enough displayable events are loaded, and the
+    /// rooms' `LatestEventValue`s pick the loaded events up.
+    #[async_test]
+    async fn test_prioritize_rooms_backfills_the_viewport() {
+        use matrix_sdk_base::event_cache::Gap;
+
+        use crate::test_utils::mocks::RoomMessagesResponseTemplate;
+
+        let room_id = owned_room_id!("!r0");
+        let user_id = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new().sender(user_id).room(&room_id);
+
+        let server = MatrixMockServer::new().await;
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.with_enable_automatic_back_pagination(true))
+            .build()
+            .await;
+
+        client.base_client().get_or_create_room(&room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let latest_events = client.latest_events().await;
+
+        // Register the room and subscribe to its latest event values. The
+        // room's event cache is empty and has no pagination token: the initial
+        // computation and the automatic backfill both find nothing.
+        let mut latest_event_stream =
+            latest_events.listen_and_subscribe_to_room(&room_id).await.unwrap().unwrap();
+
+        // Now a gap appears (as if a sync delivered a pagination token), with a
+        // displayable message behind it.
+        client
+            .event_cache_store()
+            .lock()
+            .await
+            .unwrap()
+            .as_clean()
+            .unwrap()
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(&room_id),
+                vec![Update::NewGapChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                    gap: Gap { token: "prev_batch".to_owned() },
+                }],
+            )
+            .await
+            .unwrap();
+
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default()
+                .events(vec![event_factory.text_msg("salut").event_id(event_id!("$ev0"))]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // Declare the room as visible in the viewport.
+        latest_events.prioritize_rooms(vec![room_id.clone()], 1);
+
+        loop {
+            let value = timeout(Duration::from_secs(5), latest_event_stream.next())
+                .await
+                .expect("waiting for the viewport-backfilled latest event value has timed out")
+                .expect("the latest event stream has been closed");
+
+            match value {
+                LatestEventValue::None => continue,
+                LatestEventValue::Remote(RemoteLatestEventValue {
+                    kind: TimelineEventKind::PlainText { event },
+                    ..
+                }) => {
+                    assert_matches!(
+                        event.deserialize().unwrap(),
+                        AnySyncTimelineEvent::MessageLike(
+                            AnySyncMessageLikeEvent::RoomMessage(
+                                SyncMessageLikeEvent::Original(message_content)
+                            )
+                        ) => {
+                            assert_eq!(message_content.content.body(), "salut");
                         }
                     );
 

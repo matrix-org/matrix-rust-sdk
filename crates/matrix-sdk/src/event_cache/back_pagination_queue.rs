@@ -77,6 +77,13 @@ const READ_RECEIPT_MAX_BATCHES: usize = 20;
 /// to the start of its history.
 const LATEST_EVENT_MAX_BATCHES: usize = 3;
 
+/// Number of paginations allowed per viewport request.
+///
+/// Same rationale as [`LATEST_EVENT_MAX_BATCHES`]: the stop predicate usually
+/// fires on the first batch, the cap bounds rooms whose recent history is
+/// mostly non-displayable events.
+const VIEWPORT_MAX_BATCHES: usize = 3;
+
 /// Number of events requested per background pagination batch.
 const BATCH_SIZE: u16 = 30;
 
@@ -112,6 +119,9 @@ enum Priority {
     Normal,
     /// Reactive, user-facing work that wants a result promptly (latest event).
     High,
+    /// The user is looking at the room right now (room-list viewport preload):
+    /// beats everything else.
+    Viewport,
 }
 
 /// A predicate over a freshly loaded batch, deciding whether to stop.
@@ -191,6 +201,24 @@ impl BackPaginationRequest {
             stop: StopCondition::WhenBatch(Box::new(stop)),
             batch_size,
             max_batches: Some(LATEST_EVENT_MAX_BATCHES),
+        }
+    }
+
+    /// A viewport request: the user is looking at the room in the room list;
+    /// back-paginate until `stop` fires (enough displayable events are
+    /// loaded), at [`Viewport`] priority, capped at [`VIEWPORT_MAX_BATCHES`]
+    /// batches.
+    fn viewport(
+        room_id: OwnedRoomId,
+        batch_size: u16,
+        stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
+    ) -> Self {
+        Self {
+            room_id,
+            priority: Priority::Viewport,
+            stop: StopCondition::WhenBatch(Box::new(stop)),
+            batch_size,
+            max_batches: Some(VIEWPORT_MAX_BATCHES),
         }
     }
 
@@ -351,6 +379,26 @@ impl BackPaginationQueue {
             handle.join().await;
             debug!(%room_id, "finished backfill request for read receipts");
         });
+    }
+
+    /// Back-paginate a room the user is currently looking at in the room-list
+    /// viewport, until `stop` fires (enough displayable events are loaded) or
+    /// the start of the timeline is reached. Runs before any other queued
+    /// request.
+    pub(crate) async fn paginate_for_viewport(
+        &self,
+        room_id: &RoomId,
+        stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
+    ) -> RoomBackPaginationEnd {
+        let room_id = room_id.to_owned();
+        debug!(%room_id, "started backfill request for the viewport");
+
+        let BackPaginationRunResult { end, .. } =
+            self.enqueue(BackPaginationRequest::viewport(room_id.clone(), BATCH_SIZE, stop)).join().await;
+
+        debug!(%room_id, ?end, "finished backfill request for the viewport");
+
+        end
     }
 
     /// Back-paginate a room until `stop` finds a suitable latest-event
