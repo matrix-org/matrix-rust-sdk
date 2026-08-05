@@ -1179,6 +1179,239 @@ async fn test_mark_as_read() {
 }
 
 #[async_test]
+async fn test_mark_as_read_after_own_reply() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
+
+    let own_user_id = client.user_id().unwrap();
+    let alice_event_id = event_id!("$alice_event_id");
+
+    // Alice sends a message, the user replies. The user's reply is the latest event
+    // and but the homeserver has no receipt for Alice's message.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("Anyone about?")
+                        .sender(user_id!("@alice:example.org"))
+                        .event_id(alice_event_id),
+                )
+                .add_timeline_event(f.text_msg("I'm here!").sender(own_user_id)),
+        )
+        .await;
+
+    // The receipt must target Alice's message (the latest event not sent by the
+    // user), not the user's own reply.
+    server
+        .mock_send_receipt(CreateReceiptType::Read)
+        .match_event_id(alice_event_id)
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    // Marking the room as read still sends a receipt (for Alice's message, the
+    // latest event not sent by the user) instead of being suppressed by the user's
+    // implicit receipt. This is required to allow the server to re-compute the
+    // push/badge count.
+    let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
+    assert!(has_sent);
+}
+
+#[async_test]
+async fn test_mark_as_read_with_only_own_events() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
+
+    let own_user_id = client.user_id().unwrap();
+
+    // Only the user's own events are known to the timeline.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("First!").sender(own_user_id).event_id(event_id!("$first")),
+                )
+                .add_timeline_event(
+                    f.text_msg("Second!").sender(own_user_id).event_id(event_id!("$second")),
+                ),
+        )
+        .await;
+
+    // With no other user's event to point at, the receipt falls back to the user's
+    // own latest event so a lingering server-side push/badge count can be reset.
+    server
+        .mock_send_receipt(CreateReceiptType::Read)
+        .match_event_id(event_id!("$second"))
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    let has_sent = timeline.mark_as_read(CreateReceiptType::Read).await.unwrap();
+    assert!(has_sent);
+}
+
+#[async_test]
+async fn test_send_read_receipt_redirects_from_own_event() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
+
+    let own_user_id = client.user_id().unwrap();
+    let alice_event_id = event_id!("$alice_event_id");
+    let own_event_id = event_id!("$own_event_id");
+
+    // Alice sends a message, then the user replies. The homeserver has no receipt
+    // for either yet.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("Anyone about?")
+                        .sender(user_id!("@alice:example.org"))
+                        .event_id(alice_event_id),
+                )
+                .add_timeline_event(
+                    f.text_msg("I'm here!").sender(own_user_id).event_id(own_event_id),
+                ),
+        )
+        .await;
+
+    // Sending a receipt for the user's own event redirects to the latest event
+    // before it that isn't theirs (Alice's), which is unread, so the receipt is
+    // sent there.
+    server
+        .mock_send_receipt(CreateReceiptType::Read)
+        .match_event_id(alice_event_id)
+        .ok()
+        .mock_once()
+        .mount()
+        .await;
+
+    let did_send = timeline
+        .send_single_receipt(CreateReceiptType::Read, own_event_id.to_owned())
+        .await
+        .unwrap();
+    assert!(did_send);
+
+    // The homeserver now knows about that receipt.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_receipt(
+                f.read_receipts()
+                    .add(
+                        alice_event_id,
+                        own_user_id,
+                        EventReceiptType::Read,
+                        ReceiptThread::Unthreaded,
+                    )
+                    .into_event(),
+            ),
+        )
+        .await;
+
+    // Sending again redirects to Alice's event once more, but it's now read, so
+    // it's a no-op.
+    let did_send = timeline
+        .send_single_receipt(CreateReceiptType::Read, own_event_id.to_owned())
+        .await
+        .unwrap();
+    assert!(did_send.not());
+}
+
+#[async_test]
+async fn test_send_read_receipt_to_own_event_with_only_own_events_is_a_no_op() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::Live { hide_threaded_events: false })
+        .build()
+        .await
+        .unwrap();
+
+    let own_user_id = client.user_id().unwrap();
+
+    // Only the user's own events are known to the timeline.
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.text_msg("First!").sender(own_user_id).event_id(event_id!("$first")),
+                )
+                .add_timeline_event(
+                    f.text_msg("Second!").sender(own_user_id).event_id(event_id!("$second")),
+                ),
+        )
+        .await;
+
+    // With no event from another user to point at, sending a read receipt for
+    // either of the user's own events is a no-op.
+    let did_send = timeline
+        .send_single_receipt(CreateReceiptType::Read, event_id!("$second").to_owned())
+        .await
+        .unwrap();
+    assert!(did_send.not());
+
+    let did_send = timeline
+        .send_single_receipt(CreateReceiptType::Read, event_id!("$first").to_owned())
+        .await
+        .unwrap();
+    assert!(did_send.not());
+}
+
+#[async_test]
 async fn test_mark_as_read_after_threaded_edit() {
     let server = MatrixMockServer::new().await;
 
