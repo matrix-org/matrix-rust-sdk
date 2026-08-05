@@ -23,7 +23,10 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId};
+use ruma::{
+    OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId,
+    events::ignored_user_list::IgnoredUserListEventContent,
+};
 use tokio::{
     select,
     sync::{
@@ -36,7 +39,7 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 
 use super::{
     AutoShrinkMessage, Caches, CachesByRoom, EventCacheError, EventCacheInner,
-    RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate,
+    RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     client::WeakClient,
@@ -101,19 +104,52 @@ pub(super) async fn ignore_user_list_update_task(
     span.follows_from(Span::current());
 
     async move {
+        // Initialize the list of ignored users from the store, so that events
+        // from already-ignored users are filtered out from the start.
+        let mut current_ignored_users = match inner.client() {
+            Ok(client) => client
+                .account()
+                .account_data::<IgnoredUserListEventContent>()
+                .await
+                .ok()
+                .flatten()
+                .and_then(|content| content.deserialize().ok())
+                .map(|content| content.ignored_users.keys().cloned().collect())
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+        *inner.ignored_users.write().await = current_ignored_users.clone();
+
+        // Clean up any caches that were created (and ingested events) before the
+        // list above was written, e.g. by the first sync arriving concurrently.
+        // No-op if there are no ignored users or no caches exist yet.
+        if !current_ignored_users.is_empty()
+            && let Err(err) = inner.remove_events_of_ignored_users(&current_ignored_users).await
+        {
+            error!("Error when removing events of already-ignored users at startup: {err}");
+        }
+
         while let Some(users) = ignore_user_list_stream.next().await {
             info!("Received an ignore user list change");
 
             let parsed: Vec<OwnedUserId> =
                 users.iter().filter_map(|u| OwnedUserId::try_from(u.as_str()).ok()).collect();
-            *inner.ignored_users.write().await = parsed;
 
-            if let Ok(client) = inner.client() {
-                for room in client.joined_rooms() {
-                    let _ = inner
-                        .generic_update_sender
-                        .send(RoomEventCacheGenericUpdate { room_id: room.room_id().to_owned() });
-                }
+            // Only the *newly*-ignored users require a removal of their events from
+            // the caches.
+            let newly_ignored: Vec<OwnedUserId> = parsed
+                .iter()
+                .filter(|user| !current_ignored_users.contains(user))
+                .cloned()
+                .collect();
+
+            *inner.ignored_users.write().await = parsed.clone();
+            current_ignored_users = parsed;
+
+            if !newly_ignored.is_empty()
+                && let Err(err) = inner.remove_events_of_ignored_users(&newly_ignored).await
+            {
+                error!("Error when removing events of ignored users: {err}");
             }
         }
 

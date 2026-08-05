@@ -213,7 +213,14 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         })
         .await;
 
-    // Timeline events are no longer cleared when ignoring a user.
+    // The event sent by Bob (e2) is removed from the timeline.
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        if let Some(VectorDiff::Remove { .. }) = timeline_updates.first() {
+            assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[0]);
+            break;
+        }
+    }
 
     let fourth_event_id = event_id!("$YTQwYl2pl4");
     let fifth_event_id = event_id!("$YTQwYl2pl5");
@@ -230,27 +237,22 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         )
         .await;
 
-    // Timeline events are no longer cleared when ignoring a user,
-    // only the latest event computation filters them.
-    // When new events arrive, they are appended/updated in the existing timeline.
-    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 4);
-
-    // Existing event (e3) is enriched.
-    assert_let!(VectorDiff::Set { index: 3, value } = &timeline_updates[0]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
-
-    // New event (e4) is appended.
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
-
-    // New event (e4) is enriched.
-    assert_let!(VectorDiff::Set { index: 4, value } = &timeline_updates[2]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
-
-    // New event (e5) is appended.
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
+    // The new events are appended in the existing timeline.
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        let e5_pushed = timeline_updates.iter().any(|diff| {
+            matches!(
+                diff,
+                VectorDiff::PushBack { value }
+                    if value
+                        .as_event()
+                        .is_some_and(|event| event.event_id() == Some(fifth_event_id))
+            )
+        });
+        if e5_pushed {
+            break;
+        }
+    }
 
     assert_pending!(timeline_stream);
 

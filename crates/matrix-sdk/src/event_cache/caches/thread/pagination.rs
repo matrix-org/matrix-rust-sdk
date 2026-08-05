@@ -285,6 +285,15 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             return Ok(None);
         };
 
+        // Skip events coming from ignored users.
+        {
+            let ignored_users = self.cache.ignored_users.clone();
+            super::super::super::retain_non_ignored_events(
+                &mut events,
+                &ignored_users.read().await,
+            );
+        }
+
         // The thread root event is **NOT** part of the `/relations` response.
         // However, we want the thread root event to be part of the thread itself. It's
         // easier in a lot of situations. Let's load it if necessary.

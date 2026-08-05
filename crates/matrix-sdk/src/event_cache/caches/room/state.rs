@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
+
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     RoomInfoNotableUpdateReasons, apply_redaction,
     deserialized_responses::{ThreadSummary, ThreadSummaryStatus},
-    event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
+    event_cache::{
+        Event, Gap,
+        store::{DEFAULT_CHUNK_CAPACITY, EventCacheStoreLockGuard},
+    },
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
@@ -469,6 +474,62 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         self.propagate_changes().await
     }
 
+    /// Remove all the events sent by the given users, in memory and in the
+    /// store.
+    ///
+    /// It returns the `VectorDiff`s to broadcast to the subscribers.
+    pub async fn remove_events_of_users(
+        &mut self,
+        users: &[OwnedUserId],
+    ) -> Result<Vec<VectorDiff<Event>>, EventCacheError> {
+        if users.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Gather the events that are currently in memory.
+        let mut in_memory_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        for (position, event) in self.room_linked_chunk().events() {
+            if let Some(event_id) = event.event_id()
+                && let Some(sender) = event.sender()
+                && users.iter().any(|user| user.as_str() == sender.as_str())
+            {
+                in_memory_events.push((event_id.to_owned(), position));
+            }
+        }
+
+        // Gather the events that live only in the store.
+        let mut in_store_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        {
+            let in_memory_event_ids: HashSet<OwnedEventId> =
+                in_memory_events.iter().map(|(event_id, _)| event_id.clone()).collect();
+
+            let linked_chunk_id = LinkedChunkId::Room(&self.room_id);
+            let all_chunks = self.store.load_all_chunks(linked_chunk_id).await?;
+
+            if let Some(linked_chunk) =
+                lazy_loader::from_all_chunks::<DEFAULT_CHUNK_CAPACITY, _, _>(all_chunks)?
+            {
+                for (position, event) in linked_chunk.items() {
+                    let Some(event_id) = event.event_id() else { continue };
+                    if in_memory_event_ids.contains(event_id) {
+                        // The event has already been dealt with by the in-memory removal.
+                        continue;
+                    }
+
+                    if let Some(sender) = event.sender()
+                        && users.iter().any(|user| user.as_str() == sender.as_str())
+                    {
+                        in_store_events.push((event_id.to_owned(), position));
+                    }
+                }
+            }
+        }
+
+        self.remove_events(in_memory_events, in_store_events).await?;
+
+        Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())
+    }
+
     async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
         let updates = self.state.room_linked_chunk.store_updates().take();
 
@@ -860,5 +921,31 @@ mod tests {
 
         // Retrieving the event at the room-wide cache works.
         assert!(room_event_cache.find_event(event_id).await.unwrap().is_some());
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_users_with_empty_users_is_a_no_op() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!omelette:fromage.fr");
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let diffs = room_event_cache
+            .inner
+            .state
+            .write()
+            .await
+            .unwrap()
+            .remove_events_of_users(&[])
+            .await
+            .unwrap();
+
+        assert!(diffs.is_empty());
     }
 }

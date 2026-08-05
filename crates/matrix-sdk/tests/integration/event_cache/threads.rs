@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
@@ -12,7 +12,9 @@ use matrix_sdk::{
         assert_event_matches_msg,
         mocks::{MatrixMockServer, RoomRelationsResponseTemplate},
     },
+    timeout::timeout,
 };
+use matrix_sdk_base::event_cache::Event;
 use matrix_sdk_test::{ALICE, JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use ruma::{
     OwnedEventId, OwnedRoomId, event_id,
@@ -180,8 +182,12 @@ async fn test_ignored_user_empties_threads() {
         })
         .await;
 
-    // Thread events are NOT cleared when ignoring a user (only latest_event
-    // computation filters them). We do not receive any update here.
+    // Dexter's reply is removed from the thread.
+    {
+        assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+    }
 
     // Receiving new events still works.
     server
@@ -1053,4 +1059,83 @@ async fn test_edits_touches_threads() {
 
     // The latest reply should still be our first edit, not the second one.
     assert_eq!(thread_summary.latest_reply.as_deref(), Some(first_edit));
+}
+
+#[async_test]
+async fn test_ignored_user_filters_thread_reload() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    // Immediately subscribe the event cache to sync updates.
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+
+    let dexter = user_id!("@dexter:lab.org");
+    let ivan = user_id!("@ivan:lab.ch");
+
+    let f = EventFactory::new();
+
+    let thread_root = event_id!("$thread_root");
+    let first_reply_event_id = event_id!("$first_reply");
+    let second_reply_event_id = event_id!("$second_reply");
+
+    // Given a room with a thread, that has two replies.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                f.text_msg("hey there")
+                    .sender(dexter)
+                    .in_thread(thread_root, thread_root)
+                    .event_id(first_reply_event_id)
+                    .into_raw_sync(),
+                f.text_msg("hoy!")
+                    .sender(ivan)
+                    .in_thread(thread_root, first_reply_event_id)
+                    .event_id(second_reply_event_id)
+                    .into_raw_sync(),
+            ]),
+        )
+        .await;
+
+    // And `dexter` is ignored,
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_global_account_data(f.ignored_user_list([dexter.to_owned()]));
+        })
+        .await;
+
+    // When a thread cache is created after the ignore (possibly racing with the
+    // background propagation of the new ignore list), then dexter's reply must
+    // be removed from the thread evently, either by the reload filter at
+    // creation time, or by the removal triggered by the ignore-list change.
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root).await.unwrap();
+    let (events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+
+    let mut events: Vector<Event> = events.into();
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while events.len() != 1 {
+        if Instant::now() > deadline {
+            panic!("timed out waiting for dexter's reply to be removed from the thread");
+        }
+
+        let up = match timeout(thread_stream.recv(), Duration::from_millis(300)).await {
+            Ok(Ok(up)) => up,
+            Ok(Err(_)) => panic!("thread update stream closed"),
+            Err(_) => continue,
+        };
+
+        for diff in up.diffs {
+            diff.apply(&mut events);
+        }
+    }
+
+    // Then dexter's reply has been filtered out.
+    assert_eq!(events.len(), 1);
+    assert_event_matches_msg(&events[0], "hoy!");
 }

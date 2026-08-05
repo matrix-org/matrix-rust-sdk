@@ -36,9 +36,12 @@ use std::{
 
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockError,
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    event_cache::{
+        Event,
+        store::{EventCacheStoreError, EventCacheStoreLock},
+    },
     linked_chunk::lazy_loader::LazyLoaderError,
-    sync::RoomUpdates,
+    sync::{RoomUpdates, Timeline},
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId};
@@ -561,6 +564,32 @@ impl Default for EventCacheConfig {
 
 type CachesByRoom = HashMap<OwnedRoomId, Caches>;
 
+/// Filter out all the events that are coming from an ignored user, from a
+/// [`Timeline`], in-place.
+///
+/// Own events are never filtered out: the own user must not be in the list of
+/// ignored users, but this is a cheap safety check.
+fn filter_out_ignored_users(timeline: &mut Timeline, ignored_users: &[OwnedUserId]) {
+    retain_non_ignored_events(&mut timeline.events, ignored_users);
+}
+
+/// Filter out all the events that are coming from an ignored user, from a
+/// `Vec<Event>`, in-place.
+///
+/// Own events are never filtered out: the own user must not be in the list of
+/// ignored users, but this is a cheap safety check.
+fn retain_non_ignored_events(events: &mut Vec<Event>, ignored_users: &[OwnedUserId]) {
+    if ignored_users.is_empty() {
+        return;
+    }
+
+    events.retain(|event| {
+        event.sender().is_some_and(|sender| {
+            !ignored_users.iter().any(|ignored| ignored.as_str() == sender.as_str())
+        })
+    });
+}
+
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
@@ -632,6 +661,132 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
+    /// Remove all the events sent by the given users, in all the caches
+    /// (rooms and threads) currently in use.
+    async fn remove_events_of_ignored_users(&self, users: &[OwnedUserId]) -> Result<()> {
+        if users.is_empty() {
+            return Ok(());
+        }
+
+        // Only the rooms for which a cache already exists are affected.
+        let room_ids: Vec<OwnedRoomId> = self.by_room.read().await.keys().cloned().collect();
+
+        for room_id in room_ids {
+            let caches = match self.all_caches_for_room(&room_id).await {
+                Ok(caches) => caches,
+                Err(err) => {
+                    error!(%room_id, "getting caches for ignored-users removal: {err}");
+                    continue;
+                }
+            };
+
+            // Room cache.
+            let diffs = {
+                let mut state = match caches.room().state().write().await {
+                    Ok(state) => state,
+                    Err(err) => {
+                        error!(%room_id, "locking room cache state: {err}");
+                        continue;
+                    }
+                };
+
+                match state.remove_events_of_users(users).await {
+                    Ok(diffs) => diffs,
+                    Err(err) => {
+                        error!(%room_id, "removing ignored events from room cache: {err}");
+                        continue;
+                    }
+                }
+            };
+
+            if !diffs.is_empty() {
+                caches.room().update_sender().send(
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
+                );
+            }
+
+            // Thread caches.
+            {
+                let threads = caches.threads.read().await;
+
+                for thread in threads.values() {
+                    let mut state = match thread.state().write().await {
+                        Ok(state) => state,
+                        Err(err) => {
+                            error!(%room_id, "locking thread cache state: {err}");
+                            continue;
+                        }
+                    };
+                    let diffs = match state.remove_events_of_users(users).await {
+                        Ok(diffs) => diffs,
+                        Err(err) => {
+                            error!(%room_id, "removing ignored events from thread cache: {err}");
+                            continue;
+                        }
+                    };
+
+                    if !diffs.is_empty() {
+                        state
+                            .update_sender
+                            .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache }, None);
+                    }
+                }
+            }
+
+            // Pinned-events cache.
+            if let Some(pinned_events) = caches.pinned_events.get() {
+                let mut state = match pinned_events.state().write().await {
+                    Ok(state) => state,
+                    Err(err) => {
+                        error!(%room_id, "locking pinned-events cache state: {err}");
+                        continue;
+                    }
+                };
+                let diffs = match state.remove_events_of_users(users).await {
+                    Ok(diffs) => diffs,
+                    Err(err) => {
+                        error!(%room_id, "removing ignored events from pinned-events cache: {err}");
+                        continue;
+                    }
+                };
+
+                if !diffs.is_empty() {
+                    state
+                        .update_sender
+                        .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+                }
+            }
+
+            // Event-focused caches.
+            {
+                let event_focused_caches = caches.event_focused.read().await;
+
+                for cache in event_focused_caches.values() {
+                    let mut state = match cache.state().write().await {
+                        Ok(state) => state,
+                        Err(err) => {
+                            error!(%room_id, "locking event-focused cache state: {err}");
+                            continue;
+                        }
+                    };
+                    let diffs = state.remove_events_of_users(users);
+
+                    if !diffs.is_empty() {
+                        let _ = state
+                            .update_sender
+                            .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Clear a single room's data.
     async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
         // The constraints are very similar to what we do in `clear_all_rooms`. See this
@@ -692,7 +847,12 @@ impl EventCacheInner {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
 
         // Left rooms.
-        for (room_id, left_room_update) in updates.left {
+        for (room_id, mut left_room_update) in updates.left {
+            {
+                let ignored_users = self.ignored_users.read().await;
+                filter_out_ignored_users(&mut left_room_update.timeline, &ignored_users);
+            }
+
             let Ok(caches) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
                 continue;
@@ -705,8 +865,13 @@ impl EventCacheInner {
         }
 
         // Joined rooms.
-        for (room_id, joined_room_update) in updates.joined {
+        for (room_id, mut joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
+
+            {
+                let ignored_users = self.ignored_users.read().await;
+                filter_out_ignored_users(&mut joined_room_update.timeline, &ignored_users);
+            }
 
             let Ok(caches) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
@@ -794,24 +959,47 @@ pub enum EventsOrigin {
 
 #[cfg(test)]
 mod tests {
-    use std::{ops::Not, sync::Arc, time::Duration};
+    use std::{
+        ops::Not,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, AtomicU64, Ordering},
+        },
+        time::Duration,
+    };
 
     use assert_matches::assert_matches;
+    use async_trait::async_trait;
     use futures_util::FutureExt as _;
     use matrix_sdk_base::{
         RoomState,
-        linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+        event_cache::{
+            Event, Gap,
+            store::{EventCacheStore, EventCacheStoreError, MemoryStore},
+        },
+        linked_chunk::{
+            ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+            OwnedLinkedChunkId, Position, RawChunk, Update,
+        },
+        store::StoreConfig,
         sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
+    };
+    use matrix_sdk_common::cross_process_lock::{
+        CrossProcessLockConfig, CrossProcessLockGeneration,
     };
     use matrix_sdk_test::{
         JoinedRoomBuilder, SyncResponseBuilder, async_test, event_factory::EventFactory,
     };
-    use ruma::{event_id, room_id, user_id};
-    use tokio::time::sleep;
+    use ruma::{
+        EventId, OwnedEventId, OwnedUserId, RoomId, event_id, events::relation::RelationType,
+        room_id, user_id,
+    };
+    use tokio::{sync::Mutex, time::sleep};
 
     use super::{EventCacheError, RoomEventCacheGenericUpdate};
-    use crate::test_utils::{
-        assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
+    use crate::{
+        Client,
+        test_utils::{assert_event_matches_msg, client::MockClientBuilder, logged_in_client},
     };
 
     #[async_test]
@@ -1136,5 +1324,747 @@ mod tests {
             "Too many strong references to the event cache {}",
             event_cache_weak.strong_count()
         );
+    }
+
+    /// An [`EventCacheStore`] that can be configured to fail on demand, on
+    /// either the cross-process lock acquisition or the `load_all_chunks`
+    /// operation, so as to exercise the error branches of
+    /// [`EventCacheInner::remove_events_of_ignored_users`].
+    #[derive(Debug, Clone)]
+    struct FailingStore {
+        memory_store: MemoryStore,
+
+        /// When `true`, every `try_take_leased_lock` call fails.
+        fail_try_lock: Arc<AtomicBool>,
+
+        /// When `Some(n)`, the *n*-th `try_take_leased_lock` call fails, once.
+        fail_try_lock_at: Arc<Mutex<Option<u64>>>,
+
+        /// Number of `try_take_leased_lock` calls made since the last reset.
+        try_lock_calls: Arc<AtomicU64>,
+
+        /// Number of `try_take_leased_lock` calls that failed so far.
+        try_lock_failures: Arc<AtomicU64>,
+
+        /// [`OwnedLinkedChunkId`]s for which `load_all_chunks` must fail.
+        fail_load_chunks: Arc<Mutex<Vec<OwnedLinkedChunkId>>>,
+    }
+
+    impl FailingStore {
+        fn new() -> Self {
+            Self {
+                memory_store: MemoryStore::new(),
+                fail_try_lock: Arc::new(AtomicBool::new(false)),
+                fail_try_lock_at: Arc::new(Mutex::new(None)),
+                try_lock_calls: Arc::new(AtomicU64::new(0)),
+                try_lock_failures: Arc::new(AtomicU64::new(0)),
+                fail_load_chunks: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        /// Make every `try_take_leased_lock` call fail from now on.
+        fn fail_every_try_lock(&self) {
+            self.fail_try_lock.store(true, Ordering::SeqCst);
+        }
+
+        /// Make the *n*-th `try_take_leased_lock` call fail, once.
+        ///
+        /// The call counter is reset, so `n` is relative to the next
+        /// `remove_events_of_ignored_users` pass.
+        async fn fail_nth_try_lock(&self, n: u64) {
+            self.try_lock_calls.store(0, Ordering::SeqCst);
+            *self.fail_try_lock_at.lock().await = Some(n);
+        }
+
+        /// Number of `try_take_leased_lock` calls that failed so far.
+        fn try_lock_failures(&self) -> u64 {
+            self.try_lock_failures.load(Ordering::SeqCst)
+        }
+
+        /// Make `load_all_chunks` fail for the given linked-chunk identifiers.
+        async fn fail_load_chunks_for(&self, ids: Vec<OwnedLinkedChunkId>) {
+            self.fail_load_chunks.lock().await.extend(ids);
+        }
+
+        async fn should_fail_try_lock(&self) -> bool {
+            if self.fail_try_lock.load(Ordering::SeqCst) {
+                return true;
+            }
+
+            let n = self.try_lock_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut fail_at = self.fail_try_lock_at.lock().await;
+            if *fail_at == Some(n) {
+                *fail_at = None;
+                return true;
+            }
+            false
+        }
+
+        fn store_error() -> EventCacheStoreError {
+            let error: Arc<dyn std::error::Error + Send + Sync> =
+                Arc::new(std::io::Error::other("intentional failing store"));
+            EventCacheStoreError::Backend(error)
+        }
+
+        fn id_matches(linked_chunk_id: LinkedChunkId<'_>, owned: &OwnedLinkedChunkId) -> bool {
+            match (linked_chunk_id, owned) {
+                (LinkedChunkId::Room(a), OwnedLinkedChunkId::Room(b)) => a == b,
+                (LinkedChunkId::Thread(a, c), OwnedLinkedChunkId::Thread(b, d)) => a == b && c == d,
+                (LinkedChunkId::PinnedEvents(a), OwnedLinkedChunkId::PinnedEvents(b)) => a == b,
+                (LinkedChunkId::EventFocused(a, c), OwnedLinkedChunkId::EventFocused(b, d)) => {
+                    a == b && c == d
+                }
+                _ => false,
+            }
+        }
+    }
+
+    #[cfg_attr(target_family = "wasm", async_trait(?Send))]
+    #[cfg_attr(not(target_family = "wasm"), async_trait)]
+    impl EventCacheStore for FailingStore {
+        type Error = EventCacheStoreError;
+
+        async fn close(&self) -> Result<(), EventCacheStoreError> {
+            self.memory_store.close().await
+        }
+
+        async fn reopen(&self) -> Result<(), EventCacheStoreError> {
+            self.memory_store.reopen().await
+        }
+
+        async fn try_take_leased_lock(
+            &self,
+            lease_duration_ms: u32,
+            key: &str,
+            holder: &str,
+        ) -> Result<Option<CrossProcessLockGeneration>, Self::Error> {
+            if self.should_fail_try_lock().await {
+                let _ = self.try_lock_failures.fetch_add(1, Ordering::SeqCst);
+                return Err(Self::store_error());
+            }
+
+            self.memory_store.try_take_leased_lock(lease_duration_ms, key, holder).await
+        }
+
+        async fn handle_linked_chunk_updates(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+            updates: Vec<Update<Event, Gap>>,
+        ) -> Result<(), Self::Error> {
+            self.memory_store.handle_linked_chunk_updates(linked_chunk_id, updates).await
+        }
+
+        async fn load_all_chunks(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<Vec<RawChunk<Event, Gap>>, Self::Error> {
+            let should_fail = self
+                .fail_load_chunks
+                .lock()
+                .await
+                .iter()
+                .any(|owned| Self::id_matches(linked_chunk_id, owned));
+
+            if should_fail {
+                return Err(Self::store_error());
+            }
+
+            self.memory_store.load_all_chunks(linked_chunk_id).await
+        }
+
+        async fn load_all_chunks_metadata(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<Vec<ChunkMetadata>, Self::Error> {
+            self.memory_store.load_all_chunks_metadata(linked_chunk_id).await
+        }
+
+        async fn load_last_chunk(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+        ) -> Result<(Option<RawChunk<Event, Gap>>, ChunkIdentifierGenerator), Self::Error> {
+            self.memory_store.load_last_chunk(linked_chunk_id).await
+        }
+
+        async fn load_previous_chunk(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+            before_chunk_identifier: ChunkIdentifier,
+        ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error> {
+            self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
+        }
+
+        async fn remember_thread(
+            &self,
+            room_id: &RoomId,
+            thread_id: &EventId,
+        ) -> Result<(), Self::Error> {
+            self.memory_store.remember_thread(room_id, thread_id).await
+        }
+
+        async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {
+            self.memory_store.clear_all_events(room_id).await
+        }
+
+        async fn filter_duplicated_events(
+            &self,
+            linked_chunk_id: LinkedChunkId<'_>,
+            events: Vec<OwnedEventId>,
+        ) -> Result<Vec<(OwnedEventId, Position)>, Self::Error> {
+            self.memory_store.filter_duplicated_events(linked_chunk_id, events).await
+        }
+
+        async fn find_event(
+            &self,
+            room_id: &RoomId,
+            event_id: &EventId,
+        ) -> Result<Option<Event>, Self::Error> {
+            self.memory_store.find_event(room_id, event_id).await
+        }
+
+        async fn find_event_relations(
+            &self,
+            room_id: &RoomId,
+            event_id: &EventId,
+            filters: Option<&[RelationType]>,
+        ) -> Result<Vec<(Event, Option<Position>)>, Self::Error> {
+            self.memory_store.find_event_relations(room_id, event_id, filters).await
+        }
+
+        async fn get_room_events(
+            &self,
+            room_id: &RoomId,
+            event_type: Option<&str>,
+            session_id: Option<&str>,
+        ) -> Result<Vec<Event>, Self::Error> {
+            self.memory_store.get_room_events(room_id, event_type, session_id).await
+        }
+
+        async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+            self.memory_store.save_event(room_id, event).await
+        }
+
+        async fn optimize(&self) -> Result<(), Self::Error> {
+            self.memory_store.optimize().await
+        }
+
+        async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
+            self.memory_store.get_size().await
+        }
+    }
+
+    /// Build a client whose event cache store is a [`FailingStore`], using the
+    /// given `builder`.
+    ///
+    /// The cross-process lock is enabled (`MultiProcess`), so that the store's
+    /// `try_take_leased_lock` is exercised on each lock acquisition.
+    async fn build_client_with_failing_store(
+        builder: MockClientBuilder,
+        store: FailingStore,
+    ) -> Client {
+        builder
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process(
+                        "failing_store_ignored_users_test",
+                    ))
+                    .event_cache_store(store),
+                )
+            })
+            .build()
+            .await
+    }
+
+    /// Returns the users to pass to [`EventCacheInner::remove_events_of_ignored_users`].
+    fn ignored_user() -> OwnedUserId {
+        user_id!("@dexter:lab.org").to_owned()
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_empty_users_is_a_noop() {
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), FailingStore::new())
+                .await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // An empty list of ignored users short-circuits, even if no room cache
+        // exists yet.
+        event_cache.inner.remove_events_of_ignored_users(&[]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_room_state_store_lock_error() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+
+        // When acquiring the store lock fails, the room cache is skipped, but the
+        // removal still returns `Ok(())`.
+        store.fail_every_try_lock();
+        event_cache.inner.remove_events_of_ignored_users(&[ignored_user()]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_room_state_store_load_error() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+
+        // When loading the room chunks from the store fails, the room cache is
+        // skipped, but the removal still returns `Ok(())`.
+        store.fail_load_chunks_for(vec![OwnedLinkedChunkId::Room(room_id.to_owned())]).await;
+        event_cache.inner.remove_events_of_ignored_users(&[ignored_user()]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_thread_state_store_lock_error() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let thread_id = event_id!("$thread_root");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+        event_cache.thread(room_id, thread_id).await.unwrap();
+
+        // Let any leaked-lock renewal task (spawned when the caches were created)
+        // settle, so the lock call counter below is deterministic.
+        sleep(Duration::from_millis(150)).await;
+
+        // The room cache lock succeeds (first call), but the thread cache lock
+        // fails (second call): the thread is skipped, and the removal returns
+        // `Ok(())`.
+        store.fail_nth_try_lock(2).await;
+        event_cache.inner.remove_events_of_ignored_users(&[ignored_user()]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_thread_state_store_load_error() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let thread_id = event_id!("$thread_root");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+        event_cache.thread(room_id, thread_id).await.unwrap();
+
+        // When loading the thread chunks from the store fails, the thread cache is
+        // skipped, but the removal still returns `Ok(())`.
+        store
+            .fail_load_chunks_for(vec![OwnedLinkedChunkId::Thread(
+                room_id.to_owned(),
+                thread_id.to_owned(),
+            )])
+            .await;
+        event_cache.inner.remove_events_of_ignored_users(&[ignored_user()]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_pinned_events_store_lock_error() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+        event_cache.pinned_events(room_id).await.unwrap();
+
+        // Let any leaked-lock renewal task settle, so the lock call counter below
+        // is deterministic.
+        sleep(Duration::from_millis(150)).await;
+
+        // The room cache lock succeeds (first call), but the pinned-events cache
+        // lock fails (second call): the pinned-events cache is skipped, and the
+        // removal returns `Ok(())`.
+        store.fail_nth_try_lock(2).await;
+        event_cache.inner.remove_events_of_ignored_users(&[ignored_user()]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_pinned_events_store_load_error() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+        event_cache.pinned_events(room_id).await.unwrap();
+
+        // When loading the pinned-events chunks from the store fails, the
+        // pinned-events cache is skipped, but the removal still returns `Ok(())`.
+        store
+            .fail_load_chunks_for(vec![OwnedLinkedChunkId::PinnedEvents(room_id.to_owned())])
+            .await;
+        event_cache.inner.remove_events_of_ignored_users(&[ignored_user()]).await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_remove_events_of_ignored_users_room_state_store_only_events() {
+        let store = FailingStore::new();
+        let client =
+            build_client_with_failing_store(MockClientBuilder::new(None), store.clone()).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let dexter = user_id!("@dexter:lab.org");
+        let ivan = user_id!("@ivan:lab.ch");
+        let factory = EventFactory::new();
+        let dexter_event = factory
+            .room(room_id)
+            .sender(dexter)
+            .text_msg("hello from the store only, dexter")
+            .into_event();
+        let ivan_event = EventFactory::new()
+            .room(room_id)
+            .sender(ivan)
+            .text_msg("hello from memory, ivan")
+            .into_event();
+
+        // Populate the store with two chunks *before* creating the room cache:
+        // the first chunk only lives in the store and holds the ignored user's
+        // event, while the room cache only loads the last chunk into memory.
+        {
+            let store_lock = client.event_cache_store().lock().await.unwrap();
+            let store = store_lock.as_clean().unwrap();
+            let first_chunk = ChunkIdentifier::new(0);
+            let last_chunk = ChunkIdentifier::new(1);
+            store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        // Insert the last chunk first: a new chunk can only be
+                        // linked to chunks that are already in the store.
+                        Update::NewItemsChunk { previous: None, new: last_chunk, next: None },
+                        Update::PushItems {
+                            at: Position::new(last_chunk, 0),
+                            items: vec![ivan_event],
+                        },
+                        // Then the first chunk, linked to the last one.
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: first_chunk,
+                            next: Some(last_chunk),
+                        },
+                        Update::PushItems {
+                            at: Position::new(first_chunk, 0),
+                            items: vec![dexter_event],
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        // The room cache loads at most the last chunk into memory; dexter's event
+        // (in the first chunk) only lives in the store. When removing the events
+        // of the ignored user, it is found there, removed, and the removal
+        // returns `Ok(())`.
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        event_cache.room(room_id).await.unwrap();
+        event_cache.inner.remove_events_of_ignored_users(&[dexter.to_owned()]).await.unwrap();
+    }
+
+    /// Tests for the event-focused cache error branch, which requires mocking
+    /// the homeserver network endpoints.
+    #[cfg(not(target_family = "wasm"))]
+    mod ignored_users_event_focused_tests {
+        use std::time::Duration;
+
+        use eyeball_im::VectorDiff;
+        use matrix_sdk_test::{async_test, event_factory::EventFactory};
+        use ruma::{event_id, room_id, user_id};
+        use tokio::time::sleep;
+
+        use super::{FailingStore, build_client_with_failing_store};
+        use crate::{
+            event_cache::EventFocusThreadMode,
+            test_utils::mocks::{
+                MatrixMockServer, RoomContextResponseTemplate, RoomMessagesResponseTemplate,
+            },
+        };
+
+        #[async_test]
+        async fn test_remove_events_of_ignored_users_event_focused_store_lock_error() {
+            let store = FailingStore::new();
+            let server = MatrixMockServer::new().await;
+            let client =
+                build_client_with_failing_store(server.client_builder(), store.clone()).await;
+
+            let event_cache = client.event_cache();
+            event_cache.subscribe().unwrap();
+
+            let room_id = room_id!("!omelette:fromage.fr");
+            let focused_event = event_id!("$focused_event");
+            let dexter = user_id!("@dexter:lab.org");
+
+            let f = EventFactory::new().room(room_id).sender(dexter);
+
+            server
+                .mock_room_event_context()
+                .room(room_id)
+                .ok(RoomContextResponseTemplate::new(
+                    f.text_msg("focused by dexter").event_id(focused_event).into_event(),
+                )
+                .start("prev1")
+                .end("next1"))
+                .mock_once()
+                .mount()
+                .await;
+
+            server.mock_room_state_encryption().plain().mount().await;
+
+            let _room = server.sync_joined_room(&client, room_id).await;
+
+            // Create the event-focused cache, so that it is present in the
+            // `by_room` map.
+            event_cache
+                .event_focused(room_id, focused_event, EventFocusThreadMode::Automatic, 0)
+                .await
+                .unwrap();
+
+            // Let any leaked-lock renewal task settle, so the lock call counter
+            // below is deterministic.
+            sleep(Duration::from_millis(150)).await;
+
+            // The room cache lock succeeds (first call), but the event-focused
+            // cache lock fails (second call): the event-focused cache is skipped,
+            // and the removal returns `Ok(())`.
+            store.fail_nth_try_lock(2).await;
+            event_cache.inner.remove_events_of_ignored_users(&[dexter.to_owned()]).await.unwrap();
+        }
+
+        #[async_test]
+        async fn test_event_focused_remove_events_and_pagination_paths() {
+            let server = MatrixMockServer::new().await;
+            let client = server.client_builder().build().await;
+
+            let event_cache = client.event_cache();
+            event_cache.subscribe().unwrap();
+
+            let room_id = room_id!("!omelette:fromage.fr");
+            let focused_event = event_id!("$focused_event");
+            let dexter = user_id!("@dexter:lab.org");
+            let ivan = user_id!("@ivan:lab.ch");
+
+            let f = EventFactory::new().room(room_id).sender(dexter);
+            server
+                .mock_room_event_context()
+                .room(room_id)
+                .ok(RoomContextResponseTemplate::new(
+                    f.text_msg("focused by dexter").event_id(focused_event).into_event(),
+                )
+                .start("prev1")
+                .end("next1"))
+                .mock_once()
+                .mount()
+                .await;
+
+            server.mock_room_state_encryption().plain().mount().await;
+
+            let _room = server.sync_joined_room(&client, room_id).await;
+
+            let (event_focused, _drop_handles) = client
+                .event_cache()
+                .event_focused(room_id, focused_event, EventFocusThreadMode::Automatic, 0)
+                .await
+                .unwrap();
+
+            // Removing the events of an empty list of users is a no-op.
+            {
+                let mut state = event_focused.state().write().await.unwrap();
+                assert!(state.remove_events_of_users(&[]).is_empty());
+            }
+
+            // Removing the events of a user with no events in the cache is a
+            // no-op.
+            {
+                let mut state = event_focused.state().write().await.unwrap();
+                assert!(state.remove_events_of_users(&[ivan.to_owned()]).is_empty());
+            }
+
+            // Removing the events of a user whose events are in the cache
+            // returns a `VectorDiff::Remove` for each of them.
+            {
+                let mut state = event_focused.state().write().await.unwrap();
+                let diffs = state.remove_events_of_users(&[dexter.to_owned()]);
+                assert!(diffs.iter().any(|diff| matches!(diff, VectorDiff::Remove { .. })));
+            }
+
+            // Paginating forwards until the end of the timeline yields no new
+            // events: `notify_subscribers` is called with no diffs to send.
+            server
+                .mock_room_messages()
+                .ok(RoomMessagesResponseTemplate::default())
+                .mock_once()
+                .mount()
+                .await;
+            let result = event_focused.paginate_forwards(10).await.unwrap();
+            assert!(result.hit_end_of_timeline);
+            assert!(result.events.is_empty());
+
+            // Paginating backwards returns older events: `notify_subscribers`
+            // is called with some diffs to send.
+            server
+                .mock_room_messages()
+                .ok(RoomMessagesResponseTemplate::default()
+                    .events(vec![
+                        EventFactory::new()
+                            .room(room_id)
+                            .sender(ivan)
+                            .text_msg("an older message from ivan")
+                            .into_raw_timeline(),
+                    ])
+                    .end_token("prev0"))
+                .mock_once()
+                .mount()
+                .await;
+            let result = event_focused.paginate_backwards(10).await.unwrap();
+            assert_eq!(result.events.len(), 1);
+        }
+    }
+
+    /// Tests for the error branches of the `ignore_user_list_update_task`,
+    /// which requires mocking the homeserver network endpoints.
+    #[cfg(not(target_family = "wasm"))]
+    mod ignored_users_tasks_tests {
+        use std::time::Duration;
+
+        use matrix_sdk_base::RoomState;
+        use matrix_sdk_test::{async_test, event_factory::EventFactory};
+        use ruma::{OwnedUserId, room_id, user_id};
+        use tokio::time::sleep;
+
+        use super::{FailingStore, build_client_with_failing_store};
+        use crate::{Client, event_cache::tasks, test_utils::mocks::MatrixMockServer};
+
+        async fn wait_for_store_lock_failures(store: &FailingStore, expected: u64) {
+            for _ in 0..100 {
+                if store.try_lock_failures() >= expected {
+                    return;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+            panic!("the store lock never failed {expected} time(s)");
+        }
+
+        async fn wait_for_ignored_users(client: &Client, expected: &[OwnedUserId]) {
+            let event_cache = client.event_cache();
+            for _ in 0..100 {
+                if event_cache.inner.ignored_users.read().await.as_slice() == expected {
+                    return;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+            panic!("the ignored user list was never updated with {expected:?}");
+        }
+
+        #[async_test]
+        async fn test_ignore_user_list_update_task_startup_store_lock_error() {
+            let store = FailingStore::new();
+            let server = MatrixMockServer::new().await;
+            let client =
+                build_client_with_failing_store(server.client_builder(), store.clone()).await;
+
+            let event_cache = client.event_cache();
+            event_cache.subscribe().unwrap();
+
+            let dexter = user_id!("@dexter:lab.org");
+            let room_id = room_id!("!omelette:fromage.fr");
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+            event_cache.room(room_id).await.unwrap();
+
+            // From now on, every store lock acquisition fails.
+            store.fail_every_try_lock();
+
+            // Make the homeserver ignore `dexter`: the (already subscribed) real
+            // task receives the change and fails to remove the newly-ignored
+            // user's events (first lock failure).
+            let f = EventFactory::new();
+            server
+                .mock_sync()
+                .ok_and_run(&client, |sync_builder| {
+                    sync_builder.add_global_account_data(f.ignored_user_list([dexter.to_owned()]));
+                })
+                .await;
+
+            // Run the task a second time, *after* the account data has been
+            // written to the store: this time its startup step removed the events
+            // of the already-ignored user, taking the same store-lock error path
+            // (second lock failure).
+            //
+            // The task never terminates (it keeps listening to the
+            // ignore-user-list stream), so it must run in the background.
+            let _handle = tokio::spawn(tasks::ignore_user_list_update_task(
+                event_cache.inner.clone(),
+                client.subscribe_to_ignore_user_list_changes(),
+            ));
+            drop(_handle);
+
+            // Both the stream update and the startup cleanup had to fail on the
+            // store lock.
+            wait_for_store_lock_failures(&store, 2).await;
+            wait_for_ignored_users(&client, &[dexter.to_owned()]).await;
+        }
+
+        #[async_test]
+        async fn test_ignore_user_list_update_task_stream_store_lock_error() {
+            let store = FailingStore::new();
+            let server = MatrixMockServer::new().await;
+            let client =
+                build_client_with_failing_store(server.client_builder(), store.clone()).await;
+
+            let event_cache = client.event_cache();
+            event_cache.subscribe().unwrap();
+
+            // No account data around at startup: the task starts with an empty
+            // list of ignored users.
+            let dexter = user_id!("@dexter:lab.org");
+            let room_id = room_id!("!omelette:fromage.fr");
+            client.base_client().get_or_create_room(room_id, RoomState::Joined);
+            event_cache.room(room_id).await.unwrap();
+
+            // From now on, every store lock acquisition fails.
+            store.fail_every_try_lock();
+
+            // Make the homeserver ignore `dexter`: the task receives the change,
+            // computes the newly-ignored user, and fails to remove their events.
+            let f = EventFactory::new();
+            server
+                .mock_sync()
+                .ok_and_run(&client, |sync_builder| {
+                    sync_builder.add_global_account_data(f.ignored_user_list([dexter.to_owned()]));
+                })
+                .await;
+
+            wait_for_store_lock_failures(&store, 1).await;
+            wait_for_ignored_users(&client, &[dexter.to_owned()]).await;
+        }
     }
 }

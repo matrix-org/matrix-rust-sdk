@@ -12,7 +12,9 @@ use matrix_sdk::{
         BackPaginationOutcome, EventCacheError, PaginationStatus, RoomEventCacheUpdate,
         TimelineVectorDiffs,
     },
-    linked_chunk::{ChunkIdentifier, LinkedChunkId, Position, Update},
+    linked_chunk::{
+        ChunkIdentifier, LinkedChunkId, Position, Update, lazy_loader::from_all_chunks,
+    },
     store::StoreConfig,
     test_utils::{
         assert_event_matches_msg,
@@ -37,6 +39,8 @@ use ruma::{
 };
 use tokio::{spawn, sync::broadcast, task::yield_now, time::sleep};
 
+mod event_focused;
+mod pinned_events;
 mod read_receipts;
 mod threads;
 
@@ -167,6 +171,29 @@ async fn test_ignored_unignored() {
         })
         .await;
 
+    // Dexter's events are removed from the room cache.
+    {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+    }
+
+    // Dexter's events are removed from the store as well, so they don't pop up
+    // again after a reload.
+    {
+        let store_lock = client.event_cache_store().lock().await.unwrap();
+        let store = store_lock.as_clean().unwrap();
+        let all_chunks = store.load_all_chunks(LinkedChunkId::Room(room_id)).await.unwrap();
+        let linked_chunk = from_all_chunks::<128, _, _>(all_chunks).unwrap().unwrap();
+        let events: Vec<_> =
+            linked_chunk.items().map(|(_position, event)| event.clone()).collect::<Vec<_>>();
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "hoy!");
+    }
+
     // Receiving new events still works.
     server
         .mock_sync()
@@ -178,8 +205,7 @@ async fn test_ignored_unignored() {
         })
         .await;
 
-    // We do receive the new event (room events are NOT cleared when ignoring a
-    // user, only the latest_event computation filters them).
+    // We do receive the new event.
     {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
