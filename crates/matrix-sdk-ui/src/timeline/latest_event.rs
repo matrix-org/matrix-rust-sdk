@@ -244,6 +244,60 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_remote_unable_to_decrypt() {
+        use matrix_sdk::deserialized_responses::{
+            UnableToDecryptInfo, UnableToDecryptReason, WithheldCode,
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room = server.sync_room(&client, JoinedRoomBuilder::new(room_id!("!r0"))).await;
+        let sender = user_id!("@mnt_io:matrix.org");
+        let event_factory = EventFactory::new();
+
+        let base_value =
+            BaseLatestEventValue::Remote(matrix_sdk::deserialized_responses::TimelineEvent::from_utd(
+                event_factory
+                    .server_ts(42)
+                    .sender(sender)
+                    .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
+                        ruma::events::room::encrypted::EncryptedEventScheme::MegolmV1AesSha2(
+                            ruma::events::room::encrypted::MegolmV1AesSha2ContentInit {
+                                ciphertext: "cipher".to_owned(),
+                                sender_key: "sender_key".to_owned(),
+                                device_id: "device_id".into(),
+                                session_id: "session_id".to_owned(),
+                            }
+                            .into(),
+                        ),
+                        None,
+                    ))
+                    .event_id(event_id!("$ev0"))
+                    .into_raw_sync(),
+                UnableToDecryptInfo {
+                    session_id: Some("session_id".to_owned()),
+                    reason: UnableToDecryptReason::MissingMegolmSession {
+                        withheld_code: None::<WithheldCode>,
+                    },
+                },
+            ));
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+
+        // The UTD maps to a proper `UnableToDecrypt` item, with the event's own
+        // (accurate) timestamp, so clients can render a placeholder preview at
+        // the room's stable position.
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, content, .. } => {
+            assert_eq!(u64::from(timestamp.get()), 42u64);
+            assert_eq!(received_sender, sender);
+            assert_matches!(
+                content,
+                TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::UnableToDecrypt(_), .. })
+            );
+        })
+    }
+
+    #[async_test]
     async fn test_remote_invite() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;

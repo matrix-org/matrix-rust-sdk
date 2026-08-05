@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{Room, deserialized_responses::TimelineEvent};
+use matrix_sdk::{
+    Room,
+    deserialized_responses::{TimelineEvent, TimelineEventKind},
+};
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
@@ -166,6 +169,16 @@ impl TimelineItemContent {
     /// without providing extra information (about thread root, replied-to
     /// information, UTD info, and so on).
     pub async fn from_event(room: &Room, timeline_event: TimelineEvent) -> Option<Self> {
+        // If the event could not be decrypted, keep its UTD info around so it
+        // maps to a proper `UnableToDecrypt` item (rather than the generic
+        // `Other` fallback for `m.room.encrypted`). No UTD hook is passed:
+        // reporting UTDs is the timeline's job, doing it here too would
+        // double-count them.
+        let utd_info = match &timeline_event.kind {
+            TimelineEventKind::UnableToDecrypt { utd_info, .. } => Some(utd_info.clone()),
+            _ => None,
+        };
+
         let raw_event = timeline_event.into_raw();
         let deserialized_event = raw_event.deserialize().ok()?;
 
@@ -173,7 +186,7 @@ impl TimelineItemContent {
             deserialized_event,
             &raw_event,
             room,
-            None,
+            utd_info.map(|utd_info| (utd_info, None)),
             None,
             None,
             None,

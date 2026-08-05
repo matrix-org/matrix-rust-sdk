@@ -119,8 +119,8 @@ impl Builder {
             // the first gap.
             //
             // It means either the room has been emptied, or every event in the
-            // most recent contiguous span is non-displayable (e.g. a reaction,
-            // a redaction, an unable-to-decrypt event). A displayable event
+            // most recent contiguous span is non-displayable (e.g. a reaction
+            // or a redaction). A displayable event
             // might exist on the other side of a gap (or in the storage), but
             // nothing is known about what lies in between, so it cannot be
             // trusted as “the latest event”. Keeping the previous value would
@@ -750,8 +750,15 @@ fn filter_any_message_like_event_content(
 
         // `m.room.encrypted`
         AnyMessageLikeEventContent::RoomEncrypted(_) => {
-            // **explicitly** not suitable.
-            filter_continue()
+            // An event that could not be decrypted (yet) is suitable: its
+            // `origin_server_ts` is accurate (it agrees with the room's bump
+            // stamp, so the room keeps a stable position in the room list
+            // instead of sinking to the timestamp of some much older
+            // decryptable event), and clients can render it as a "waiting for
+            // decryption" placeholder. When the key arrives, the redecryptor
+            // triggers a recompute and the real content replaces the
+            // placeholder without the room moving.
+            filter_break()
         }
 
         // Everything else is considered not suitable.
@@ -1038,7 +1045,7 @@ mod filter_tests {
                     ))
                     .into_event()
             }
-            is not a candidate
+            is a candidate
         );
     }
 
