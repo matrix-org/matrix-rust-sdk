@@ -28,7 +28,7 @@ use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::{Notify, broadcast::Sender, mpsc};
+use tokio::sync::{Notify, RwLock, broadcast::Sender, mpsc};
 use tracing::{instrument, trace};
 
 use self::pagination::ThreadPagination;
@@ -80,6 +80,9 @@ struct ThreadEventCacheInner {
 
     /// Update sender for this thread.
     update_sender: ThreadEventCacheUpdateSender,
+
+    /// The list of ignored users, shared across all rooms.
+    ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
 }
 
 impl fmt::Debug for ThreadEventCache {
@@ -101,6 +104,7 @@ impl ThreadEventCache {
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 
@@ -133,6 +137,7 @@ impl ThreadEventCache {
                 pagination_batch_token_notifier: Notify::new(),
                 auto_shrink_sender,
                 update_sender,
+                ignored_users,
             }),
         };
 

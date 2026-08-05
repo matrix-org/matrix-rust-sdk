@@ -140,6 +140,16 @@ impl Caches {
         let timeline_is_not_empty =
             room_state.read().await?.room_linked_chunk().revents().next().is_some();
 
+        // Remove any event from an already-ignored user that may have been reloaded
+        // from the store (e.g. if the app was killed while removing them after an
+        // ignore-list change).
+        {
+            let ignored_users = ignored_users.read().await;
+            if !ignored_users.is_empty() {
+                room_state.write().await?.remove_events_of_users(&ignored_users).await?;
+            }
+        }
+
         let room_event_cache = room::RoomEventCache::new(
             room_id.to_owned(),
             weak_room,
@@ -205,6 +215,7 @@ impl Caches {
                 // Thread does not exist, let's create it.
                 Err(mut threads) => {
                     let room = &self.room;
+                    let ignored_users = room.ignored_users();
                     let cache = thread::ThreadEventCache::new(
                         room.room_id().to_owned(),
                         thread_id.clone(),
@@ -215,8 +226,24 @@ impl Caches {
                         self.internals.auto_shrink_sender.clone(),
                         room.update_sender().generic_update_sender().clone(),
                         self.internals.linked_chunk_update_sender.clone(),
+                        ignored_users.clone(),
                     )
                     .await?;
+
+                    // Remove any event from an already-ignored user that may have been
+                    // reloaded from the store (e.g. if the app was killed while removing
+                    // them after an ignore-list change).
+                    {
+                        let ignored_users = ignored_users.read().await;
+                        if !ignored_users.is_empty() {
+                            cache
+                                .state()
+                                .write()
+                                .await?
+                                .remove_events_of_users(&ignored_users)
+                                .await?;
+                        }
+                    }
 
                     threads.insert(thread_id.clone(), cache);
 
@@ -240,6 +267,7 @@ impl Caches {
                     self.internals.room_version_rules.clone(),
                     self.internals.linked_chunk_update_sender.clone(),
                     &self.internals.state,
+                    self.room.ignored_users(),
                 )
             })
             .await
@@ -275,6 +303,7 @@ impl Caches {
                         key.clone(),
                         &self.internals.state,
                         self.internals.linked_chunk_update_sender.clone(),
+                        self.room.ignored_users(),
                     )
                     .await?;
                     cache.start_from(number_of_initial_events, thread_mode).await?;

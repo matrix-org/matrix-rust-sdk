@@ -36,9 +36,12 @@ use std::{
 
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockError,
-    event_cache::store::{EventCacheStoreError, EventCacheStoreLock},
+    event_cache::{
+        Event,
+        store::{EventCacheStoreError, EventCacheStoreLock},
+    },
     linked_chunk::lazy_loader::LazyLoaderError,
-    sync::RoomUpdates,
+    sync::{RoomUpdates, Timeline},
     task_monitor::BackgroundTaskHandle,
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId};
@@ -561,6 +564,32 @@ impl Default for EventCacheConfig {
 
 type CachesByRoom = HashMap<OwnedRoomId, Caches>;
 
+/// Filter out all the events that are coming from an ignored user, from a
+/// [`Timeline`], in-place.
+///
+/// Own events are never filtered out: the own user must not be in the list of
+/// ignored users, but this is a cheap safety check.
+fn filter_out_ignored_users(timeline: &mut Timeline, ignored_users: &[OwnedUserId]) {
+    retain_non_ignored_events(&mut timeline.events, ignored_users);
+}
+
+/// Filter out all the events that are coming from an ignored user, from a
+/// `Vec<Event>`, in-place.
+///
+/// Own events are never filtered out: the own user must not be in the list of
+/// ignored users, but this is a cheap safety check.
+fn retain_non_ignored_events(events: &mut Vec<Event>, ignored_users: &[OwnedUserId]) {
+    if ignored_users.is_empty() {
+        return;
+    }
+
+    events.retain(|event| {
+        event.sender().is_some_and(|sender| {
+            !ignored_users.iter().any(|ignored| ignored.as_str() == sender.as_str())
+        })
+    });
+}
+
 struct EventCacheInner {
     /// A weak reference to the inner client, useful when trying to get a handle
     /// on the owning client.
@@ -632,6 +661,132 @@ impl EventCacheInner {
         self.client.get().ok_or(EventCacheError::ClientDropped)
     }
 
+    /// Remove all the events sent by the given users, in all the caches
+    /// (rooms and threads) currently in use.
+    async fn remove_events_of_ignored_users(&self, users: &[OwnedUserId]) -> Result<()> {
+        if users.is_empty() {
+            return Ok(());
+        }
+
+        // Only the rooms for which a cache already exists are affected.
+        let room_ids: Vec<OwnedRoomId> = self.by_room.read().await.keys().cloned().collect();
+
+        for room_id in room_ids {
+            let caches = match self.all_caches_for_room(&room_id).await {
+                Ok(caches) => caches,
+                Err(err) => {
+                    error!(%room_id, "getting caches for ignored-users removal: {err}");
+                    continue;
+                }
+            };
+
+            // Room cache.
+            let diffs = {
+                let mut state = match caches.room().state().write().await {
+                    Ok(state) => state,
+                    Err(err) => {
+                        error!(%room_id, "locking room cache state: {err}");
+                        continue;
+                    }
+                };
+
+                match state.remove_events_of_users(users).await {
+                    Ok(diffs) => diffs,
+                    Err(err) => {
+                        error!(%room_id, "removing ignored events from room cache: {err}");
+                        continue;
+                    }
+                }
+            };
+
+            if !diffs.is_empty() {
+                caches.room().update_sender().send(
+                    RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                        diffs,
+                        origin: EventsOrigin::Cache,
+                    }),
+                    Some(RoomEventCacheGenericUpdate { room_id: room_id.clone() }),
+                );
+            }
+
+            // Thread caches.
+            {
+                let threads = caches.threads.read().await;
+
+                for thread in threads.values() {
+                    let mut state = match thread.state().write().await {
+                        Ok(state) => state,
+                        Err(err) => {
+                            error!(%room_id, "locking thread cache state: {err}");
+                            continue;
+                        }
+                    };
+                    let diffs = match state.remove_events_of_users(users).await {
+                        Ok(diffs) => diffs,
+                        Err(err) => {
+                            error!(%room_id, "removing ignored events from thread cache: {err}");
+                            continue;
+                        }
+                    };
+
+                    if !diffs.is_empty() {
+                        state
+                            .update_sender
+                            .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache }, None);
+                    }
+                }
+            }
+
+            // Pinned-events cache.
+            if let Some(pinned_events) = caches.pinned_events.get() {
+                let mut state = match pinned_events.state().write().await {
+                    Ok(state) => state,
+                    Err(err) => {
+                        error!(%room_id, "locking pinned-events cache state: {err}");
+                        continue;
+                    }
+                };
+                let diffs = match state.remove_events_of_users(users).await {
+                    Ok(diffs) => diffs,
+                    Err(err) => {
+                        error!(%room_id, "removing ignored events from pinned-events cache: {err}");
+                        continue;
+                    }
+                };
+
+                if !diffs.is_empty() {
+                    state
+                        .update_sender
+                        .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+                }
+            }
+
+            // Event-focused caches.
+            {
+                let event_focused_caches = caches.event_focused.read().await;
+
+                for cache in event_focused_caches.values() {
+                    let mut state = match cache.state().write().await {
+                        Ok(state) => state,
+                        Err(err) => {
+                            error!(%room_id, "locking event-focused cache state: {err}");
+                            continue;
+                        }
+                    };
+                    let diffs = state.remove_events_of_users(users);
+
+                    if !diffs.is_empty() {
+                        let _ = state
+                            .update_sender
+                            .send(TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache });
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Clear a single room's data.
     async fn forget_room(&self, room_id: &RoomId) -> Result<()> {
         // The constraints are very similar to what we do in `clear_all_rooms`. See this
@@ -692,7 +847,12 @@ impl EventCacheInner {
         // https://github.com/matrix-org/matrix-rust-sdk/pull/5426.
 
         // Left rooms.
-        for (room_id, left_room_update) in updates.left {
+        for (room_id, mut left_room_update) in updates.left {
+            {
+                let ignored_users = self.ignored_users.read().await;
+                filter_out_ignored_users(&mut left_room_update.timeline, &ignored_users);
+            }
+
             let Ok(caches) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
                 continue;
@@ -705,8 +865,13 @@ impl EventCacheInner {
         }
 
         // Joined rooms.
-        for (room_id, joined_room_update) in updates.joined {
+        for (room_id, mut joined_room_update) in updates.joined {
             trace!(?room_id, "Handling a `JoinedRoomUpdate`");
+
+            {
+                let ignored_users = self.ignored_users.read().await;
+                filter_out_ignored_users(&mut joined_room_update.timeline, &ignored_users);
+            }
 
             let Ok(caches) = self.all_caches_for_room(&room_id).await else {
                 error!(?room_id, "Room must exist");
