@@ -233,6 +233,10 @@ impl LatestEvent {
             let mut guard = self.current_value.write().await;
             let previous_value = guard.deref();
 
+            fn is_utd(value: &LatestEventValue) -> bool {
+                matches!(value, LatestEventValue::Remote(event) if event.kind.is_utd())
+            }
+
             let do_update = match (previous_value, &new_value) {
                 // If both are `None`, no.
                 (LatestEventValue::None, LatestEventValue::None) => false,
@@ -240,8 +244,12 @@ impl LatestEvent {
                 // If at least one is `None`, yes.
                 (_, LatestEventValue::None) | (LatestEventValue::None, _) => true,
 
-                // If the event IDs are identical, no.
-                (previous, new) if previous.event_id() == new.event_id() => false,
+                // If the event IDs are identical, only a change of decryption
+                // state matters: an unable-to-decrypt placeholder must be
+                // replaced when the event is (re)decrypted.
+                (previous, new) if previous.event_id() == new.event_id() => {
+                    is_utd(previous) != is_utd(new)
+                }
 
                 // Otherwise, yes.
                 (_, _) => true,
@@ -428,6 +436,84 @@ mod tests_latest_event {
         latest_event.update(LatestEventValue::None).await;
 
         assert_matches!(latest_event.current_value.get().await, LatestEventValue::None);
+    }
+
+    /// A same-event-ID update is normally ignored, EXCEPT when the decryption
+    /// state changed: a UTD placeholder must be replaced when the event is
+    /// (re)decrypted.
+    #[async_test]
+    async fn test_update_replaces_utd_with_its_decrypted_event() {
+        use matrix_sdk_common::deserialized_responses::{
+            UnableToDecryptInfo, UnableToDecryptReason,
+        };
+        use ruma::event_id;
+
+        let room_id = room_id!("!r0");
+        let sender = user_id!("@mnt_io:matrix.org");
+        let event_id = event_id!("$ev0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let event_factory = EventFactory::new().room(room_id).sender(sender);
+
+        // Set a UTD value.
+        let utd = RemoteLatestEventValue::from_utd(
+            event_factory
+                .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
+                    ruma::events::room::encrypted::EncryptedEventScheme::MegolmV1AesSha2(
+                        ruma::events::room::encrypted::MegolmV1AesSha2ContentInit {
+                            ciphertext: "cipher".to_owned(),
+                            sender_key: "sender_key".to_owned(),
+                            device_id: "device_id".into(),
+                            session_id: "session_id".to_owned(),
+                        }
+                        .into(),
+                    ),
+                    None,
+                ))
+                .event_id(event_id)
+                .into_raw_sync(),
+            UnableToDecryptInfo {
+                session_id: Some("session_id".to_owned()),
+                reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
+            },
+        );
+        latest_event.update(LatestEventValue::Remote(utd)).await;
+
+        assert_matches!(
+            latest_event.current_value.get().await,
+            LatestEventValue::Remote(event) => {
+                assert!(event.kind.is_utd());
+            }
+        );
+
+        // Now the event has been decrypted: same event ID, plaintext kind. The
+        // update must NOT be ignored.
+        let decrypted = RemoteLatestEventValue::from_plaintext(
+            event_factory.text_msg("now readable").event_id(event_id).into_raw_sync(),
+        );
+        latest_event.update(LatestEventValue::Remote(decrypted.clone())).await;
+
+        assert_matches!(
+            latest_event.current_value.get().await,
+            LatestEventValue::Remote(event) => {
+                assert!(event.kind.is_utd().not());
+            }
+        );
+
+        // A same-event-ID update with an unchanged decryption state is still
+        // ignored (returns `None`, i.e. nothing to persist).
+        assert!(latest_event.update(LatestEventValue::Remote(decrypted)).await.is_none());
     }
 
     #[async_test]
