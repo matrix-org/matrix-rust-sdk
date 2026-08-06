@@ -155,6 +155,7 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
+    enable_automatic_back_pagination: bool,
     request_config: Option<RequestConfig>,
     #[cfg(feature = "experimental-search")]
     search_index_store: Option<SearchIndexStoreKind>,
@@ -221,6 +222,7 @@ impl ClientBuilder {
                 sender_device_trust_requirement: TrustRequirement::Untrusted,
             },
             enable_share_history_on_invite: false,
+            enable_automatic_back_pagination: false,
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
@@ -372,6 +374,18 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set whether to automatically back-paginate a room's history in the
+    /// background, under certain conditions (search backfill, latest-event
+    /// resolution, read-receipt finding). Off by default.
+    pub fn enable_automatic_back_pagination(
+        self: Arc<Self>,
+        enable_automatic_back_pagination: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.enable_automatic_back_pagination = enable_automatic_back_pagination;
+        Arc::new(builder)
+    }
+
     /// Add a default request config to this client.
     pub fn request_config(self: Arc<Self>, config: RequestConfig) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
@@ -516,7 +530,8 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
+            .with_enable_automatic_back_pagination(builder.enable_automatic_back_pagination);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {
