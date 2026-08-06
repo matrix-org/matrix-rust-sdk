@@ -10,10 +10,16 @@ All notable changes to this project will be documented in this file.
 
 - The send queue now sends requests strictly in the order they were queued, in
   a given room: a request that failed with an unrecoverable error (and got
-  marked as wedged) blocks subsequent requests in the same room from being
-  sent, until it's either retried with `SendHandle::unwedge()` or removed with
-  `SendHandle::abort()`. Previously, a wedged request was skipped over, causing
-  later messages to be sent before it, i.e. out of order.
+  marked as wedged) blocks subsequent requests of the same priority in the same
+  room from being sent, until it's either retried with `SendHandle::unwedge()`
+  or removed with `SendHandle::abort()`. Previously, a wedged request was
+  skipped over, causing later messages to be sent before it, i.e. out of order.
+  Requests of other priorities aren't blocked, so e.g. a wedged edit or
+  reaction (sent at a high priority once its target event is sent) doesn't
+  prevent regular messages from being sent, nor vice versa.
+- A failed media upload's send error is now reflected on the media event's
+  local echo returned by `RoomSendQueue::subscribe()`, instead of the echo
+  claiming the media is still being sent.
 - An HTTP 520 status code (a non-standard "unknown server error", returned by
   Cloudflare and other reverse proxies) is now considered a transient error
   again, like the other 5xx status codes: requests failing with it will be

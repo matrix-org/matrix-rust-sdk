@@ -28,10 +28,13 @@
 //! paragraph below) or using [`RoomSendQueue::subscribe()`].
 //!
 //! Requests are sent in the order they were queued. A request that failed with
-//! an unrecoverable error is marked as "wedged", and blocks all the requests
-//! queued after it (in the same room) from being sent, so events are never sent
-//! out of order; the queue resumes when the wedged request is retried (with
-//! [`SendHandle::unwedge`]) or removed (with [`SendHandle::abort`]).
+//! an unrecoverable error is marked as "wedged", and blocks the requests of the
+//! same priority queued after it (in the same room) from being sent, so events
+//! are never sent out of order; the queue resumes when the wedged request is
+//! retried (with [`SendHandle::unwedge`]) or removed (with
+//! [`SendHandle::abort`]). Requests of other priorities aren't blocked: e.g. a
+//! wedged edit or reaction (sent at a high priority once their target event is
+//! sent) doesn't prevent messages from being sent.
 //!
 //! It is possible to control whether a single room is enabled using
 //! [`RoomSendQueue::set_enabled()`].
@@ -143,6 +146,7 @@ use std::{
         Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use eyeball::SharedObservable;
@@ -699,7 +703,7 @@ impl RoomSendQueue {
                 Ok(Some(request)) => request,
 
                 Ok(None) => {
-                    trace!("queue is empty, sleeping");
+                    trace!("queue is empty or blocked on a wedged request, sleeping");
                     // Wait for an explicit wakeup.
                     notifier.notified().await;
                     continue;
@@ -707,6 +711,8 @@ impl RoomSendQueue {
 
                 Err(err) => {
                     warn!("error when loading next request to send: {err}");
+                    // Don't hammer a failing store; back off a bit before retrying.
+                    matrix_sdk_common::sleep::sleep(Duration::from_millis(250)).await;
                     continue;
                 }
             };
@@ -1467,17 +1473,31 @@ impl QueueStorage {
         let queued_requests =
             guard.client()?.state_store().load_send_queue_requests(&self.room_id).await?;
 
-        // Only ever consider the head of the queue: requests must be sent in the
-        // order they were queued, so a wedged request (which failed to be sent with an
-        // unrecoverable error) blocks all the requests queued after it. Otherwise,
-        // messages would be sent out of order, until the wedged request is either
-        // manually unwedged or removed (both of which will wake up the sending task).
+        // Requests must be sent in the order they were queued within a given
+        // priority class: a wedged request (which failed to be sent with an
+        // unrecoverable error) blocks the requests of the same priority queued after
+        // it, otherwise messages would be sent out of order. It doesn't block
+        // requests of *other* priorities: higher-priority requests (edits/reactions
+        // to already-sent events, later stages of a media upload chain) legitimately
+        // jump the queue relative to newer events, and conversely a request that
+        // wedged after being promoted to a high priority must not block events that
+        // were queued before it (which were never ordered after it).
         //
-        // Note: requests are ordered by priority first, so a high-priority request
-        // (e.g. an edit or a reaction to an already-sent event) may still be sent
-        // while a lower-priority request is wedged; that doesn't reorder the queued
-        // events themselves.
-        if let Some(request) = queued_requests.first().filter(|queued| !queued.is_wedged()) {
+        // The load order is priority first (descending), then FIFO, so entries of
+        // the same priority are contiguous and in queue order: pick the first
+        // non-wedged request not preceded by a wedged request of the same priority.
+        // The queue resumes when a wedged request is either manually unwedged or
+        // removed (both of which will wake up the sending task).
+        let mut wedged_priorities = Vec::new();
+        let candidate = queued_requests.iter().find(|queued| {
+            if queued.is_wedged() {
+                wedged_priorities.push(queued.priority);
+                return false;
+            }
+            !wedged_priorities.contains(&queued.priority)
+        });
+
+        if let Some(request) = candidate {
             let (cancel_upload_tx, cancel_upload_rx) =
                 if matches!(request.kind, QueuedRequestKind::MediaUpload { .. }) {
                     let (tx, rx) = oneshot::channel();
@@ -2002,42 +2022,54 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        let local_requests =
-            store.load_send_queue_requests(&self.room_id).await?.into_iter().filter_map(|queued| {
-                Some(LocalEcho {
-                    transaction_id: queued.transaction_id.clone(),
-                    content: match queued.kind {
-                        QueuedRequestKind::Event { content } => LocalEchoContent::Event {
-                            serialized_event: content,
-                            send_handle: SendHandle {
+        let queued_requests = store.load_send_queue_requests(&self.room_id).await?;
+
+        // Media upload requests aren't returned as echoes themselves (the media event,
+        // represented as a dependent request, is), so carry their send errors over to
+        // the dependent request's echo: a wedged upload wedges the media event.
+        let media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
+            .iter()
+            .filter(|queued| matches!(queued.kind, QueuedRequestKind::MediaUpload { .. }))
+            .filter_map(|queued| {
+                queued.error.clone().map(|error| (queued.transaction_id.clone(), error))
+            })
+            .collect();
+
+        let local_requests = queued_requests.into_iter().filter_map(|queued| {
+            Some(LocalEcho {
+                transaction_id: queued.transaction_id.clone(),
+                content: match queued.kind {
+                    QueuedRequestKind::Event { content } => LocalEchoContent::Event {
+                        serialized_event: content,
+                        send_handle: SendHandle {
+                            room: room.clone(),
+                            transaction_id: queued.transaction_id,
+                            media_handles: vec![],
+                            created_at: queued.created_at,
+                        },
+                        send_error: queued.error,
+                    },
+
+                    QueuedRequestKind::MediaUpload { .. } => {
+                        // Don't return uploaded medias as their own things; the accompanying
+                        // event represented as a dependent request should be sufficient.
+                        return None;
+                    }
+
+                    QueuedRequestKind::Redaction { redacts, reason } => {
+                        LocalEchoContent::Redaction {
+                            redacts,
+                            reason,
+                            send_handle: SendRedactionHandle {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
-                                media_handles: vec![],
-                                created_at: queued.created_at,
                             },
                             send_error: queued.error,
-                        },
-
-                        QueuedRequestKind::MediaUpload { .. } => {
-                            // Don't return uploaded medias as their own things; the accompanying
-                            // event represented as a dependent request should be sufficient.
-                            return None;
                         }
-
-                        QueuedRequestKind::Redaction { redacts, reason } => {
-                            LocalEchoContent::Redaction {
-                                redacts,
-                                reason,
-                                send_handle: SendRedactionHandle {
-                                    room: room.clone(),
-                                    transaction_id: queued.transaction_id,
-                                },
-                                send_error: queued.error,
-                            }
-                        }
-                    },
-                })
-            });
+                    }
+                },
+            })
+        });
 
         let reactions_and_medias = store
             .load_dependent_queued_requests(&self.room_id)
@@ -2073,6 +2105,15 @@ impl QueueStorage {
                     thumbnail_info,
                     extra_content,
                 } => {
+                    let upload_thumbnail_txn = thumbnail_info.map(|info| info.txn);
+
+                    // If one of the uploads wedged, the media event is wedged too.
+                    let send_error = media_upload_errors.get(&file_upload).cloned().or_else(|| {
+                        upload_thumbnail_txn
+                            .as_ref()
+                            .and_then(|txn| media_upload_errors.get(&**txn).cloned())
+                    });
+
                     // Materialize as an event local echo.
                     Some(LocalEcho {
                         transaction_id: dep.own_transaction_id.clone().into(),
@@ -2086,12 +2127,12 @@ impl QueueStorage {
                                 room: room.clone(),
                                 transaction_id: dep.own_transaction_id.into(),
                                 media_handles: vec![MediaHandles {
-                                    upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
+                                    upload_thumbnail_txn,
                                     upload_file_txn: file_upload,
                                 }],
                                 created_at: dep.created_at,
                             },
-                            send_error: None,
+                            send_error,
                         },
                     })
                 }

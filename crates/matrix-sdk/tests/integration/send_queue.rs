@@ -1538,10 +1538,10 @@ async fn test_unrecoverable_errors() {
 
     mock.mock_room_state_encryption().plain().mount().await;
 
-    // Respond to the first /send with an unrecoverable error.
+    // Respond to the first /send with an unrecoverable error. The success mock for
+    // the second message is only mounted after the wedged message gets cancelled,
+    // so a request sneaking past the wedge fails loudly regardless of timing.
     mock.mock_room_send().error_too_large().mock_once().mount().await;
-    // Respond to the second /send with an OK response.
-    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
     // Queue two messages.
     let handle1 =
@@ -1575,6 +1575,7 @@ async fn test_unrecoverable_errors() {
     assert!(watch.is_empty());
 
     // Cancelling the wedged message unblocks the queue.
+    mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
     assert!(handle1.abort().await.unwrap());
     assert_update!((global_watch, watch) => cancelled { txn = txn1 });
 
@@ -1655,6 +1656,60 @@ async fn test_unwedge_unrecoverable_errors() {
 
     // Then eventually sent and a remote echo received
     assert_update!((global_watch, watch) => sent { txn=txn1, event_id=event_id!("$42") });
+}
+
+#[async_test]
+async fn test_wedged_promoted_request_does_not_block_other_priorities() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+    assert!(watch.is_empty());
+
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The first message sends fine.
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+    // The reaction, promoted to a high-priority request once the message is sent,
+    // fails with an unrecoverable error and wedges.
+    mock.mock_room_send().error_too_large().mock_once().mount().await;
+
+    let msg_handle = q.send(RoomMessageEventContent::text_plain("hello").into()).await.unwrap();
+    let reaction_handle =
+        msg_handle.react("💯".to_owned()).await.unwrap().expect("the reaction was queued");
+
+    let (txn1, _) = assert_update!((global_watch, watch) => local echo { body = "hello" });
+    let reaction_txn =
+        assert_update!((global_watch, watch) => local reaction { key = "💯", parent = txn1 });
+
+    assert_update!((global_watch, watch) => sent { txn = txn1, event_id = event_id!("$1") });
+
+    // The promoted reaction fails permanently, wedges and disables the queue.
+    assert_update!((global_watch, watch) => error { recoverable = false, txn = reaction_txn });
+    assert!(!q.is_enabled());
+    q.set_enabled(true);
+
+    // A regular message must still be sent while the high-priority reaction is
+    // wedged: a wedged request only blocks requests of the same priority.
+    mock.mock_room_send().ok(event_id!("$2")).mock_once().mount().await;
+    q.send(RoomMessageEventContent::text_plain("not blocked").into()).await.unwrap();
+
+    let (txn2, _) = assert_update!((global_watch, watch) => local echo { body = "not blocked" });
+    assert_update!((global_watch, watch) => sent { txn = txn2, event_id = event_id!("$2") });
+
+    // The wedged reaction can still be cleaned up.
+    assert!(reaction_handle.abort().await.unwrap());
+    assert_update!((global_watch, watch) => cancelled { txn = reaction_txn });
+
+    assert!(watch.is_empty());
 }
 
 #[async_test]
