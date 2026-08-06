@@ -127,7 +127,7 @@ wiremock = { version = "0.6.5", default-features = false }
 zeroize = "1.9.0"
 zxcvbn = { git = "https://github.com/shssoichiro/zxcvbn-rs", rev = "4e8e784b23541d118800df84feedf8160879d1af", default-features = false }
 
-matrix-sdk = { path = "crates/matrix-sdk", version = "0.18.0", default-features = false }
+matrix-sdk = { path = "crates/matrix-sdk", version = "0.18.0", default-features = false, features = ["client"] }
 matrix-sdk-base = { path = "crates/matrix-sdk-base", version = "0.18.0" }
 matrix-sdk-common = { path = "crates/matrix-sdk-common", version = "0.18.0" }
 matrix-sdk-contentscanner = { path = "crates/matrix-sdk-contentscanner", version = "0.18.0" }

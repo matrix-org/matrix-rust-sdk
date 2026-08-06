@@ -114,6 +114,36 @@ impl StateMachine {
         self.state.subscribe()
     }
 
+    /// Transition to the next state for a paginated sync connection.
+    ///
+    /// Compared to [`Self::next`], there are no list sync-modes to switch and
+    /// no staleness reset: a paginated sync connection never needs restarting,
+    /// because incremental responses are bounded by design however long the
+    /// client has been away.
+    pub(super) fn next_paginated(&self) -> State {
+        use State::*;
+
+        match self.get() {
+            Init => SettingUp,
+
+            SettingUp | Recovering | Running => Running,
+
+            Error { from: previous_state } | Terminated { from: previous_state } => {
+                match previous_state.as_ref() {
+                    Error { .. } | Terminated { .. } => {
+                        unreachable!(
+                            "It's impossible to reach `Error` or `Terminated` from `Error` or `Terminated`"
+                        );
+                    }
+
+                    Running => Recovering,
+
+                    state => state.to_owned(),
+                }
+            }
+        }
+    }
+
     /// Transition to the next state, and execute the necessary transition on
     /// the sliding sync list.
     pub(super) async fn next(&self, sliding_sync: &SlidingSync) -> Result<State, Error> {

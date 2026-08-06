@@ -163,6 +163,15 @@ impl SyncServiceBuilder {
         Arc::new(Self { builder, ..this })
     }
 
+    /// Drive the room list service with Paginated Sync (MSC TBD) instead of
+    /// Simplified Sliding Sync. Experimental; requires a server implementing
+    /// the `org.matrix.paginated_sync` unstable endpoint.
+    pub fn with_paginated_sync(self: Arc<Self>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_paginated_sync();
+        Arc::new(Self { builder, ..this })
+    }
+
     pub async fn finish(self: Arc<Self>) -> Result<Arc<SyncService>, ClientError> {
         let this = unwrap_or_clone_arc(self);
         Ok(Arc::new(SyncService {

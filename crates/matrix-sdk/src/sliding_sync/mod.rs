@@ -50,7 +50,8 @@ use tokio::{
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 
 pub use self::{builder::*, client::VersionBuilderError, error::*, list::*};
-use self::{cache::restore_sliding_sync_state, client::SlidingSyncResponseProcessor};
+pub(crate) use self::client::SlidingSyncResponseProcessor;
+use self::cache::restore_sliding_sync_state;
 use crate::{Client, Result, config::RequestConfig};
 
 /// The Sliding Sync instance.

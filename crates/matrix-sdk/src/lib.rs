@@ -59,6 +59,7 @@ pub mod futures {
 
     pub use super::client::futures::SendRequest;
 }
+pub mod paginated_sync;
 pub mod sliding_sync;
 pub mod sync;
 #[cfg(feature = "experimental-widgets")]
@@ -92,6 +93,7 @@ pub use media::Media;
 pub use pusher::Pusher;
 pub use room::Room;
 pub use ruma::{IdParseError, OwnedServerName, ServerName};
+pub use paginated_sync::{PaginatedSync, PaginatedSyncBuilder, PaginatedSyncLoadingState};
 pub use sliding_sync::{
     SlidingSync, SlidingSyncBuilder, SlidingSyncList, SlidingSyncListBuilder,
     SlidingSyncListLoadingState, SlidingSyncMode, UpdateSummary,

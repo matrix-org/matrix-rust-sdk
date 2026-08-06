@@ -22,7 +22,7 @@ use eyeball_im::{Vector, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
 use futures_util::{Stream, StreamExt as _, pin_mut, stream};
 use matrix_sdk::{
-    Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
+    Client, PaginatedSync, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     task_monitor::BackgroundTaskHandle,
 };
 use matrix_sdk_base::RoomInfoNotableUpdate;
@@ -35,12 +35,36 @@ use tracing::{error, trace};
 
 use super::{Error, State, filters::BoxedFilterFn, ordering};
 
+/// Where a [`RoomList`] gets its "maximum number of rooms" from: the sliding
+/// sync list's `count`, or the paginated sync connection's `total_rooms`.
+#[derive(Clone, Debug)]
+enum MaximumNumberOfRoomsSource {
+    SlidingSync(SlidingSyncList),
+    Paginated(Arc<PaginatedSync>),
+}
+
+impl MaximumNumberOfRoomsSource {
+    fn get(&self) -> Option<u32> {
+        match self {
+            Self::SlidingSync(list) => list.maximum_number_of_rooms(),
+            Self::Paginated(paginated_sync) => paginated_sync.current_total_rooms(),
+        }
+    }
+
+    fn subscribe(&self) -> Subscriber<Option<u32>> {
+        match self {
+            Self::SlidingSync(list) => list.maximum_number_of_rooms_stream(),
+            Self::Paginated(paginated_sync) => paginated_sync.total_rooms(),
+        }
+    }
+}
+
 /// A `RoomList` represents a list of rooms, from a
 /// [`RoomListService`](super::RoomListService).
 #[derive(Debug)]
 pub struct RoomList {
     client: Client,
-    sliding_sync_list: SlidingSyncList,
+    maximum_number_of_rooms: MaximumNumberOfRoomsSource,
     loading_state: SharedObservable<RoomListLoadingState>,
     _loading_state_task: BackgroundTaskHandle,
 }
@@ -57,17 +81,38 @@ impl RoomList {
             .await
             .ok_or_else(|| Error::UnknownList(sliding_sync_list_name.to_owned()))?;
 
-        let loading_state =
-            SharedObservable::new(match sliding_sync_list.maximum_number_of_rooms() {
-                Some(maximum_number_of_rooms) => RoomListLoadingState::Loaded {
-                    maximum_number_of_rooms: Some(maximum_number_of_rooms),
-                },
-                None => RoomListLoadingState::NotLoaded,
-            });
+        Ok(Self::new_inner(
+            client,
+            MaximumNumberOfRoomsSource::SlidingSync(sliding_sync_list),
+            room_list_service_state,
+        ))
+    }
 
-        Ok(Self {
+    pub(super) fn new_paginated(
+        client: &Client,
+        paginated_sync: &Arc<PaginatedSync>,
+        room_list_service_state: Subscriber<State>,
+    ) -> Self {
+        Self::new_inner(
+            client,
+            MaximumNumberOfRoomsSource::Paginated(paginated_sync.clone()),
+            room_list_service_state,
+        )
+    }
+
+    fn new_inner(
+        client: &Client,
+        maximum_number_of_rooms: MaximumNumberOfRoomsSource,
+        room_list_service_state: Subscriber<State>,
+    ) -> Self {
+        let loading_state = SharedObservable::new(match maximum_number_of_rooms.get() {
+            Some(count) => RoomListLoadingState::Loaded { maximum_number_of_rooms: Some(count) },
+            None => RoomListLoadingState::NotLoaded,
+        });
+
+        Self {
             client: client.clone(),
-            sliding_sync_list: sliding_sync_list.clone(),
+            maximum_number_of_rooms: maximum_number_of_rooms.clone(),
             loading_state: loading_state.clone(),
             _loading_state_task: client
                 .task_monitor()
@@ -87,13 +132,12 @@ impl RoomList {
                     }
 
                     // Let's jump from `NotLoaded` to `Loaded`.
-                    let maximum_number_of_rooms = sliding_sync_list.maximum_number_of_rooms();
-
-                    loading_state.set(RoomListLoadingState::Loaded { maximum_number_of_rooms });
+                    loading_state.set(RoomListLoadingState::Loaded {
+                        maximum_number_of_rooms: maximum_number_of_rooms.get(),
+                    });
 
                     // Wait for updates on the maximum number of rooms to update again.
-                    let mut maximum_number_of_rooms_stream =
-                        sliding_sync_list.maximum_number_of_rooms_stream();
+                    let mut maximum_number_of_rooms_stream = maximum_number_of_rooms.subscribe();
 
                     while let Some(maximum_number_of_rooms) =
                         maximum_number_of_rooms_stream.next().await
@@ -102,7 +146,7 @@ impl RoomList {
                     }
                 })
                 .abort_on_drop(),
-        })
+        }
     }
 
     /// Get a subscriber to the room list loading state.
@@ -136,7 +180,6 @@ impl RoomList {
     ) -> (impl Stream<Item = Vec<VectorDiff<RoomListItem>>> + '_, RoomListDynamicEntriesController)
     {
         let room_info_notable_update_receiver = self.client.room_info_notable_update_receiver();
-        let list = self.sliding_sync_list.clone();
 
         let filter_fn_cell = AsyncCell::shared();
 
@@ -147,7 +190,7 @@ impl RoomList {
             filter_fn_cell.clone(),
             page_size,
             limit,
-            list.maximum_number_of_rooms_stream(),
+            self.maximum_number_of_rooms.subscribe(),
         );
 
         let stream = stream! {

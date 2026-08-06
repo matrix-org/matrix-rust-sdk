@@ -792,6 +792,10 @@ pub struct SyncServiceBuilder {
     /// [`room_list_service::DEFAULT_LIST_TIMELINE_LIMIT`].
     room_list_timeline_limit: u32,
 
+    /// Whether the room list service is driven by Paginated Sync (MSC TBD)
+    /// instead of Simplified Sliding Sync (MSC4186).
+    with_paginated_sync: bool,
+
     /// The parent tracing span to use for the tasks within this service.
     ///
     /// Normally this will be [`Span::none`], but it may be useful to assign a
@@ -809,8 +813,17 @@ impl SyncServiceBuilder {
             with_profiles_extension: false,
             room_list_conn_id: DEFAULT_CONNECTION_ID.to_owned(),
             room_list_timeline_limit: DEFAULT_LIST_TIMELINE_LIMIT,
+            with_paginated_sync: false,
             parent_span: Span::none(),
         }
+    }
+
+    /// Drive the room list service with Paginated Sync (MSC TBD) instead of
+    /// Simplified Sliding Sync. Experimental; requires a server implementing
+    /// the `org.matrix.paginated_sync` unstable endpoint.
+    pub fn with_paginated_sync(mut self) -> Self {
+        self.with_paginated_sync = true;
+        self
     }
 
     /// Enable the "offline" mode for the [`SyncService`].
@@ -871,19 +884,24 @@ impl SyncServiceBuilder {
             with_profiles_extension,
             room_list_conn_id,
             room_list_timeline_limit,
+            with_paginated_sync,
             parent_span,
         } = self;
 
         let encryption_sync_permit = Arc::new(AsyncMutex::new(EncryptionSyncPermit::new()));
 
-        let room_list = RoomListService::new_with(
-            client.clone(),
-            with_share_pos,
-            &room_list_conn_id,
-            room_list_timeline_limit,
-            with_profiles_extension,
-        )
-        .await?;
+        let room_list = if with_paginated_sync {
+            RoomListService::new_paginated(client.clone(), &room_list_conn_id).await?
+        } else {
+            RoomListService::new_with(
+                client.clone(),
+                with_share_pos,
+                &room_list_conn_id,
+                room_list_timeline_limit,
+                with_profiles_extension,
+            )
+            .await?
+        };
 
         let encryption_sync = Arc::new(EncryptionSyncService::new(client, None).await?);
 

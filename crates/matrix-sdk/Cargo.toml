@@ -16,7 +16,12 @@ features = ["docsrs"]
 rustdoc-args = ["--cfg", "docsrs", "--generate-link-to-definition"]
 
 [features]
-default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs"]
+default = ["e2e-encryption", "automatic-room-key-forwarding", "sqlite", "rustls-aws-lc-rs", "client"]
+# Required by the ruma api macros used for the paginated sync endpoint (they
+# gate the generated `OutgoingRequest`/`IncomingRequest` impls on crate
+# features named `client` and `server`; `server` stays unused).
+client = []
+server = []
 testing = [
     "matrix-sdk-sqlite?/testing",
     "matrix-sdk-indexeddb?/testing",

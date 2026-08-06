@@ -62,8 +62,9 @@ use std::{future::ready, sync::Arc, time::Duration};
 use async_stream::stream;
 use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
+use futures_util::future::Either;
 use matrix_sdk::{
-    Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList,
+    Client, Error as SlidingSyncError, PaginatedSync, Room, SlidingSync, SlidingSyncList,
     SlidingSyncListLoadingState, SlidingSyncMode, event_cache::EventCacheError,
     sliding_sync::PollTimeout, timeout::timeout,
 };
@@ -118,14 +119,25 @@ pub(crate) const DEFAULT_LIST_TIMELINE_LIMIT: u32 = 1;
 /// The default `timeline_limit` value when used with room subscriptions.
 const DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT: u32 = 20;
 
+/// The sync engine driving a [`RoomListService`].
+#[derive(Debug)]
+enum SyncEngine {
+    /// Simplified Sliding Sync (MSC4186).
+    SlidingSync(Arc<SlidingSync>),
+
+    /// Paginated Sync (MSC TBD): no lists, no ranges, no subscriptions; the
+    /// server pages the client through changed rooms.
+    Paginated(Arc<PaginatedSync>),
+}
+
 /// The [`RoomListService`] type. See the module's documentation to learn more.
 #[derive(Debug)]
 pub struct RoomListService {
     /// Client that has created this [`RoomListService`].
     client: Client,
 
-    /// The Sliding Sync instance.
-    sliding_sync: Arc<SlidingSync>,
+    /// The sync engine.
+    engine: SyncEngine,
 
     /// The current state of the `RoomListService`.
     ///
@@ -313,7 +325,52 @@ impl RoomListService {
         // Eagerly subscribe the event cache to sync responses.
         client.event_cache().subscribe()?;
 
-        Ok(Self { client, sliding_sync, state_machine })
+        Ok(Self { client, engine: SyncEngine::SlidingSync(sliding_sync), state_machine })
+    }
+
+    /// Like [`RoomListService::new`], but driven by Paginated Sync (MSC TBD)
+    /// instead of Simplified Sliding Sync.
+    ///
+    /// There are no lists, ranges or subscriptions: the server pages the
+    /// client through whatever changed, most recently active rooms first, and
+    /// every room with traffic is delivered automatically. `page_size`,
+    /// `limit` and `history` bound the response sizes; see
+    /// [`matrix_sdk::paginated_sync`] for the semantics.
+    pub async fn new_paginated(client: Client, connection_id: &str) -> Result<Self, Error> {
+        // The same extensions as the sliding sync connection, minus the
+        // deferral dance: paginated sync's first round is bounded (one page),
+        // so there is no "first catch-up round must stay small" problem to
+        // work around, and the extensions are simply on from the start.
+        let extensions = assign!(http::request::Extensions::default(), {
+            typing: assign!(http::request::Typing::default(), { enabled: Some(true) }),
+            account_data: assign!(http::request::AccountData::default(), { enabled: Some(true) }),
+            receipts: assign!(http::request::Receipts::default(), {
+                enabled: Some(true),
+                rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed]),
+            }),
+        });
+
+        let paginated_sync = PaginatedSync::builder(connection_id, client.clone())
+            .required_state(
+                DEFAULT_REQUIRED_STATE
+                    .iter()
+                    .map(|(state_event, value)| (state_event.clone(), (*value).to_owned()))
+                    .collect(),
+            )
+            .extensions(extensions)
+            .build()
+            .await
+            .map_err(Error::SlidingSync)
+            .map(Arc::new)?;
+
+        // Eagerly subscribe the event cache to sync responses.
+        client.event_cache().subscribe()?;
+
+        Ok(Self {
+            client,
+            engine: SyncEngine::Paginated(paginated_sync),
+            state_machine: StateMachine::new(),
+        })
     }
 
     /// Start to sync the room list.
@@ -335,7 +392,10 @@ impl RoomListService {
     #[doc(hidden)]
     pub fn sync(&self) -> impl Stream<Item = Result<(), Error>> + '_ {
         stream! {
-            let sync = self.sliding_sync.sync();
+            let sync = match &self.engine {
+                SyncEngine::SlidingSync(sliding_sync) => Either::Left(sliding_sync.sync()),
+                SyncEngine::Paginated(paginated_sync) => Either::Right(paginated_sync.sync()),
+            };
             pin_mut!(sync);
 
             // This is a state machine implementation.
@@ -357,7 +417,12 @@ impl RoomListService {
                 debug!("Run a sync iteration");
 
                 // Calculate the next state, and run the associated actions.
-                let next_state = self.state_machine.next(&self.sliding_sync).await?;
+                let next_state = match &self.engine {
+                    SyncEngine::SlidingSync(sliding_sync) => {
+                        self.state_machine.next(sliding_sync).await?
+                    }
+                    SyncEngine::Paginated(_) => self.state_machine.next_paginated(),
+                };
 
                 debug!(state = ?next_state, "New state");
                 self.state_machine.set(next_state.clone());
@@ -415,7 +480,14 @@ impl RoomListService {
     /// using the [`SyncService`](crate::sync_service::SyncService) instead.
     #[doc(hidden)]
     pub fn stop_sync(&self) -> Result<(), Error> {
-        self.sliding_sync.stop_sync().map_err(Error::SlidingSync)
+        match &self.engine {
+            SyncEngine::SlidingSync(sliding_sync) => {
+                sliding_sync.stop_sync().map_err(Error::SlidingSync)
+            }
+            SyncEngine::Paginated(paginated_sync) => {
+                paginated_sync.stop_sync().map_err(Error::SlidingSync)
+            }
+        }
     }
 
     /// Force the sliding sync session to expire.
@@ -425,7 +497,10 @@ impl RoomListService {
     /// **Warning**: This method **must not** be called while the sync loop is
     /// running!
     pub(crate) async fn expire_sync_session(&self) {
-        self.sliding_sync.expire_session().await;
+        match &self.engine {
+            SyncEngine::SlidingSync(sliding_sync) => sliding_sync.expire_session().await,
+            SyncEngine::Paginated(paginated_sync) => paginated_sync.expire_session().await,
+        }
 
         // Usually, when the session expires, it leads the state to be `Error`,
         // thus some actions (like refreshing the lists) are executed. However,
@@ -514,7 +589,15 @@ impl RoomListService {
     }
 
     async fn list_for(&self, sliding_sync_list_name: &str) -> Result<RoomList, Error> {
-        RoomList::new(&self.client, &self.sliding_sync, sliding_sync_list_name, self.state()).await
+        match &self.engine {
+            SyncEngine::SlidingSync(sliding_sync) => {
+                RoomList::new(&self.client, sliding_sync, sliding_sync_list_name, self.state())
+                    .await
+            }
+            SyncEngine::Paginated(paginated_sync) => {
+                Ok(RoomList::new_paginated(&self.client, paginated_sync, self.state()))
+            }
+        }
     }
 
     /// Get a [`RoomList`] for all rooms.
@@ -542,6 +625,29 @@ impl RoomListService {
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
     pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+        // Before subscribing, let's listen these rooms to calculate their latest
+        // events.
+        if self.client.event_cache().has_subscribed() {
+            let latest_events = self.client.latest_events().await;
+
+            for room_id in room_ids {
+                if let Err(error) = latest_events.listen_to_room(room_id).await {
+                    // Let's not fail the room subscription. Instead, emit a log because it's very
+                    // unlikely to happen.
+                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+                }
+            }
+        }
+
+        let sliding_sync = match &self.engine {
+            SyncEngine::SlidingSync(sliding_sync) => sliding_sync,
+
+            // Paginated sync has no subscriptions: every room with traffic is
+            // delivered automatically, which is exactly what subscriptions
+            // existed to guarantee. Nothing to do.
+            SyncEngine::Paginated(_) => return,
+        };
+
         // Calculate the settings for the room subscriptions.
         let settings = assign!(http::request::RoomSubscription::default(), {
             required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
@@ -567,8 +673,7 @@ impl RoomListService {
         // every few seconds then, and cancelling on each one starves the walk
         // to a crawl. The subscription is sticky either way; during a catch-up
         // it simply rides the next round.
-        let all_rooms_fully_loaded = self
-            .sliding_sync
+        let all_rooms_fully_loaded = sliding_sync
             .on_list(ALL_ROOMS_LIST_NAME, |list| {
                 ready(matches!(list.state(), SlidingSyncListLoadingState::FullyLoaded))
             })
@@ -582,27 +687,16 @@ impl RoomListService {
             State::SettingUp | State::Running => all_rooms_fully_loaded,
         };
 
-        // Before subscribing, let's listen these rooms to calculate their latest
-        // events.
-        if self.client.event_cache().has_subscribed() {
-            let latest_events = self.client.latest_events().await;
-
-            for room_id in room_ids {
-                if let Err(error) = latest_events.listen_to_room(room_id).await {
-                    // Let's not fail the room subscription. Instead, emit a log because it's very
-                    // unlikely to happen.
-                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
-                }
-            }
-        }
-
         // Subscribe to the rooms.
-        self.sliding_sync.resubscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
+        sliding_sync.resubscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
     }
 
     #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
-        &self.sliding_sync
+        match &self.engine {
+            SyncEngine::SlidingSync(sliding_sync) => sliding_sync,
+            SyncEngine::Paginated(_) => panic!("not a sliding sync room list service"),
+        }
     }
 }
 
