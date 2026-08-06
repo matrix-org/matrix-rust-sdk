@@ -580,7 +580,21 @@ impl Account {
         new_password: &str,
         auth_data: Option<AuthData>,
     ) -> Result<change_password::v3::Response> {
+        self.change_password_with_logout_devices(new_password, true, auth_data).await
+    }
+
+    /// Change the password of the current account and choose whether the
+    /// account's other devices should be logged out.
+    ///
+    /// This has the same UIAA behavior as [`Self::change_password`].
+    pub async fn change_password_with_logout_devices(
+        &self,
+        new_password: &str,
+        logout_devices: bool,
+        auth_data: Option<AuthData>,
+    ) -> Result<change_password::v3::Response> {
         let request = assign!(change_password::v3::Request::new(new_password.to_owned()), {
+            logout_devices,
             auth: auth_data,
         });
         Ok(self.client.send(request).await?)
