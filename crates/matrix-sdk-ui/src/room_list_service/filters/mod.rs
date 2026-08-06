@@ -71,6 +71,7 @@ mod identifiers;
 mod invite;
 mod joined;
 mod low_priority;
+mod mentions;
 mod non_left;
 mod none;
 mod normalized_match_room_name;
@@ -89,6 +90,7 @@ pub use self::{
     invite::new_filter as new_filter_invite,
     joined::new_filter as new_filter_joined,
     low_priority::new_filter as new_filter_low_priority,
+    mentions::new_filter as new_filter_mentions,
     non_left::new_filter as new_filter_non_left,
     none::new_filter as new_filter_none,
     normalized_match_room_name::new_filter as new_filter_normalized_match_room_name,
