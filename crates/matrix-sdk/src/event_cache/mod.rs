@@ -70,6 +70,7 @@ pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
 pub use self::{
     automatic_pagination::AutomaticPagination,
+    back_pagination_queue::BackPaginationQueue,
     caches::{
         TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
