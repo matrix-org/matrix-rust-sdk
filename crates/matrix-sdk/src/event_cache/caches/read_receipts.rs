@@ -99,13 +99,15 @@
 //! [`RoomEventCache`]: super::room::RoomEventCache
 //! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
+use std::{collections::HashSet, ops::ControlFlow};
+
 use matrix_sdk_base::{
     read_receipts::{LatestReadReceipt, RoomReadReceipts},
     serde_helpers::extract_relation,
     store::DynStateStore,
 };
 use matrix_sdk_common::{
-    deserialized_responses::TimelineEvent, ring_buffer::RingBuffer,
+    deserialized_responses::TimelineEvent, executor::spawn, ring_buffer::RingBuffer,
     serde_helpers::extract_thread_root,
 };
 use ruma::{
@@ -120,8 +122,60 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    super::automatic_pagination::AutomaticPagination, event_linked_chunk::EventLinkedChunk,
+    super::{
+        automatic_pagination::AutomaticPagination,
+        back_pagination_queue::{BATCH_SIZE, BackPaginationQueue, BackPaginationRequest, Priority},
+    },
+    event_linked_chunk::EventLinkedChunk,
 };
+use crate::event_cache::caches::pagination::BackPaginationOutcome;
+
+/// Number of paginations allowed per read-receipt request: the safety net for a
+/// receipt target that never surfaces.
+const READ_RECEIPT_MAX_BATCHES: usize = 20;
+
+/// Enqueue a fire-and-forget, batch-capped back-pagination for a room whose
+/// read receipt points at an event that isn't loaded yet. It stops as soon as a
+/// batch contains one of `targets`.
+fn paginate_for_read_receipt(
+    queue: &BackPaginationQueue,
+    room_id: &RoomId,
+    targets: HashSet<OwnedEventId>,
+) {
+    let room_id = room_id.to_owned();
+    debug!(%room_id, "started backfill request for read receipts");
+
+    let handle = queue.enqueue(BackPaginationRequest {
+        room_id: room_id.clone(),
+        priority: Priority::Normal,
+        stop: Box::new(stop_on_event_ids(targets)),
+        batch_size: BATCH_SIZE,
+        max_batches: Some(READ_RECEIPT_MAX_BATCHES),
+    });
+
+    // Await completion in the background purely to log when it's done; the
+    // spawned task itself is never awaited or aborted, so the request always
+    // runs to completion regardless of this function's caller.
+    spawn(async move {
+        handle.join().await;
+        debug!(%room_id, "finished backfill request for read receipts");
+    });
+}
+
+/// A stop predicate that fires as soon as a batch loads any of `targets`. With
+/// no targets it never fires, so the request runs to its batch cap.
+fn stop_on_event_ids(
+    targets: HashSet<OwnedEventId>,
+) -> impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static {
+    move |outcome| {
+        let found = outcome
+            .events
+            .iter()
+            .any(|event| event.event_id().is_some_and(|id| targets.contains(id)));
+
+        if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+    }
+}
 
 trait RoomReadReceiptsExt {
     /// Update the [`RoomReadReceipts`] unread counts according to the new
