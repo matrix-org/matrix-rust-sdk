@@ -310,23 +310,29 @@ impl RoomListService {
             //
             // 1. The next state is calculated,
             // 2. The actions associated to the next state are run,
-            // 3. A sync is done,
-            // 4. The next state is stored.
+            // 3. The next state is stored,
+            // 4. A sync is done.
+            //
+            // The state is stored BEFORE the sync, not after: it describes the
+            // sync round being executed, not the last completed one. Observers
+            // react a whole round earlier this way; e.g. the `SyncIndicator`
+            // hides when the first (fast, selective) round has completed and
+            // `Running` begins, instead of staying up during the entire first
+            // growing round (which, on a catch-up, is the longest round of
+            // all).
             loop {
                 debug!("Run a sync iteration");
 
                 // Calculate the next state, and run the associated actions.
                 let next_state = self.state_machine.next(&self.sliding_sync).await?;
 
+                debug!(state = ?next_state, "New state");
+                self.state_machine.set(next_state.clone());
+
                 // Do the sync.
                 match sync.next().await {
                     // Got a successful result while syncing.
                     Some(Ok(_update_summary)) => {
-                        debug!(state = ?next_state, "New state");
-
-                        // Update the state.
-                        self.state_machine.set(next_state);
-
                         yield Ok(());
                     }
 
@@ -591,7 +597,7 @@ pub enum Error {
 /// pretty fast, which can be very confusing. It's also common to indicate to
 /// the user that a syncing is happening in case of a network error, that
 /// something is catching up etc.
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SyncIndicator {
     /// Show the sync indicator.
     Show,

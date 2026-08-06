@@ -2670,100 +2670,25 @@ async fn test_sync_indicator() -> Result<(), Error> {
 
     let sync_indicator = room_list.sync_indicator(DELAY_BEFORE_SHOWING, DELAY_BEFORE_HIDING);
 
-    let request_margin = Duration::from_millis(100);
     let request_delay = DELAY_BEFORE_SHOWING * 2;
+    let started = Instant::now();
 
-    let barrier = Arc::new(Barrier::new(2));
-    let barrier_sync_indicator = barrier.clone();
-
-    macro_rules! assert_next_sync_indicator {
-        ($sync_indicator:ident, $pattern:pat, now $(,)?) => {
-            assert_matches!($sync_indicator.next().now_or_never(), Some(Some($pattern)));
-        };
-
-        ($sync_indicator:ident, $pattern:pat, under $time:expr $(,)?) => {
-            let now = Instant::now();
-            assert_matches!($sync_indicator.next().await, Some($pattern));
-            assert!(now.elapsed() < $time);
-        };
-    }
+    // Record every `SyncIndicator` value with the moment it was received: the
+    // sequence and the timings are asserted at the end, which is robust
+    // against the exact number of intermediate (repeated) values.
+    let events = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events_recorder = events.clone();
 
     let sync_indicator_task = spawn(async move {
         pin_mut!(sync_indicator);
 
-        let barrier = barrier_sync_indicator;
-
-        // `SyncIndicator` is forced to be hidden to begin with.
-        assert_next_sync_indicator!(sync_indicator, SyncIndicator::Hide, now);
-
-        barrier.wait().await;
-
-        // Request 1.
-        {
-            // The state transitions into `Init`. The `SyncIndicator` stays in `Hide` as
-            // nothing is happening yet.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Hide,
-                under DELAY_BEFORE_SHOWING + request_margin,
-            );
+        while let Some(sync_indicator) = sync_indicator.next().await {
+            events_recorder.lock().unwrap().push((sync_indicator, started.elapsed()));
         }
-
-        barrier.wait().await;
-
-        // Request 2.
-        {
-            // The state transitions into `SettingUp`. The `SyncIndicator` must be `Show` as
-            // the service has now been started.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Show,
-                under DELAY_BEFORE_SHOWING + request_margin,
-            );
-        }
-
-        barrier.wait().await;
-
-        // Request 3.
-        {
-            // The state transitions into `Running`. The `SyncIndicator` must be `Hide`.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Hide,
-                under DELAY_BEFORE_HIDING + request_margin,
-            );
-        }
-
-        barrier.wait().await;
-
-        // Request 4.
-        {
-            // The state transitions into `Error`. The `SyncIndicator` must be `Show`.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Show,
-                under DELAY_BEFORE_SHOWING + request_margin,
-            );
-        }
-
-        barrier.wait().await;
-
-        // Request 5.
-        {
-            // The state transitions into `Recovering`. The `SyncIndicator` must be `Hide`.
-            assert_next_sync_indicator!(
-                sync_indicator,
-                SyncIndicator::Hide,
-                under DELAY_BEFORE_HIDING + request_margin,
-            );
-        }
-
-        assert_pending!(sync_indicator);
     });
 
-    barrier.wait().await;
-
-    // Request 1.
+    // Request 1: `Init` -> `SettingUp`. The state now describes the round
+    // being executed, so the indicator SHOWS during this first round.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Init => SettingUp,
@@ -2774,9 +2699,9 @@ async fn test_sync_indicator() -> Result<(), Error> {
         after delay = request_delay,
     };
 
-    barrier.wait().await;
-
-    // Request 2.
+    // Request 2: `SettingUp` -> `Running`. The indicator hides as soon as
+    // this round STARTS (i.e. as soon as the first round has completed), not
+    // once this round completes.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = SettingUp => Running,
@@ -2787,9 +2712,12 @@ async fn test_sync_indicator() -> Result<(), Error> {
         after delay = request_delay,
     };
 
-    barrier.wait().await;
+    // `request_delay` was consumed entirely by the response of request 2: if
+    // the indicator hid at the START of request 2, its timestamp is at least
+    // `request_delay` older than now.
+    let request_2_completed_at = started.elapsed();
 
-    // Request 3.
+    // Request 3: sync error, `Running` -> `Error`. The indicator shows again.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         sync matches Some(Err(_)),
@@ -2805,9 +2733,12 @@ async fn test_sync_indicator() -> Result<(), Error> {
     let sync = room_list.sync();
     pin_mut!(sync);
 
-    barrier.wait().await;
+    // Wait for the `Show` caused by the `Error` state to be emitted (it needs
+    // `DELAY_BEFORE_SHOWING` of stability) before starting the recovery, so
+    // it isn't swallowed by the `Recovering` transition.
+    sleep(DELAY_BEFORE_SHOWING * 2).await;
 
-    // Request 4.
+    // Request 4: `Error` -> `Recovering`. The indicator hides again.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Error { .. } => Recovering,
@@ -2818,9 +2749,7 @@ async fn test_sync_indicator() -> Result<(), Error> {
         after delay = request_delay,
     };
 
-    barrier.wait().await;
-
-    // Request 5.
+    // Request 5: `Recovering` -> `Running`.
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
         states = Recovering => Running,
@@ -2831,7 +2760,45 @@ async fn test_sync_indicator() -> Result<(), Error> {
         after delay = request_delay,
     };
 
-    sync_indicator_task.await.unwrap();
+    // Let the indicator stream flush its last value.
+    sleep(DELAY_BEFORE_SHOWING).await;
+    sync_indicator_task.abort();
+
+    let events = events.lock().unwrap();
+
+    // Deduplicate consecutive values: the exact number of repeated yields is
+    // an implementation detail.
+    let mut deduplicated = Vec::new();
+    for (event, at) in events.iter() {
+        if deduplicated.last().map(|(last, _)| last != event).unwrap_or(true) {
+            deduplicated.push((*event, *at));
+        }
+    }
+
+    // The indicator: hidden to start with, shown during the initial round,
+    // hidden while running, shown on the error, hidden again on recovery.
+    assert_eq!(
+        deduplicated.iter().map(|(event, _)| *event).collect::<Vec<_>>(),
+        vec![
+            SyncIndicator::Hide,
+            SyncIndicator::Show,
+            SyncIndicator::Hide,
+            SyncIndicator::Show,
+            SyncIndicator::Hide,
+        ],
+        "unexpected sequence: {events:?}",
+    );
+
+    // The property this test protects: the indicator hides when the `Running`
+    // round STARTS, not once it completes. Request 2's response was delayed by
+    // `request_delay`, so a hide-at-start is at least that much older than
+    // request 2's completion.
+    let (_, hidden_at) = deduplicated[2];
+    assert!(
+        request_2_completed_at - hidden_at >= request_delay,
+        "the indicator must hide at the start of the `Running` round, not at its end \
+         (hidden at {hidden_at:?}, request 2 completed at {request_2_completed_at:?})",
+    );
 
     Ok(())
 }
