@@ -679,6 +679,20 @@ impl OlmMachine {
         Ok(requests)
     }
 
+    /// Get *only* the outgoing requests produced by the verification machine
+    /// (e.g. SAS `.key`/`.mac` responses, in-room or to-device).
+    ///
+    /// Unlike [`OlmMachine::outgoing_requests()`], this is a cheap,
+    /// synchronous, in-memory read of just the verification requests, so
+    /// they can be sent eagerly the moment they're produced rather than
+    /// waiting for the next sync iteration to flush them. The responses
+    /// still need to be passed back via [`mark_request_as_sent`].
+    ///
+    /// [`mark_request_as_sent`]: #method.mark_request_as_sent
+    pub fn outgoing_verification_requests(&self) -> Vec<OutgoingRequest> {
+        self.inner.verification_machine.outgoing_messages()
+    }
+
     /// Generate an "out-of-band" key query request for the given set of users.
     ///
     /// This can be useful if we need the results from [`get_identity`] or
