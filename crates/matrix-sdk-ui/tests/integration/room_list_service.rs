@@ -2804,6 +2804,86 @@ async fn test_sync_indicator() -> Result<(), Error> {
 }
 
 #[async_test]
+async fn test_deferred_extensions_on_incremental_session() -> Result<(), Error> {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Seed cached push rules: this is what makes the session "incremental"
+    // (the state store already holds account data), triggering the deferral
+    // of the account data and receipt extensions.
+    {
+        let mut changes = matrix_sdk_base::StateChanges::default();
+        changes.account_data.insert(
+            ruma::events::GlobalAccountDataEventType::PushRules,
+            ruma::serde::Raw::<ruma::events::AnyGlobalAccountDataEvent>::from_json_string(
+                serde_json::json!({
+                    "type": "m.push_rules",
+                    "content": { "global": {} },
+                })
+                .to_string(),
+            )
+            .unwrap(),
+        );
+        client.state_store().save_changes(&changes).await.unwrap();
+    }
+
+    let room_list = RoomListService::new(client.clone()).await?;
+
+    let sync = room_list.sync();
+    pin_mut!(sync);
+
+    let mock_server = server.server();
+
+    // Request 1 (the catch-up round): the account data and receipt extensions
+    // must NOT be enabled.
+    sync_then_assert_request_and_fake_response! {
+        [mock_server, room_list, sync]
+        states = Init => SettingUp,
+        assert request >= {},
+        respond with = {
+            "pos": "0",
+        },
+    };
+
+    // Request 2 (the first `Running` round): both extensions turn on.
+    sync_then_assert_request_and_fake_response! {
+        [mock_server, room_list, sync]
+        states = SettingUp => Running,
+        assert request >= {
+            "extensions": {
+                "account_data": { "enabled": true },
+                "receipts": { "enabled": true, "rooms": ["*"] },
+            },
+        },
+        respond with = {
+            "pos": "1",
+        },
+    };
+
+    // Verify request 1 really omitted them (the subset assertion above cannot
+    // assert absence).
+    let requests = mock_server.received_requests().await.unwrap();
+    let sync_bodies: Vec<serde_json::Value> = requests
+        .iter()
+        .filter(|request| request.url.path().ends_with("/sync"))
+        .map(|request| request.body_json().unwrap())
+        .collect();
+    let first = &sync_bodies[0];
+    assert_ne!(
+        first["extensions"]["account_data"]["enabled"],
+        serde_json::Value::Bool(true),
+        "the catch-up round must not enable the account data extension: {first}",
+    );
+    assert_ne!(
+        first["extensions"]["receipts"]["enabled"],
+        serde_json::Value::Bool(true),
+        "the catch-up round must not enable the receipts extension: {first}",
+    );
+
+    Ok(())
+}
+
+#[async_test]
 async fn test_multiple_timeline_init() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

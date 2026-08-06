@@ -25,7 +25,10 @@ use std::{
     collections::{BTreeMap, btree_map::Entry},
     fmt::Debug,
     future::Future,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{
+        Arc, RwLock as StdRwLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -112,6 +115,20 @@ pub(super) struct SlidingSyncInner {
     /// calls.
     extensions: http::request::Extensions,
 
+    /// Extensions withheld from the requests until
+    /// [`SlidingSync::apply_deferred_extensions`] is called (and re-withheld
+    /// after a session expiry).
+    ///
+    /// This exists so that a catch-up round after e.g. a session expiry stays
+    /// small and fast: bulky extensions (account data, receipts) whose data is
+    /// already cached locally can be turned on once the first round has
+    /// delivered the most important rooms.
+    deferred_extensions: http::request::Extensions,
+
+    /// Whether [`SlidingSyncInner::deferred_extensions`] are currently applied
+    /// to outgoing requests.
+    deferred_extensions_applied: AtomicBool,
+
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
@@ -129,6 +146,19 @@ impl SlidingSync {
     /// Create a new [`SlidingSyncBuilder`].
     pub fn builder(id: String, client: Client) -> Result<SlidingSyncBuilder, Error> {
         SlidingSyncBuilder::new(id, client)
+    }
+
+    /// Turn on the extensions registered with
+    /// [`SlidingSyncBuilder::with_deferred_extensions`]: they are included in
+    /// every request from the next one on.
+    ///
+    /// Idempotent. A session expiry ([`SlidingSync::expire_session`])
+    /// re-withholds them, so that the first catch-up round of the new session
+    /// stays small; call this again once that round has completed.
+    pub fn apply_deferred_extensions(&self) {
+        if !self.inner.deferred_extensions_applied.swap(true, Ordering::SeqCst) {
+            debug!(conn_id = self.inner.id, "Applying the deferred extensions");
+        }
     }
 
     /// Add subscriptions to many rooms.
@@ -622,6 +652,10 @@ impl SlidingSync {
         // Add extensions.
         request.extensions = self.inner.extensions.clone();
 
+        if self.inner.deferred_extensions_applied.load(Ordering::SeqCst) {
+            merge_extensions(&mut request.extensions, &self.inner.deferred_extensions);
+        }
+
         // Override the to-device token if the extension is enabled.
         if to_device_enabled {
             request.extensions.to_device.since =
@@ -918,6 +952,15 @@ impl SlidingSync {
     pub async fn expire_session(&self) {
         info!("Session expired; resetting `pos`");
 
+        // Withhold the deferred extensions again: the first catch-up round of
+        // the next session must stay small, exactly like the first round of
+        // this one. They are re-applied by the caller of
+        // [`SlidingSync::apply_deferred_extensions`] (e.g. the room list
+        // service, once its first round has completed).
+        if self.inner.deferred_extensions_applied.swap(false, Ordering::SeqCst) {
+            debug!(conn_id = self.inner.id, "Withholding the deferred extensions again");
+        }
+
         {
             let lists = self.inner.lists.read().await;
 
@@ -958,6 +1001,36 @@ impl SlidingSync {
 /// up to the caller to decide whether this warrants cancelling the in-flight
 /// request: a caller can have other reasons to cancel it, e.g. having removed a
 /// subscription.
+/// Merge the `deferred` extension configurations into `extensions`.
+///
+/// Only the extensions that are configured in `deferred` (i.e. whose `enabled`
+/// flag is set) overwrite their counterpart; the others are left untouched.
+fn merge_extensions(extensions: &mut http::request::Extensions, deferred: &http::request::Extensions) {
+    if deferred.to_device.enabled.is_some() {
+        extensions.to_device = deferred.to_device.clone();
+    }
+
+    if deferred.e2ee.enabled.is_some() {
+        extensions.e2ee = deferred.e2ee.clone();
+    }
+
+    if deferred.account_data.enabled.is_some() {
+        extensions.account_data = deferred.account_data.clone();
+    }
+
+    if deferred.receipts.enabled.is_some() {
+        extensions.receipts = deferred.receipts.clone();
+    }
+
+    if deferred.typing.enabled.is_some() {
+        extensions.typing = deferred.typing.clone();
+    }
+
+    if deferred.thread_subscriptions.enabled.is_some() {
+        extensions.thread_subscriptions = deferred.thread_subscriptions.clone();
+    }
+}
+
 fn add_room_subscriptions(
     room_subscriptions: &mut BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
     client: &Client,

@@ -165,19 +165,52 @@ impl RoomListService {
         timeline_limit: u32,
         profiles_extension: bool,
     ) -> Result<Self, Error> {
+        let account_data_extension =
+            assign!(http::request::AccountData::default(), { enabled: Some(true) });
+        let receipts_extension = assign!(http::request::Receipts::default(), {
+            enabled: Some(true),
+            rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed])
+        });
+
         let mut builder = client
             .sliding_sync(connection_id)
             .map_err(Error::SlidingSync)?
-            .with_account_data_extension(
-                assign!(http::request::AccountData::default(), { enabled: Some(true) }),
-            )
-            .with_receipt_extension(assign!(http::request::Receipts::default(), {
-                enabled: Some(true),
-                rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed])
-            }))
             .with_typing_extension(assign!(http::request::Typing::default(), {
                 enabled: Some(true),
             }));
+
+        // On an incremental session — the state store already holds account
+        // data (detected via the push rules, which every synced account has) —
+        // the account data and receipt extensions are DEFERRED: the first
+        // catch-up round runs without them, delivering the most important
+        // rooms as fast as possible, and they are turned on as soon as that
+        // round has completed (see the `SettingUp`/`Recovering` to `Running`
+        // transition in `state.rs`). The cached data serves in the meantime.
+        //
+        // On an initial sync (fresh login, or a cleared cache), there is no
+        // cached data to serve, so both extensions are on from the very first
+        // request.
+        let has_cached_account_data = client
+            .account()
+            .account_data::<ruma::events::push_rules::PushRulesEventContent>()
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+
+        if has_cached_account_data {
+            builder = builder.with_deferred_extensions(assign!(
+                http::request::Extensions::default(),
+                {
+                    account_data: account_data_extension,
+                    receipts: receipts_extension,
+                }
+            ));
+        } else {
+            builder = builder
+                .with_account_data_extension(account_data_extension)
+                .with_receipt_extension(receipts_extension);
+        }
 
         match client.enabled_thread_subscriptions().await {
             Ok(true) => {

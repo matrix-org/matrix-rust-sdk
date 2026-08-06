@@ -1,7 +1,7 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, RwLock as StdRwLock},
+    sync::{Arc, RwLock as StdRwLock, atomic::AtomicBool},
     time::Duration,
 };
 
@@ -28,6 +28,7 @@ pub struct SlidingSyncBuilder {
     client: Client,
     lists: Vec<SlidingSyncListBuilder>,
     extensions: Option<http::request::Extensions>,
+    deferred_extensions: Option<http::request::Extensions>,
     room_subscriptions: BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
     poll_timeout: Duration,
     network_timeout: Duration,
@@ -50,6 +51,7 @@ impl SlidingSyncBuilder {
                 client,
                 lists: Vec::new(),
                 extensions: None,
+                deferred_extensions: None,
                 room_subscriptions: BTreeMap::new(),
                 poll_timeout: Duration::from_secs(30),
                 network_timeout: Duration::from_secs(30),
@@ -141,6 +143,19 @@ impl SlidingSyncBuilder {
     pub fn without_to_device_extension(mut self) -> Self {
         self.extensions.get_or_insert_with(Default::default).to_device =
             http::request::ToDevice::default();
+        self
+    }
+
+    /// Register extensions that are withheld from requests until
+    /// [`SlidingSync::apply_deferred_extensions`] is called (and withheld
+    /// again after a session expiry).
+    ///
+    /// Useful for bulky extensions whose data is already cached locally
+    /// (account data, receipts): a catch-up round after a session expiry can
+    /// run without them, and they are turned on once the most important rooms
+    /// have been delivered.
+    pub fn with_deferred_extensions(mut self, extensions: http::request::Extensions) -> Self {
+        self.deferred_extensions = Some(extensions);
         self
     }
 
@@ -302,6 +317,8 @@ impl SlidingSyncBuilder {
 
             room_subscriptions: StdRwLock::new(self.room_subscriptions),
             extensions: self.extensions.unwrap_or_default(),
+            deferred_extensions: self.deferred_extensions.unwrap_or_default(),
+            deferred_extensions_applied: AtomicBool::new(false),
 
             internal_channel: internal_channel_sender,
 

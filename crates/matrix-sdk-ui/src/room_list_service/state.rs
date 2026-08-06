@@ -124,6 +124,13 @@ impl StateMachine {
 
             SettingUp | Recovering => {
                 set_all_rooms_to_growing_sync_mode(sliding_sync).await?;
+
+                // The first catch-up round has completed: the deferred
+                // extensions (account data, receipts — if any were deferred,
+                // see `RoomListService::new_with`) can be turned on, starting
+                // with the round that is about to run.
+                sliding_sync.apply_deferred_extensions();
+
                 Running
             }
 
