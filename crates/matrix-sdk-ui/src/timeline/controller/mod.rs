@@ -1795,81 +1795,49 @@ impl TimelineController {
             _ => event_id.to_owned(),
         };
 
-        // Only send if the resolved event is more recent than the real receipt the
-        // homeserver already knows about.
-        match receipt_type {
-            SendReceiptType::Read => {
-                if let Some((old_pub_read, _)) = state
-                    .meta
-                    .user_receipt(
-                        own_user_id,
-                        ReceiptType::Read,
-                        receipt_thread.clone(),
-                        room,
-                        all_remote_events,
-                        read_receipts::ImplicitReadReceipts::Exclude,
-                    )
-                    .await
-                {
-                    trace!(%old_pub_read, "found a previous public receipt");
-                    if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
-                        &old_pub_read,
-                        &target_event_id,
-                        all_remote_events,
-                    ) {
-                        return if relative_pos == RelativePosition::After {
-                            SendReceiptDecision::SendTo(target_event_id)
-                        } else {
-                            SendReceiptDecision::DoNotSend
-                        };
-                    }
-                }
-            }
+        // Find the real receipt the homeserver already knows about.
+        let previous_event_id = match receipt_type {
+            SendReceiptType::Read => state
+                .meta
+                .user_receipt(
+                    own_user_id,
+                    ReceiptType::Read,
+                    receipt_thread.clone(),
+                    room,
+                    all_remote_events,
+                    read_receipts::ImplicitReadReceipts::Exclude,
+                )
+                .await
+                .map(|(event_id, _)| event_id),
 
             // Implicit read receipts are saved as public read receipts, so get the latest. It also
             // doesn't make sense to have a private read receipt behind a public one.
-            SendReceiptType::ReadPrivate => {
-                if let Some((old_priv_read, _)) = state
-                    .latest_user_read_receipt(
-                        own_user_id,
-                        receipt_thread.clone(),
-                        room,
-                        read_receipts::ImplicitReadReceipts::Exclude,
-                    )
-                    .await
-                {
-                    trace!(%old_priv_read, "found a previous private receipt");
-                    if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
-                        &old_priv_read,
-                        &target_event_id,
-                        all_remote_events,
-                    ) {
-                        return if relative_pos == RelativePosition::After {
-                            SendReceiptDecision::SendTo(target_event_id)
-                        } else {
-                            SendReceiptDecision::DoNotSend
-                        };
-                    }
-                }
-            }
+            SendReceiptType::ReadPrivate => state
+                .latest_user_read_receipt(
+                    own_user_id,
+                    receipt_thread.clone(),
+                    room,
+                    read_receipts::ImplicitReadReceipts::Exclude,
+                )
+                .await
+                .map(|(event_id, _)| event_id),
 
-            SendReceiptType::FullyRead => {
-                if let Some(prev_event_id) = self.room_data_provider.load_fully_read_marker().await
-                    && let Some(relative_pos) = TimelineMetadata::compare_events_positions(
-                        &prev_event_id,
-                        &target_event_id,
-                        all_remote_events,
-                    )
-                {
-                    return if relative_pos == RelativePosition::After {
-                        SendReceiptDecision::SendTo(target_event_id)
-                    } else {
-                        SendReceiptDecision::DoNotSend
-                    };
-                }
-            }
+            SendReceiptType::FullyRead => self.room_data_provider.load_fully_read_marker().await,
 
-            _ => {}
+            _ => None,
+        };
+
+        // Don't send anything if the resolved event isn't more recent than that.
+        if let Some(previous_event_id) = previous_event_id {
+            trace!(%previous_event_id, "found a previous receipt");
+            if let Some(relative_pos) = TimelineMetadata::compare_events_positions(
+                &previous_event_id,
+                &target_event_id,
+                all_remote_events,
+            ) && relative_pos != RelativePosition::After
+            {
+                return SendReceiptDecision::DoNotSend;
+            }
         }
 
         // No previous receipt was found (or it's an unknown one): let the server
