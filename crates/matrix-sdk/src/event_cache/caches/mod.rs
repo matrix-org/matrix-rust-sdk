@@ -29,7 +29,7 @@ use tokio::sync::{
 
 use self::subscriber::AutoShrinkMessage;
 use super::{
-    EventCacheError, EventsOrigin, Result, automatic_pagination::AutomaticPagination, states,
+    EventCacheError, EventsOrigin, Result, back_pagination_queue::BackPaginationQueue, states,
 };
 use crate::{client::WeakClient, room::WeakRoom};
 
@@ -90,7 +90,7 @@ impl Caches {
         linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         state: &states::StateLock,
-        automatic_pagination: Option<AutomaticPagination>,
+        back_pagination_queue: Option<BackPaginationQueue>,
     ) -> Result<Self> {
         let Some(client) = weak_client.get() else {
             return Err(EventCacheError::ClientDropped);
@@ -129,7 +129,7 @@ impl Caches {
                         linked_chunk_update_sender.clone(),
                         store_guard,
                         pagination_status.clone(),
-                        automatic_pagination,
+                        back_pagination_queue,
                     )
                 },
             )
