@@ -340,14 +340,14 @@ impl RoomListService {
         // The same extensions as the sliding sync connection, minus the
         // deferral dance: paginated sync's first round is bounded (one page),
         // so there is no "first catch-up round must stay small" problem to
-        // work around, and the extensions are simply on from the start.
+        // work around, and the extensions are simply on from the start. Also
+        // minus the scoping fields: paginated sync extensions have no
+        // `lists`/`rooms` scoping, enabling one is enough for it to apply to
+        // the rooms in the response.
         let extensions = assign!(http::request::Extensions::default(), {
             typing: assign!(http::request::Typing::default(), { enabled: Some(true) }),
             account_data: assign!(http::request::AccountData::default(), { enabled: Some(true) }),
-            receipts: assign!(http::request::Receipts::default(), {
-                enabled: Some(true),
-                rooms: Some(vec![http::request::ExtensionRoomConfig::AllSubscribed]),
-            }),
+            receipts: assign!(http::request::Receipts::default(), { enabled: Some(true) }),
         });
 
         let paginated_sync = PaginatedSync::builder(connection_id, client.clone())

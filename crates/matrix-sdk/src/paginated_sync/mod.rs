@@ -46,7 +46,7 @@ use async_stream::stream;
 use futures_core::stream::Stream;
 use ruma::{
     UserId,
-    api::{client::sync::sync_events::v5, error::ErrorKind},
+    api::client::sync::sync_events::v5,
     assign,
     events::StateEventType,
 };
@@ -360,14 +360,12 @@ impl PaginatedSync {
                         match update_summary {
                             Ok(updates) => yield Ok(updates),
 
+                            // There is no protocol error path: a server that
+                            // doesn't recognise our `pos` starts the connection
+                            // afresh and re-sends rooms as never-sent, all by
+                            // itself. Anything landing here is a genuine
+                            // transport/auth failure.
                             Err(error) => {
-                                if error.client_api_error_kind() == Some(&ErrorKind::UnknownPos) {
-                                    // The session has expired: reset `pos`. The
-                                    // next request starts a fresh connection and
-                                    // rooms simply come down as never-sent.
-                                    self.expire_session().await;
-                                }
-
                                 yield Err(error);
 
                                 break;
