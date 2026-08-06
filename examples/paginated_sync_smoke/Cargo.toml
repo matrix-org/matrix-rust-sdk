@@ -1,0 +1,27 @@
+[package]
+name = "example-paginated-sync-smoke"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+rust-version.workspace = true
+
+[package.metadata.release]
+release = false
+
+[[bin]]
+name = "example-paginated-sync-smoke"
+test = false
+
+[dependencies]
+anyhow.workspace = true
+futures-util.workspace = true
+matrix-sdk = { path = "../../crates/matrix-sdk" }
+matrix-sdk-ui = { path = "../../crates/matrix-sdk-ui" }
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true
