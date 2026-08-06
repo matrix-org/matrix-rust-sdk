@@ -262,7 +262,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         if !timeline_event_diffs.is_empty() {
             self.cache.update_sender.send(
                 TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
-                Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone() }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.cache.room_id.clone(), origin: EventsOrigin::Pagination }),
             );
         }
 
@@ -387,7 +387,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Pagination,
                 },
-                Some(RoomEventCacheGenericUpdate { room_id: state.room_id.clone() }),
+                Some(RoomEventCacheGenericUpdate { room_id: state.room_id.clone(), origin: EventsOrigin::Pagination }),
             );
         }
 

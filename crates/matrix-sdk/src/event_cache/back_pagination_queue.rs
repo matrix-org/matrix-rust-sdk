@@ -75,11 +75,20 @@ const READ_RECEIPT_MAX_BATCHES: usize = 20;
 
 /// Number of paginations allowed per latest-event request.
 ///
-/// The stop predicate usually fires on the first batch. This cap is the safety
-/// net for a room with no suitable candidate within reach (e.g. a long run of
-/// non-displayable events): without it, such a room would paginate all the way
-/// to the start of its history.
-const LATEST_EVENT_MAX_BATCHES: usize = 3;
+/// One batch of [`LATEST_EVENT_BATCH_SIZE`] events is the whole budget: the
+/// latest-event search is a shallow peek at the room's recent history, not a
+/// deep scan. A room with no suitable candidate within that window keeps no
+/// value until new activity arrives, rather than paginating its history away
+/// looking for one.
+const LATEST_EVENT_MAX_BATCHES: usize = 1;
+
+/// Number of events requested per latest-event pagination.
+///
+/// Deliberately small (compared to [`BATCH_SIZE`]): the latest-event resolver
+/// only wants the most recent visible event, and searching more than a few
+/// events deep rarely changes the outcome. Bulk use cases (search backfill,
+/// read receipts) keep the larger [`BATCH_SIZE`].
+const LATEST_EVENT_BATCH_SIZE: u16 = 10;
 
 /// Number of paginations allowed per viewport request.
 ///
@@ -467,7 +476,12 @@ impl BackPaginationQueue {
         debug!(%room_id, "started backfill request for latest events");
 
         let BackPaginationRunResult { end, .. } = self
-            .enqueue(BackPaginationRequest::latest_event(room_id.clone(), recency, BATCH_SIZE, stop))
+            .enqueue(BackPaginationRequest::latest_event(
+                room_id.clone(),
+                recency,
+                LATEST_EVENT_BATCH_SIZE,
+                stop,
+            ))
             .join()
             .await;
 

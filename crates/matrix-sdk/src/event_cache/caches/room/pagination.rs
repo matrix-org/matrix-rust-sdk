@@ -315,7 +315,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Cache,
                 }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone(), origin: EventsOrigin::Pagination }),
             );
         }
 
@@ -427,7 +427,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Pagination,
                 }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone() }),
+                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone(), origin: EventsOrigin::Pagination }),
             );
         }
 

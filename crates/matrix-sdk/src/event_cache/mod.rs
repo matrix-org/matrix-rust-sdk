@@ -939,7 +939,7 @@ mod tests {
 
             assert_matches!(
                 generic_stream.recv().await,
-                Ok(RoomEventCacheGenericUpdate { room_id }) => {
+                Ok(RoomEventCacheGenericUpdate { room_id, .. }) => {
                     assert_eq!(room_id, room_id_0);
                 }
             );
@@ -1033,7 +1033,7 @@ mod tests {
 
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );
@@ -1047,7 +1047,7 @@ mod tests {
         assert!(pagination_outcome.reached_start.not());
         assert_matches!(
             generic_stream.recv().await,
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id }) => {
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) => {
                 assert_eq!(room_id, expected_room_id);
             }
         );

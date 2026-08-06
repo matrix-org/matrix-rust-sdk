@@ -57,10 +57,23 @@ impl BackfillState {
         Self { state: Arc::new(AtomicU8::new(BACKFILL_IDLE)) }
     }
 
-    /// A genuine event-cache update arrived for the room: allow a new backfill
-    /// attempt.
+    /// An event-cache update arrived for the room: allow a new backfill
+    /// attempt, unless one is currently in flight.
+    ///
+    /// An in-flight backfill's own pagination broadcasts event-cache updates
+    /// for the room; if those re-armed the state, a room with no suitable
+    /// candidate anywhere in its history would be re-backfilled after every
+    /// attempt, paginating its entire timeline. They cannot: the state only
+    /// re-arms from `ATTEMPTED`, and the attempt is only marked as such once
+    /// every update produced by the run itself has been consumed (see
+    /// [`BackfillState::mark_attempted`]).
     pub fn reset(&self) {
-        self.state.store(BACKFILL_IDLE, Ordering::Release);
+        let _ = self.state.compare_exchange(
+            BACKFILL_ATTEMPTED,
+            BACKFILL_IDLE,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
     }
 
     /// Try to claim the backfill attempt. Returns `false` if one is already in
@@ -76,9 +89,13 @@ impl BackfillState {
             .is_ok()
     }
 
-    /// The claimed backfill attempt finished. If the state has been `reset` in
-    /// the meantime (a genuine update arrived mid-flight), the reset wins and a
-    /// new attempt remains allowed.
+    /// The claimed backfill attempt finished.
+    ///
+    /// This must be called by the computation task when it processes the run's
+    /// `BackfillCompleted` message, NOT by the backfill task itself: the
+    /// channel guarantees every event-cache update produced by the run's own
+    /// pagination is processed (as a no-op `reset`) before this transition, so
+    /// only a genuinely new update can re-arm the room afterwards.
     pub fn mark_attempted(&self) {
         let _ = self.state.compare_exchange(
             BACKFILL_IN_FLIGHT,

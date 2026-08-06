@@ -25,7 +25,7 @@ use ruma::{
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 
-use super::super::TimelineVectorDiffs;
+use super::super::{TimelineVectorDiffs, super::EventsOrigin};
 
 /// An update related to events happened in a room.
 #[derive(Debug, Clone)]
@@ -70,6 +70,11 @@ pub enum RoomEventCacheUpdate {
 pub struct RoomEventCacheGenericUpdate {
     /// The room ID owning the timeline.
     pub room_id: OwnedRoomId,
+
+    /// Where the events triggering this update came from: a sync response,
+    /// a back-pagination, or the cache itself (initial load, redecryption,
+    /// cross-process reload).
+    pub origin: EventsOrigin,
 }
 
 /// An update being triggered when events change in the persisted event cache
