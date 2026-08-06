@@ -425,11 +425,19 @@ impl RoomListService {
 
             loop {
                 let (sync_indicator, yield_delay) = match current_state {
-                    State::SettingUp | State::Error { .. } => {
-                        (SyncIndicator::Show, delay_before_showing)
-                    }
+                    // `SettingUp` and `Recovering` are catch-up rounds: until
+                    // they complete, the user is looking at stale content.
+                    // `Error` and `Terminated` mean syncing is not happening
+                    // at all (network trouble, service stopped): the content
+                    // is stale too. In all these cases, the indicator shows —
+                    // `delay_before_showing` keeps it invisible for the
+                    // healthy, sub-second recoveries.
+                    State::SettingUp
+                    | State::Recovering
+                    | State::Error { .. }
+                    | State::Terminated { .. } => (SyncIndicator::Show, delay_before_showing),
 
-                    State::Init | State::Recovering | State::Running | State::Terminated { .. } => {
+                    State::Init | State::Running => {
                         (SyncIndicator::Hide, delay_before_hiding)
                     }
                 };
