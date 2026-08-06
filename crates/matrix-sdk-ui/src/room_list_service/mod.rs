@@ -88,7 +88,6 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomAvatar, ""),
     (StateEventType::RoomCanonicalAlias, ""),
     (StateEventType::RoomPowerLevels, ""),
-    (StateEventType::CallMember, "*"),
     (StateEventType::RoomJoinRules, ""),
     (StateEventType::RoomTombstone, ""),
     // Those two events are required to properly compute room previews.
@@ -98,9 +97,19 @@ const DEFAULT_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::RoomHistoryVisibility, ""),
     // Required to correctly calculate the room display name.
     (StateEventType::MemberHints, ""),
+];
+
+/// EXPERIMENT (catch-up cost): the wildcard state entries force a per-room
+/// state scan on the server, for every room of every catch-up round. They are
+/// excluded from the list's `required_state` and requested only for
+/// subscribed (visible/opened) rooms, to measure how much of the 10-50s
+/// initial-window round cost on a 6144-room account they account for.
+const WILDCARD_REQUIRED_STATE: &[(StateEventType, &str)] = &[
     (StateEventType::SpaceParent, "*"),
     (StateEventType::SpaceChild, "*"),
-    // Required for live location sharing to work - beacon events reference this state.
+    (StateEventType::CallMember, "*"),
+    // Required for live location sharing to work - beacon events reference
+    // this state.
     (StateEventType::BeaconInfo, "*"),
 ];
 
@@ -500,6 +509,11 @@ impl RoomListService {
             required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
                 (state_event.clone(), (*value).to_owned())
             })
+            .chain(
+                WILDCARD_REQUIRED_STATE.iter().map(|(state_event, value)| {
+                    (state_event.clone(), (*value).to_owned())
+                })
+            )
             .chain(
                 DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE.iter().map(|(state_event, value)| {
                     (state_event.clone(), (*value).to_owned())
