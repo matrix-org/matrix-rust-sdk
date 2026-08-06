@@ -111,6 +111,7 @@ axum = { version = "0.8.9", optional = true }
 bytes = { version = "1.12.1", default-features = false, features = ["std"] }
 bytesize = { version = "2.4.2", default-features = false, features = ["std"] }
 cfg-if.workspace = true
+chrono.workspace = true
 event-listener = "5.4.2"
 eyeball.workspace = true
 eyeball-im.workspace = true
