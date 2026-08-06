@@ -57,14 +57,15 @@ mod room_list;
 pub mod sorters;
 mod state;
 
-use std::{sync::Arc, time::Duration};
+use std::{future::ready, sync::Arc, time::Duration};
 
 use async_stream::stream;
 use eyeball::Subscriber;
 use futures_util::{Stream, StreamExt, pin_mut};
 use matrix_sdk::{
-    Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList, SlidingSyncMode,
-    event_cache::EventCacheError, sliding_sync::PollTimeout, timeout::timeout,
+    Client, Error as SlidingSyncError, Room, SlidingSync, SlidingSyncList,
+    SlidingSyncListLoadingState, SlidingSyncMode, event_cache::EventCacheError,
+    sliding_sync::PollTimeout, timeout::timeout,
 };
 pub use room_list::*;
 use ruma::{
@@ -509,11 +510,29 @@ impl RoomListService {
         });
 
         // Decide whether the in-flight request (if any) should be cancelled if needed.
+        //
+        // Cancelling makes the subscription apply promptly, which is what the
+        // user wants in steady state: the in-flight request is a long-poll that
+        // would otherwise sit on its timeout. But while `all_rooms` is still
+        // loading (initial catch-up, or after a cache clear), the in-flight
+        // request is a round of the catch-up walk, and the server has already
+        // spent seconds computing it: viewport-driven subscriptions arrive
+        // every few seconds then, and cancelling on each one starves the walk
+        // to a crawl. The subscription is sticky either way; during a catch-up
+        // it simply rides the next round.
+        let all_rooms_fully_loaded = self
+            .sliding_sync
+            .on_list(ALL_ROOMS_LIST_NAME, |list| {
+                ready(matches!(list.state(), SlidingSyncListLoadingState::FullyLoaded))
+            })
+            .await
+            .unwrap_or(false);
+
         let cancel_in_flight_request = match self.state_machine.get() {
             State::Init | State::Recovering | State::Error { .. } | State::Terminated { .. } => {
                 false
             }
-            State::SettingUp | State::Running => true,
+            State::SettingUp | State::Running => all_rooms_fully_loaded,
         };
 
         // Before subscribing, let's listen these rooms to calculate their latest
