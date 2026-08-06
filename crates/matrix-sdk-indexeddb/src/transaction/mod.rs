@@ -434,7 +434,7 @@ impl<'a> Transaction<'a> {
     /// does not provide modification utilities.
     pub async fn update_items_by_key_components<'b, T, K, F>(
         &self,
-        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>>,
+        range: impl Into<IndexedKeyRange<K::KeyComponents<'b>>> + Clone,
         f: F,
     ) -> Result<(), TransactionError>
     where
@@ -444,7 +444,17 @@ impl<'a> Transaction<'a> {
         K: IndexedKey<T> + Serialize + 'b,
         F: Fn(T) -> T,
     {
-        for item in self.get_items_by_key_components::<T, K>(range).await? {
+        let items = self.get_items_by_key_components::<T, K>(range.clone()).await?;
+
+        // In the case where the provided function may be modifying the primary
+        // key of an item, then putting the item back into the store will add
+        // a new object to the store and leave the old one intact.
+        //
+        // This is behavior is somewhat counter-intuitive, so we will make sure
+        // that an update will always remove the old object from the store.
+        self.delete_items_by_key_components::<T, K>(range).await?;
+
+        for item in items {
             self.put_item(&f(item)).await?;
         }
         Ok(())
