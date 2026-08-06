@@ -67,6 +67,9 @@ mod tasks;
 #[cfg(feature = "e2e-encryption")]
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
+pub(crate) use self::back_pagination_queue::{
+    BATCH_SIZE, BackPaginationRequest, BackPaginationRunResult, Priority, RoomBackPaginationEnd,
+};
 pub use self::{
     back_pagination_queue::BackPaginationQueue,
     caches::{
