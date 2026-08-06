@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-//! HTTP types for Paginated Sync (MSC TBD), a dialect of Simplified Sliding
+//! HTTP types for Paginated Sync (MSC4525), a dialect of Simplified Sliding
 //! Sync (MSC4186) without lists, ranges or subscriptions.
 //!
 //! The per-room results and the extensions are exactly MSC4186's, so those
@@ -34,7 +34,7 @@ metadata! {
     rate_limited: false,
     authentication: AccessToken,
     history: {
-        unstable("org.matrix.paginated_sync") => "/_matrix/client/unstable/org.matrix.paginated_sync/sync",
+        unstable("org.matrix.msc4525") => "/_matrix/client/unstable/org.matrix.msc4525/sync",
     }
 }
 

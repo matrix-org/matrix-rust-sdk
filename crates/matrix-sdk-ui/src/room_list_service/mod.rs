@@ -125,7 +125,7 @@ enum SyncEngine {
     /// Simplified Sliding Sync (MSC4186).
     SlidingSync(Arc<SlidingSync>),
 
-    /// Paginated Sync (MSC TBD): no lists, no ranges, no subscriptions; the
+    /// Paginated Sync (MSC4525): no lists, no ranges, no subscriptions; the
     /// server pages the client through changed rooms.
     Paginated(Arc<PaginatedSync>),
 }
@@ -328,7 +328,7 @@ impl RoomListService {
         Ok(Self { client, engine: SyncEngine::SlidingSync(sliding_sync), state_machine })
     }
 
-    /// Like [`RoomListService::new`], but driven by Paginated Sync (MSC TBD)
+    /// Like [`RoomListService::new`], but driven by Paginated Sync (MSC4525)
     /// instead of Simplified Sliding Sync.
     ///
     /// There are no lists, ranges or subscriptions: the server pages the

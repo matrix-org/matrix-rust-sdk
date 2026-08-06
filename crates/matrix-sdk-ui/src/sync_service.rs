@@ -792,7 +792,7 @@ pub struct SyncServiceBuilder {
     /// [`room_list_service::DEFAULT_LIST_TIMELINE_LIMIT`].
     room_list_timeline_limit: u32,
 
-    /// Whether the room list service is driven by Paginated Sync (MSC TBD)
+    /// Whether the room list service is driven by Paginated Sync (MSC4525)
     /// instead of Simplified Sliding Sync (MSC4186).
     with_paginated_sync: bool,
 
@@ -818,9 +818,9 @@ impl SyncServiceBuilder {
         }
     }
 
-    /// Drive the room list service with Paginated Sync (MSC TBD) instead of
+    /// Drive the room list service with Paginated Sync (MSC4525) instead of
     /// Simplified Sliding Sync. Experimental; requires a server implementing
-    /// the `org.matrix.paginated_sync` unstable endpoint.
+    /// the `org.matrix.msc4525` unstable endpoint.
     pub fn with_paginated_sync(mut self) -> Self {
         self.with_paginated_sync = true;
         self

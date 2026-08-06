@@ -12,7 +12,7 @@
 // See the License for that specific language governing permissions and
 // limitations under the License.
 
-//! Paginated Sync (MSC TBD): a dialect of Simplified Sliding Sync (MSC4186)
+//! Paginated Sync (MSC4525): a dialect of Simplified Sliding Sync (MSC4186)
 //! without lists, ranges, subscriptions or expanding timelines.
 //!
 //! The client tells the server the biggest response it can handle - at most

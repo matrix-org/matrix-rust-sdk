@@ -1,4 +1,4 @@
-// Smoke test for Paginated Sync (MSC TBD) against a local synapse:
+// Smoke test for Paginated Sync (MSC4525) against a local synapse:
 //
 //     cargo run -p example-paginated-sync-smoke -- http://localhost:8008 paginated correct-horse
 //
