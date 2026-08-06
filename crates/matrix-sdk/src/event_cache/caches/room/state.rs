@@ -43,7 +43,7 @@ use super::{
     super::{
         super::{
             EventCacheError,
-            automatic_pagination::AutomaticPagination,
+            back_pagination_queue::BackPaginationQueue,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::{
                 find_event, find_event_relations, find_event_with_relations,
@@ -102,8 +102,8 @@ pub struct RoomEventCacheState {
     /// A handle for subscribers.
     subscribers_handle: SubscribersHandle,
 
-    /// A copy of the automatic pagination API object.
-    automatic_pagination: Option<AutomaticPagination>,
+    /// A handle to the shared back-pagination queue.
+    back_pagination_queue: Option<BackPaginationQueue>,
 }
 
 impl RoomEventCacheState {
@@ -128,7 +128,7 @@ impl RoomEventCacheState {
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         store_guard: EventCacheStoreLockGuard,
         pagination_status: SharedObservable<SharedPaginationStatus>,
-        automatic_pagination: Option<AutomaticPagination>,
+        back_pagination_queue: Option<BackPaginationQueue>,
     ) -> Result<Self, EventCacheError> {
         let linked_chunk_id = LinkedChunkId::Room(&room_id);
 
@@ -188,7 +188,7 @@ impl RoomEventCacheState {
             room_version_rules,
             waited_for_initial_prev_token: false,
             subscribers_handle: Default::default(),
-            automatic_pagination,
+            back_pagination_queue,
         })
     }
 
@@ -656,7 +656,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             &self.state.room_linked_chunk,
             &mut read_receipts,
             self.state.enabled_thread_support,
-            self.state.automatic_pagination.as_ref(),
+            self.state.back_pagination_queue.as_ref(),
             room.client().state_store(),
         )
         .await;

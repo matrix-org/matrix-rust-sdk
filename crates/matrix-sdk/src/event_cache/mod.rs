@@ -55,7 +55,6 @@ use crate::{
     paginators::PaginatorError,
 };
 
-mod automatic_pagination;
 mod back_pagination_queue;
 mod caches;
 mod deduplicator;
@@ -69,7 +68,6 @@ mod tasks;
 pub use redecryptor::{DecryptionRetryRequest, RedecryptorReport};
 
 pub use self::{
-    automatic_pagination::AutomaticPagination,
     back_pagination_queue::BackPaginationQueue,
     caches::{
         TimelineVectorDiffs,
@@ -266,7 +264,7 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
-                automatic_pagination: OnceLock::new(),
+                back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
             }),
         }
@@ -362,12 +360,18 @@ impl EventCache {
             .abort_on_drop();
 
             if self.config().experimental_auto_backpagination {
-                // Run the deferred initialization of the automatic pagination request sender, that
-                // is shared with every room.
-                trace!("spawning the automatic paginations API");
-                self.inner.automatic_pagination.get_or_init(|| AutomaticPagination::new(Arc::downgrade(&self.inner), task_monitor));
+                // Deferred initialization of the shared back-pagination queue.
+                trace!("spawning the back-pagination queue");
+                let max_concurrent = self.config().max_concurrent_back_paginations;
+                self.inner.back_pagination_queue.get_or_init(|| {
+                    BackPaginationQueue::new(
+                        Arc::downgrade(&self.inner),
+                        max_concurrent,
+                        task_monitor,
+                    )
+                });
             } else {
-                trace!("automatic paginations API is disabled");
+                trace!("back-pagination queue is disabled");
             }
 
             Arc::new(EventCacheDropHandles {
@@ -490,11 +494,10 @@ impl EventCache {
         self.inner.generic_update_sender.subscribe()
     }
 
-    /// Returns a reference to the [`AutomaticPagination`] API, if enabled at
-    /// construction with the
-    /// [`EventCacheConfig::experimental_auto_backpagination`] flag.
-    pub fn automatic_pagination(&self) -> Option<AutomaticPagination> {
-        self.inner.automatic_pagination.get().cloned()
+    /// Returns the shared [`BackPaginationQueue`], if enabled at construction
+    /// with the [`EventCacheConfig::experimental_auto_backpagination`] flag.
+    pub fn back_pagination_queue(&self) -> Option<BackPaginationQueue> {
+        self.inner.back_pagination_queue.get().cloned()
     }
 }
 
@@ -507,26 +510,17 @@ pub struct EventCacheConfig {
     /// Maximum number of pinned events to load, for any room.
     pub max_pinned_events_to_load: usize,
 
-    /// Whether to automatically backpaginate a room under certain conditions.
+    /// Whether to automatically back-paginate a room under certain conditions.
     ///
     /// Off by default.
     pub experimental_auto_backpagination: bool,
 
-    /// The maximum number of allowed room paginations, for a given room, that
-    /// can be executed in the automatic paginations task.
+    /// The maximum number of back-paginations the background queue runs at
+    /// once, across all rooms and use cases. Bounds server load.
     ///
-    /// After that number of paginations, the task will stop executing
-    /// paginations for that room *in the background* (user-requested
-    /// paginations will still be executed, of course).
-    ///
-    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_CREDITS`].
-    pub room_pagination_per_room_credit: usize,
-
-    /// The number of messages to paginate in a single batch, when executing an
-    /// automatic pagination request.
-    ///
-    /// Defaults to [`EventCacheConfig::DEFAULT_ROOM_PAGINATION_BATCH_SIZE`].
-    pub room_pagination_batch_size: u16,
+    /// Defaults to
+    /// [`EventCacheConfig::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS`].
+    pub max_concurrent_back_paginations: usize,
 }
 
 impl EventCacheConfig {
@@ -537,25 +531,18 @@ impl EventCacheConfig {
     /// loading the pinned events.
     pub const DEFAULT_MAX_CONCURRENT_REQUESTS: usize = 8;
 
-    /// The default number of credits to give to a room for automatic
-    /// paginations (see also
-    /// [`EventCacheConfig::room_pagination_per_room_credit`]).
-    pub const DEFAULT_ROOM_PAGINATION_CREDITS: usize = 20;
-
-    /// The default number of messages to paginate in a single batch, when
-    /// executing an automatic pagination request (see also
-    /// [`EventCacheConfig::room_pagination_batch_size`]).
-    pub const DEFAULT_ROOM_PAGINATION_BATCH_SIZE: u16 = 30;
+    /// The default maximum number of concurrent background back-paginations
+    /// (see also [`EventCacheConfig::max_concurrent_back_paginations`]).
+    pub const DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS: usize = 3;
 }
 
 impl Default for EventCacheConfig {
     fn default() -> Self {
         Self {
+            experimental_auto_backpagination: false,
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
-            room_pagination_per_room_credit: Self::DEFAULT_ROOM_PAGINATION_CREDITS,
-            room_pagination_batch_size: Self::DEFAULT_ROOM_PAGINATION_BATCH_SIZE,
-            experimental_auto_backpagination: false,
+            max_concurrent_back_paginations: Self::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS,
         }
     }
 }
@@ -618,11 +605,17 @@ struct EventCacheInner {
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
 
+    /// Whether to spawn the [`BackPaginationQueue`] at subscription time; set
+    /// once, at construction, via
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`].
+    ///
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
+
     /// State for the automatic pagination mechanism.
     ///
-    /// Depends on the [`EventCacheConfig::experimental_auto_backpagination`]
-    /// flag to be set at subscription time.
-    automatic_pagination: OnceLock<AutomaticPagination>,
+    /// Deferred initialization: spawned at subscription time, if
+    /// `enable_automatic_back_pagination` is set.
+    back_pagination_queue: OnceLock<BackPaginationQueue>,
 }
 
 impl EventCacheInner {
@@ -761,7 +754,7 @@ impl EventCacheInner {
                         "we must have called `EventCache::subscribe()` before calling here.",
                     ),
                     &self.state,
-                    self.automatic_pagination.get().cloned(),
+                    self.back_pagination_queue.get().cloned(),
                 )
                 .await?;
 

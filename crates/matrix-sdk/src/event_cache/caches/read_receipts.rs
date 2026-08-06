@@ -122,9 +122,8 @@ use ruma::{
 use tracing::{debug, instrument, trace, warn};
 
 use super::{
-    super::{
-        automatic_pagination::AutomaticPagination,
-        back_pagination_queue::{BATCH_SIZE, BackPaginationQueue, BackPaginationRequest, Priority},
+    super::back_pagination_queue::{
+        BATCH_SIZE, BackPaginationQueue, BackPaginationRequest, Priority,
     },
     event_linked_chunk::EventLinkedChunk,
 };
@@ -444,7 +443,7 @@ pub(crate) async fn compute_unread_counts(
     linked_chunk: &EventLinkedChunk,
     read_receipts: &mut RoomReadReceipts,
     with_threading_support: bool,
-    automatic_pagination: Option<&AutomaticPagination>,
+    back_pagination_queue: Option<&BackPaginationQueue>,
     state_store: &DynStateStore,
 ) {
     debug!(?read_receipts, "Starting");
@@ -488,13 +487,16 @@ pub(crate) async fn compute_unread_counts(
     }
 
     // Request a pagination: we haven't found a better receipt, but we haven't even
-    // found the latest active receipt!
-    if let Some(automatic_pagination) = automatic_pagination {
-        if automatic_pagination.run_once(room_id) {
-            trace!("Requested pagination to find a better receipt");
-        } else {
-            warn!("Failed to request pagination to find a better receipt");
-        }
+    // found the latest active receipt! Hand it the receipt event ids we're chasing
+    // so the backfill can stop as soon as one of them is loaded.
+    if let Some(back_pagination_queue) = back_pagination_queue {
+        let targets: HashSet<OwnedEventId> = read_receipts
+            .pending
+            .iter()
+            .cloned()
+            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
+            .collect();
+        paginate_for_read_receipt(back_pagination_queue, room_id, targets);
     }
 
     // If we haven't returned at this point, it means we don't have any new "active"
@@ -585,11 +587,38 @@ mod tests {
         room_id, user_id,
     };
 
-    use super::marks_as_unread;
+    use super::{marks_as_unread, stop_on_event_ids};
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk,
+        pagination::BackPaginationOutcome,
         read_receipts::{RoomReadReceiptsExt as _, select_best_receipt},
     };
+
+    /// `stop_on_event_ids` breaks as soon as one of its target ids is loaded;
+    /// with no targets it never breaks (falls back to the batch cap).
+    #[test]
+    fn test_stop_on_event_ids() {
+        use std::collections::HashSet;
+
+        use matrix_sdk_test::BOB;
+
+        let room = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room).sender(*BOB);
+        let outcome = BackPaginationOutcome {
+            reached_start: false,
+            events: vec![
+                f.text_msg("a").event_id(event_id!("$1")).into_event(),
+                f.text_msg("b").event_id(event_id!("$2")).into_event(),
+            ],
+        };
+
+        // A target present in the batch → stop.
+        assert!(stop_on_event_ids(HashSet::from([owned_event_id!("$2")]))(&outcome).is_break());
+        // No target in the batch → keep going.
+        assert!(stop_on_event_ids(HashSet::from([owned_event_id!("$3")]))(&outcome).is_continue());
+        // No targets at all → never stops on content.
+        assert!(stop_on_event_ids(HashSet::new())(&outcome).is_continue());
+    }
 
     #[test]
     fn test_room_message_marks_as_unread() {
