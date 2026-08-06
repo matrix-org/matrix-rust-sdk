@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 <!-- changelog start -->
 
+## [Unreleased] - ReleaseDate
+
+### Changed
+
+- The send queue now sends requests strictly in the order they were queued, in
+  a given room: a request that failed with an unrecoverable error (and got
+  marked as wedged) blocks subsequent requests in the same room from being
+  sent, until it's either retried with `SendHandle::unwedge()` or removed with
+  `SendHandle::abort()`. Previously, a wedged request was skipped over, causing
+  later messages to be sent before it, i.e. out of order.
+- An HTTP 520 status code (a non-standard "unknown server error", returned by
+  Cloudflare and other reverse proxies) is now considered a transient error
+  again, like the other 5xx status codes: requests failing with it will be
+  retried, and the send queue treats it as a recoverable error (keeping the
+  failed request in the queue) instead of wedging the request.
+
 ## [0.18.0](https://github.com/matrix-org/matrix-rust-sdk/tree/0.18.0) - 2026-06-02
 
 ### Added

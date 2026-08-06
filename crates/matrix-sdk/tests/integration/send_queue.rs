@@ -1544,7 +1544,8 @@ async fn test_unrecoverable_errors() {
     mock.mock_room_send().ok(event_id!("$42")).mock_once().mount().await;
 
     // Queue two messages.
-    q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
+    let handle1 =
+        q.send(RoomMessageEventContent::text_plain("i'm too big for ya").into()).await.unwrap();
     q.send(RoomMessageEventContent::text_plain("aloha").into()).await.unwrap();
 
     // First message is seen as a local echo.
@@ -1567,6 +1568,15 @@ async fn test_unrecoverable_errors() {
     // The permanent error disables the room send queue.
     assert!(!room.send_queue().is_enabled());
     room.send_queue().set_enabled(true);
+
+    // The second message is NOT sent: the wedged first message blocks the queue,
+    // so messages aren't sent out of order.
+    sleep(Duration::from_millis(500)).await;
+    assert!(watch.is_empty());
+
+    // Cancelling the wedged message unblocks the queue.
+    assert!(handle1.abort().await.unwrap());
+    assert_update!((global_watch, watch) => cancelled { txn = txn1 });
 
     // The second message will be properly sent.
     assert_update!((global_watch, watch) => sent { txn=txn2, event_id=event_id!("$42") });
@@ -2920,12 +2930,13 @@ async fn test_media_upload_retry_with_520_http_status_code() {
 
     mock.mock_authenticated_media_config().ok_default().mount().await;
 
-    // Fail with a 520 http status code
+    // Fail with a 520 http status code, for the first three (in-request retry)
+    // attempts.
     mock.mock_upload()
         .expect_mime_type("image/jpeg")
         .respond_with(ResponseTemplate::new(520).set_body_json(json!({})))
-        .up_to_n_times(1)
-        .expect(1)
+        .up_to_n_times(3)
+        .expect(3)
         .mount()
         .await;
 
@@ -2939,11 +2950,40 @@ async fn test_media_upload_retry_with_520_http_status_code() {
     assert_let!(MessageType::Image(img_content) = content.msgtype);
     assert_eq!(img_content.body, filename);
 
-    // Let the upload stumble and the queue disable itself.
-    let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
+    // A 520 is a transient (recoverable) server error: let the upload stumble and
+    // the queue disable itself, keeping the request in the queue.
+    let error = assert_update!((global_watch, watch) => error { recoverable=true, txn=event_txn });
     let error = error.as_client_api_error().unwrap();
     assert_eq!(error.status_code, 520);
     assert!(q.is_enabled().not());
+
+    // Mount the mock for the upload and sending the event.
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://sdk.rs/media"))
+        .mock_once()
+        .mount()
+        .await;
+    mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
+
+    // Restarting the send queue retries the upload, which succeeds this time.
+    q.set_enabled(true);
+
+    assert_update!((global_watch, watch) => uploaded {
+        related_to = event_txn,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+
+    assert_update!((global_watch, watch) => edit local echo { txn = event_txn });
+
+    // The event is sent, at some point.
+    assert_update!((global_watch, watch) => sent {
+        txn = event_txn,
+        event_id = event_id!("$1")
+    });
+
+    // That's all, folks!
+    assert!(watch.is_empty());
 }
 
 #[async_test]
@@ -3082,10 +3122,14 @@ async fn test_media_event_is_sent_in_order() {
     {
         // 1. Send a text message that will get wedged.
         mock.mock_room_send().error_too_large().mock_once().mount().await;
-        q.send(RoomMessageEventContent::text_plain("error").into()).await.unwrap();
+        let handle = q.send(RoomMessageEventContent::text_plain("error").into()).await.unwrap();
         let (text_txn, _send_handle) =
             assert_update!((global_watch, watch) => local echo { body = "error" });
         assert_update!((global_watch, watch) => error { recoverable = false, txn = text_txn });
+
+        // The wedged message would block the queue, so cancel it.
+        assert!(handle.abort().await.unwrap());
+        assert_update!((global_watch, watch) => cancelled { txn = text_txn });
     }
 
     // Re-enable the send queue after the permanent error.
@@ -3127,11 +3171,9 @@ async fn test_media_event_is_sent_in_order() {
     // That's all, folks!
     assert!(watch.is_empty());
 
-    // When reopening the send queue, we still see the wedged event.
+    // When reopening the send queue, everything has been sent or cancelled.
     let (local_echoes, _watch) = q.subscribe().await.unwrap();
-    assert_eq!(local_echoes.len(), 1);
-    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
-    assert!(send_error.is_some());
+    assert!(local_echoes.is_empty());
 }
 
 #[async_test]
