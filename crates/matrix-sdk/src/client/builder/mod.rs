@@ -135,6 +135,7 @@ pub struct ClientBuilder {
     decryption_settings: DecryptionSettings,
     #[cfg(feature = "e2e-encryption")]
     enable_share_history_on_invite: bool,
+    enable_automatic_back_pagination: bool,
     cross_process_lock_config: CrossProcessLockConfig,
     threading_support: ThreadingSupport,
     #[cfg(feature = "experimental-search")]
@@ -176,6 +177,7 @@ impl ClientBuilder {
             },
             #[cfg(feature = "e2e-encryption")]
             enable_share_history_on_invite: true,
+            enable_automatic_back_pagination: false,
             cross_process_lock_config: CrossProcessLockConfig::MultiProcess {
                 holder_name: Self::DEFAULT_CROSS_PROCESS_STORE_LOCKS_HOLDER_NAME.to_owned(),
             },
@@ -580,6 +582,16 @@ impl ClientBuilder {
         self
     }
 
+    /// Whether to automatically back-paginate a room's history in the
+    /// background, under certain conditions (search backfill, latest-event
+    /// resolution, read-receipt finding).
+    ///
+    /// Off by default.
+    pub fn with_enable_automatic_back_pagination(mut self, enable: bool) -> Self {
+        self.enable_automatic_back_pagination = enable;
+        self
+    }
+
     /// Set the cross-process store locks holder name.
     ///
     /// The SDK provides cross-process store locks (see
@@ -744,6 +756,7 @@ impl ClientBuilder {
             self.respect_login_well_known,
             self.well_known_lookup_disabled,
             event_cache,
+            self.enable_automatic_back_pagination,
             send_queue,
             latest_events,
             #[cfg(feature = "e2e-encryption")]

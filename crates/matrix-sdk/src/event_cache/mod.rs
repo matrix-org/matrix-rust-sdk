@@ -241,7 +241,11 @@ impl fmt::Debug for EventCache {
 
 impl EventCache {
     /// Create a new [`EventCache`] for the given client.
-    pub(crate) fn new(client: &Arc<ClientInner>, event_cache_store: EventCacheStoreLock) -> Self {
+    pub(crate) fn new(
+        client: &Arc<ClientInner>,
+        event_cache_store: EventCacheStoreLock,
+        enable_automatic_back_pagination: bool,
+    ) -> Self {
         let (generic_update_sender, _) = channel(128);
         let (linked_chunk_update_sender, _) = channel(128);
 
@@ -264,6 +268,7 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
+                enable_automatic_back_pagination,
                 back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
             }),
@@ -359,7 +364,7 @@ impl EventCache {
             )
             .abort_on_drop();
 
-            if self.config().experimental_auto_backpagination {
+            if self.inner.enable_automatic_back_pagination {
                 // Deferred initialization of the shared back-pagination queue.
                 trace!("spawning the back-pagination queue");
                 let max_concurrent = self.config().max_concurrent_back_paginations;
@@ -495,7 +500,9 @@ impl EventCache {
     }
 
     /// Returns the shared [`BackPaginationQueue`], if enabled at construction
-    /// with the [`EventCacheConfig::experimental_auto_backpagination`] flag.
+    /// with [`ClientBuilder::with_enable_automatic_back_pagination`].
+    ///
+    /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
     pub fn back_pagination_queue(&self) -> Option<BackPaginationQueue> {
         self.inner.back_pagination_queue.get().cloned()
     }
@@ -509,11 +516,6 @@ pub struct EventCacheConfig {
 
     /// Maximum number of pinned events to load, for any room.
     pub max_pinned_events_to_load: usize,
-
-    /// Whether to automatically back-paginate a room under certain conditions.
-    ///
-    /// Off by default.
-    pub experimental_auto_backpagination: bool,
 
     /// The maximum number of back-paginations the background queue runs at
     /// once, across all rooms and use cases. Bounds server load.
@@ -539,7 +541,6 @@ impl EventCacheConfig {
 impl Default for EventCacheConfig {
     fn default() -> Self {
         Self {
-            experimental_auto_backpagination: false,
             max_pinned_events_concurrent_requests: Self::DEFAULT_MAX_CONCURRENT_REQUESTS,
             max_pinned_events_to_load: Self::DEFAULT_MAX_EVENTS_TO_LOAD,
             max_concurrent_back_paginations: Self::DEFAULT_MAX_CONCURRENT_BACK_PAGINATIONS,
@@ -610,6 +611,7 @@ struct EventCacheInner {
     /// [`ClientBuilder::with_enable_automatic_back_pagination`].
     ///
     /// [`ClientBuilder::with_enable_automatic_back_pagination`]: crate::ClientBuilder::with_enable_automatic_back_pagination
+    enable_automatic_back_pagination: bool,
 
     /// State for the automatic pagination mechanism.
     ///
