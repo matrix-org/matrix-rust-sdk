@@ -22,7 +22,10 @@
 //!
 //! The executor:
 //! - runs at most [`EventCacheConfig::max_concurrent_back_paginations`]
-//!   requests at once
+//!   requests at once, and additionally caps each priority class to its own
+//!   concurrency ([`Priority::max_active`]) so bulk background sweeps (latest
+//!   events, read receipts) cannot monopolize the budget and flood the
+//!   homeserver while a sync catch-up is in progress
 //! - schedules by [`Priority`], higher first; within a priority, requests
 //!   carrying a room recency stamp run most-recent first (so e.g. the
 //!   latest-event backlog drains in reverse chronological order, keeping the
@@ -139,6 +142,26 @@ enum Priority {
     /// The user is looking at the room right now (room-list viewport preview
     /// fill): beats everything else.
     Viewport,
+}
+
+impl Priority {
+    /// How many requests of this priority may run concurrently, further
+    /// bounded by the queue's overall concurrency.
+    ///
+    /// The latest-event sweep and the read-receipt hunts are background
+    /// housekeeping over potentially thousands of rooms: after a cleared
+    /// cache, letting them saturate the whole concurrency budget floods the
+    /// homeserver with enough `/messages` traffic to slow the sync rounds the
+    /// sweep feeds on (measured: room-list rounds at 8-13s under the flood,
+    /// 2.5s without). Capping them leaves sync bandwidth untouched while the
+    /// backlog still drains, most-recent room first.
+    fn max_active(self) -> usize {
+        match self {
+            Self::High => 2,
+            Self::Normal => 1,
+            Self::Low | Self::Prefetch | Self::Viewport => usize::MAX,
+        }
+    }
 }
 
 /// A predicate over a freshly loaded batch, deciding whether to stop.
@@ -821,7 +844,16 @@ fn next_runnable(
             continue;
         }
 
-        active_requests.push((request.request.room_id.clone(), request.request.priority));
+        let priority = request.request.priority;
+
+        if active_requests.iter().filter(|(_, p)| *p == priority).count() >= priority.max_active() {
+            // This priority class is at its own concurrency cap, try it again
+            // next round.
+            skipped.push(request);
+            continue;
+        }
+
+        active_requests.push((request.request.room_id.clone(), priority));
         picked.push(request);
     }
 
@@ -1038,11 +1070,16 @@ mod tests {
         let f = room_id!("!f:e");
         scheduled_requests.push(queued_with_recency(f.to_owned(), Priority::Viewport, None, 5));
 
-        let mut active_requests = Vec::new();
-        let picked: Vec<_> = next_runnable(&mut scheduled_requests, &mut active_requests, 10)
-            .into_iter()
-            .map(|r| r.request.room_id)
-            .collect();
+        // Drain in waves: High is capped at 2 concurrent, so completions are
+        // simulated by clearing the active list between calls. The cumulative
+        // order proves the scheduling order.
+        let mut picked = Vec::new();
+        while !scheduled_requests.is_empty() {
+            let mut active_requests = Vec::new();
+            let wave = next_runnable(&mut scheduled_requests, &mut active_requests, 10);
+            assert!(!wave.is_empty(), "the scheduler must make progress");
+            picked.extend(wave.into_iter().map(|r| r.request.room_id));
+        }
 
         // Viewport first; then the stamped High requests by recency
         // descending (c, e, b); then the unstamped ones FIFO (a, d).
@@ -1059,6 +1096,42 @@ mod tests {
         );
     }
 
+    /// A priority class never runs more than its own concurrency cap
+    /// ([`Priority::max_active`]), even when the global budget has room:
+    /// the latest-event sweep (High, 2) and the read-receipt hunts (Normal, 1)
+    /// must not flood the homeserver during a sync catch-up. Lower-priority
+    /// classes behind a capped class still get scheduled.
+    #[test]
+    fn test_scheduling_per_priority_concurrency_cap() {
+        use std::collections::BinaryHeap;
+
+        let mut scheduled_requests = BinaryHeap::new();
+        for (i, room) in ["!a:e", "!b:e", "!c:e", "!d:e", "!e:e"].iter().enumerate() {
+            scheduled_requests.push(queued(
+                ruma::RoomId::parse(room).unwrap(),
+                Priority::High,
+                i as u64,
+            ));
+        }
+        for (i, room) in ["!f:e", "!g:e"].iter().enumerate() {
+            scheduled_requests.push(queued(
+                ruma::RoomId::parse(room).unwrap(),
+                Priority::Normal,
+                (5 + i) as u64,
+            ));
+        }
+        scheduled_requests.push(queued(ruma::RoomId::parse("!h:e").unwrap(), Priority::Low, 7));
+
+        let mut active_requests = Vec::new();
+        let picked = next_runnable(&mut scheduled_requests, &mut active_requests, 10);
+
+        // 2 High + 1 Normal + the Low one; the other 3 High and 1 Normal wait.
+        let mut priorities: Vec<_> = picked.iter().map(|r| r.request.priority).collect();
+        priorities.sort();
+        assert_eq!(priorities, vec![Priority::Low, Priority::Normal, Priority::High, Priority::High]);
+        assert_eq!(scheduled_requests.len(), 4);
+    }
+
     /// `next_runnable` never returns more than `max_concurrent`.
     #[test]
     fn test_scheduling_respects_concurrency_cap() {
@@ -1066,7 +1139,8 @@ mod tests {
 
         let mut scheduled_requests = BinaryHeap::new();
         for (i, room) in [room_id!("!a:e"), room_id!("!b:e"), room_id!("!c:e")].iter().enumerate() {
-            scheduled_requests.push(queued((*room).to_owned(), Priority::Normal, i as u64));
+            // `Low` has no per-priority cap: only the global budget binds.
+            scheduled_requests.push(queued((*room).to_owned(), Priority::Low, i as u64));
         }
 
         let mut active_requests = Vec::new();
