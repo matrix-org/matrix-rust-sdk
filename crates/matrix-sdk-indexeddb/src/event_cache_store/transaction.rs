@@ -27,9 +27,9 @@ use crate::{
     event_cache_store::{
         serializer::indexed_types::{
             IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
-            IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
-            IndexedThreadIdKey,
+            IndexedEventPositionKey, IndexedEventPositionKeyComponents, IndexedEventRelationKey,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
+            IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -468,7 +468,9 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         f: F,
     ) -> Result<(), TransactionError> {
         self.update_items_by_key_components::<Event, IndexedEventPositionKey, F>(
-            range.into().map(|position| (linked_chunk_id, position)),
+            range.into().map(|position| {
+                IndexedEventPositionKeyComponents::InBand(linked_chunk_id, position)
+            }),
             f,
         )
         .await
@@ -485,25 +487,28 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         linked_chunk_id: LinkedChunkId<'_>,
         position: Position,
     ) -> Result<(), TransactionError> {
-        self.delete_item_by_key::<Event, IndexedEventPositionKey>((linked_chunk_id, position))
-            .await?;
+        self.delete_item_by_key::<Event, IndexedEventPositionKey>(
+            IndexedEventPositionKeyComponents::InBand(linked_chunk_id, position),
+        )
+        .await?;
 
         // After deleting an event, every subsequent event in the chunk
         // must shift it's recorded index down one position.
-        let lower = (linked_chunk_id, position);
         let upper = IndexedEventPositionKey::upper_key_components_with_prefix((
             linked_chunk_id,
             ChunkIdentifier::new(position.chunk_identifier),
         ));
-        let range = IndexedKeyRange::Bound(lower, upper).map(|(_, position)| position);
-
-        self.update_events_by_position(linked_chunk_id, range, |mut event| {
-            if let Event::InBand(i) = &mut event {
-                i.position.index -= 1;
-            }
-            event
-        })
-        .await
+        if let IndexedEventPositionKeyComponents::InBand(_, upper_position) = upper {
+            let range = IndexedKeyRange::Bound(position, upper_position);
+            self.update_events_by_position(linked_chunk_id, range, |mut event| {
+                if let Event::InBand(i) = &mut event {
+                    i.position.index -= 1;
+                }
+                event
+            })
+            .await?;
+        }
+        Ok(())
     }
 
     /// Delete events in the given chunk matching the given linked chunk id
@@ -526,15 +531,13 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         linked_chunk_id: LinkedChunkId<'_>,
         position: Position,
     ) -> Result<(), TransactionError> {
-        let lower = (linked_chunk_id, position);
+        let lower = IndexedEventPositionKeyComponents::InBand(linked_chunk_id, position);
         let upper = IndexedEventPositionKey::upper_key_components_with_prefix((
             linked_chunk_id,
             ChunkIdentifier::new(position.chunk_identifier),
         ));
-        let range = IndexedKeyRange::Bound(lower, upper).map(|(_, position)| position);
-
         self.delete_items_by_key_components::<Event, IndexedEventPositionKey>(
-            range.map(|position| (linked_chunk_id, position)),
+            IndexedKeyRange::Bound(lower, upper),
         )
         .await
     }
