@@ -14,7 +14,7 @@
 
 mod builder;
 
-use std::ops::{Deref, DerefMut, Not};
+use std::ops::{ControlFlow, Deref, DerefMut, Not};
 
 pub use builder::filter_timeline_event;
 use builder::{BufferOfValuesForLocalEvents, Builder};
@@ -24,9 +24,17 @@ pub use matrix_sdk_base::latest_event::{
 };
 use matrix_sdk_base::{RoomInfoNotableUpdateReasons, RoomState};
 use ruma::{EventId, OwnedEventId, UserId, events::room::power_levels::RoomPowerLevels};
-use tracing::{error, info, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
-use crate::{Room, event_cache::RoomEventCache, room::WeakRoom, send_queue::RoomSendQueueUpdate};
+use crate::{
+    Room,
+    event_cache::{
+        BATCH_SIZE, BackPaginationOutcome, BackPaginationRequest, BackPaginationStopReason,
+        Priority, RoomEventCache,
+    },
+    room::WeakRoom,
+    send_queue::RoomSendQueueUpdate,
+};
 
 /// The latest event of a room or a thread.
 ///
@@ -111,6 +119,74 @@ impl LatestEvent {
         if let Some(new_value) = new_value {
             self.update(new_value).await;
         }
+    }
+
+    /// Back-paginate the room until a suitable latest-event candidate is loaded
+    /// into memory or the start of the timeline is reached.
+    ///
+    /// Enqueues a high-priority request on the shared [`BackPaginationQueue`],
+    /// with a stop predicate that fires as soon as a freshly loaded batch
+    /// contains a suitable latest-event candidate, and awaits it. No-ops if
+    /// automatic backpagination is disabled.
+    ///
+    /// Returns `true` if a candidate was surfaced (so it's worth recomputing
+    /// the value), `false` otherwise.
+    async fn backfill_for_candidate(
+        &self,
+        room_event_cache: &RoomEventCache,
+        own_user_id: &UserId,
+        power_levels: Option<&RoomPowerLevels>,
+    ) -> bool {
+        let Some(room) = self.weak_room.get() else {
+            return false;
+        };
+        let Some(queue) = room.client().event_cache().back_pagination_queue() else {
+            return false;
+        };
+
+        let own_user_id = own_user_id.to_owned();
+        let power_levels = power_levels.cloned();
+        let stop = move |outcome: &BackPaginationOutcome| {
+            let found = outcome.events.iter().any(|event| {
+                matches!(
+                    filter_timeline_event(event, None, &own_user_id, power_levels.as_ref()),
+                    ControlFlow::Break(())
+                )
+            });
+
+            if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+        };
+
+        let room_id = room_event_cache.room_id().to_owned();
+        debug!(%room_id, "started backfill request for latest events");
+
+        let handle = match queue.enqueue(BackPaginationRequest {
+            room_id: room_id.clone(),
+            priority: Priority::High,
+            stop: Box::new(stop),
+            batch_size: BATCH_SIZE,
+            max_batches: None,
+        }) {
+            Ok(handle) => handle,
+            Err(err) => {
+                warn!(%room_id, "couldn't enqueue a latest-event backfill request: {err}");
+                return false;
+            }
+        };
+
+        let reason = handle.join().await.reason;
+
+        debug!(%room_id, "finished backfill request for latest events");
+
+        // Both outcomes may have loaded events into memory: `StopConditionMet` found
+        // a candidate, and `ReachedTimelineStart` means the remaining history (which
+        // can include the candidate) was pulled in a final batch. The other end
+        // states loaded nothing worth recomputing for.
+        matches!(
+            reason,
+            BackPaginationStopReason::StopConditionMet
+                | BackPaginationStopReason::ReachedTimelineStart
+        )
     }
 
     /// Update the inner latest event value, based on the send queue
