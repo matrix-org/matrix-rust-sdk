@@ -317,14 +317,15 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for Index
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEvent {
-    /// The primary key of the object store.
-    pub id: IndexedEventIdKey,
+    /// An indexed key on the object store, which represents the linked chunk id
+    /// and event id of the event.
+    pub linked_chunk_id: IndexedEventLinkedChunkIdKey,
     /// An indexed key on the object store, which represents the room in which
     /// the event exists
     pub room: IndexedEventRoomKey,
-    /// An indexed key on the object store, which represents the position of the
-    /// event, if it is in a chunk, or the identifier of the event, if it is not
-    /// in a chunk.
+    /// The primary key on the object store, which represents the position of
+    /// the event, if it is in a chunk, or the identifier of the event, if
+    /// it is not in a chunk.
     pub position: IndexedEventPositionKey,
     /// An indexed key on the object store, which represents the relationship
     /// between this event and another event, if one exists.
@@ -352,7 +353,8 @@ impl Indexed for Event {
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
-        let id = IndexedEventIdKey::encode((self.linked_chunk_id(), event_id), serializer);
+        let linked_chunk_id =
+            IndexedEventLinkedChunkIdKey::encode((self.linked_chunk_id(), event_id), serializer);
         let room = IndexedEventRoomKey::encode((self.room_id(), event_id), serializer);
         let position = IndexedEventPositionKey::encode(
             self.position()
@@ -369,7 +371,7 @@ impl Indexed for Event {
             )
         });
         Ok(IndexedEvent {
-            id,
+            linked_chunk_id,
             room,
             position,
             relation,
@@ -385,7 +387,8 @@ impl Indexed for Event {
     }
 }
 
-/// The value associated with the [primary key](IndexedEvent::id) of the
+/// The value associated with the
+/// [`linked_chunk_id`](IndexedEvent::linked_chunk_id) index of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) hashed Linked Chunk ID
@@ -393,9 +396,11 @@ impl Indexed for Event {
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
+pub struct IndexedEventLinkedChunkIdKey(IndexedLinkedChunkId, IndexedEventId);
 
-impl IndexedKey<Event> for IndexedEventIdKey {
+impl IndexedKey<Event> for IndexedEventLinkedChunkIdKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_LINKED_CHUNK_ID);
+
     type KeyComponents<'a> = (LinkedChunkId<'a>, &'a EventId);
 
     fn encode(
@@ -409,7 +414,7 @@ impl IndexedKey<Event> for IndexedEventIdKey {
     }
 }
 
-impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
+impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventLinkedChunkIdKey {
     fn lower_key_with_prefix(
         linked_chunk_id: LinkedChunkId<'_>,
         serializer: &SafeEncodeSerializer,
@@ -466,7 +471,7 @@ impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventRoomKey {
     }
 }
 
-/// The value associated with the [`position`](IndexedEvent::position) index of
+/// The value associated with the [primary key](IndexedEvent::position) of
 /// the [`EVENTS`][1] object store, which is constructed from the following
 /// components if the event exists within a linked chunk - i.e., in-band.
 ///
@@ -504,8 +509,6 @@ pub enum IndexedEventPositionKeyComponents<'a> {
 }
 
 impl IndexedKey<Event> for IndexedEventPositionKey {
-    const INDEX: Option<&'static str> = Some(keys::EVENTS_POSITION);
-
     type KeyComponents<'a> = IndexedEventPositionKeyComponents<'a>;
 
     fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {

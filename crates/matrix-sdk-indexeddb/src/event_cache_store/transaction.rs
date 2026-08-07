@@ -26,10 +26,11 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
-            IndexedEventPositionKey, IndexedEventPositionKeyComponents, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent,
+            IndexedEventLinkedChunkIdKey, IndexedEventPositionKey,
+            IndexedEventPositionKeyComponents, IndexedEventRelationKey, IndexedEventRoomKey,
+            IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
+            IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -331,13 +332,13 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
 
     /// Query IndexedDB for events that match the given event id and the given
     /// linked chunk id. If more than one item is found, an error is returned.
-    pub async fn get_event_by_id(
+    pub async fn get_event_by_linked_chunk_id(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
         event_id: &EventId,
     ) -> Result<Option<Event>, TransactionError> {
         let key = self.serializer().encode_key((linked_chunk_id, event_id));
-        self.get_item_by_key::<Event, IndexedEventIdKey>(key).await
+        self.get_item_by_key::<Event, IndexedEventLinkedChunkIdKey>(key).await
     }
 
     /// Query IndexedDB for events that match the given event id in the given
@@ -439,7 +440,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
         let existing =
-            self.get_event_by_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
+            self.get_event_by_linked_chunk_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
         if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
             self.put_event(event).await
         } else {
@@ -547,7 +548,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
     ) -> Result<(), TransactionError> {
-        self.delete_items_by_linked_chunk_id::<Event, IndexedEventIdKey>(linked_chunk_id).await
+        self.delete_items_by_linked_chunk_id::<Event, IndexedEventLinkedChunkIdKey>(linked_chunk_id)
+            .await
     }
 
     /// Query IndexedDB for the gap in the given chunk matching the given linked

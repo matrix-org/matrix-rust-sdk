@@ -502,7 +502,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let mut duplicated = Vec::new();
         for event_id in events {
             if let Some(types::Event::InBand(event)) =
-                transaction.get_event_by_id(linked_chunk_id, &event_id).await?
+                transaction.get_event_by_linked_chunk_id(linked_chunk_id, &event_id).await?
             {
                 duplicated.push((event_id, event.position.into()));
             }

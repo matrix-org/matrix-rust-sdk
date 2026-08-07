@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v6};
+    use super::{Version, v7};
 
-    pub const VERSION: Version = Version::V6;
-    pub use v6::keys;
+    pub const VERSION: Version = Version::V7;
+    pub use v7::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -64,6 +64,8 @@ pub enum Version {
     V5 = 5,
     /// Version 6 of the database, for details see [`v6`].
     V6 = 6,
+    /// Version 7 of the database, for details see [`v7`].
+    V7 = 7,
 }
 
 impl Version {
@@ -76,7 +78,8 @@ impl Version {
             Self::V3 => v3::upgrade(transaction).map(Some),
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
-            Self::V6 => Ok(None),
+            Self::V6 => v6::upgrade(transaction).map(Some),
+            Self::V7 => Ok(None),
         }
     }
 }
@@ -96,6 +99,7 @@ impl TryFrom<u32> for Version {
             3 => Ok(Version::V3),
             4 => Ok(Version::V4),
             5 => Ok(Version::V5),
+            6 => Ok(Version::V6),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -418,6 +422,132 @@ mod v6 {
         let threads = transaction.object_store(keys::THREADS)?;
         threads.clear()?;
 
+        Ok(())
+    }
+
+    /// Upgrade database from `v6` to `v7`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v7::empty_event_cache(transaction)?;
+        v7::update_events_object_store(transaction)?;
+        Ok(Version::V7)
+    }
+}
+
+pub mod v7 {
+    use indexed_db_futures::Build;
+
+    use super::*;
+
+    #[allow(unused)]
+    pub mod keys {
+        use super::super::v6;
+
+        // Most of the keys are re-used from the previous migrations, with
+        // some exceptions for the events object store.
+        pub const LEASES: &str = v6::keys::LEASES;
+        pub const LEASES_KEY_PATH: &str = v6::keys::LEASES_KEY_PATH;
+        pub const ROOMS: &str = v6::keys::ROOMS;
+        pub const LINKED_CHUNK_IDS: &str = v6::keys::LINKED_CHUNK_IDS;
+        pub const LINKED_CHUNKS: &str = v6::keys::LINKED_CHUNKS;
+        pub const LINKED_CHUNKS_KEY_PATH: &str = v6::keys::LINKED_CHUNKS_KEY_PATH;
+        pub const LINKED_CHUNKS_NEXT: &str = v6::keys::LINKED_CHUNKS_NEXT;
+        pub const LINKED_CHUNKS_NEXT_KEY_PATH: &str = v6::keys::LINKED_CHUNKS_NEXT_KEY_PATH;
+        pub const EVENTS: &str = v6::keys::EVENTS;
+        pub const EVENTS_ROOM: &str = v6::keys::EVENTS_ROOM;
+        pub const EVENTS_ROOM_KEY_PATH: &str = v6::keys::EVENTS_ROOM_KEY_PATH;
+        pub const EVENTS_RELATION: &str = v6::keys::EVENTS_RELATION;
+        pub const EVENTS_RELATION_KEY_PATH: &str = v6::keys::EVENTS_RELATION_KEY_PATH;
+        pub const EVENTS_RELATION_RELATED_EVENTS: &str = v6::keys::EVENTS_RELATION_RELATED_EVENTS;
+        pub const EVENTS_RELATION_RELATION_TYPES: &str = v6::keys::EVENTS_RELATION_RELATION_TYPES;
+        pub const GAPS: &str = v6::keys::GAPS;
+        pub const GAPS_KEY_PATH: &str = v6::keys::GAPS_KEY_PATH;
+        pub const THREADS: &str = v6::keys::THREADS;
+        pub const THREADS_KEY_PATH: &str = v6::keys::THREADS_KEY_PATH;
+
+        // Make the position field the primary key for the events object store
+        // and remove the index that used to track position information.
+        pub const EVENTS_KEY_PATH: &str = "position";
+
+        // Add a new index that will track the linked chunk id and event id
+        // of an event.
+        pub const EVENTS_LINKED_CHUNK_ID: &str = "events_linked_chunk_id";
+        pub const EVENTS_LINKED_CHUNK_ID_KEY_PATH: &str = "linked_chunk_id";
+    }
+
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
+    }
+
+    /// Update the events object store, so that the position of an event becomes
+    /// the primary key of the object store.
+    ///
+    /// Furthermore, turn the previous primary key, `id`, into an index. It
+    /// continues to track the same information that it did previously -
+    /// i.e., linked chunk id and event id of an event.
+    ///
+    /// The primary purpose of this modification is to allow a single event to
+    /// occupy multiple positions in a linked chunk. Prior to this change,
+    /// the primary key was based on the linked chunk id and the event id,
+    /// which enforced that an event could only occur once per linked chunk
+    /// and, therefore, occupy only a single position.
+    ///
+    /// Note that this operation removes the existing events object store and
+    /// all of its contents.
+    pub fn update_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        remove_events_object_store(transaction)?;
+        create_events_object_store(transaction.db())?;
+        Ok(())
+    }
+
+    /// Remove events object store
+    pub fn remove_events_object_store(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let object_store = transaction.object_store(keys::EVENTS)?;
+        // It is faster to clear all events first, then delete the object store rather
+        // than immediately deleting.
+        //
+        // For details, see https://www.artificialworlds.net/blog/2024/02/02/deleting-an-indexed-db-store-can-be-incredibly-slow-on-firefox/
+        object_store.clear()?;
+        transaction.db().delete_object_store(keys::EVENTS)?;
+        Ok(())
+    }
+
+    /// Create an object store for tracking information about events.
+    ///
+    /// * Primary Key - `position` - tracks position of an event in linked
+    ///   chunks
+    /// * Index - `linked_chunk_id` - tracks linked chunk id and event id of an
+    ///   event
+    /// * Index - `room` - tracks whether an event is in a given room
+    /// * Index - `relation` - tracks any event to which the given event is
+    ///   related
+    pub fn create_events_object_store(db: &Database) -> Result<(), Error> {
+        let events = db
+            .create_object_store(keys::EVENTS)
+            .with_key_path(keys::EVENTS_KEY_PATH.into())
+            .build()?;
+        let _ = events
+            .create_index(
+                keys::EVENTS_LINKED_CHUNK_ID,
+                keys::EVENTS_LINKED_CHUNK_ID_KEY_PATH.into(),
+            )
+            .build()?;
+        let _ =
+            events.create_index(keys::EVENTS_ROOM, keys::EVENTS_ROOM_KEY_PATH.into()).build()?;
+        let _ = events
+            .create_index(keys::EVENTS_RELATION, keys::EVENTS_RELATION_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 }
