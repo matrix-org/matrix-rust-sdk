@@ -843,6 +843,18 @@ impl Client {
         self.inner.send_queue().set_enabled(enable).await;
     }
 
+    /// Cumulative HTTP traffic since this client was built: body bytes and
+    /// request count, counted per attempt (retries cost bandwidth each time).
+    /// For launch/bandwidth instrumentation.
+    pub fn traffic_stats(&self) -> TrafficStats {
+        let stats = self.inner.traffic_stats();
+        TrafficStats {
+            uploaded_bytes: stats.uploaded_bytes,
+            downloaded_bytes: stats.downloaded_bytes,
+            request_count: stats.request_count,
+        }
+    }
+
     /// Enables or disables progress reporting for media uploads in the send
     /// queue.
     pub fn enable_send_queue_upload_progress(&self, enable: bool) {
@@ -2799,6 +2811,14 @@ impl TryInto<SdkRoomLoadSettings> for RoomLoadSettings {
             }
         })
     }
+}
+
+/// Cumulative HTTP traffic snapshot - see [`Client::traffic_stats`].
+#[derive(uniffi::Record)]
+pub struct TrafficStats {
+    pub uploaded_bytes: u64,
+    pub downloaded_bytes: u64,
+    pub request_count: u64,
 }
 
 #[derive(uniffi::Record)]

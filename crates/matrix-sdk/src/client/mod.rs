@@ -572,6 +572,12 @@ impl Client {
         &self.inner.http_client.inner
     }
 
+    /// Cumulative HTTP traffic (body bytes, per attempt) since this client was
+    /// built. For launch/bandwidth instrumentation.
+    pub fn traffic_stats(&self) -> crate::http_client::TrafficStats {
+        self.inner.http_client.traffic.snapshot()
+    }
+
     pub(crate) fn locks(&self) -> &ClientLocks {
         &self.inner.locks
     }

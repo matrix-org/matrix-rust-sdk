@@ -80,7 +80,9 @@ pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
     Result, RumaApiError,
 };
-pub use http_client::{SupportedAuthScheme, SupportedPathBuilder, TransmissionProgress};
+pub use http_client::{
+    SupportedAuthScheme, SupportedPathBuilder, TrafficStats, TransmissionProgress,
+};
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
 #[cfg(feature = "sqlite")]

@@ -1118,8 +1118,12 @@ impl Room {
             _ => true,
         };
 
+        // Cached-only: this feeds UTD classification on rendering hot paths
+        // (room-list latest events, timeline items), which must paint from
+        // cache even when the network is down. Fetching here blocked the room
+        // list's first paint behind a hung /room_keys/version request.
         let backup_exists_on_server =
-            encryption.backups().exists_on_server().await.unwrap_or(false);
+            encryption.backups().cached_exists_on_server().unwrap_or(false);
 
         CryptoContextInfo {
             device_creation_ts: encryption.device_creation_timestamp().await,

@@ -436,6 +436,19 @@ impl Backups {
         self.fetch_exists_on_server().await
     }
 
+    /// Cached-only variant of [`Self::exists_on_server`]: returns the
+    /// in-memory value if one is known, and **never** touches the network.
+    ///
+    /// Hot paths that only need a best-effort answer (UTD classification while
+    /// rendering room-list latest events or timeline items) must use this:
+    /// fetching would block rendering of cached content behind a network
+    /// round-trip. The cache is populated as a side effect of any backup
+    /// version check (see [`Self::get_current_version`]), which the backup
+    /// machinery performs shortly after startup.
+    pub fn cached_exists_on_server(&self) -> Option<bool> {
+        self.client.inner.e2ee.backup_state.backup_exists_on_server()
+    }
+
     /// Subscribe to a stream that notifies when a room key for the specified
     /// room is downloaded from the key backup.
     pub fn room_keys_for_room_stream(
@@ -648,7 +661,7 @@ impl Backups {
     ) -> Result<Option<get_latest_backup_info::v3::Response>, Error> {
         let request = get_latest_backup_info::v3::Request::new();
 
-        match self.client.send(request).await {
+        let result = match self.client.send(request).await {
             Ok(r) => Ok(Some(r)),
             Err(e) => {
                 if let Some(kind) = e.client_api_error_kind() {
@@ -657,7 +670,16 @@ impl Backups {
                     Err(e.into())
                 }
             }
+        };
+
+        // Every backup version check doubles as a refresh of the
+        // exists-on-server cache, so `cached_exists_on_server` users get an
+        // answer as soon as the startup backup check completes.
+        if let Ok(response) = &result {
+            self.client.inner.e2ee.backup_state.set_backup_exists_on_server(response.is_some());
         }
+
+        result
     }
 
     async fn delete_backup_from_server(&self, version: String) -> Result<(), Error> {

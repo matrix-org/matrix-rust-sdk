@@ -74,10 +74,42 @@ impl MaybeSemaphore {
     }
 }
 
+/// Cumulative process-lifetime traffic counters, for launch/bandwidth
+/// instrumentation. Counts HTTP body bytes per attempt (retries count each
+/// time, as they cost bandwidth each time); headers are not included.
+#[derive(Debug, Default)]
+pub struct TrafficCounters {
+    pub(crate) uploaded_bytes: AtomicU64,
+    pub(crate) downloaded_bytes: AtomicU64,
+    pub(crate) request_count: AtomicU64,
+}
+
+/// A point-in-time snapshot of [`TrafficCounters`].
+#[derive(Clone, Copy, Debug)]
+pub struct TrafficStats {
+    /// Total HTTP request body bytes sent since the client was built.
+    pub uploaded_bytes: u64,
+    /// Total HTTP response body bytes received since the client was built.
+    pub downloaded_bytes: u64,
+    /// Number of HTTP request attempts (retries counted individually).
+    pub request_count: u64,
+}
+
+impl TrafficCounters {
+    pub(crate) fn snapshot(&self) -> TrafficStats {
+        TrafficStats {
+            uploaded_bytes: self.uploaded_bytes.load(Ordering::Relaxed),
+            downloaded_bytes: self.downloaded_bytes.load(Ordering::Relaxed),
+            request_count: self.request_count.load(Ordering::Relaxed),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
     pub(crate) inner: reqwest::Client,
     pub(crate) request_config: RequestConfig,
+    pub(crate) traffic: Arc<TrafficCounters>,
     concurrent_request_semaphore: MaybeSemaphore,
     next_request_id: Arc<AtomicU64>,
 }
@@ -87,6 +119,7 @@ impl HttpClient {
         HttpClient {
             inner,
             request_config,
+            traffic: Arc::new(TrafficCounters::default()),
             concurrent_request_semaphore: MaybeSemaphore::new(
                 request_config.max_concurrent_requests,
             ),

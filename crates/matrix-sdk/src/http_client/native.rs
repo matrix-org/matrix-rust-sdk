@@ -30,7 +30,10 @@ use reqwest::tls;
 use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
-use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
+use super::{
+    DEFAULT_REQUEST_TIMEOUT, HttpClient, TrafficCounters, TransmissionProgress,
+    response_to_http_response,
+};
 use crate::{
     HttpResult,
     config::RequestConfig,
@@ -78,12 +81,22 @@ impl HttpClient {
             timeout: Option<Duration>,
             retry_count: &AtomicU64,
             send_progress: SharedObservable<TransmissionProgress>,
+            traffic: &TrafficCounters,
         ) -> HttpResult<http::Response<Bytes>> {
             let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
             debug!(num_attempt, "Sending request");
             let before = ruma::time::Instant::now();
 
+            traffic.request_count.fetch_add(1, Ordering::Relaxed);
+            traffic
+                .uploaded_bytes
+                .fetch_add(request.body().len().try_into().unwrap_or(0), Ordering::Relaxed);
+
             let response = execute_request(http_client, request, timeout, send_progress).await?;
+
+            traffic
+                .downloaded_bytes
+                .fetch_add(response.body().len().try_into().unwrap_or(0), Ordering::Relaxed);
 
             let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
 
@@ -150,6 +163,7 @@ impl HttpClient {
                     config.timeout,
                     &retry_count,
                     send_progress,
+                    &self.traffic,
                 )
                 .await?;
                 R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
