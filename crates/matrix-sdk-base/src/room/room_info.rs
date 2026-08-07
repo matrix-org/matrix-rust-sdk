@@ -1137,6 +1137,22 @@ impl RoomInfo {
         !self.active_room_call_memberships().is_empty()
     }
 
+    /// Whether the given `(user_id, device_id)` tuple is currently a
+    /// participant in this room's active MatrixRTC call.
+    ///
+    /// Distinct from [`Self::active_room_call_participants`] which returns
+    /// only user IDs. Callers that must not conflate multiple devices of
+    /// the same user (e.g. profile-field mirroring) should use this.
+    pub fn is_device_in_active_room_call(
+        &self,
+        user_id: &ruma::UserId,
+        device_id: &ruma::DeviceId,
+    ) -> bool {
+        self.active_room_call_memberships().iter().any(|(state_key, membership)| {
+            state_key.user_id() == user_id && membership.device_id() == device_id
+        })
+    }
+
     /// Get the call intent consensus for the current call, based on what
     /// members are advertising.
     ///

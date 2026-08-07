@@ -26,8 +26,8 @@ use matrix_sdk_ui::{
 };
 
 use crate::{
-    TaskHandle, error::ClientError, helpers::unwrap_or_clone_arc, room_list::RoomListService,
-    runtime::get_runtime_handle,
+    TaskHandle, error::ClientError, helpers::unwrap_or_clone_arc, platform::tracing::Span,
+    room_list::RoomListService, runtime::get_runtime_handle,
 };
 
 #[derive(uniffi::Enum)]
@@ -160,6 +160,13 @@ impl SyncServiceBuilder {
     pub fn with_room_list_timeline_limit(self: Arc<Self>, limit: u32) -> Arc<Self> {
         let this = unwrap_or_clone_arc(self);
         let builder = this.builder.with_room_list_timeline_limit(limit);
+        Arc::new(Self { builder, ..this })
+    }
+
+    /// Set a parent tracing Span for the tasks within this sync service.
+    pub fn with_parent_span(self: Arc<Self>, span: Arc<Span>) -> Arc<Self> {
+        let this = unwrap_or_clone_arc(self);
+        let builder = this.builder.with_parent_span(span.inner().clone());
         Arc::new(Self { builder, ..this })
     }
 
