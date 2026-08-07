@@ -31,7 +31,10 @@ use super::{
     Action, MatrixDriverRequestMeta, SendToDeviceEventResponse, WidgetMachine,
     from_widget::SendEventResponse, incoming::MatrixDriverResponse,
 };
-use crate::widget::{Capabilities, StateKeySelector, machine::from_widget::DownloadFileResponse};
+use crate::widget::{
+    Capabilities, StateKeySelector,
+    machine::from_widget::{DownloadFileResponse, RtcTransportsResponse},
+};
 
 #[derive(Clone, Debug)]
 pub(crate) enum MatrixDriverRequestData {
@@ -62,6 +65,9 @@ pub(crate) enum MatrixDriverRequestData {
 
     /// Request a download of a file.
     DownloadFile(DownloadFileRequest),
+
+    /// Get the RTC transports advertised by the homeserver.
+    GetRtcTransports,
 }
 
 /// A handle to a pending `toWidget` request.
@@ -156,6 +162,20 @@ impl From<RequestOpenId> for MatrixDriverRequestData {
 
 impl MatrixDriverRequest for RequestOpenId {
     type Response = request_openid_token::v3::Response;
+}
+
+/// Request the RTC transports advertised by the homeserver.
+#[derive(Debug)]
+pub(crate) struct RequestRtcTransports;
+
+impl From<RequestRtcTransports> for MatrixDriverRequestData {
+    fn from(_: RequestRtcTransports) -> Self {
+        MatrixDriverRequestData::GetRtcTransports
+    }
+}
+
+impl MatrixDriverRequest for RequestRtcTransports {
+    type Response = RtcTransportsResponse;
 }
 
 impl FromMatrixDriverResponse for request_openid_token::v3::Response {

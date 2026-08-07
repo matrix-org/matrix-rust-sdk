@@ -84,7 +84,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{Span, debug, error, instrument, warn};
+use tracing::{Instrument, Span, debug, error, instrument, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -2012,24 +2012,27 @@ impl Encryption {
 
         let this = self.clone();
 
-        tasks.setup_e2ee = Some(spawn(async move {
-            // Update the current state first, so we don't have to wait for the result of
-            // network requests
-            this.update_verification_state().await;
+        tasks.setup_e2ee = Some(spawn(
+            async move {
+                // Update the current state first, so we don't have to wait for the result of
+                // network requests
+                this.update_verification_state().await;
 
-            if this.settings().auto_enable_cross_signing
-                && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
-            {
-                error!("Couldn't bootstrap cross signing {e:?}");
-            }
+                if this.settings().auto_enable_cross_signing
+                    && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
+                {
+                    error!("Couldn't bootstrap cross signing {e:?}");
+                }
 
-            if let Err(e) = this.backups().setup_and_resume().await {
-                error!("Couldn't setup and resume backups {e:?}");
+                if let Err(e) = this.backups().setup_and_resume().await {
+                    error!("Couldn't setup and resume backups {e:?}");
+                }
+                if let Err(e) = this.recovery().setup().await {
+                    error!("Couldn't setup and resume recovery {e:?}");
+                }
             }
-            if let Err(e) = this.recovery().setup().await {
-                error!("Couldn't setup and resume recovery {e:?}");
-            }
-        }));
+            .instrument(Span::current()),
+        ));
 
         tasks.receive_historic_room_key_bundles = bundle_receiver_task;
 

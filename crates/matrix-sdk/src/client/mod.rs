@@ -419,6 +419,18 @@ pub(crate) struct ClientInner {
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 
     pub(crate) media_fetcher: RwLock<Arc<dyn MediaFetcher>>,
+
+    /// When `Some`, `m.call` auto-sync is enabled and the held
+    /// [`AutomaticCallStatus`] owns the event handler registration.
+    /// Dropping the `Option` (via
+    /// [`Client::enable_automatic_call_status`]) drops the syncer,
+    /// which drops its `EventHandlerDropGuard`, which deregisters the
+    /// handler.
+    ///
+    /// [`AutomaticCallStatus`]: crate::automatic_call_status::AutomaticCallStatus
+    #[cfg(feature = "unstable-msc4426")]
+    pub(crate) automatic_call_status:
+        StdMutex<Option<crate::automatic_call_status::AutomaticCallStatus>>,
 }
 
 impl ClientInner {
@@ -494,6 +506,8 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
             media_fetcher: RwLock::new(media_fetcher),
+            #[cfg(feature = "unstable-msc4426")]
+            automatic_call_status: StdMutex::new(None),
         };
 
         #[allow(clippy::let_and_return)]
