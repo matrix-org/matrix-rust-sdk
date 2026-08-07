@@ -26,10 +26,11 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventLinkedChunkIdKey,
-            IndexedEventPositionKey, IndexedEventPositionKeyComponents, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventEventIdKey,
+            IndexedEventLinkedChunkIdKey, IndexedEventPositionKey,
+            IndexedEventPositionKeyComponents, IndexedEventRelationKey, IndexedEventRoomKey,
+            IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
+            IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -329,6 +330,28 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_items_by_linked_chunk_id::<Chunk, IndexedChunkIdKey>(linked_chunk_id).await
     }
 
+    /// Query IndexedDB for the event at the given position in the given
+    /// linked chunk. If more than one item is found, an error is returned.
+    pub async fn get_event_by_position(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+        position: Position,
+    ) -> Result<Option<Event>, TransactionError> {
+        let key = self
+            .serializer()
+            .encode_key(IndexedEventPositionKeyComponents::InBand(linked_chunk_id, position));
+        self.get_item_by_key::<Event, IndexedEventPositionKey>(key).await
+    }
+
+    /// Query IndexedDB for events that match the given event id.
+    pub async fn get_events_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let key = self.serializer().encode_key::<_, IndexedEventEventIdKey>(event_id);
+        self.get_items_by_key::<Event, IndexedEventEventIdKey>(key).await
+    }
+
     /// Query IndexedDB for events that match the given event id and the given
     /// linked chunk id. If more than one item is found, an error is returned.
     pub async fn get_event_by_linked_chunk_id(
@@ -426,26 +449,35 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
 
     /// Adds an event to IndexedDB.
     ///
-    /// If an event with the same key already exists, actions are
-    /// taken based on the following conditions. If the provided
-    /// event is an [`Event::InBand`] and the existing event is an
-    /// [`Event::OutOfBand`], the provided event will replace the
-    /// existing event. Otherwise, the provided event will be rejected.
-    /// This functionality allows events to be promoted from
-    /// out-of-band events to in-band events, but not vice versa.
+    /// If an event already occupies the given event's position in the given
+    /// linked chunk, the call fails with [`TransactionError::ItemIsNotUnique`].
+    /// Otherwise, the event is added at the given position.
+    ///
+    /// If an event with the same ID already exists, the provided
+    /// content replaces the existing content everywhere the event exists, i.e.,
+    /// across all linked chunks.
     ///
     /// When the event is successfully added, the function returns
     /// the intermediary type [`IndexedEvent`] in case inspection
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        let existing = self
-            .get_event_by_linked_chunk_id(event.linked_chunk_id(), event.event_id().unwrap())
-            .await?;
-        if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
-            self.put_event(event).await
-        } else {
-            self.add_item(event).await
+        let linked_chunk_id = event.linked_chunk_id();
+        let event_id = event.event_id().unwrap();
+
+        if let Some(position) = event.position()
+            && self.get_event_by_position(linked_chunk_id, position).await?.is_some()
+        {
+            return Err(TransactionError::ItemIsNotUnique);
         }
+
+        let content = match event {
+            Event::InBand(e) => &e.content,
+            Event::OutOfBand(e) => &e.content,
+        };
+        for existing in self.get_events_by_event_id(event_id).await? {
+            self.put_event(&existing.with_content(content.clone())).await?;
+        }
+        self.put_event(event).await
     }
 
     /// Puts an event in IndexedDB. If an event with the same key already
