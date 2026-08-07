@@ -22,7 +22,7 @@ use matrix_sdk_base::{
     linked_chunk::Position,
     sync::{JoinedRoomUpdate, LeftRoomUpdate},
 };
-use ruma::{OwnedEventId, RoomId, room_version_rules::RoomVersionRules};
+use ruma::{OwnedEventId, OwnedUserId, RoomId, room_version_rules::RoomVersionRules};
 use tokio::sync::{
     OnceCell, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, broadcast::Sender, mpsc,
 };
@@ -83,6 +83,7 @@ struct CachesInternals {
 
 impl Caches {
     /// Create a new [`Caches`].
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         weak_client: &WeakClient,
         room_id: &RoomId,
@@ -91,6 +92,7 @@ impl Caches {
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         state: &states::StateLock,
         automatic_pagination: Option<AutomaticPagination>,
+        ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
     ) -> Result<Self> {
         let Some(client) = weak_client.get() else {
             return Err(EventCacheError::ClientDropped);
@@ -138,6 +140,16 @@ impl Caches {
         let timeline_is_not_empty =
             room_state.read().await?.room_linked_chunk().revents().next().is_some();
 
+        // Remove any event from an already-ignored user that may have been reloaded
+        // from the store (e.g. if the app was killed while removing them after an
+        // ignore-list change).
+        {
+            let ignored_users = ignored_users.read().await;
+            if !ignored_users.is_empty() {
+                room_state.write().await?.remove_events_of_users(&ignored_users).await?;
+            }
+        }
+
         let room_event_cache = room::RoomEventCache::new(
             room_id.to_owned(),
             weak_room,
@@ -146,6 +158,7 @@ impl Caches {
             pagination_status,
             auto_shrink_sender.clone(),
             update_sender,
+            ignored_users,
         );
 
         // If at least one event has been loaded, it means there is a timeline. Let's
@@ -202,6 +215,7 @@ impl Caches {
                 // Thread does not exist, let's create it.
                 Err(mut threads) => {
                     let room = &self.room;
+                    let ignored_users = room.ignored_users();
                     let cache = thread::ThreadEventCache::new(
                         room.room_id().to_owned(),
                         thread_id.clone(),
@@ -212,8 +226,24 @@ impl Caches {
                         self.internals.auto_shrink_sender.clone(),
                         room.update_sender().generic_update_sender().clone(),
                         self.internals.linked_chunk_update_sender.clone(),
+                        ignored_users.clone(),
                     )
                     .await?;
+
+                    // Remove any event from an already-ignored user that may have been
+                    // reloaded from the store (e.g. if the app was killed while removing
+                    // them after an ignore-list change).
+                    {
+                        let ignored_users = ignored_users.read().await;
+                        if !ignored_users.is_empty() {
+                            cache
+                                .state()
+                                .write()
+                                .await?
+                                .remove_events_of_users(&ignored_users)
+                                .await?;
+                        }
+                    }
 
                     threads.insert(thread_id.clone(), cache);
 
@@ -237,6 +267,7 @@ impl Caches {
                     self.internals.room_version_rules.clone(),
                     self.internals.linked_chunk_update_sender.clone(),
                     &self.internals.state,
+                    self.room.ignored_users(),
                 )
             })
             .await
@@ -272,6 +303,7 @@ impl Caches {
                         key.clone(),
                         &self.internals.state,
                         self.internals.linked_chunk_update_sender.clone(),
+                        self.room.ignored_users(),
                     )
                     .await?;
                     cache.start_from(number_of_initial_events, thread_mode).await?;

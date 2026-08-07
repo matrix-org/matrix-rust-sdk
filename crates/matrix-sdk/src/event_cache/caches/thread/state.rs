@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::HashSet;
+
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
     deserialized_responses::ThreadSummary,
-    event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
+    event_cache::{
+        Event, Gap,
+        store::{DEFAULT_CHUNK_CAPACITY, EventCacheStoreLockGuard},
+    },
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
@@ -647,6 +652,62 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             .expect("failed to remove an event");
 
         self.state.propagate_changes(&self.store).await
+    }
+
+    /// Remove all the events sent by the given users, in memory and in the
+    /// store.
+    ///
+    /// It returns the `VectorDiff`s to broadcast to the subscribers.
+    pub async fn remove_events_of_users(
+        &mut self,
+        users: &[OwnedUserId],
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        if users.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Gather the events that are currently in memory.
+        let mut in_memory_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        for (position, event) in self.thread_linked_chunk().events() {
+            if let Some(event_id) = event.event_id()
+                && let Some(sender) = event.sender()
+                && users.iter().any(|user| user.as_str() == sender.as_str())
+            {
+                in_memory_events.push((event_id.to_owned(), position));
+            }
+        }
+
+        // Gather the events that live only in the store.
+        let mut in_store_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        {
+            let in_memory_event_ids: HashSet<OwnedEventId> =
+                in_memory_events.iter().map(|(event_id, _)| event_id.clone()).collect();
+
+            let linked_chunk_id = LinkedChunkId::Thread(&self.state.room_id, &self.state.thread_id);
+            let all_chunks = self.store.load_all_chunks(linked_chunk_id).await?;
+
+            if let Some(linked_chunk) =
+                lazy_loader::from_all_chunks::<DEFAULT_CHUNK_CAPACITY, _, _>(all_chunks)?
+            {
+                for (position, event) in linked_chunk.items() {
+                    let Some(event_id) = event.event_id() else { continue };
+                    if in_memory_event_ids.contains(event_id) {
+                        // The event has already been dealt with by the in-memory removal.
+                        continue;
+                    }
+
+                    if let Some(sender) = event.sender()
+                        && users.iter().any(|user| user.as_str() == sender.as_str())
+                    {
+                        in_store_events.push((event_id.to_owned(), position));
+                    }
+                }
+            }
+        }
+
+        self.remove_events(in_memory_events, in_store_events).await?;
+
+        Ok(self.thread_linked_chunk_mut().updates_as_vector_diffs())
     }
 
     /// Automatically shrink the thread if there are no more subscribers, as
