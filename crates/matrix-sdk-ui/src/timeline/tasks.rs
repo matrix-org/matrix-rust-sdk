@@ -351,8 +351,9 @@ pub(in crate::timeline) async fn room_send_queue_update_task(
 pub(in crate::timeline) async fn rtc_membership_update_task(
     mut room_info: EyeballSubscriber<RoomInfo>,
     timeline_controller: TimelineController,
+    initial_call_info: Option<ActiveCallInfo>,
 ) {
-    let mut prev_info = None;
+    let mut prev_info = initial_call_info;
     let own_user = timeline_controller.room().own_user_id().to_owned();
 
     while let Some(info) = room_info.next().await {

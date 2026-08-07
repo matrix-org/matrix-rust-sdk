@@ -227,6 +227,12 @@ impl Span {
     }
 }
 
+impl Span {
+    pub(crate) fn inner(&self) -> &tracing::Span {
+        &self.0
+    }
+}
+
 #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy, uniffi::Enum)]
 pub enum LogLevel {
     Error,

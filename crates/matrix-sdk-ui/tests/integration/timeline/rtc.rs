@@ -288,6 +288,102 @@ async fn test_active_call_info() {
     assert!(active_members.contains(&ALICE.to_owned()));
 }
 
+// Leaving the room and coming back to it rebuilds a brand new `Timeline` out of
+// the event cache. The pre-existing `rtc.notification` item must still be
+// decorated with the active call info, and the call start timestamp must be the
+// one of the notification event, not something else.
+#[async_test]
+async fn test_active_call_info_is_restored_when_the_timeline_is_rebuilt() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let notification_event_id = event_id!("$notify");
+    let notification_timestamp = MilliSecondsSinceUnixEpoch::now();
+
+    let f = EventFactory::new();
+
+    {
+        // Enter the room a first time, and observe an active call.
+        let timeline = room.timeline().await.unwrap();
+        let (_, mut timeline_stream) = timeline.subscribe().await;
+
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(
+                        f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                            .set_livekit_focus(
+                                room_id.into(),
+                                "https://livekit.example.org".to_owned(),
+                            )
+                            .event_id(event_id!("$bob-joined")),
+                    )
+                    .add_timeline_event(
+                        f.rtc_notification(NotificationType::Ring)
+                            .sender(&BOB)
+                            .server_ts(notification_timestamp)
+                            .event_id(notification_event_id),
+                    ),
+            )
+            .await;
+
+        assert_let_timeout!(Some(_timeline_updates) = timeline_stream.next());
+
+        let items = timeline.items().await;
+        let notification = items.iter().filter_map(|item| item.as_event()).next().unwrap();
+        assert_let!(
+            TimelineItemContent::RtcNotification { active_call_info: Some(active_call_info), .. } =
+                notification.content()
+        );
+        assert!(active_call_info.active_members.contains(&BOB.to_owned()));
+        assert_eq!(active_call_info.call_started_ts_millis.unwrap(), notification_timestamp);
+
+        // the timeline is dropped here with closure.
+    }
+
+    // Come back to the room: a new timeline is built from the event cache.
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) = timeline.subscribe().await;
+
+    let items = timeline.items().await;
+    let notification = items.iter().filter_map(|item| item.as_event()).next().unwrap();
+    assert_eq!(notification.event_id().unwrap(), notification_event_id);
+
+    assert_let!(
+        TimelineItemContent::RtcNotification { active_call_info: Some(active_call_info), .. } =
+            notification.content()
+    );
+    assert!(active_call_info.active_members.contains(&BOB.to_owned()));
+    assert_eq!(active_call_info.call_started_ts_millis.unwrap(), notification_timestamp);
+
+    // Simulate call ending
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_event(
+                f.call_membership_state(BOB.to_owned(), "BOB_DEVICE".to_owned())
+                    .leave()
+                    .event_id(event_id!("$bob-left")),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(_timeline_updates) = timeline_stream.next());
+
+    let items = timeline.items().await;
+    let notification = items.iter().filter_map(|item| item.as_event()).next().unwrap();
+    assert_let!(
+        TimelineItemContent::RtcNotification { active_call_info: None, .. } =
+            notification.content()
+    );
+}
+
 // There is an order in which the initial events are sent, first the membership
 // event is sent, then the notification event is sent.
 // When the membership event is received this will trigger an active call info

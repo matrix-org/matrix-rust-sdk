@@ -261,6 +261,11 @@ impl WidgetDriver {
                                 file_data_base64,
                             })
                         }),
+
+                    MatrixDriverRequestData::GetRtcTransports => matrix_driver
+                        .get_rtc_transports()
+                        .await
+                        .map(MatrixDriverResponse::RtcTransportsReceived),
                 };
 
                 // Forward the Matrix driver response to the incoming message stream.
