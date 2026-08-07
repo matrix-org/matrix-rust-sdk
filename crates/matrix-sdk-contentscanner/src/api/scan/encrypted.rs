@@ -15,15 +15,19 @@
 use matrix_sdk::{RumaApiError, encryption::vodozemac::Curve25519PublicKey};
 use ruma::{
     api::{
-        BytesBody, Metadata, OutgoingRequest, auth_scheme::AccessTokenOptional,
+        Metadata, OutgoingBodyJson, OutgoingRequest, auth_scheme::AccessTokenOptional,
         error::IntoHttpError, path_builder::PathBuilder,
     },
     events::room::EncryptedFile,
     exports::http::Request,
     metadata,
 };
+use serde::Serialize;
 
-use crate::api::{encrypted_file_request_from, scan::MediaScanResponse};
+use crate::{
+    EncryptedFileRequest,
+    api::{encrypted_file_request_from, scan::MediaScanResponse},
+};
 
 metadata! {
     @for EncryptedMediaScanRequest,
@@ -54,8 +58,13 @@ impl EncryptedMediaScanRequest {
     }
 }
 
+#[doc(hidden)]
+#[derive(Serialize, OutgoingBodyJson)]
+#[serde(transparent)]
+pub struct RequestBody(EncryptedFileRequest);
+
 impl OutgoingRequest for EncryptedMediaScanRequest {
-    type Body = BytesBody;
+    type Body = RequestBody;
     type EndpointError = RumaApiError;
     type IncomingResponse = MediaScanResponse;
 
@@ -65,10 +74,7 @@ impl OutgoingRequest for EncryptedMediaScanRequest {
         path_builder_input: <Self::PathBuilder as PathBuilder>::Input<'_>,
     ) -> Result<Request<Self::Body>, IntoHttpError> {
         let url = Self::make_endpoint_url(path_builder_input, &self.scanner_url, &[], "")?;
-
         let body = encrypted_file_request_from(self.public_key, &self.encrypted_file)?;
-        let body = BytesBody(ruma::serde::json_to_buf(&body)?);
-
-        Ok(Request::builder().method(Self::METHOD).uri(url).body(body)?)
+        Ok(Request::builder().method(Self::METHOD).uri(url).body(RequestBody(body))?)
     }
 }
