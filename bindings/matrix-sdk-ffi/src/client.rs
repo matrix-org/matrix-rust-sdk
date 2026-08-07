@@ -1602,7 +1602,7 @@ impl Client {
     /// server. However, if the `Client` has been built from a server URL or
     /// name, then the homeserver has been discovered, and we know both.
     pub fn server(&self) -> Option<String> {
-        self.inner.server().map(ToString::to_string)
+        self.inner.server().map(|s| s.to_string())
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
