@@ -80,6 +80,7 @@ use std::{
 
 use futures_util::FutureExt;
 use tokio::sync::broadcast;
+use tracing::{Instrument, Span};
 
 use crate::{
     SendOutsideWasm,
@@ -333,7 +334,8 @@ impl TaskMonitor {
 
             // Forward failure to observers (ignore if there's none).
             let _ = failure_sender.send(failure);
-        };
+        }
+        .instrument(Span::current());
 
         let join_handle = spawn(wrapped);
         let abort_handle = join_handle.abort_handle();
@@ -409,7 +411,8 @@ impl TaskMonitor {
             // Send failure (ignore if no receivers).
             let _ = failure_sender
                 .send(BackgroundTaskFailure { task: task_info, reason: failure_reason });
-        };
+        }
+        .instrument(Span::current());
 
         let join_handle = spawn(wrapped);
         let abort_handle = join_handle.abort_handle();

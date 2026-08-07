@@ -235,6 +235,10 @@ impl LatestEvent {
                 // If at least one is `None`, yes.
                 (_, LatestEventValue::None) | (LatestEventValue::None, _) => true,
 
+                // The new value has no event ID if it's a local echo. Let's always
+                // update so the newer ones move to the top.
+                (_, new) if new.event_id().is_none() => true,
+
                 // If the event IDs are identical, no.
                 (previous, new) if previous.event_id() == new.event_id() => false,
 
@@ -465,6 +469,41 @@ mod tests_latest_event {
         // Set a non-`None` value.
         latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
         // We get it. Oof.
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_updates_do_not_ignore_local_values() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let mut stream = latest_event.subscribe().await;
+        assert_pending!(stream);
+
+        // A local event is being sent.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // A second local event is not ignored
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // The send queue is wedged but even that shouldn't be ignored.
+        latest_event.update(LatestEventValue::LocalCannotBeSent(local_room_message("bar"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalCannotBeSent(_));
+
+        // Not when it's retrying either
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
         assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
 
         assert_pending!(stream);

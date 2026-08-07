@@ -78,8 +78,7 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, SecondsSinceUnixEpoch,
-    ServerName,
+    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
     api::{
         FeatureFlag,
         client::{
@@ -2144,11 +2143,21 @@ impl Client {
     }
 
     /// Checks if the server supports the LiveKit RTC focus for placing calls.
-    pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
+    ///
+    /// Transports are discovered through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
+    /// homeserver doesn't implement it and `fallback_to_well_known` is `true`,
+    /// then the well-known will be queried.
+    #[uniffi::method(default(fallback_to_well_known = false))]
+    pub async fn is_livekit_rtc_supported(
+        &self,
+        fallback_to_well_known: bool,
+    ) -> Result<bool, ClientError> {
         let transports = match self.inner.rtc_transports().await? {
             Some(transports) => transports,
-            // discovery not supported, fallback to well-known
-            None => self.inner.well_known_rtc_transports().await?,
+            // discovery not supported, fallback to well-known if allowed
+            None if fallback_to_well_known => self.inner.well_known_rtc_transports().await?,
+            None => return Ok(false),
         };
         Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
     }
@@ -2645,25 +2654,10 @@ impl Client {
         Ok(())
     }
 
-    /// Set the current user's call indicator (MSC4426 `m.call` profile field).
-    ///
-    /// Presence of a value indicates the user is in a call. The optional
-    /// `call_joined_ts` on [`UserCall`] carries the Unix-epoch seconds when
-    /// the user joined the call, if known. Use [`Self::clear_call_status`] to
-    /// remove it when the call ends.
-    pub async fn set_call_status(&self, call: UserCall) -> Result<(), ClientError> {
-        let call_joined_ts = call
-            .call_joined_ts
-            .map(|secs| SecondsSinceUnixEpoch(UInt::try_from(secs).unwrap_or_default()));
-        self.inner.account().set_call(call_joined_ts).await?;
-        Ok(())
-    }
-
-    /// Clear the current user's call indicator (MSC4426 `m.call` profile
-    /// field).
-    pub async fn clear_call_status(&self) -> Result<(), ClientError> {
-        self.inner.account().clear_call().await?;
-        Ok(())
+    /// Enable or disable automatic mirroring of this device's MatrixRTC
+    /// participation into the MSC4426 `m.call` profile field.
+    pub fn enable_automatic_call_status(&self, enabled: bool) {
+        self.inner.enable_automatic_call_status(enabled);
     }
 }
 

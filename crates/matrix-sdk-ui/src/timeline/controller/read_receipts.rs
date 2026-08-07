@@ -48,6 +48,24 @@ pub(super) struct ReadReceipts {
     own_user_read_receipts_changed_sender: watch::Sender<()>,
 }
 
+/// Whether to take local-only *implicit* read receipts into account when
+/// looking up a user's latest read receipt.
+///
+/// Implicit receipts are placed on the user's own events (see
+/// `maybe_add_implicit_read_receipt`) to keep the local notification count in
+/// sync, but they're never sent to the homeserver. They must be excluded when
+/// deciding whether an explicit receipt still needs to be sent, otherwise
+/// we'd skip sending one and the server would never recompute the push/badge
+/// count.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum ImplicitReadReceipts {
+    /// Consider implicit read receipts (reads from the in-memory cache).
+    Include,
+    /// Ignore implicit read receipts (only considers receipts persisted to the
+    /// store).
+    Exclude,
+}
+
 impl ReadReceipts {
     /// Empty the caches.
     pub(super) fn clear(&mut self) {
@@ -806,6 +824,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         user_id: &UserId,
         receipt_thread: ReceiptThread,
         room_data_provider: &P,
+        implicit_receipts: ImplicitReadReceipts,
     ) -> Option<(OwnedEventId, Receipt)> {
         let all_remote_events = self.items.all_remote_events();
 
@@ -817,6 +836,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 receipt_thread.clone(),
                 room_data_provider,
                 all_remote_events,
+                implicit_receipts,
             )
             .await;
 
@@ -828,6 +848,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
                 receipt_thread,
                 room_data_provider,
                 all_remote_events,
+                implicit_receipts,
             )
             .await;
 
@@ -899,8 +920,11 @@ impl TimelineMetadata {
         receipt_thread: ReceiptThread,
         room_data_provider: &P,
         all_remote_events: &AllRemoteEvents,
+        implicit_receipts: ImplicitReadReceipts,
     ) -> Option<(OwnedEventId, Receipt)> {
-        if let Some(receipt) = self.read_receipts.get_latest(user_id, &receipt_type) {
+        if implicit_receipts == ImplicitReadReceipts::Include // Only check the in-memory cache when implicit receipts are included.
+            && let Some(receipt) = self.read_receipts.get_latest(user_id, &receipt_type)
+        {
             // Since it is in the timeline, it should be the most recent.
             return Some(receipt.clone());
         }
