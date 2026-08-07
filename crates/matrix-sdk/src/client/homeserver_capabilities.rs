@@ -159,7 +159,7 @@ impl HomeserverCapabilities {
         };
 
         // Spawn a task to refresh the cache if it has expired.
-        if value.has_expired() {
+        if value.has_expired(self.client.discovery_cache_timeout(), self.client.clock()) {
             debug!("spawning task to refresh homeserver capabilities cache");
 
             let homeserver_capabilities = self.clone();
@@ -218,7 +218,8 @@ impl HomeserverCapabilities {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = capabilities_cache.value()
-                    && !value.has_expired()
+                    && !value
+                        .has_expired(self.client.discovery_cache_timeout(), self.client.clock())
                 {
                     return Ok(value.into_data());
                 }
@@ -422,7 +423,7 @@ mod tests {
 
         // We wait for the task to finish, the endpoint should have been called again.
         sleep(Duration::from_secs(1)).await;
-        assert_matches!(client.inner.caches.homeserver_capabilities.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.homeserver_capabilities.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
     }
 
     #[async_test]

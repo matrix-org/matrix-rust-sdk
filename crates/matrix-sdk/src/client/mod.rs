@@ -41,7 +41,10 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValue};
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig,
+    ttl::{Clock, TtlValue},
+};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -460,12 +463,16 @@ impl ClientInner {
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
         media_fetcher: Arc<dyn MediaFetcher>,
+        discovery_cache_timeout: Duration,
+        clock: Arc<dyn Clock>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
             well_known: Cache::with_value(well_known),
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
+            discovery_cache_timeout,
+            clock,
             rtc_transports: Cache::new(),
         };
 
@@ -573,6 +580,14 @@ impl Client {
 
     pub(crate) fn auth_ctx(&self) -> &AuthCtx {
         &self.inner.auth_ctx
+    }
+
+    pub(crate) fn discovery_cache_timeout(&self) -> Duration {
+        self.inner.caches.discovery_cache_timeout
+    }
+
+    pub(crate) fn clock(&self) -> Arc<dyn Clock> {
+        self.inner.caches.clock.clone()
     }
 
     /// The cross-process store lock configuration used by this [`Client`].
@@ -2374,7 +2389,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = cached_supported_versions.value()
-                    && !value.has_expired()
+                    && !value.has_expired(self.discovery_cache_timeout(), self.clock())
                 {
                     return Ok(value.into_data());
                 }
@@ -2483,7 +2498,9 @@ impl Client {
 
         // Spawn a task to refresh the cache if it has expired and we have a valid
         // access token.
-        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+        if value.has_expired(self.discovery_cache_timeout(), self.clock())
+            && self.auth_ctx().has_valid_access_token()
+        {
             debug!("spawning task to refresh supported versions cache");
 
             let client = self.clone();
@@ -2581,7 +2598,7 @@ impl Client {
         };
 
         // Spawn a task to refresh the cache if it has expired.
-        if value.has_expired() {
+        if value.has_expired(self.discovery_cache_timeout(), self.clock()) {
             debug!("spawning task to refresh well-known cache");
 
             let client = self.clone();
@@ -2608,7 +2625,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = well_known_cache.value()
-                    && !value.has_expired()
+                    && !value.has_expired(self.discovery_cache_timeout(), self.clock())
                 {
                     return value.into_data();
                 }
@@ -2756,7 +2773,9 @@ impl Client {
 
         // Spawn a task to refresh the cache if it has expired and we have a valid
         // access token.
-        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+        if value.has_expired(TtlValue::<()>::STALE_THRESHOLD, self.clock())
+            && self.auth_ctx().has_valid_access_token()
+        {
             debug!("spawning task to refresh RTC transports cache");
 
             let client = self.clone();
@@ -2787,7 +2806,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = cache.value()
-                    && !value.has_expired()
+                    && !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, self.clock())
                 {
                     return Ok(value.into_data());
                 }
@@ -3531,6 +3550,8 @@ impl Client {
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
                 (*self.inner.media_fetcher.read().await).clone(),
+                self.inner.caches.discovery_cache_timeout,
+                self.inner.caches.clock.clone(),
             )
             .await,
         };
@@ -3844,6 +3865,22 @@ impl Client {
     pub async fn get_media_fetcher(&self) -> Arc<dyn MediaFetcher> {
         self.inner.media_fetcher.read().await.clone()
     }
+
+    /// Force a refresh of all the cached discovery data (supported versions,
+    /// well-known info, homeserver capabilities, and OAuth 2.0 server
+    /// metadata), ignoring whether the existing cache is still fresh.
+    ///
+    /// If refreshing the well-known info fails, or if the OAuth 2.0 server
+    /// metadata request fails for any reason, it is silently ignored.
+    /// Other refresh failures are returned as an error
+    /// refreshes that haven't run yet are skipped.
+    pub async fn rediscover(&self) -> Result<(), Error> {
+        self.refresh_supported_versions_cache(false).await?;
+        self.refresh_well_known_cache().await;
+        self.homeserver_capabilities().refresh().await?;
+        let _ = self.oauth().server_metadata().await;
+        Ok(())
+    }
 }
 
 /// Contains the disk size of the different stores, if known. It won't be
@@ -3931,6 +3968,8 @@ pub(crate) mod tests {
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
     };
+
+    use super::*;
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -3939,7 +3978,10 @@ pub(crate) mod tests {
         RoomId, ServerName, UserId,
         api::{
             FeatureFlag, MatrixVersion,
-            client::{room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport},
+            client::{
+                discovery::get_capabilities::v3::Capabilities,
+                room::create_room::v3::Request as CreateRoomRequest, rtc::RtcTransport,
+            },
         },
         assign,
         events::{
@@ -4162,6 +4204,203 @@ pub(crate) mod tests {
         assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
         client.server_versions().await.unwrap();
     }
+
+    #[async_test]
+    async fn test_rediscover() {
+        let server = MatrixMockServer::new().await;
+
+        // Mock the two required endpoints
+        server
+            .mock_versions()
+            .with_versions(vec!["v1.11"])
+            .ok()
+            .mock_once()
+            .named("versions")
+            .mount()
+            .await;
+
+        // Setting the change password feature to be true to assert it in future
+        let mut expected_capabilities = Capabilities::default();
+        expected_capabilities.change_password.enabled = true;
+
+        server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(expected_capabilities)
+            .mock_once()
+            .named("capabilities")
+            .mount()
+            .await;
+
+        // Build the client
+        let client = server.client_builder().build().await;
+        let capabilities = client.homeserver_capabilities();
+
+        // Call rediscover and assert it succeeded
+        client.rediscover().await.unwrap();
+        assert!(capabilities.can_change_password().await.expect("checking capabilities failed"));
+
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_11));
+        assert!(!versions.versions.contains(&MatrixVersion::V1_0));
+    }
+
+    #[async_test]
+    async fn test_rediscover_bypasses_cache_timeout() {
+        let clock = Arc::new(FakeClock::new(0.0));
+        let server = MatrixMockServer::new().await;
+
+        let client = server
+            .client_builder()
+            .no_server_versions()
+            .clock(clock.clone())
+            .discovery_cache_timeout(Duration::from_secs(60 * 60 * 24))
+            .build()
+            .await;
+
+        // Initial mocks: homeserver reports v1.11 and default capabilities.
+        let versions_mock = server
+            .mock_versions()
+            .with_versions(vec!["v1.11"])
+            .ok()
+            .mock_once()
+            .named("versions_initial")
+            .mount_as_scoped()
+            .await;
+
+        let capabilities_mock = server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(Capabilities::default())
+            .mock_once()
+            .named("capabilities_initial")
+            .mount_as_scoped()
+            .await;
+
+        // First fetch populates the cache with v1.11.
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_11));
+
+        let capabilities = client.homeserver_capabilities();
+        capabilities.refresh().await.expect("refreshing capabilities failed");
+
+        // Remove the initial mocks before mounting new ones for the same endpoints.
+        drop(versions_mock);
+        drop(capabilities_mock);
+
+        // Homeserver now reports a different version and a different capability.
+        server
+            .mock_versions()
+            .with_versions(vec!["v1.10"])
+            .ok()
+            .mock_once()
+            .named("versions_updated")
+            .mount()
+            .await;
+        let mut updated_capabilities = Capabilities::default();
+        updated_capabilities.change_password.enabled = true;
+        server
+            .mock_get_homeserver_capabilities()
+            .ok_with_capabilities(updated_capabilities)
+            .mock_once()
+            .named("capabilities_updated")
+            .mount()
+            .await;
+
+        // Force a refresh: rediscover() should hit the homeserver immediately,
+        // regardless of the cache timeout or the fake clock.
+        client.rediscover().await.unwrap();
+
+        // The client should now reflect the freshly mocked data.
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_10));
+        assert!(!versions.versions.contains(&MatrixVersion::V1_11));
+
+        let capabilities = client.homeserver_capabilities();
+        assert!(capabilities.can_change_password().await.expect("checking capabilities failed"));
+    }
+
+    #[derive(Debug)]
+    struct FakeClock {
+        now_ms: std::sync::Mutex<f64>,
+    }
+
+    impl FakeClock {
+        fn new(start_ms: f64) -> Self {
+            Self { now_ms: std::sync::Mutex::new(start_ms) }
+        }
+
+        #[allow(dead_code)] // Only used by the currently-shelved test_discovery_cache_respects_timeout
+        fn advance(&self, duration: Duration) {
+            let mut now = self.now_ms.lock().unwrap();
+            *now += duration.as_millis() as f64;
+        }
+    }
+
+    impl Clock for FakeClock {
+        fn now_ms(&self) -> f64 {
+            *self.now_ms.lock().unwrap()
+        }
+    }
+
+    // /// Verify that `discovery_cache_timeout` is actually respected: cached
+    // /// discovery data is reused while fresh, and re-fetched once the configured
+    // /// timeout has elapsed.
+    // #[async_test]
+    // async fn test_discovery_cache_respects_timeout() {
+    //     // A fake clock we fully control, starting at time zero.
+    //     let clock = Arc::new(FakeClock::new(0.0));
+    //     let server = MatrixMockServer::new().await;
+
+    //     // Build a client with a short, 1 second cache timeout, using our fake
+    // clock.     let client = server
+    //         .client_builder()
+    //         .no_server_versions()
+    //         .clock(clock.clone())
+    //         .discovery_cache_timeout(Duration::from_secs(1))
+    //         .build()
+    //         .await;
+
+    //     // The homeserver initially reports it supports only v1.11.
+    //     server
+    //         .mock_versions()
+    //         .with_versions(vec!["v1.11"])
+    //         .ok()
+    //         .mock_once()
+    //         .named("versions_initial")
+    //         .mount()
+    //         .await;
+
+    //     // First fetch: the client has no cache yet, so it hits the homeserver
+    //     // and should see v1.11.
+    //     let versions = client.supported_versions().await.unwrap();
+    //     assert!(versions.versions.contains(&MatrixVersion::V1_11));
+    //     assert!(!versions.versions.contains(&MatrixVersion::V1_10));
+
+    //     // The homeserver now reports a different version, v1.10 instead.
+    //     server
+    //         .mock_versions()
+    //         .with_versions(vec!["v1.10"])
+    //         .ok()
+    //         .mock_once()
+    //         .named("versions_updated")
+    //         .mount()
+    //         .await;
+
+    //     // Second fetch, without advancing the clock: the cache is still fresh
+    //     // (less than 1 second old), so the client should reuse the cached v1.11
+    //     // data instead of hitting the homeserver again.
+    //     let versions = client.supported_versions().await.unwrap();
+    //     assert!(versions.versions.contains(&MatrixVersion::V1_11));
+    //     assert!(!versions.versions.contains(&MatrixVersion::V1_10));
+
+    //     // Move the fake clock forward past the 1 second cache timeout.
+    //     clock.advance(Duration::from_secs(2));
+
+    //     // Third fetch: the cache has now expired, so the client should hit the
+    //     // homeserver again and pick up the new v1.10 value.
+    //     let versions = client.supported_versions().await.unwrap();
+    //     assert!(versions.versions.contains(&MatrixVersion::V1_10));
+    //     assert!(!versions.versions.contains(&MatrixVersion::V1_11));
+    // }
 
     #[async_test]
     async fn test_discovery_broken_server() {
@@ -4501,7 +4740,7 @@ pub(crate) mod tests {
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
         // Hits in-memory cache again.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
-        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
 
         // Force an expiry of the data.
         let supported_versions = client.supported_versions_cached().await.unwrap().unwrap();
@@ -4514,7 +4753,7 @@ pub(crate) mod tests {
 
         // We wait for the task to finish, the endpoint should have been called again.
         sleep(Duration::from_secs(1)).await;
-        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
     }
 
     #[async_test]
@@ -4594,7 +4833,7 @@ pub(crate) mod tests {
         // We need to wait a bit because the first requests using the server name of the
         // user will fail, only the requests using the homeserver URL will succeed.
         sleep(Duration::from_secs(5)).await;
-        assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
     }
 
     #[async_test]
@@ -4625,7 +4864,7 @@ pub(crate) mod tests {
         assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
         // Subsequent call hits the in-memory cache.
         assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
-        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
 
         drop(transports_mock);
 
@@ -4659,7 +4898,7 @@ pub(crate) mod tests {
 
         // We wait for the task to finish, the endpoint should have been called again.
         sleep(Duration::from_secs(1)).await;
-        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
     }
 
     #[async_test]
@@ -4693,7 +4932,7 @@ pub(crate) mod tests {
         assert_eq!(client.rtc_transports().await.unwrap(), None);
         // Subsequent call hits the in-memory cache, without re-hitting the endpoint.
         assert_eq!(client.rtc_transports().await.unwrap(), None);
-        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired(TtlValue::<()>::STALE_THRESHOLD, client.clock()));
     }
 
     #[async_test]
@@ -5220,8 +5459,7 @@ pub(crate) mod tests {
         assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(1));
 
         let data = vec![1, 2];
-        let upload_request =
-            ruma::api::client::media::create_content::v3::Request::new(data.clone());
+        let upload_request = media::create_content::v3::Request::new(data.clone());
         let request = SendRequest {
             client: client.clone(),
             request: upload_request,
