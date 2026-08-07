@@ -468,6 +468,10 @@ pub mod v7 {
         // and remove the index that used to track position information.
         pub const EVENTS_KEY_PATH: &str = "position";
 
+        // Add a new index that will track the event id of an event
+        pub const EVENTS_EVENT_ID: &str = "events_event_id";
+        pub const EVENTS_EVENT_ID_KEY_PATH: &str = "event_id";
+
         // Add a new index that will track the linked chunk id and event id
         // of an event.
         pub const EVENTS_LINKED_CHUNK_ID: &str = "events_linked_chunk_id";
@@ -493,15 +497,21 @@ pub mod v7 {
     /// Update the events object store, so that the position of an event becomes
     /// the primary key of the object store.
     ///
-    /// Furthermore, turn the previous primary key, `id`, into an index. It
-    /// continues to track the same information that it did previously -
-    /// i.e., linked chunk id and event id of an event.
-    ///
     /// The primary purpose of this modification is to allow a single event to
     /// occupy multiple positions in a linked chunk. Prior to this change,
     /// the primary key was based on the linked chunk id and the event id,
     /// which enforced that an event could only occur once per linked chunk
     /// and, therefore, occupy only a single position.
+    ///
+    /// Furthermore, two new indices have been added.
+    ///
+    /// 1. `event_id` - tracks the event id of an event
+    /// 2. `linked_chunk_id` - tracks the linked chunk id and event id of an
+    ///    event. This is identical to the previous primary key, `id`.
+    ///
+    /// The first index allows finding all instances of an event across all
+    /// linked chunks and the second index allows finding all instances of
+    /// an event in a single linked chunk or room.
     ///
     /// Note that this operation removes the existing events object store and
     /// all of its contents.
@@ -527,6 +537,7 @@ pub mod v7 {
     ///
     /// * Primary Key - `position` - tracks position of an event in linked
     ///   chunks
+    /// * Index - `event_id` - tracks event id of an event
     /// * Index - `linked_chunk_id` - tracks linked chunk id and event id of an
     ///   event
     /// * Index - `room` - tracks whether an event is in a given room
@@ -536,6 +547,9 @@ pub mod v7 {
         let events = db
             .create_object_store(keys::EVENTS)
             .with_key_path(keys::EVENTS_KEY_PATH.into())
+            .build()?;
+        let _ = events
+            .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
             .build()?;
         let _ = events
             .create_index(

@@ -317,6 +317,9 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for Index
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEvent {
+    /// An indexed key on the object store, which represents the event id of the
+    /// event.
+    pub event_id: IndexedEventEventIdKey,
     /// An indexed key on the object store, which represents the linked chunk id
     /// and event id of the event.
     pub linked_chunk_id: IndexedEventLinkedChunkIdKey,
@@ -371,6 +374,7 @@ impl Indexed for Event {
             )
         });
         Ok(IndexedEvent {
+            event_id: IndexedEventEventIdKey::encode(event_id, serializer),
             linked_chunk_id,
             room,
             position,
@@ -384,6 +388,26 @@ impl Indexed for Event {
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self, Self::Error> {
         serializer.maybe_decrypt_value(indexed.content).map_err(Into::into)
+    }
+}
+
+/// The value associated with the [`event_id`](IndexedEvent::event_id) index of
+/// the [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed Event ID.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedEventEventIdKey(IndexedEventId);
+
+impl IndexedKey<Event> for IndexedEventEventIdKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_EVENT_ID);
+
+    type KeyComponents<'a> = &'a EventId;
+
+    fn encode(event_id: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
+        let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+        Self(event_id)
     }
 }
 

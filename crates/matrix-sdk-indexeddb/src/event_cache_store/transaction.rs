@@ -26,11 +26,10 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent,
-            IndexedEventLinkedChunkIdKey, IndexedEventPositionKey,
-            IndexedEventPositionKeyComponents, IndexedEventRelationKey, IndexedEventRoomKey,
-            IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
-            IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventLinkedChunkIdKey,
+            IndexedEventPositionKey, IndexedEventPositionKeyComponents, IndexedEventRelationKey,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
+            IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -439,8 +438,9 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// the intermediary type [`IndexedEvent`] in case inspection
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        let existing =
-            self.get_event_by_linked_chunk_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
+        let existing = self
+            .get_event_by_linked_chunk_id(event.linked_chunk_id(), event.event_id().unwrap())
+            .await?;
         if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
             self.put_event(event).await
         } else {
