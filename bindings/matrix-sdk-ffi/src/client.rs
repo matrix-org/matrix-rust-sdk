@@ -2143,19 +2143,11 @@ impl Client {
     ///
     /// Transports are discovered through the authenticated
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
-    /// homeserver doesn't implement it and `fallback_to_well_known` is `true`,
-    /// then the well-known will be queried.
-    #[uniffi::method(default(fallback_to_well_known = false))]
-    pub async fn is_livekit_rtc_supported(
-        &self,
-        fallback_to_well_known: bool,
-    ) -> Result<bool, ClientError> {
-        let transports = match self.inner.rtc_transports().await? {
-            Some(transports) => transports,
-            // discovery not supported, fallback to well-known if allowed
-            None if fallback_to_well_known => self.inner.well_known_rtc_transports().await?,
-            None => return Ok(false),
-        };
+    /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
+    /// a fallback, unless well-known discovery was disabled with
+    /// `ClientBuilder::disable_well_known_lookup`.
+    pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
+        let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
         Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
     }
 

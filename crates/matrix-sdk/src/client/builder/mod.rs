@@ -123,6 +123,7 @@ pub struct ClientBuilder {
     store_config: BuilderStoreConfig,
     request_config: RequestConfig,
     respect_login_well_known: bool,
+    well_known_lookup_disabled: bool,
     server_versions: Option<BTreeSet<MatrixVersion>>,
     handle_refresh_tokens: bool,
     base_client: Option<BaseClient>,
@@ -161,6 +162,7 @@ impl ClientBuilder {
             )),
             request_config: Default::default(),
             respect_login_well_known: true,
+            well_known_lookup_disabled: false,
             server_versions: None,
             handle_refresh_tokens: false,
             base_client: None,
@@ -361,6 +363,23 @@ impl ClientBuilder {
     /// present in the login response, if any.
     pub fn respect_login_well_known(mut self, value: bool) -> Self {
         self.respect_login_well_known = value;
+        self
+    }
+
+    /// Disable all the `.well-known/matrix/client` lookups performed by the
+    /// built [`Client`].
+    ///
+    /// Note that this doesn't affect the homeserver lookup performed by
+    /// [`ClientBuilder::server_name`] and
+    /// [`ClientBuilder::server_name_or_homeserver_url`], which happens before
+    /// the client is built. Use [`ClientBuilder::homeserver_url`] to avoid
+    /// that lookup too.
+    ///
+    /// [`Client::discover_rtc_transports`]: crate::Client::discover_rtc_transports
+    /// [`Client::tile_server`]: crate::Client::tile_server
+    /// [`Client::well_known_rtc_transports`]: crate::Client::well_known_rtc_transports
+    pub fn disable_well_known_lookup(mut self, disable: bool) -> Self {
+        self.well_known_lookup_disabled = disable;
         self
     }
 
@@ -690,6 +709,7 @@ impl ClientBuilder {
             supported_versions,
             well_known,
             self.respect_login_well_known,
+            self.well_known_lookup_disabled,
             event_cache,
             send_queue,
             latest_events,

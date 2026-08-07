@@ -360,6 +360,11 @@ pub(crate) struct ClientInner {
     /// information present in the login response.
     respect_login_well_known: bool,
 
+    /// Whether all the `.well-known/matrix/client` lookups are disabled.
+    ///
+    /// See [`ClientBuilder::disable_well_known_lookup`].
+    well_known_lookup_disabled: bool,
+
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -451,6 +456,7 @@ impl ClientInner {
         supported_versions: CachedValue<TtlValue<SupportedVersions>>,
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
         respect_login_well_known: bool,
+        well_known_lookup_disabled: bool,
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
         latest_events: OnceCell<LatestEvents>,
@@ -488,6 +494,7 @@ impl ClientInner {
             // ballast for all observers to catch up.
             room_updates_sender: broadcast::Sender::new(32),
             respect_login_well_known,
+            well_known_lookup_disabled,
             sync_beat: event_listener::Event::new(),
             event_cache,
             send_queue_data: send_queue,
@@ -2638,7 +2645,14 @@ impl Client {
 
     /// Get the well-known file of the homeserver by fetching it from the server
     /// or the cache.
+    ///
+    /// Always returns `None` if well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     async fn well_known(&self) -> Option<WellKnownResponse> {
+        if self.inner.well_known_lookup_disabled {
+            return None;
+        }
+
         match self.well_known_cached().await {
             Ok(CachedValue::Cached(value)) => {
                 return value;
@@ -2657,6 +2671,9 @@ impl Client {
 
     /// Get information about the homeserver's advertised RTC transports by
     /// fetching the well-known file from the server or the cache.
+    ///
+    /// Returns an empty list if well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     #[deprecated = "Use `Client::rtc_transports` instead"]
     pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
         self.well_known_rtc_transports().await
@@ -2669,6 +2686,9 @@ impl Client {
     /// which fetches the RTC transports advertised by the homeserver
     /// through the authenticated `GET /_matrix/client/v1/rtc/transports`
     /// endpoint.
+    ///
+    /// Returns an empty list if well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     ///
     /// # Examples
     /// ```no_run
@@ -2699,42 +2719,7 @@ impl Client {
     /// The transports are discovered through the authenticated
     /// `GET /_matrix/client/v1/rtc/transports` endpoint
     /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
-    ///
-    /// The result is cached in memory for a day. Use
-    /// [`Client::fetch_rtc_transports`] to bypass the cache, or
-    /// [`Client::reset_rtc_transports`] to clear it.
-    ///
-    /// Returns:
-    /// - `Ok(Some(transports))` if the homeserver supports the endpoint (the
-    ///   list may be empty if the homeserver advertises no transports),
-    /// - `Ok(None)` if the homeserver doesn't implement the endpoint (this is
-    ///   also cached, so the endpoint isn't hit on every call). Callers may
-    ///   want to fall back to [`Client::well_known_rtc_transports`] (the
-    ///   well-known foci) in this case,
-    /// - `Err(_)` on a transient error (not cached).
-    ///
-    /// # Examples
-    /// ```no_run
-    /// # use matrix_sdk::{Client, ruma::api::client::rtc::RtcTransport};
-    /// # use url::Url;
-    /// # async {
-    /// # let homeserver = Url::parse("http://localhost:8080")?;
-    /// let client = Client::new(homeserver).await?;
-    /// // The endpoint is authenticated, so the client must be logged in.
-    /// client.matrix_auth().login_username("example", "password").send().await?;
-    ///
-    /// let transports = match client.rtc_transports().await? {
-    ///     Some(transports) => transports,
-    ///     // The homeserver doesn't support the discovery endpoint; fall back
-    ///     // to the RTC foci advertised in the well-known.
-    ///     None => client.well_known_rtc_transports().await?,
-    /// };
-    /// for transport in transports {
-    ///     println!("transport type: {}", transport.transport_type());
-    /// }
-    /// # anyhow::Ok(()) };
-    /// ```
-    pub async fn rtc_transports(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+    async fn rtc_transports(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
         match self.rtc_transports_cached() {
             CachedValue::Cached(value) => Ok(value),
             // The cache is empty, make a request.
@@ -2841,11 +2826,53 @@ impl Client {
         self.inner.caches.rtc_transports.reset();
     }
 
+    /// Discover the RTC transports advertised by the homeserver.
+    ///
+    /// The transports are first looked up through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint
+    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)),
+    /// see [`Client::rtc_transports`]. If the homeserver doesn't implement
+    /// that endpoint, this falls back to the `m.rtc_foci` field of the
+    /// well-known, see [`Client::well_known_rtc_transports`] — unless
+    /// well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
+    ///
+    /// Returns `None` if neither source could provide transports, which is
+    /// kept distinct from `Some(vec![])`, i.e. a homeserver that advertises no
+    /// transports at all.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// for transport in client.discover_rtc_transports().await?.unwrap_or_default()
+    /// {
+    ///     println!("transport type: {}", transport.transport_type());
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn discover_rtc_transports(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+        if let Some(transports) = self.rtc_transports().await? {
+            return Ok(Some(transports));
+        }
+
+        // The homeserver doesn't implement the discovery endpoint or does not expose
+        // any transports, fall back to the well-known foci.
+        // `well_known` returns `None` when well-known discovery is
+        // disabled, which correctly collapses into "nothing was discovered".
+        Ok(self.well_known().await.map(|well_known| well_known.rtc_foci))
+    }
+
     /// Get information about the homeserver's advertised map tile server, if
     /// any, by fetching the well-known file from the server or the cache.
     ///
     /// Returns `None` if the homeserver has not advertised a tile server in its
-    /// well-known, or if the well-known is otherwise unavailable.
+    /// well-known, or if the well-known is otherwise unavailable — including
+    /// when well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     pub async fn tile_server(&self) -> Option<TileServerInfo> {
         self.well_known().await.and_then(|well_known| well_known.tile_server).map(Into::into)
     }
@@ -3519,6 +3546,7 @@ impl Client {
                 self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.value(),
                 self.inner.respect_login_well_known,
+                self.inner.well_known_lookup_disabled,
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
@@ -4694,6 +4722,116 @@ pub(crate) mod tests {
         // Subsequent call hits the in-memory cache, without re-hitting the endpoint.
         assert_eq!(client.rtc_transports().await.unwrap(), None);
         assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+    }
+
+    /// Mounts a scoped mock for the MSC4143 RTC transports endpoint, either
+    /// advertising a single LiveKit transport, or responding with the
+    /// `M_UNRECOGNIZED` error of a homeserver that doesn't implement it.
+    async fn mock_rtc_transports_endpoint(
+        server: &MatrixMockServer,
+        supported: bool,
+    ) -> wiremock::MockGuard {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+
+        let response = if supported {
+            ResponseTemplate::new(200).set_body_json(json!({
+                "rtc_transports": [
+                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                ]
+            }))
+        } else {
+            ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_UNRECOGNIZED",
+                "error": "Unrecognized request",
+            }))
+        };
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(response)
+            .named("transports mock")
+            .expect(1)
+            .mount_as_scoped(server.server())
+            .await
+    }
+
+    #[async_test]
+    async fn test_discover_rtc_transports_prefers_the_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let transports = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
+
+        // The homeserver implements the discovery endpoint, so the well-known must not
+        // be queried at all.
+        let _well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well-known mock")
+            .expect(0)
+            .mount_as_scoped()
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(transports));
+    }
+
+    #[async_test]
+    async fn test_discover_rtc_transports_falls_back_to_well_known() {
+        let server = MatrixMockServer::new().await;
+        // The `m.rtc_foci` advertised by `WellKnownEndpoint::ok`.
+        let rtc_foci = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+
+        let _well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well-known mock")
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        // The homeserver doesn't implement the discovery endpoint, so the well-known
+        // foci are used instead.
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(rtc_foci));
+    }
+
+    #[async_test]
+    async fn test_discover_rtc_transports_with_well_known_lookup_disabled() {
+        let server = MatrixMockServer::new().await;
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+
+        // This is the whole point of `disable_well_known_lookup`: not a single
+        // request must be made to the well-known URI.
+        let _well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well-known mock")
+            .expect(0)
+            .mount_as_scoped()
+            .await;
+
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.disable_well_known_lookup(true))
+            .build()
+            .await;
+
+        // The homeserver doesn't implement the discovery endpoint, and falling back to
+        // the well-known isn't allowed, so nothing could be discovered.
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
+
+        // The other well-known consumers are disabled too.
+        assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
+        assert!(client.tile_server().await.is_none());
     }
 
     #[async_test]
