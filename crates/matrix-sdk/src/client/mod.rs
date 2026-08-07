@@ -299,7 +299,7 @@ pub(crate) struct ClientInner {
     /// If it's been built from a homeserver URL directly, we don't know the
     /// server. However, if the `Client` has been built from a server URL or
     /// name, then the homeserver has been discovered, and we know both.
-    server: Option<Url>,
+    server: StdRwLock<Option<Url>>,
 
     /// The URL of the homeserver to connect to.
     ///
@@ -470,7 +470,7 @@ impl ClientInner {
         };
 
         let client = Self {
-            server,
+            server: server.into(),
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             sliding_sync_version: StdRwLock::new(sliding_sync_version),
@@ -592,7 +592,11 @@ impl Client {
     ///
     /// * `homeserver_url` - The new URL to use.
     fn set_homeserver(&self, homeserver_url: Url) {
-        *self.inner.homeserver.write().unwrap() = homeserver_url;
+        let mut homeserver = self.inner.homeserver.write().unwrap();
+        let mut server = self.inner.server.write().unwrap();
+
+        *homeserver = homeserver_url;
+        *server = None;
     }
 
     /// Change to a different homeserver and re-resolve well-known.
@@ -684,8 +688,8 @@ impl Client {
     /// The server used by the client.
     ///
     /// See `Self::server` to learn more.
-    pub fn server(&self) -> Option<&Url> {
-        self.inner.server.as_ref()
+    pub fn server(&self) -> Option<Url> {
+        self.inner.server.read().unwrap().clone()
     }
 
     /// The homeserver of the client.
@@ -3507,7 +3511,7 @@ impl Client {
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
-                self.server().cloned(),
+                self.server(),
                 self.homeserver(),
                 self.sliding_sync_version(),
                 self.inner.sync_presence.clone(),
@@ -4158,9 +4162,40 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.server().unwrap(), &Url::parse(&server_url).unwrap());
+        assert_eq!(client.server().unwrap(), Url::parse(&server_url).unwrap());
         assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
         client.server_versions().await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_homeserver_swap_resets_server_field() {
+        let homeserver = MatrixMockServer::new().await;
+        let homeserver_url = homeserver.uri();
+
+        let domain = homeserver_url.strip_prefix("http://").unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
+
+        homeserver.mock_well_known().ok().mock_once().named("well-known").mount().await;
+
+        let client = Client::builder()
+            .insecure_server_name_no_tls(alice.server_name())
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(client.server().unwrap(), Url::parse(&homeserver_url).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
+
+        let new_server = Url::parse("http://example.org").unwrap();
+        // Since we're explicitly setting the server to something else, like we might do
+        // during QR code login...
+        client.set_homeserver(new_server.clone());
+
+        // The new URL should be set in the homeserver field.
+        assert_eq!(client.homeserver(), new_server);
+        // But the server field should be set to empty, since we didn't do any discovery
+        // now.
+        assert!(client.server().is_none())
     }
 
     #[async_test]
