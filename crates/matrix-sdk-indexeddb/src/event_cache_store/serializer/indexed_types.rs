@@ -317,14 +317,19 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Chunk, LinkedChunkId<'a>> for Index
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IndexedEvent {
-    /// The primary key of the object store.
-    pub id: IndexedEventIdKey,
+    /// An indexed key on the object store, which represents the event id of the
+    /// event.
+    pub event_id: IndexedEventEventIdKey,
+    /// An indexed key on the object store, which represents the linked chunk id
+    /// and event id of the event.
+    pub linked_chunk_id: IndexedEventLinkedChunkIdKey,
     /// An indexed key on the object store, which represents the room in which
     /// the event exists
     pub room: IndexedEventRoomKey,
-    /// An indexed key on the object store, which represents the position of the
-    /// event, if it is in a chunk.
-    pub position: Option<IndexedEventPositionKey>,
+    /// The primary key on the object store, which represents the position of
+    /// the event, if it is in a chunk, or the identifier of the event, if
+    /// it is not in a chunk.
+    pub position: IndexedEventPositionKey,
     /// An indexed key on the object store, which represents the relationship
     /// between this event and another event, if one exists.
     pub relation: Option<IndexedEventRelationKey>,
@@ -351,11 +356,17 @@ impl Indexed for Event {
         serializer: &SafeEncodeSerializer,
     ) -> Result<Self::IndexedType, Self::Error> {
         let event_id = self.event_id().ok_or(Self::Error::NoEventId)?;
-        let id = IndexedEventIdKey::encode((self.linked_chunk_id(), event_id), serializer);
+        let linked_chunk_id =
+            IndexedEventLinkedChunkIdKey::encode((self.linked_chunk_id(), event_id), serializer);
         let room = IndexedEventRoomKey::encode((self.room_id(), event_id), serializer);
-        let position = self.position().map(|position| {
-            IndexedEventPositionKey::encode((self.linked_chunk_id(), position), serializer)
-        });
+        let position = IndexedEventPositionKey::encode(
+            self.position()
+                .map(|position| {
+                    IndexedEventPositionKeyComponents::InBand(self.linked_chunk_id(), position)
+                })
+                .unwrap_or(IndexedEventPositionKeyComponents::OutOfBand(event_id)),
+            serializer,
+        );
         let relation = self.relation().map(|(related_event, relation_type)| {
             IndexedEventRelationKey::encode(
                 (self.room_id(), &related_event, &RelationType::from(relation_type)),
@@ -363,7 +374,8 @@ impl Indexed for Event {
             )
         });
         Ok(IndexedEvent {
-            id,
+            event_id: IndexedEventEventIdKey::encode(event_id, serializer),
+            linked_chunk_id,
             room,
             position,
             relation,
@@ -379,7 +391,28 @@ impl Indexed for Event {
     }
 }
 
-/// The value associated with the [primary key](IndexedEvent::id) of the
+/// The value associated with the [`event_id`](IndexedEvent::event_id) index of
+/// the [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed Event ID.
+///
+/// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedEventEventIdKey(IndexedEventId);
+
+impl IndexedKey<Event> for IndexedEventEventIdKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_EVENT_ID);
+
+    type KeyComponents<'a> = &'a EventId;
+
+    fn encode(event_id: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
+        let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+        Self(event_id)
+    }
+}
+
+/// The value associated with the
+/// [`linked_chunk_id`](IndexedEvent::linked_chunk_id) index of the
 /// [`EVENTS`][1] object store, which is constructed from:
 ///
 /// - The (possibly) hashed Linked Chunk ID
@@ -387,9 +420,11 @@ impl Indexed for Event {
 ///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventIdKey(IndexedLinkedChunkId, IndexedEventId);
+pub struct IndexedEventLinkedChunkIdKey(IndexedLinkedChunkId, IndexedEventId);
 
-impl IndexedKey<Event> for IndexedEventIdKey {
+impl IndexedKey<Event> for IndexedEventLinkedChunkIdKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_LINKED_CHUNK_ID);
+
     type KeyComponents<'a> = (LinkedChunkId<'a>, &'a EventId);
 
     fn encode(
@@ -403,7 +438,7 @@ impl IndexedKey<Event> for IndexedEventIdKey {
     }
 }
 
-impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventIdKey {
+impl IndexedPrefixKeyBounds<Event, LinkedChunkId<'_>> for IndexedEventLinkedChunkIdKey {
     fn lower_key_with_prefix(
         linked_chunk_id: LinkedChunkId<'_>,
         serializer: &SafeEncodeSerializer,
@@ -460,29 +495,58 @@ impl IndexedPrefixKeyBounds<Event, &RoomId> for IndexedEventRoomKey {
     }
 }
 
-/// The value associated with the [`position`](IndexedEvent::position) index of
-/// the [`EVENTS`][1] object store, which is constructed from:
+/// The value associated with the [primary key](IndexedEvent::position) of
+/// the [`EVENTS`][1] object store, which is constructed from the following
+/// components if the event exists within a linked chunk - i.e., in-band.
 ///
 /// - The (possibly) hashed Linked Chunk ID
 /// - The Chunk ID
 /// - The index of the event in the chunk.
 ///
+/// Or it is constructed from the following components if the event does NOT
+/// exist within a linked chunk - i.e., out-of-band.
+///
+/// - The (possibly) hashed Event ID
+///
 /// [1]: crate::event_cache_store::migrations::v1::create_events_object_store
 #[derive(Debug, Serialize, Deserialize)]
-pub struct IndexedEventPositionKey(IndexedLinkedChunkId, IndexedChunkId, IndexedEventPositionIndex);
+#[serde(untagged)]
+pub enum IndexedEventPositionKey {
+    /// The [`Event`] indexed by this key exists within a linked chunk
+    InBand(IndexedLinkedChunkId, IndexedChunkId, IndexedEventPositionIndex),
+    /// The [`Event`] indexed by this key does NOT exist within a linked chunk
+    OutOfBand(IndexedEventId),
+}
+
+/// This type is used to construct the [`IndexedEventPositionKey`] for an
+/// [`Event`].
+#[derive(Debug, Copy, Clone)]
+pub enum IndexedEventPositionKeyComponents<'a> {
+    /// The component elements of the [`IndexedEventPositionKey`] for an
+    /// [in-band](Event::InBand) [`Event`] - i.e., an [`Event`] that has a
+    /// [`Position`] within in a [`Chunk`].
+    InBand(LinkedChunkId<'a>, Position),
+    /// The component elements of the [`IndexedEventPositionKey`] for an
+    /// [out-of-band](Event::OutOfBand) [`Event`] - i.e., an [`Event`] that does
+    /// NOT have a [`Position`] within in a [`Chunk`].
+    OutOfBand(&'a EventId),
+}
 
 impl IndexedKey<Event> for IndexedEventPositionKey {
-    const INDEX: Option<&'static str> = Some(keys::EVENTS_POSITION);
+    type KeyComponents<'a> = IndexedEventPositionKeyComponents<'a>;
 
-    type KeyComponents<'a> = (LinkedChunkId<'a>, Position);
-
-    fn encode(
-        (linked_chunk_id, position): Self::KeyComponents<'_>,
-        serializer: &SafeEncodeSerializer,
-    ) -> Self {
-        let linked_chunk_id =
-            serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
-        Self(linked_chunk_id, position.chunk_identifier, position.index)
+    fn encode(components: Self::KeyComponents<'_>, serializer: &SafeEncodeSerializer) -> Self {
+        match components {
+            Self::KeyComponents::InBand(linked_chunk_id, position) => {
+                let linked_chunk_id =
+                    serializer.hash_key(keys::LINKED_CHUNK_IDS, linked_chunk_id.storage_key());
+                Self::InBand(linked_chunk_id, position.chunk_identifier, position.index)
+            }
+            Self::KeyComponents::OutOfBand(event_id) => {
+                let event_id = serializer.encode_key_as_string(keys::EVENTS, event_id);
+                Self::OutOfBand(event_id)
+            }
+        }
     }
 }
 
@@ -490,13 +554,19 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, LinkedChunkId<'a>> for Index
     fn lower_key_components_with_prefix(
         linked_chunk_id: LinkedChunkId<'a>,
     ) -> Self::KeyComponents<'a> {
-        (linked_chunk_id, *INDEXED_KEY_LOWER_EVENT_POSITION)
+        IndexedEventPositionKeyComponents::InBand(
+            linked_chunk_id,
+            *INDEXED_KEY_LOWER_EVENT_POSITION,
+        )
     }
 
     fn upper_key_components_with_prefix(
         linked_chunk_id: LinkedChunkId<'a>,
     ) -> Self::KeyComponents<'a> {
-        (linked_chunk_id, *INDEXED_KEY_UPPER_EVENT_POSITION)
+        IndexedEventPositionKeyComponents::InBand(
+            linked_chunk_id,
+            *INDEXED_KEY_UPPER_EVENT_POSITION,
+        )
     }
 }
 
@@ -506,7 +576,7 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (LinkedChunkId<'a>, ChunkIde
     fn lower_key_components_with_prefix(
         (linked_chunk_id, chunk_id): (LinkedChunkId<'a>, ChunkIdentifier),
     ) -> Self::KeyComponents<'a> {
-        (
+        IndexedEventPositionKeyComponents::InBand(
             linked_chunk_id,
             Position { chunk_identifier: chunk_id.index(), index: INDEXED_KEY_LOWER_EVENT_INDEX },
         )
@@ -515,7 +585,7 @@ impl<'a> IndexedPrefixKeyComponentBounds<'a, Event, (LinkedChunkId<'a>, ChunkIde
     fn upper_key_components_with_prefix(
         (linked_chunk_id, chunk_id): (LinkedChunkId<'a>, ChunkIdentifier),
     ) -> Self::KeyComponents<'a> {
-        (
+        IndexedEventPositionKeyComponents::InBand(
             linked_chunk_id,
             Position { chunk_identifier: chunk_id.index(), index: INDEXED_KEY_UPPER_EVENT_INDEX },
         )

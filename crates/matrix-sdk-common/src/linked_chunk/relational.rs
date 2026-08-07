@@ -98,6 +98,10 @@ pub enum RelationalLinkedChunkError {
         /// The chunk identifier.
         identifier: ChunkIdentifier,
     },
+    /// A position in a linked chunk is already occupied by
+    /// an event
+    #[error("position already occupied")]
+    PositionAlreadyOccupied,
 }
 
 /// The [`IndexableItem`] trait is used to mark items that can be indexed into a
@@ -121,7 +125,7 @@ impl IndexableItem for TimelineEvent {
 
 impl<ItemId, Item, Gap> RelationalLinkedChunk<ItemId, Item, Gap>
 where
-    Item: IndexableItem<ItemId = ItemId>,
+    Item: IndexableItem<ItemId = ItemId> + Clone,
     ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     /// Create a new relational linked chunk.
@@ -198,15 +202,35 @@ where
                 Update::PushItems { mut at, items } => {
                     for item in items {
                         let item_id = item.id();
-                        self.items
-                            .entry(linked_chunk_id.to_owned())
-                            .or_default()
-                            .insert(item_id.clone(), (item, Some(at)));
+                        let linked_chunk_items =
+                            self.items.entry(linked_chunk_id.to_owned()).or_default();
+
+                        // Ensure position is not occupied by another item
+                        for (_, position) in linked_chunk_items.values() {
+                            if let Some(position) = position
+                                && *position == at
+                            {
+                                return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
+                            }
+                        }
+                        for row in &self.items_chunks {
+                            if row.linked_chunk_id == linked_chunk_id && row.position == at {
+                                return Err(RelationalLinkedChunkError::PositionAlreadyOccupied);
+                            }
+                        }
+
+                        linked_chunk_items.insert(item_id.clone(), (item.clone(), Some(at)));
                         self.items_chunks.push(ItemRow {
                             linked_chunk_id: linked_chunk_id.to_owned(),
                             position: at,
                             item: Either::Item(item_id),
                         });
+
+                        // Ensure item is updated if it exists anywhere else in the store
+                        for items in &mut self.items.values_mut() {
+                            items.entry(item.id()).and_modify(|e| e.0 = item.clone());
+                        }
+
                         at.increment_index();
                     }
                 }
@@ -258,7 +282,21 @@ where
                     }
 
                     self.items_chunks.remove(entry_to_remove.expect("Remove an unknown item"));
+
                     // We deliberately keep the item in the items collection.
+                    self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                        for (_, opt) in items.values_mut() {
+                            if let Some(position) = opt
+                                && position.chunk_identifier() == at.chunk_identifier()
+                            {
+                                if position.index() == at.index() {
+                                    opt.take();
+                                } else if position.index() > at.index() {
+                                    position.decrement_index();
+                                }
+                            }
+                        }
+                    });
                 }
 
                 Update::DetachLastItems { at } => {
@@ -285,6 +323,11 @@ where
 
                     for index_to_remove in indices_to_remove.into_iter().rev() {
                         self.items_chunks.remove(index_to_remove);
+                        self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                            for (_, pos) in items.values_mut() {
+                                pos.take();
+                            }
+                        });
                     }
                 }
 
@@ -293,7 +336,12 @@ where
                 Update::Clear => {
                     self.chunks.retain(|chunk| chunk.linked_chunk_id != linked_chunk_id);
                     self.items_chunks.retain(|chunk| chunk.linked_chunk_id != linked_chunk_id);
-                    // We deliberately leave the items intact.
+                    // We deliberately leave the items in the items collection.
+                    self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                        for (_, pos) in items.values_mut() {
+                            pos.take();
+                        }
+                    });
                 }
             }
         }
@@ -575,7 +623,7 @@ where
 
 impl<ItemId, Item, Gap> Default for RelationalLinkedChunk<ItemId, Item, Gap>
 where
-    Item: IndexableItem<ItemId = ItemId>,
+    Item: IndexableItem<ItemId = ItemId> + Clone,
     ItemId: Hash + PartialEq + Eq + Clone + Ord,
 {
     fn default() -> Self {
