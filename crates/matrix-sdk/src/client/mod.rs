@@ -452,6 +452,7 @@ impl ClientInner {
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
         respect_login_well_known: bool,
         event_cache: OnceCell<EventCache>,
+        enable_automatic_back_pagination: bool,
         send_queue: Arc<SendQueueData>,
         latest_events: OnceCell<LatestEvents>,
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
@@ -517,7 +518,11 @@ impl ClientInner {
         client.e2ee.initialize_tasks(&client);
 
         let init_event_cache = client.event_cache.get_or_init(|| async {
-            EventCache::new(&client, client.base_client.event_cache_store().clone())
+            EventCache::new(
+                &client,
+                client.base_client.event_cache_store().clone(),
+                enable_automatic_back_pagination,
+            )
         });
 
         let init_thread_subscription_catchup = client
@@ -3520,6 +3525,7 @@ impl Client {
                 self.inner.caches.well_known.value(),
                 self.inner.respect_login_well_known,
                 self.inner.event_cache.clone(),
+                false,
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
                 #[cfg(feature = "e2e-encryption")]
