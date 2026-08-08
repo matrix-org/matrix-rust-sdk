@@ -121,7 +121,7 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast::error::RecvError};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use url::Url;
 
 use super::{
@@ -2105,6 +2105,8 @@ impl Client {
         sync_service: Option<Arc<SyncService>>,
     ) -> Result<(), ClientError> {
         let closure = async || -> Result<_, ClientError> {
+            let start = std::time::Instant::now();
+
             // First, make sure to expire sessions in the sync service.
             if let Some(sync_service) = sync_service {
                 sync_service.inner.expire_sessions().await;
@@ -2117,21 +2119,22 @@ impl Client {
             // been deemed acceptable.
             self.inner.send_queue().set_enabled(false).await;
 
-            // Clean up the media cache according to the current media retention policy.
-            self.inner
-                .media_store()
-                .lock()
-                .await
-                .map_err(Error::from)?
-                .clean()
-                .await
-                .map_err(Error::from)?;
+            info!(elapsed = ?start.elapsed(), "clear_caches: sessions expired and send queue disabled");
+
+            // NOTE: the media cache is deliberately NOT cleaned here. It is
+            // content-addressed (staleness is not a correctness issue), the
+            // media retention policy already schedules automatic cleanups,
+            // and a policy trim over a large media cache takes tens of
+            // seconds, all of which used to block this method (i.e. the
+            // user-visible clear-cache and restart experience).
 
             // Clear all the room chunks. It's important to *not* call
             // `EventCacheStore::clear_all_events` here, because there might be live
             // observers of the linked chunks, and that would cause some very bad state
             // mismatch.
+            let clear_start = std::time::Instant::now();
             self.inner.event_cache().clear_all_rooms().await?;
+            info!(elapsed = ?clear_start.elapsed(), "clear_caches: event cache cleared");
 
             // Delete the state store file, if it exists.
             #[cfg(feature = "sqlite")]
@@ -2162,6 +2165,8 @@ impl Client {
                     }
                 }
             }
+
+            info!(elapsed = ?start.elapsed(), "clear_caches: done");
 
             Ok(())
         };
