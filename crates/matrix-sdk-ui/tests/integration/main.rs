@@ -12,6 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Matches the matrix-sdk/matrix-sdk-ui lib roots: auto-trait evaluation of the
+// deeply nested SDK future types overflows the default limit.
+#![recursion_limit = "256"]
+
 mod encryption_sync_service;
 mod notification_client;
 mod room_list_service;

@@ -402,6 +402,35 @@ impl EventCache {
         self.inner.handle_room_updates(updates).await
     }
 
+    /// Ingest room updates obtained out-of-band — e.g. by a notification
+    /// process's short-lived sliding sync — into the event cache, persisting
+    /// them to the (possibly shared) store through the same gap-safe path as
+    /// live sync updates.
+    ///
+    /// Requires [`EventCache::subscribe`] to have been called, and fails with
+    /// [`EventCacheError::NotSubscribedYet`] otherwise.
+    pub async fn ingest_out_of_band_room_updates(&self, updates: RoomUpdates) -> Result<()> {
+        if self.inner.drop_handles.get().is_none() {
+            return Err(EventCacheError::NotSubscribedYet);
+        }
+
+        let seq = updates.seq;
+        self.inner.handle_room_updates(updates).await?;
+
+        // Mirror `room_updates_task`'s ack so a deferred pos persister
+        // watching this event cache is never left waiting on our seq.
+        self.inner.processed_room_updates_seq.send_if_modified(|acked| {
+            if seq > *acked {
+                *acked = seq;
+                true
+            } else {
+                false
+            }
+        });
+
+        Ok(())
+    }
+
     /// Check whether [`EventCache::subscribe`] has been called.
     pub fn has_subscribed(&self) -> bool {
         self.inner.drop_handles.get().is_some()
@@ -840,6 +869,49 @@ mod tests {
         // Then it fails, because one must explicitly call `.subscribe()` on the event
         // cache.
         assert_matches!(result, Err(EventCacheError::NotSubscribedYet));
+    }
+
+    #[async_test]
+    async fn test_ingest_out_of_band_room_updates() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!omelette:fromage.fr");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache();
+
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+        let eid = event_id!("$oob");
+
+        let mut updates = RoomUpdates::default();
+        updates.seq = 42;
+        updates.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline {
+                    events: vec![f.text_msg("psst").event_id(eid).into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        // Without a subscription the ingest is refused…
+        assert_matches!(
+            event_cache.ingest_out_of_band_room_updates(updates.clone()).await,
+            Err(EventCacheError::NotSubscribedYet)
+        );
+
+        event_cache.subscribe().unwrap();
+
+        // …with one, the events land in the room's cache and the seq is acked so
+        // a deferred pos persister can't be left waiting on this broadcast.
+        event_cache.ingest_out_of_band_room_updates(updates).await.unwrap();
+
+        let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+        let found = room_event_cache.find_event(eid).await.unwrap().unwrap();
+        assert_event_matches_msg(&found, "psst");
+
+        assert_eq!(*event_cache.processed_room_updates_seq().borrow(), 42);
     }
 
     #[async_test]

@@ -523,6 +523,78 @@ async fn test_notification_client_sliding_sync() {
 }
 
 #[async_test]
+async fn test_notification_client_sliding_sync_ingests_into_shared_event_cache() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_id = event_id!("$example_event_id");
+    let event_id2 = event_id!("$example_event_id2");
+    let sender = user_id!("@user:example.org");
+    let event_factory = EventFactory::new().room(room_id);
+
+    // The parent client must know the room: in the NSE it's restored from the
+    // state store shared with the main app.
+    server.sync_joined_room(&client, room_id).await;
+
+    let event_json =
+        event_factory.text_msg("Hello world!").event_id(event_id).sender(sender).into_raw_sync();
+    let event_json2 = event_factory
+        .text_msg("Hello world again!")
+        .event_id(event_id2)
+        .sender(sender)
+        .into_raw_sync();
+
+    let pos = Mutex::new(0);
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+            let mut pos = pos.lock().unwrap();
+            *pos += 1;
+            ResponseTemplate::new(200).set_body_json(json!({
+                "txn_id": partial_request.txn_id,
+                "pos": pos.to_string(),
+                "rooms": {
+                    "!a98sd12bjh:example.org": {
+                        "initial": true,
+                        "limited": true,
+                        "prev_batch": "back-token",
+                        "timeline": [
+                            event_json.clone(),
+                            event_json2.clone(),
+                        ],
+                    }
+                },
+            }))
+        })
+        .mount(server.server())
+        .await;
+
+    let notification_client =
+        NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+            .await
+            .unwrap();
+
+    let mut result = notification_client
+        .get_notifications_with_sliding_sync(&[NotificationItemsRequest {
+            room_id: room_id.to_owned(),
+            event_ids: vec![event_id.to_owned()],
+        }])
+        .await
+        .unwrap();
+    assert_matches!(result.remove(event_id), Some(Ok(NotificationStatus::Event(_))));
+
+    // The notified room's freshly synced timeline has been replayed into the
+    // parent client's event cache, in order, through the gap-safe sync path.
+    let event_cache = client.event_cache();
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+
+    let (initial_events, _receiver) = room_event_cache.subscribe().await.unwrap();
+    let ids: Vec<_> = initial_events.iter().filter_map(|event| event.event_id()).collect();
+    assert_eq!(ids, [event_id.to_owned(), event_id2.to_owned()]);
+}
+
+#[async_test]
 async fn test_notification_client_sliding_sync_invites() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room_id2 = room_id!("!a98sd12bjh2:example.org");

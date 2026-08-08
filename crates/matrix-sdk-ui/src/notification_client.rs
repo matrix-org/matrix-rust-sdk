@@ -24,7 +24,9 @@ use itertools::Itertools;
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
-use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
+use matrix_sdk_base::{
+    RoomState, StoreError, deserialized_responses::TimelineEvent, sync::RoomUpdates,
+};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
@@ -47,7 +49,7 @@ use ruma::{
     uint,
 };
 use thiserror::Error;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, broadcast};
 use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
@@ -400,6 +402,10 @@ impl NotificationClient {
 
         let requests = Arc::new(requests.iter().map(|req| (*req).clone()).collect::<Vec<_>>());
 
+        // Capture the processed room updates the short sync broadcasts, so they can
+        // be replayed into the shared persistent event cache once the sync is done.
+        let mut room_updates_rx = self.client.subscribe_to_all_room_updates();
+
         let timeline_event_handler = self.client.add_event_handler({
             let requests = requests.clone();
             move |raw: Raw<AnySyncTimelineEvent>| async move {
@@ -585,6 +591,8 @@ impl NotificationClient {
         self.client.remove_event_handler(stripped_member_handler);
         self.client.remove_event_handler(timeline_event_handler);
 
+        self.ingest_into_shared_event_cache(&mut room_updates_rx, &room_ids).await;
+
         let mut notifications = raw_notifications.clone().lock().unwrap().clone();
         let mut missing_event_ids = Vec::new();
 
@@ -620,6 +628,47 @@ impl NotificationClient {
         trace!("all notification events have{found} been found");
 
         Ok(notifications)
+    }
+
+    /// Best-effort: persist the freshly synced timeline events for the
+    /// notified rooms into the shared on-disk event cache, so the main app
+    /// finds the rooms' timelines and previews already populated.
+    ///
+    /// Failures only cost the prefill, never the notification itself.
+    async fn ingest_into_shared_event_cache(
+        &self,
+        room_updates_rx: &mut broadcast::Receiver<RoomUpdates>,
+        room_ids: &[OwnedRoomId],
+    ) {
+        // Single-process setups have a live event cache fed by the main sync
+        // loop; replaying there would only race it.
+        if !matches!(self.process_setup, NotificationProcessSetup::MultipleProcesses) {
+            return;
+        }
+
+        let event_cache = self.parent_client.event_cache();
+        if let Err(err) = event_cache.subscribe() {
+            warn!("cannot subscribe the shared event cache, skipping ingestion: {err}");
+            return;
+        }
+
+        while let Ok(mut updates) = room_updates_rx.try_recv() {
+            // Only the rooms this notification is about: the parent client's
+            // state store is restored with just those, and the invites list's
+            // rooms don't belong to the notified timeline.
+            updates.joined.retain(|room_id, _| room_ids.contains(room_id));
+            updates.left.retain(|room_id, _| room_ids.contains(room_id));
+            updates.invited.clear();
+            updates.knocked.clear();
+
+            if updates.joined.is_empty() && updates.left.is_empty() {
+                continue;
+            }
+
+            if let Err(err) = event_cache.ingest_out_of_band_room_updates(updates).await {
+                warn!("failed to ingest notification events into the shared event cache: {err}");
+            }
+        }
     }
 
     pub async fn get_notification_with_sliding_sync(
