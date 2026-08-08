@@ -738,7 +738,7 @@ impl<'a> StateLockWriteGuard<'a, EventFocusedCacheState> {
 
         let Some(focused_event) = events
             .iter()
-            .find(|event| event.event_id().as_deref() == Some(&self.state.focused_event_id))
+            .find(|event| event.event_id() == Some(&self.state.focused_event_id))
         else {
             return Ok(None);
         };

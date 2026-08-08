@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     ops::Deref,
     sync::{Arc, Mutex},
     time::Duration,
@@ -22,12 +22,15 @@ use std::{
 use futures_util::{StreamExt as _, pin_mut};
 use itertools::Itertools;
 use matrix_sdk::{
-    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
+    Client, ClientBuildError, SlidingSyncList, SlidingSyncMode,
+    event_cache::{DecryptionRetryRequest, RedecryptorReport},
+    room::Room,
+    sleep::sleep,
 };
 use matrix_sdk_base::{
     RoomState, StoreError, deserialized_responses::TimelineEvent, sync::RoomUpdates,
 };
-use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timeout::timeout};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
     api::client::sync::sync_events::v5 as http,
@@ -721,6 +724,60 @@ impl NotificationClient {
     ///
     /// This will run a small sliding sync to retrieve the content of the
     /// events, along with extra data to form a rich notification context.
+    /// Best-effort: the event was just decrypted with a key the encryption
+    /// sync fetched, but the shared event cache may have persisted it as a UTD
+    /// during ingestion (the key arrives after the timeline sync). Ask the
+    /// redecryptor to upgrade it in place and give it a bounded moment to do
+    /// so, so the main app doesn't come up rendering a UTD it has the key for.
+    ///
+    /// If this times out or fails, the main app's own redecryptor recovers
+    /// later; it's only less prompt.
+    async fn upgrade_persisted_utd(
+        &self,
+        room_id: &RoomId,
+        raw_event: &Raw<AnySyncTimelineEvent>,
+    ) {
+        if !matches!(self.process_setup, NotificationProcessSetup::MultipleProcesses) {
+            return;
+        }
+
+        let Ok(Some(content)) = raw_event.get_field::<serde_json::Value>("content") else {
+            return;
+        };
+        let Some(session_id) = content.get("session_id").and_then(|value| value.as_str()) else {
+            return;
+        };
+
+        let event_cache = self.parent_client.event_cache();
+        if let Err(err) = event_cache.subscribe() {
+            warn!("cannot subscribe the shared event cache, skipping the UTD upgrade: {err}");
+            return;
+        }
+
+        // Subscribe to reports before requesting, to not miss the resolution.
+        let reports = event_cache.subscribe_to_decryption_reports();
+        pin_mut!(reports);
+
+        event_cache.request_decryption(DecryptionRetryRequest {
+            room_id: room_id.to_owned(),
+            utd_session_ids: BTreeSet::from([session_id.to_owned()]),
+            refresh_info_session_ids: BTreeSet::new(),
+        });
+
+        let resolved = async {
+            while let Some(Ok(report)) = reports.next().await {
+                if let RedecryptorReport::ResolvedUtds { room_id: resolved_room_id, .. } = report
+                    && resolved_room_id == room_id {
+                        break;
+                    }
+            }
+        };
+
+        if timeout(resolved, Duration::from_secs(2)).await.is_err() {
+            debug!("timed out waiting for the persisted UTD upgrade");
+        }
+    }
+
     pub async fn get_notifications_with_sliding_sync(
         &self,
         requests: &[NotificationItemsRequest],
@@ -758,10 +815,15 @@ impl NotificationClient {
 
                     // Timeline events may be encrypted, so make sure they get decrypted first.
                     match self.retry_decryption(&room, timeline_event).await {
-                        Ok(Some(timeline_event)) => {
-                            let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
+                        Ok(Some(decrypted_event)) => {
+                            // The ingestion above may have persisted this event as a UTD
+                            // before the key arrived: upgrade it in place.
+                            self.upgrade_persisted_utd(&room_id, timeline_event).await;
+
+                            let push_actions =
+                                decrypted_event.push_actions().map(ToOwned::to_owned);
                             (
-                                RawNotificationEvent::Timeline(timeline_event.into_raw()),
+                                RawNotificationEvent::Timeline(decrypted_event.into_raw()),
                                 push_actions,
                             )
                         }
