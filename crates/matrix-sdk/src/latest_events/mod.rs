@@ -794,7 +794,13 @@ async fn compute_latest_events_task(
     registered_rooms: Arc<RegisteredRooms>,
     mut latest_event_queue_receiver: mpsc::UnboundedReceiver<LatestEventQueueUpdate>,
 ) {
-    const BUFFER_SIZE: usize = 16;
+    // One drain = one atomic room list reorder (see `compute_latest_events`
+    // phase 2), so the buffer must comfortably fit all the rooms of one sync
+    // response: a catch-up sync easily touches dozens of rooms, and draining
+    // them 16 at a time was visible as several successive reorders.
+    // `recv_many` never waits for the buffer to fill, so a larger buffer adds
+    // no latency when fewer updates are pending.
+    const BUFFER_SIZE: usize = 64;
 
     let mut buffer = Vec::with_capacity(BUFFER_SIZE);
 
@@ -838,9 +844,9 @@ async fn compute_latest_events(
     // broadcast one `RoomInfoNotableUpdate` every few tens of milliseconds:
     // the room list would re-order once per room, which is visible as a
     // flicker of rapid successive updates. Instead, the new values are
-    // collected here, and persisted back-to-back in the phase 2, so the
-    // broadcasts land close enough together to be coalesced into a single
-    // atomic room list update.
+    // collected here and persisted in phase 2, which broadcasts the whole
+    // burst only after the last store write, as a single atomic room list
+    // update.
     //
     // The in-memory values (`LatestEvent::current_value`) are updated during
     // this phase, so successive updates for the same room in this batch see
@@ -951,15 +957,27 @@ async fn compute_latest_events(
         }
     }
 
-    // Phase 2: persist all the new values back-to-back.
+    // Phase 2: persist all the new values, then broadcast all the
+    // `RoomInfoNotableUpdate`s in a loop with no await point: each persist is
+    // a store write, so broadcasting as part of it would wake the room list
+    // between rooms and it would reorder once per room. Sent back-to-back,
+    // the whole burst is drained as one batch, i.e. one atomic reorder.
     if !pending_persists.is_empty() {
         debug!(rooms = pending_persists.len(), "Persisting new latest-event values");
     }
 
+    let mut deferred_broadcasts = Vec::new();
+
     for (room, pending_values) in pending_persists {
         for pending_value in pending_values {
-            persist_latest_event_value(&room, pending_value).await;
+            if let Some(update) = persist_latest_event_value(&room, pending_value).await {
+                deferred_broadcasts.push((room.clone(), update));
+            }
         }
+    }
+
+    for (room, update) in deferred_broadcasts {
+        room.send_room_info_notable_update(update);
     }
 
     // Phase 3: rooms that received a genuine event-cache update but still have
@@ -1055,18 +1073,27 @@ async fn backfill_latest_event(
 /// [`StateStore`][matrix_sdk_base::StateStore] (the one from
 /// [`Client::state_store`][crate::Client::state_store]).
 ///
-/// This broadcasts a [`RoomInfoNotableUpdate`] with the
-/// [`RoomInfoNotableUpdateReasons::LATEST_EVENT`] reason.
-pub(super) async fn persist_latest_event_value(room: &Room, new_value: LatestEventValue) {
-    let result = room
-        .update_and_save_room_info(|mut info| {
+/// The [`RoomInfoNotableUpdate`] (with the
+/// [`RoomInfoNotableUpdateReasons::LATEST_EVENT`] reason) is NOT broadcast:
+/// it is returned for the caller to send once the whole batch of rooms has
+/// been persisted, so the broadcasts land back-to-back with no await point
+/// in between (see the phase 2 of [`compute_latest_events`]).
+pub(super) async fn persist_latest_event_value(
+    room: &Room,
+    new_value: LatestEventValue,
+) -> Option<RoomInfoNotableUpdate> {
+    match room
+        .update_and_save_room_info_deferring_broadcast(|mut info| {
             info.set_latest_event(new_value);
             (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
         })
-        .await;
-
-    if let Err(error) = result {
-        error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
+        .await
+    {
+        Ok(update) => Some(update),
+        Err(error) => {
+            error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
+            None
+        }
     }
 }
 

@@ -914,11 +914,21 @@ mod tests_latest_event {
                     LatestEventValue::Remote(_)
                 );
 
-                super::super::persist_latest_event_value(
-                    &client.get_room(&room_id).unwrap(),
-                    pending_value,
-                )
-                .await;
+                let room = client.get_room(&room_id).unwrap();
+                let update = super::super::persist_latest_event_value(&room, pending_value)
+                    .await
+                    .expect("the persist must succeed and defer a broadcast");
+
+                // The broadcast is deferred: nothing must be sent until
+                // `send_room_info_notable_update` (that's what lets the
+                // compute task batch a whole burst into one atomic room
+                // list update).
+                assert_matches!(
+                    room_info_notable_update_receiver.try_recv(),
+                    Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+                );
+
+                room.send_room_info_notable_update(update);
             }
 
             // We see the `RoomInfoNotableUpdateReasons`.
