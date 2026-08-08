@@ -957,27 +957,25 @@ async fn compute_latest_events(
         }
     }
 
-    // Phase 2: persist all the new values, then broadcast all the
-    // `RoomInfoNotableUpdate`s in a loop with no await point: each persist is
-    // a store write, so broadcasting as part of it would wake the room list
-    // between rooms and it would reorder once per room. Sent back-to-back,
-    // the whole burst is drained as one batch, i.e. one atomic reorder.
+    // Phase 2: persist all the new values in one store transaction, and
+    // broadcast the `RoomInfoNotableUpdate`s back-to-back afterwards (see
+    // `BaseClient::save_latest_event_values`): the room list drains the
+    // burst as one batch, i.e. one atomic reorder for the whole batch.
     if !pending_persists.is_empty() {
         debug!(rooms = pending_persists.len(), "Persisting new latest-event values");
-    }
 
-    let mut deferred_broadcasts = Vec::new();
+        let client = pending_persists[0].0.client();
+        let values = pending_persists
+            .into_iter()
+            .flat_map(|(room, pending_values)| {
+                let room = (*room).clone();
+                pending_values.into_iter().map(move |value| (room.clone(), value))
+            })
+            .collect();
 
-    for (room, pending_values) in pending_persists {
-        for pending_value in pending_values {
-            if let Some(update) = persist_latest_event_value(&room, pending_value).await {
-                deferred_broadcasts.push((room.clone(), update));
-            }
+        if let Err(error) = client.base_client().save_latest_event_values(values).await {
+            error!(?error, "Failed to save the latest-event values");
         }
-    }
-
-    for (room, update) in deferred_broadcasts {
-        room.send_room_info_notable_update(update);
     }
 
     // Phase 3: rooms that received a genuine event-cache update but still have
@@ -1066,35 +1064,6 @@ async fn backfill_latest_event(
     // predecessors on the channel).
     let _ = latest_event_queue_sender
         .send(LatestEventQueueUpdate::BackfillCompleted { room_id, from_auto_backfill: true });
-}
-
-/// Update the `RoomInfo` associated to `room` to set the new
-/// [`LatestEventValue`], and persist it in the
-/// [`StateStore`][matrix_sdk_base::StateStore] (the one from
-/// [`Client::state_store`][crate::Client::state_store]).
-///
-/// The [`RoomInfoNotableUpdate`] (with the
-/// [`RoomInfoNotableUpdateReasons::LATEST_EVENT`] reason) is NOT broadcast:
-/// it is returned for the caller to send once the whole batch of rooms has
-/// been persisted, so the broadcasts land back-to-back with no await point
-/// in between (see the phase 2 of [`compute_latest_events`]).
-pub(super) async fn persist_latest_event_value(
-    room: &Room,
-    new_value: LatestEventValue,
-) -> Option<RoomInfoNotableUpdate> {
-    match room
-        .update_and_save_room_info_deferring_broadcast(|mut info| {
-            info.set_latest_event(new_value);
-            (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
-        })
-        .await
-    {
-        Ok(update) => Some(update),
-        Err(error) => {
-            error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
-            None
-        }
-    }
 }
 
 #[cfg(test)]

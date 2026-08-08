@@ -245,7 +245,7 @@ impl RoomLatestEventsWriteGuard {
     ///
     /// Returns the new values (for the room, then its threads, in that order)
     /// that must be persisted in the `RoomInfo` (see
-    /// [`super::persist_latest_event_value`]).
+    /// [`BaseClient::save_latest_event_values`][matrix_sdk_base::BaseClient::save_latest_event_values]).
     pub async fn update_with_event_cache(&mut self) -> Vec<LatestEventValue> {
         // Get the power levels of the user for the current room if the `WeakRoom` is
         // still valid.
@@ -309,7 +309,7 @@ impl RoomLatestEventsWriteGuard {
     ///
     /// Returns the new values (for the room, then its threads, in that order)
     /// that must be persisted in the `RoomInfo` (see
-    /// [`super::persist_latest_event_value`]).
+    /// [`BaseClient::save_latest_event_values`][matrix_sdk_base::BaseClient::save_latest_event_values]).
     pub async fn update_with_send_queue(
         &mut self,
         send_queue_update: &RoomSendQueueUpdate,
@@ -383,7 +383,7 @@ impl RoomLatestEventsWriteGuard {
     /// info.
     ///
     /// Returns the new values that must be persisted in the `RoomInfo` (see
-    /// [`super::persist_latest_event_value`]).
+    /// [`BaseClient::save_latest_event_values`][matrix_sdk_base::BaseClient::save_latest_event_values]).
     pub async fn update_with_room_info(
         &mut self,
         reasons: RoomInfoNotableUpdateReasons,

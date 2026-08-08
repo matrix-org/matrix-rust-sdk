@@ -166,44 +166,6 @@ impl Room {
         self.update_room_info_with_store_guard(guard, |_| (info, reasons))?;
         Ok(())
     }
-
-    /// Same as [`Self::update_and_save_room_info`], but instead of
-    /// broadcasting the [`RoomInfoNotableUpdate`], return it for the caller
-    /// to send later via [`Self::send_room_info_notable_update`].
-    ///
-    /// This lets a caller persisting a whole batch of rooms defer every
-    /// broadcast until after the last save: the updates then land on the
-    /// channel with no await point in between, so subscribers drain them as
-    /// one burst (e.g. a single atomic room list reorder instead of one
-    /// reorder per room).
-    pub async fn update_and_save_room_info_deferring_broadcast<F>(
-        &self,
-        f: F,
-    ) -> Result<RoomInfoNotableUpdate, StoreError>
-    where
-        F: FnOnce(RoomInfo) -> (RoomInfo, RoomInfoNotableUpdateReasons),
-    {
-        let guard = self.store.lock().lock().await;
-        let (info, mut reasons) = f(self.clone_info());
-        let mut changes = StateChanges::default();
-        changes.add_room(info.clone());
-        self.store.save_changes_with_guard(&guard, &changes).await?;
-        self.info.set(info);
-
-        if reasons.is_empty() {
-            // Same quirk as `update_room_info_with_store_guard`; see
-            // `RoomInfoNotableUpdateReasons::NONE`.
-            reasons = RoomInfoNotableUpdateReasons::NONE;
-        }
-
-        Ok(RoomInfoNotableUpdate { room_id: self.room_id.clone(), reasons })
-    }
-
-    /// Broadcast a [`RoomInfoNotableUpdate`] deferred by
-    /// [`Self::update_and_save_room_info_deferring_broadcast`].
-    pub fn send_room_info_notable_update(&self, update: RoomInfoNotableUpdate) {
-        let _ = self.room_info_notable_update_sender.send(update);
-    }
 }
 
 /// A base room info struct that is the backbone of normal as well as stripped

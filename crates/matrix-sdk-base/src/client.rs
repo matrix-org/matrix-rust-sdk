@@ -1147,6 +1147,50 @@ impl BaseClient {
         self.state_store.room_info_notable_update_sender.subscribe()
     }
 
+    /// Set and persist the [`LatestEventValue`] of a whole batch of rooms in
+    /// a single store transaction, then broadcast all the
+    /// [`RoomInfoNotableUpdate`]s (with the
+    /// [`RoomInfoNotableUpdateReasons::LATEST_EVENT`] reason) back-to-back,
+    /// with no await point in between.
+    ///
+    /// Persisting and broadcasting room by room would wake subscribers
+    /// between rooms: the room list would reorder once per room, visible as
+    /// a flicker of rapid successive updates during a catch-up sync. The
+    /// single transaction is also cheaper than one commit per room.
+    ///
+    /// [`LatestEventValue`]: crate::latest_event::LatestEventValue
+    pub async fn save_latest_event_values(
+        &self,
+        values: Vec<(Room, crate::latest_event::LatestEventValue)>,
+    ) -> Result<()> {
+        let guard = self.state_store.lock().lock().await;
+
+        // Read-modify the room infos under the store lock, and save them all
+        // in one transaction.
+        let mut changes = StateChanges::default();
+        let mut new_infos = Vec::with_capacity(values.len());
+
+        for (room, value) in values {
+            let mut info = room.clone_info();
+            info.set_latest_event(value);
+            changes.add_room(info.clone());
+            new_infos.push((room, info));
+        }
+
+        self.state_store.save_changes_with_guard(&guard, &changes).await?;
+
+        // Apply in memory and broadcast: nothing awaits in this loop, so the
+        // updates land on the channel as one burst.
+        for (room, info) in new_infos {
+            room.update_room_info_with_store_guard(&guard, |_| {
+                (info, RoomInfoNotableUpdateReasons::LATEST_EVENT)
+            })
+            .map_err(crate::store::StoreError::from)?;
+        }
+
+        Ok(())
+    }
+
     /// Returns a receiver of the user IDs whose global profile changed during a
     /// sync. Consumers can use this as a trigger to e.g. merge any global
     /// fields into a user's room profile.

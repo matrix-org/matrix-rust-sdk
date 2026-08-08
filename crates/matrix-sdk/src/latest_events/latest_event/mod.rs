@@ -200,7 +200,7 @@ impl LatestEvent {
 
     /// Update [`Self::current_value`], and return the `new_value` if it must
     /// be persisted in the `RoomInfo` (with
-    /// [`super::persist_latest_event_value`]).
+    /// [`BaseClient::save_latest_event_values`][matrix_sdk_base::BaseClient::save_latest_event_values]).
     ///
     /// Persisting is deliberately left to the caller: the compute task
     /// processes its queue in two phases, first computing new values (this
@@ -915,20 +915,11 @@ mod tests_latest_event {
                 );
 
                 let room = client.get_room(&room_id).unwrap();
-                let update = super::super::persist_latest_event_value(&room, pending_value)
+                client
+                    .base_client()
+                    .save_latest_event_values(vec![((*room).clone(), pending_value)])
                     .await
-                    .expect("the persist must succeed and defer a broadcast");
-
-                // The broadcast is deferred: nothing must be sent until
-                // `send_room_info_notable_update` (that's what lets the
-                // compute task batch a whole burst into one atomic room
-                // list update).
-                assert_matches!(
-                    room_info_notable_update_receiver.try_recv(),
-                    Err(tokio::sync::broadcast::error::TryRecvError::Empty)
-                );
-
-                room.send_room_info_notable_update(update);
+                    .unwrap();
             }
 
             // We see the `RoomInfoNotableUpdateReasons`.
