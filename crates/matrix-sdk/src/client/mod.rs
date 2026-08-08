@@ -339,6 +339,15 @@ pub(crate) struct ClientInner {
     /// value MUST be different for each `Client`.
     cross_process_lock_config: CrossProcessLockConfig,
 
+    /// Whether this is a client derived with [`Client::notification_client`]:
+    /// a short-lived, decrypt-only client backed by an in-memory state store,
+    /// typically running in a notification process with a strict deadline.
+    ///
+    /// Such a client never encrypts, so it can skip work that only exists to
+    /// keep *encrypting* safe (like refreshing every tracked user's device
+    /// list on an initial sync), and prefers failing fast over retrying.
+    pub(crate) is_notification_client: bool,
+
     /// A mapping of the times at which the current user sent typing notices,
     /// keyed by room.
     pub(crate) typing_notice_times: StdRwLock<BTreeMap<OwnedRoomId, Instant>>,
@@ -462,6 +471,7 @@ impl ClientInner {
         #[cfg(feature = "e2e-encryption")] encryption_settings: EncryptionSettings,
         #[cfg(feature = "e2e-encryption")] enable_share_history_on_invite: bool,
         cross_process_lock_config: CrossProcessLockConfig,
+        is_notification_client: bool,
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
         media_fetcher: Arc<dyn MediaFetcher>,
@@ -485,6 +495,7 @@ impl ClientInner {
             caches,
             locks: Default::default(),
             cross_process_lock_config,
+            is_notification_client,
             typing_notice_times: Default::default(),
             event_handlers: Default::default(),
             notification_handlers: Default::default(),
@@ -3530,6 +3541,16 @@ impl Client {
         &self,
         cross_process_lock_config: CrossProcessLockConfig,
     ) -> Result<Client> {
+        // The derived client only inherits our *in-memory* supported-versions
+        // cache, and its own in-memory state store will never contain the
+        // stored copy. Load ours from the state store now (a fresh
+        // notification process hasn't sent anything yet, so the in-memory
+        // cache is still empty) so the derived client doesn't fetch
+        // `/versions` over the network on its first request.
+        if let Err(error) = self.supported_versions_cached().await {
+            warn!("failed to preload the supported versions for the notification client: {error}");
+        }
+
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
@@ -3554,6 +3575,7 @@ impl Client {
                 #[cfg(feature = "e2e-encryption")]
                 self.inner.enable_share_history_on_invite,
                 cross_process_lock_config,
+                true,
                 #[cfg(feature = "experimental-search")]
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),

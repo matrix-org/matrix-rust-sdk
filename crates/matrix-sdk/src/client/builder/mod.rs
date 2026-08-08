@@ -711,6 +711,7 @@ impl ClientBuilder {
             #[cfg(feature = "e2e-encryption")]
             self.enable_share_history_on_invite,
             self.cross_process_lock_config,
+            false,
             #[cfg(feature = "experimental-search")]
             search_index,
             thread_subscriptions_catchup,

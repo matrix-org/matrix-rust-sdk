@@ -93,6 +93,52 @@ async fn test_notification_client_with_context() {
 }
 
 #[async_test]
+async fn test_notification_client_falls_back_to_context_after_a_single_sync_failure() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    let event_id = event_id!("$example_event_id");
+    let event = f.text_msg("Hello world!").event_id(event_id).server_ts(152049794).into_event();
+
+    server
+        .sync_room(&client, JoinedRoomBuilder::new(room_id).add_timeline_event(event.raw().clone()))
+        .await;
+
+    let dummy_sync_service = Arc::new(SyncService::builder(client.clone()).build().await.unwrap());
+    let process_setup =
+        NotificationProcessSetup::SingleProcess { sync_service: dummy_sync_service };
+    let notification_client = NotificationClient::new(client, process_setup).await.unwrap();
+
+    // The notification sliding sync fails: a notification client must not retry
+    // (it runs against a hard OS deadline) but move on to `/context` after the
+    // single attempt.
+    Mock::given(SlidingSyncMatcher)
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(server.server())
+        .await;
+
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(event))
+        .mock_once()
+        .mount()
+        .await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let item = notification_client.get_notification(room_id, event_id).await.unwrap();
+
+    assert_let!(NotificationStatus::Event(item) = item);
+    assert_matches!(item.event, NotificationEvent::Timeline(event) => {
+        assert_eq!(event.event_type(), TimelineEventType::RoomMessage);
+    });
+}
+
+#[async_test]
 async fn test_subscribed_threads_get_notifications() {
     let server = MatrixMockServer::new().await;
     let client = server

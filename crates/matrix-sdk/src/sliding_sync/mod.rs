@@ -36,8 +36,10 @@ use async_stream::stream;
 pub use client::{Version, VersionBuilder};
 use futures_core::stream::Stream;
 use matrix_sdk_base::RequestedRequiredStates;
-use matrix_sdk_common::executor::JoinHandleExt as _;
-use matrix_sdk_common::{executor::spawn, timer};
+use matrix_sdk_common::{
+    executor::{JoinHandleExt as _, spawn},
+    timer,
+};
 use ruma::{
     OwnedRoomId, RoomId,
     api::{client::sync::sync_events::v5 as http, error::ErrorKind},
@@ -685,8 +687,17 @@ impl SlidingSync {
         // re-downloaded if the `since` token is `None`, otherwise it's easy to miss
         // device lists updates that happened between the previous request and the new
         // “initial” request.
+        //
+        // A notification client is exempt: it only ever *decrypts*, and stale device
+        // lists can't make decryption unsafe - they only exist to keep encrypting
+        // safe. Marking everyone dirty there costs a full `/keys/query` of every
+        // tracked user on every notification process launch (the position is held in
+        // an in-memory store, so it's always `None`).
         #[cfg(feature = "e2e-encryption")]
-        if pos.is_none() && self.is_e2ee_enabled() {
+        if pos.is_none()
+            && self.is_e2ee_enabled()
+            && !self.inner.client.inner.is_notification_client
+        {
             info!("Marking all tracked users as dirty");
 
             let olm_machine = self.inner.client.olm_machine().await;
@@ -737,9 +748,13 @@ impl SlidingSync {
             request,
             // Configure long-polling. We need some time for the long-poll itself,
             // and extra time for the network delays.
+            //
+            // A notification client runs against a hard OS deadline: retrying a
+            // timing-out request would eat the whole budget, while failing fast
+            // lets the caller fall back to `/context`. Single attempt there.
             RequestConfig::default()
                 .timeout(self.inner.poll_timeout + self.inner.network_timeout)
-                .retry_limit(3),
+                .retry_limit(if self.inner.client.inner.is_notification_client { 1 } else { 3 }),
             position_guard,
         ))
     }
