@@ -155,6 +155,7 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
+    disable_well_known_lookup: bool,
     request_config: Option<RequestConfig>,
     #[cfg(feature = "experimental-search")]
     search_index_store: Option<SearchIndexStoreKind>,
@@ -221,6 +222,7 @@ impl ClientBuilder {
                 sender_device_trust_requirement: TrustRequirement::Untrusted,
             },
             enable_share_history_on_invite: false,
+            disable_well_known_lookup: false,
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
@@ -372,6 +374,29 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Disable all the `.well-known/matrix/client` lookups performed by the
+    /// built client.
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, `Client::tile_server` returns `None` and
+    /// RTC transport discovery doesn't fall back to the well-known
+    /// `m.rtc_foci`, meaning `Client::is_livekit_rtc_supported` only relies on
+    /// the MSC4143 discovery endpoint.
+    ///
+    /// Note that this doesn't affect the homeserver discovery performed by
+    /// `ClientBuilder::server_name` and
+    /// `ClientBuilder::server_name_or_homeserver_url`, which happens before the
+    /// client is built. Use `ClientBuilder::homeserver_url` to avoid that
+    /// lookup too.
+    pub fn disable_well_known_lookup(
+        self: Arc<Self>,
+        disable_well_known_lookup: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_well_known_lookup = disable_well_known_lookup;
+        Arc::new(builder)
+    }
+
     /// Add a default request config to this client.
     pub fn request_config(self: Arc<Self>, config: RequestConfig) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
@@ -516,7 +541,8 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
+            .disable_well_known_lookup(builder.disable_well_known_lookup);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {

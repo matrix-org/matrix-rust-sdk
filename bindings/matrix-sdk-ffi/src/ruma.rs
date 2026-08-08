@@ -22,7 +22,9 @@ use extension_trait::extension_trait;
 use matrix_sdk::attachment::{BaseAudioInfo, BaseFileInfo, BaseImageInfo, BaseVideoInfo};
 use ruma::{
     KeyDerivationAlgorithm as RumaKeyDerivationAlgorithm, MatrixToUri, MatrixUri as RumaMatrixUri,
-    OwnedRoomId, OwnedUserId, SecondsSinceUnixEpoch, UInt, UserId, assign,
+    OwnedRoomId, OwnedUserId, SecondsSinceUnixEpoch, UInt, UserId,
+    api::client::rtc::RtcTransport as RumaRtcTransport,
+    assign,
     events::{
         GlobalAccountDataEvent as RumaGlobalAccountDataEvent,
         GlobalAccountDataEventType as RumaGlobalAccountDataEventType,
@@ -598,6 +600,38 @@ impl From<RtcCallIntent> for RumaCallIntent {
         match value {
             RtcCallIntent::Video => RumaCallIntent::Video,
             RtcCallIntent::Audio => RumaCallIntent::Audio,
+        }
+    }
+}
+
+/// A MatrixRTC transport advertised by the homeserver (MSC4143).
+#[derive(Clone, uniffi::Enum)]
+pub enum RtcTransport {
+    /// A LiveKit RTC transport.
+    LiveKit {
+        /// The URL of the LiveKit service.
+        service_url: String,
+    },
+    /// A transport with a type that isn't natively supported by the SDK.
+    Custom {
+        /// The value of the `type` field of the transport.
+        transport_type: String,
+        /// The remaining transport data, as a serialized JSON object. It does
+        /// not contain the `type` field.
+        data: String,
+    },
+}
+
+impl From<RumaRtcTransport> for RtcTransport {
+    fn from(value: RumaRtcTransport) -> Self {
+        match &value {
+            RumaRtcTransport::LiveKit(transport) => {
+                Self::LiveKit { service_url: transport.service_url.clone() }
+            }
+            _ => Self::Custom {
+                transport_type: value.transport_type().to_owned(),
+                data: serde_json::Value::Object(value.data().into_owned()).to_string(),
+            },
         }
     }
 }

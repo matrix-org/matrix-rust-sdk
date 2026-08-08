@@ -2118,6 +2118,47 @@ async fn test_get_rtc_transports_endpoint_unsupported() {
 }
 
 #[async_test]
+async fn test_get_rtc_transports_falls_back_to_well_known() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4515.rtc_transports"])).await;
+
+    // The homeserver doesn't implement the discovery endpoint…
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_UNRECOGNIZED",
+            "error": "Unrecognized request",
+        })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    // …but it advertises `m.rtc_foci` in its well-known.
+    mock_server.mock_well_known().ok().mount().await;
+
+    send_request(
+        &driver_handle,
+        "get-rtc-transports",
+        "org.matrix.msc4515.get_rtc_transports",
+        json!({}),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4515.get_rtc_transports");
+    assert_eq!(
+        response["response"],
+        json!({
+            "rtc_transports": [
+                { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+            ]
+        })
+    );
+}
+
+#[async_test]
 async fn test_get_rtc_transports_without_permission() {
     let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
 

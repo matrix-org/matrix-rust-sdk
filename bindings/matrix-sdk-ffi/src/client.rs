@@ -44,7 +44,6 @@ use matrix_sdk::{
             discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{Visibility, create_room},
-            rtc::RtcTransport,
             session::get_login_types,
             user_directory::search_users,
         },
@@ -148,7 +147,8 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, RtcTransport, UserCall,
+        UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -2143,20 +2143,26 @@ impl Client {
     ///
     /// Transports are discovered through the authenticated
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
-    /// homeserver doesn't implement it and `fallback_to_well_known` is `true`,
-    /// then the well-known will be queried.
-    #[uniffi::method(default(fallback_to_well_known = false))]
-    pub async fn is_livekit_rtc_supported(
-        &self,
-        fallback_to_well_known: bool,
-    ) -> Result<bool, ClientError> {
-        let transports = match self.inner.rtc_transports().await? {
-            Some(transports) => transports,
-            // discovery not supported, fallback to well-known if allowed
-            None if fallback_to_well_known => self.inner.well_known_rtc_transports().await?,
-            None => return Ok(false),
-        };
+    /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
+    /// a fallback, unless well-known discovery was disabled with
+    /// `ClientBuilder::disable_well_known_lookup`.
+    pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
+        let transports = self.discover_rtc_transports().await?;
         Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
+    }
+
+    /// Discover the RTC transports advertised by the homeserver.
+    ///
+    /// Transports are discovered through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
+    /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
+    /// a fallback, unless well-known discovery was disabled with
+    /// `ClientBuilder::disable_well_known_lookup`.
+    ///
+    /// Returns an empty list if no transport could be discovered.
+    pub async fn discover_rtc_transports(&self) -> Result<Vec<RtcTransport>, ClientError> {
+        let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
+        Ok(transports.into_iter().map(Into::into).collect())
     }
 
     /// Checks if the server supports user status.
