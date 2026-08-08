@@ -20,11 +20,7 @@ use matrix_sdk_base::{
 };
 use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
 
-use super::{
-    super::{Result, states::StateLockReadGuard},
-    room::RoomEventCacheState,
-    thread::ThreadEventCache,
-};
+use super::{super::Result, room::RoomEventCache, thread::ThreadEventCache};
 
 pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
     timeline
@@ -33,7 +29,7 @@ pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
 pub async fn aggregate_timeline_for_threads(
     timeline: &Timeline,
     existing_threads: &HashMap<OwnedEventId, ThreadEventCache>,
-    room_event_cache: StateLockReadGuard<'_, RoomEventCacheState>,
+    room: &RoomEventCache,
     redaction_rules: &RedactionRules,
 ) -> Result<HashMap<OwnedEventId, Timeline>> {
     let mut new_events_by_thread = HashMap::new();
@@ -77,9 +73,10 @@ pub async fn aggregate_timeline_for_threads(
 
                         // Not in `timeline`, okay, look for the related event in the `room` as it
                         // knows about all the events, and then extract its thread root.
-                        None => room_event_cache.find_event(&related_event_id).await?.and_then(
-                            |(_location, related_event)| extract_thread_root(related_event.raw()),
-                        ),
+                        None => room
+                            .find_event(&related_event_id)
+                            .await?
+                            .and_then(|related_event| extract_thread_root(related_event.raw())),
                     } {
                         new_events_by_thread
                             .entry(thread_root)
@@ -106,7 +103,7 @@ pub async fn aggregate_timeline_for_threads(
                 // Otherwise, this event might be a redaction that applies to a thread.
                 else if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
-                    && room_event_cache.find_event(&redaction_target).await?.is_some()
+                    && room.find_event(&redaction_target).await?.is_some()
                 {
                     // The redacted event exists (in the room, because it contains _all_ the
                     // events) **but** the event has been redacted (in

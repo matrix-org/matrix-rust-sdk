@@ -887,6 +887,77 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_redaction_of_in_thread_event_is_applied_to_thread() {
+        let client = logged_in_client(None).await;
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let sender = user_id!("@alice:localhost");
+        let room_id = room_id!("!a:localhost");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let f = EventFactory::new().room(room_id).sender(sender);
+
+        let root = event_id!("$root");
+        let reply = event_id!("$reply");
+
+        // Seed a thread: a root plus an in-thread reply. This creates the thread cache
+        // and stores the reply in the room cache.
+        let mut setup = RoomUpdates::default();
+        setup.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline {
+                    events: vec![
+                        f.text_msg("root").event_id(root).into(),
+                        f.text_msg("reply").in_thread(root, reply).event_id(reply).into(),
+                    ],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        event_cache.inner.handle_room_updates(setup).await.unwrap();
+
+        // Precondition: the reply is present in the thread as a normal (non-redacted)
+        // message.
+        let (thread_cache, _drop_handles) = event_cache.thread(room_id, root).await.unwrap();
+        let (before, _sub) = thread_cache.subscribe().await.unwrap();
+        let reply_before = before
+            .iter()
+            .find(|event| event.event_id() == Some(reply))
+            .expect("the in-thread reply should be in the thread before redaction");
+        assert_event_matches_msg(reply_before, "reply");
+
+        // Redact the in-thread reply via a room update. For it to be applied to the
+        // thread, `aggregate_timeline_for_threads` must route the redaction into the
+        // thread's timeline.
+        let mut redaction = RoomUpdates::default();
+        redaction.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline {
+                    events: vec![f.redaction(reply).into()],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        event_cache.inner.handle_room_updates(redaction).await.unwrap();
+
+        // The redaction reached the thread: the thread's own copy of the reply is now
+        // redacted.
+        let (after, _sub) = thread_cache.subscribe().await.unwrap();
+        let reply_after = after
+            .iter()
+            .find(|event| event.event_id() == Some(reply))
+            .expect("the in-thread reply should still be present after redaction");
+        assert!(
+            reply_after.raw().deserialize().unwrap().is_redacted(),
+            "the redaction of an in-thread event must be applied to the thread's copy"
+        );
+    }
+
+    #[async_test]
     async fn test_generic_update_when_loading_rooms() {
         // Create 2 rooms. One of them has data in the event cache storage.
         let user = user_id!("@mnt_io:matrix.org");
