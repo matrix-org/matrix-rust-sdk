@@ -39,9 +39,12 @@
 //!   after them
 //! - never runs two requests for the same room concurrently, per-room
 //!   single-flight
-//! - coalesces a request for a room already queued or running at the same
-//!   priority onto that run: both callers await and share its result, rather
-//!   than paginating the same history twice.
+//! - attaches a request for a room already queued or running at the same
+//!   priority onto that run as an extra [`Need`], rather than paginating the
+//!   same history twice: one walk serves every need, each resolving
+//!   individually as soon as its own stop condition or batch budget is met
+//!   (e.g. a latest-event seek and a read-receipt hunt for the same room
+//!   share a single walk).
 //!
 //! Requests are meant to be short, so a higher-priority request for a busy
 //! room only waits for the current run, not a full sweep. Latest-event and
@@ -700,55 +703,104 @@ fn format_date(ts: MilliSecondsSinceUnixEpoch) -> String {
         .unwrap_or_else(|| "?".to_owned())
 }
 
-/// Identifies a coalescable run i.e. a room back-paginated at a given priority.
-type RequestCoalescingKey = (OwnedRoomId, Priority);
+/// Identifies a run i.e. a room back-paginated at a given priority.
+type RunKey = (OwnedRoomId, Priority);
+
+/// One caller's participation in a run: its own stop condition, batch budget
+/// and completion channel.
+///
+/// A run walks a room's history once, serving every attached need: each need
+/// resolves individually as soon as its stop condition fires or its batch
+/// budget runs out, while the run keeps walking for the others. This is what
+/// makes e.g. a latest-event seek and a read-receipt hunt for the same room
+/// one walk instead of two.
+struct Need {
+    /// When this need is satisfied.
+    stop: StopCondition,
+    /// Batches this need may still observe (`None` = unbounded). Counted from
+    /// the batch after it attaches: a need attached mid-run only evaluates
+    /// batches loaded after it (earlier ones are in the cache, which the
+    /// caller consulted before enqueueing).
+    batches_remaining: Option<usize>,
+    /// Cancels just this need, not the run.
+    token: CancellationToken,
+    /// Where to report this need's outcome.
+    completion: oneshot::Sender<BackPaginationRunResult>,
+}
+
+impl Need {
+    /// Resolve this need, reporting why and how far the run got.
+    fn complete(self, end: RoomBackPaginationEnd, reached: Option<MilliSecondsSinceUnixEpoch>) {
+        let _ = self.completion.send(BackPaginationRunResult { end, reached });
+    }
+}
 
 /// A request as it arrives on the queue's channel, before the scheduler has
-/// assigned it a sequence number or decided whether to coalesce it.
+/// turned it into a [`Need`] attached to a new or existing run.
 struct SubmittedRequest {
     request: BackPaginationRequest,
     token: CancellationToken,
     completion: oneshot::Sender<BackPaginationRunResult>,
 }
 
-/// A [`BackPaginationRequest`] admitted to the scheduler's heap, with the
-/// bookkeeping needed to order and run it.
-struct ScheduledRequest {
-    request: BackPaginationRequest,
-    /// Insertion order, assigned by the scheduler, for FIFO within a priority.
-    seq: u64,
-    token: CancellationToken,
+/// The needs waiting for a queued (not yet started) run.
+struct PendingRun {
+    /// Events per pagination; set by the run's first need (request kinds
+    /// sharing a priority share a batch size).
+    batch_size: u16,
+    needs: Vec<Need>,
 }
 
-impl PartialEq for ScheduledRequest {
-    fn eq(&self, other: &Self) -> bool {
-        self.request.priority == other.request.priority && self.seq == other.seq
+/// A queued run in the scheduler's heap: ordering information only, the needs
+/// live in the scheduler's pending map (a heap entry can't be mutated in
+/// place when a later need attaches). An entry whose key has no pending needs
+/// (already started via an earlier entry) is stale, and skipped when popped.
+struct ScheduledRun {
+    room_id: OwnedRoomId,
+    priority: Priority,
+    /// The room's recency stamp at enqueue time of the run's FIRST need;
+    /// later attachments don't reorder the queue.
+    recency: Option<RoomRecencyStamp>,
+    /// Insertion order, assigned by the scheduler, for FIFO within a priority.
+    seq: u64,
+}
+
+impl ScheduledRun {
+    fn key(&self) -> RunKey {
+        (self.room_id.clone(), self.priority)
     }
 }
 
-impl Eq for ScheduledRequest {}
+impl PartialEq for ScheduledRun {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority && self.seq == other.seq
+    }
+}
 
-impl PartialOrd for ScheduledRequest {
+impl Eq for ScheduledRun {}
+
+impl PartialOrd for ScheduledRun {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ScheduledRequest {
+impl Ord for ScheduledRun {
     fn cmp(&self, other: &Self) -> Ordering {
         // Higher priority first; within a priority, higher recency stamp first
         // (`None < Some(_)`, so requests without a stamp sort after every
         // request with one); then earlier `seq` first.
-        self.request
-            .priority
-            .cmp(&other.request.priority)
-            .then_with(|| self.request.recency.cmp(&other.request.recency))
+        self.priority
+            .cmp(&other.priority)
+            .then_with(|| self.recency.cmp(&other.recency))
             .then_with(|| other.seq.cmp(&self.seq))
     }
 }
 
-/// The executor schedules requests by priority, bounded concurrency at one run
-/// per room at a time.
+/// The executor schedules runs by priority, bounded concurrency at one run
+/// per room at a time; a request for a room already queued or running at the
+/// same priority attaches to that run as an extra [`Need`] rather than
+/// starting a second walk.
 #[instrument(skip_all)]
 async fn scheduler(
     event_cache: Weak<EventCacheInner>,
@@ -757,54 +809,74 @@ async fn scheduler(
 ) {
     trace!("Spawning the back-pagination queue executor");
 
-    let mut scheduled_requests: BinaryHeap<ScheduledRequest> = BinaryHeap::new();
-    let mut active_requests: Vec<(OwnedRoomId, Priority)> = Vec::new();
+    let mut scheduled_runs: BinaryHeap<ScheduledRun> = BinaryHeap::new();
+    let mut pending_runs: HashMap<RunKey, PendingRun> = HashMap::new();
+    // Active runs, by key; the sender attaches new needs to the running walk.
+    let mut active_runs: HashMap<RunKey, mpsc::UnboundedSender<Need>> = HashMap::new();
     let mut next_seq: u64 = 0;
 
-    // Completion senders for every outstanding run (queued or active), keyed by
-    // room and priority. A duplicate request coalesces onto the existing run by
-    // adding its completion sender here rather than starting a second run. When
-    // the run finishes every waiter for the key receives the same result.
-    let mut waiters: HashMap<RequestCoalescingKey, Vec<oneshot::Sender<BackPaginationRunResult>>> =
-        HashMap::new();
-
-    // The executor is notified which run finished so it can free the room and
-    // send the completion result to every waiter.
-    let (done_tx, mut done_rx) =
-        mpsc::unbounded_channel::<(RequestCoalescingKey, BackPaginationRunResult)>();
+    // The executor is notified which run finished so it can free the room.
+    // (Needs are completed by the run itself.)
+    let (done_tx, mut done_rx) = mpsc::unbounded_channel::<RunKey>();
 
     loop {
-        // Schedule as many pending requests as the concurrency budget and the
+        // Schedule as many pending runs as the concurrency budget and the
         // per-room single-flight rule allow.
-        schedule(
-            &event_cache,
-            &mut scheduled_requests,
-            &mut active_requests,
-            max_concurrent,
-            &done_tx,
-        );
+        let mut active_keys: Vec<RunKey> = active_runs.keys().cloned().collect();
+        for (key, run) in
+            next_runnable(&mut scheduled_runs, &mut pending_runs, &mut active_keys, max_concurrent)
+        {
+            let PendingRun { batch_size, needs } = run;
+
+            // Drop needs cancelled while queued.
+            let needs: Vec<_> = needs
+                .into_iter()
+                .filter_map(|need| {
+                    if need.token.is_cancelled() {
+                        need.complete(RoomBackPaginationEnd::Cancelled, None);
+                        None
+                    } else {
+                        Some(need)
+                    }
+                })
+                .collect();
+
+            if needs.is_empty() {
+                continue;
+            }
+
+            trace!(
+                room_id = %key.0,
+                priority = ?key.1,
+                needs = needs.len(),
+                queued = scheduled_runs.len(),
+                "back-pagination run scheduled"
+            );
+
+            let (needs_tx, needs_rx) = mpsc::unbounded_channel();
+            active_runs.insert(key.clone(), needs_tx);
+
+            let event_cache = event_cache.clone();
+            let done_tx = done_tx.clone();
+            spawn(async move {
+                run_request(&event_cache, &key.0, key.1, batch_size, needs, needs_rx).await;
+                let _ = done_tx.send(key);
+            });
+        }
 
         select! {
             request = receiver.recv() => {
                 match request {
-                    Some(request) => {
-                        let key = (request.request.room_id.clone(), request.request.priority);
-
-                        if try_coalesce(&mut waiters, &key, request.completion) {
-                            trace!(
-                                room_id = %key.0,
-                                priority = ?key.1,
-                                "coalesced back-pagination request onto an existing run"
-                            );
-                            continue;
-                        }
-
-                        scheduled_requests.push(ScheduledRequest {
-                            request: request.request,
-                            seq: next_seq,
-                            token: request.token,
-                        });
-                        next_seq += 1;
+                    Some(SubmittedRequest { request, token, completion }) => {
+                        attach_or_queue(
+                            request,
+                            token,
+                            completion,
+                            &active_runs,
+                            &mut pending_runs,
+                            &mut scheduled_runs,
+                            &mut next_seq,
+                        );
                     }
                     None => {
                         info!("Back-pagination queue sender closed, exiting");
@@ -813,167 +885,215 @@ async fn scheduler(
                 }
             }
 
-            Some((key, result)) = done_rx.recv() => {
-                if let Some(index) = active_requests.iter().position(|(id, _)| *id == key.0) {
-                    active_requests.swap_remove(index);
-                }
-                // Fan the single run's result out to every coalesced waiter.
-                if let Some(senders) = waiters.remove(&key) {
-                    for sender in senders {
-                        let _ = sender.send(result);
-                    }
-                }
+            Some(key) = done_rx.recv() => {
+                active_runs.remove(&key);
             }
         }
     }
 }
 
-/// Coalesce a new caller's `completion` onto an existing run for `key`, or
-/// admit it as the first waiter of a new run.
-///
-/// Requests sharing a [`RequestCoalescingKey`] are functionally
-/// interchangeable, so only one run is needed; extra callers wait on the same
-/// result. Different priorities for the same room have different keys, so they
-/// never coalesce. A busy room must still let a higher-priority request wait
-/// its turn.
-fn try_coalesce(
-    waiters: &mut HashMap<RequestCoalescingKey, Vec<oneshot::Sender<BackPaginationRunResult>>>,
-    key: &RequestCoalescingKey,
+/// Turn a submitted request into a [`Need`] and route it: attach it to the
+/// room's active run at the same priority if one is walking (it evaluates
+/// from the next batch), else onto the queued run for that key, else open a
+/// new queued run.
+fn attach_or_queue(
+    request: BackPaginationRequest,
+    token: CancellationToken,
     completion: oneshot::Sender<BackPaginationRunResult>,
-) -> bool {
-    match waiters.get_mut(key) {
-        Some(existing) => {
-            existing.push(completion);
-            true
-        }
-        None => {
-            waiters.insert(key.clone(), vec![completion]);
-            false
-        }
-    }
-}
-
-/// Pop and spawn every currently-schedulable request.
-fn schedule(
-    event_cache: &Weak<EventCacheInner>,
-    scheduled_requests: &mut BinaryHeap<ScheduledRequest>,
-    active_requests: &mut Vec<(OwnedRoomId, Priority)>,
-    max_concurrent: usize,
-    done_tx: &mpsc::UnboundedSender<(RequestCoalescingKey, BackPaginationRunResult)>,
+    active_runs: &HashMap<RunKey, mpsc::UnboundedSender<Need>>,
+    pending_runs: &mut HashMap<RunKey, PendingRun>,
+    scheduled_runs: &mut BinaryHeap<ScheduledRun>,
+    next_seq: &mut u64,
 ) {
-    for request in next_runnable(scheduled_requests, active_requests, max_concurrent) {
-        let key = (request.request.room_id.clone(), request.request.priority);
+    let BackPaginationRequest { room_id, priority, recency, stop, batch_size, max_batches } =
+        request;
 
-        trace!(
-            room_id = %key.0,
-            priority = ?key.1,
-            active = active_requests.len(),
-            queued = scheduled_requests.len(),
-            "back-pagination scheduled"
-        );
+    let mut need = Need { stop, batches_remaining: max_batches, token, completion };
+    let key = (room_id, priority);
 
-        let event_cache = event_cache.clone();
-        let done_tx = done_tx.clone();
-        spawn(async move {
-            let result = run_request(&event_cache, request.request, &request.token).await;
-            // The scheduler owns the completion senders (for coalescing), so hand it the
-            // result to fan out to every waiter for this key.
-            let _ = done_tx.send((key, result));
-        });
+    if let Some(active) = active_runs.get(&key) {
+        match active.send(need) {
+            Ok(()) => {
+                trace!(
+                    room_id = %key.0,
+                    priority = ?key.1,
+                    "attached the need to the room's active run"
+                );
+                return;
+            }
+            // The run ended in the meantime; queue a new one instead.
+            Err(mpsc::error::SendError(returned)) => need = returned,
+        }
+    }
+
+    match pending_runs.entry(key) {
+        std::collections::hash_map::Entry::Occupied(mut entry) => {
+            trace!(
+                room_id = %entry.key().0,
+                priority = ?entry.key().1,
+                "attached the need to the room's queued run"
+            );
+            entry.get_mut().needs.push(need);
+        }
+        std::collections::hash_map::Entry::Vacant(entry) => {
+            scheduled_runs.push(ScheduledRun {
+                room_id: entry.key().0.clone(),
+                priority: entry.key().1,
+                recency,
+                seq: *next_seq,
+            });
+            *next_seq += 1;
+            entry.insert(PendingRun { batch_size, needs: vec![need] });
+        }
     }
 }
 
-/// Pick the requests that can start right now, highest priority first: bounded
-/// by `max_concurrent` total in flight, and never two runs for the same room.
+/// Pick the runs that can start right now, highest priority first: bounded by
+/// `max_concurrent` total in flight, and never two runs for the same room.
 ///
-/// Picked rooms are appended to `active_requests` and requests popped but not
-/// yet runnable (their room is busy) are pushed back onto the heap.
+/// Picked keys are appended to `active_keys`; runs popped but not yet
+/// runnable (their room is busy, or their priority class is at its cap) are
+/// pushed back onto the heap. Stale heap entries (whose needs were already
+/// taken by an earlier entry for the same key) are dropped.
 fn next_runnable(
-    scheduled_requests: &mut BinaryHeap<ScheduledRequest>,
-    active_requests: &mut Vec<(OwnedRoomId, Priority)>,
+    scheduled_runs: &mut BinaryHeap<ScheduledRun>,
+    pending_runs: &mut HashMap<RunKey, PendingRun>,
+    active_keys: &mut Vec<RunKey>,
     max_concurrent: usize,
-) -> Vec<ScheduledRequest> {
+) -> Vec<(RunKey, PendingRun)> {
     let mut picked = Vec::new();
     let mut skipped = Vec::new();
 
-    while active_requests.len() < max_concurrent {
-        let Some(request) = scheduled_requests.pop() else {
+    while active_keys.len() < max_concurrent {
+        let Some(entry) = scheduled_runs.pop() else {
             break;
         };
 
-        if active_requests.iter().any(|(id, _)| *id == request.request.room_id) {
-            // This room is busy, try it again next round.
-            skipped.push(request);
+        let key = entry.key();
+
+        if !pending_runs.contains_key(&key) {
+            // Stale entry, drop it.
             continue;
         }
 
-        let priority = request.request.priority;
+        if active_keys.iter().any(|(id, _)| *id == entry.room_id) {
+            // This room is busy, try it again next round.
+            skipped.push(entry);
+            continue;
+        }
 
-        if active_requests.iter().filter(|(_, p)| *p == priority).count() >= priority.max_active() {
+        if active_keys.iter().filter(|(_, p)| *p == entry.priority).count()
+            >= entry.priority.max_active()
+        {
             // This priority class is at its own concurrency cap, try it again
             // next round.
-            skipped.push(request);
+            skipped.push(entry);
             continue;
         }
 
-        active_requests.push((request.request.room_id.clone(), priority));
-        picked.push(request);
+        let run = pending_runs.remove(&key).expect("checked above");
+        active_keys.push(key.clone());
+        picked.push((key, run));
     }
 
-    for request in skipped {
-        scheduled_requests.push(request);
+    for entry in skipped {
+        scheduled_runs.push(entry);
     }
 
     picked
 }
 
-/// Back-paginate one room until its [`StopCondition`], the start of the
-/// timeline, the batch budget, or cancellation.
-#[instrument(skip_all, fields(room_id = %request.room_id, priority = ?request.priority))]
+/// End a run: refuse further attachments, then resolve every remaining need
+/// (including last-instant arrivals) with `end`.
+fn finish_run(
+    mut needs: Vec<Need>,
+    incoming: &mut mpsc::UnboundedReceiver<Need>,
+    end: RoomBackPaginationEnd,
+    reached: Option<MilliSecondsSinceUnixEpoch>,
+) {
+    incoming.close();
+    while let Ok(need) = incoming.try_recv() {
+        needs.push(need);
+    }
+    for need in needs {
+        need.complete(end, reached);
+    }
+}
+
+/// Walk one room's history backwards, serving every attached need until each
+/// has resolved (its [`StopCondition`] fired, or its batch budget ran out, or
+/// its caller cancelled), or the walk itself ends (start of the timeline, no
+/// data, failure).
+///
+/// New needs may attach mid-run via `incoming`; they evaluate batches loaded
+/// from that point on.
+#[instrument(skip_all, fields(room_id = %room_id, priority = ?priority))]
 async fn run_request(
     event_cache: &Weak<EventCacheInner>,
-    mut request: BackPaginationRequest,
-    token: &CancellationToken,
-) -> BackPaginationRunResult {
-    // Cancelled while still queued, nothing to do.
-    if token.is_cancelled() {
-        return BackPaginationRunResult { end: RoomBackPaginationEnd::Cancelled, reached: None };
-    }
-
+    room_id: &RoomId,
+    priority: Priority,
+    batch_size: u16,
+    mut needs: Vec<Need>,
+    mut incoming: mpsc::UnboundedReceiver<Need>,
+) {
     // Grab an owned `RoomPagination`, dropping the caches guard immediately so
     // we don't hold the room lock across network paginations.
     let pagination = {
         let Some(inner) = event_cache.upgrade() else {
-            return BackPaginationRunResult {
-                end: RoomBackPaginationEnd::Cancelled,
-                reached: None,
-            };
+            finish_run(needs, &mut incoming, RoomBackPaginationEnd::Cancelled, None);
+            return;
         };
-        match inner.all_caches_for_room(&request.room_id).await {
+        match inner.all_caches_for_room(room_id).await {
             Ok(caches) => caches.room.pagination(),
             Err(err) => {
                 warn!("no caches for room while back-paginating: {err}");
-                return BackPaginationRunResult {
-                    end: RoomBackPaginationEnd::Failed,
-                    reached: None,
-                };
+                finish_run(needs, &mut incoming, RoomBackPaginationEnd::Failed, None);
+                return;
             }
         }
     };
 
     let mut oldest_reached: Option<MilliSecondsSinceUnixEpoch> = None;
-    let mut batches = 0usize;
 
-    let end = loop {
-        if token.is_cancelled() {
-            break RoomBackPaginationEnd::Cancelled;
+    loop {
+        // Absorb needs that attached while the previous batch was in flight.
+        while let Ok(need) = incoming.try_recv() {
+            needs.push(need);
         }
 
-        let outcome = match pagination.run_backwards_once(request.batch_size).await {
+        // Resolve needs cancelled by their caller; the walk continues for the
+        // others.
+        needs = needs
+            .into_iter()
+            .filter_map(|need| {
+                if need.token.is_cancelled() {
+                    need.complete(RoomBackPaginationEnd::Cancelled, oldest_reached);
+                    None
+                } else {
+                    Some(need)
+                }
+            })
+            .collect();
+
+        if needs.is_empty() {
+            // Nobody is waiting any more: end the run. Refuse further
+            // attachments first, and keep walking if one raced in (its
+            // enqueuer saw this run as active, so nobody else will serve it).
+            incoming.close();
+            while let Ok(need) = incoming.try_recv() {
+                needs.push(need);
+            }
+            if needs.is_empty() {
+                return;
+            }
+        }
+
+        let outcome = match pagination.run_backwards_once(batch_size).await {
             Ok(outcome) => outcome,
             Err(err) => {
                 warn!("back-pagination failed: {err}");
-                break RoomBackPaginationEnd::Failed;
+                finish_run(needs, &mut incoming, RoomBackPaginationEnd::Failed, oldest_reached);
+                return;
             }
         };
 
@@ -981,27 +1101,63 @@ async fn run_request(
             oldest_reached = Some(oldest_reached.map_or(batch_oldest, |cur| cur.min(batch_oldest)));
         }
 
-        if outcome.reached_start {
-            break RoomBackPaginationEnd::ReachedTimelineStart;
+        // Absorb needs that attached while this batch was in flight: they
+        // haven't seen it, so they evaluate it below rather than waiting for
+        // (and possibly triggering) another one.
+        while let Ok(need) = incoming.try_recv() {
+            needs.push(need);
         }
 
-        if stop_now(&mut request.stop, &outcome) {
-            break RoomBackPaginationEnd::StopConditionMet;
+        if outcome.reached_start {
+            finish_run(
+                needs,
+                &mut incoming,
+                RoomBackPaginationEnd::ReachedTimelineStart,
+                oldest_reached,
+            );
+            return;
         }
+
+        // Resolve the needs whose stop condition fires on this batch.
+        needs = needs
+            .into_iter()
+            .filter_map(|mut need| {
+                if stop_now(&mut need.stop, &outcome) {
+                    need.complete(RoomBackPaginationEnd::StopConditionMet, oldest_reached);
+                    None
+                } else {
+                    Some(need)
+                }
+            })
+            .collect();
 
         if outcome.events.is_empty() {
-            break RoomBackPaginationEnd::NoDataAvailable;
+            finish_run(
+                needs,
+                &mut incoming,
+                RoomBackPaginationEnd::NoDataAvailable,
+                oldest_reached,
+            );
+            return;
         }
 
-        batches += 1;
-        if let Some(max) = request.max_batches
-            && batches >= max
-        {
-            break RoomBackPaginationEnd::BatchLimitReached;
-        }
-    };
-
-    BackPaginationRunResult { end, reached: oldest_reached }
+        // Spend one batch of every remaining need's budget.
+        needs = needs
+            .into_iter()
+            .filter_map(|mut need| match &mut need.batches_remaining {
+                Some(remaining) => {
+                    *remaining -= 1;
+                    if *remaining == 0 {
+                        need.complete(RoomBackPaginationEnd::BatchLimitReached, oldest_reached);
+                        None
+                    } else {
+                        Some(need)
+                    }
+                }
+                None => Some(need),
+            })
+            .collect();
+    }
 }
 
 /// The oldest event timestamp in a batch, if any.
@@ -1029,8 +1185,8 @@ mod tests {
     use ruma::{MilliSecondsSinceUnixEpoch, event_id, room_id};
 
     use super::{
-        BackPaginationOutcome, BackPaginationRequest, BackPaginationStrategy, Priority,
-        ScheduledRequest, StopCondition, next_runnable, stop_now, try_coalesce,
+        BackPaginationOutcome, BackPaginationRequest, BackPaginationStrategy, Need, PendingRun,
+        Priority, RunKey, ScheduledRun, StopCondition, attach_or_queue, next_runnable, stop_now,
     };
     use crate::{
         assert_let_timeout,
@@ -1038,32 +1194,43 @@ mod tests {
         test_utils::mocks::{MatrixMockServer, RoomMessagesResponseTemplate},
     };
 
-    /// Build a queued request for a room, at a priority, with an insertion seq.
-    fn queued(room_id: ruma::OwnedRoomId, priority: Priority, seq: u64) -> ScheduledRequest {
-        queued_with_recency(room_id, priority, None, seq)
+    /// A need whose stop condition never fires; scheduling tests never
+    /// evaluate it.
+    fn dummy_need() -> Need {
+        Need {
+            stop: StopCondition::WhenBatch(Box::new(|_| ControlFlow::Continue(()))),
+            batches_remaining: None,
+            token: tokio_util::sync::CancellationToken::new(),
+            completion: tokio::sync::oneshot::channel().0,
+        }
     }
 
-    /// Build a queued request for a room, at a priority, with a recency stamp
-    /// and an insertion seq.
+    /// Build a queued run for a room, at a priority, with an insertion seq,
+    /// registering its pending needs in `pending_runs`.
+    fn queued(
+        pending_runs: &mut std::collections::HashMap<RunKey, PendingRun>,
+        room_id: ruma::OwnedRoomId,
+        priority: Priority,
+        seq: u64,
+    ) -> ScheduledRun {
+        queued_with_recency(pending_runs, room_id, priority, None, seq)
+    }
+
+    /// Build a queued run for a room, at a priority, with a recency stamp and
+    /// an insertion seq, registering its pending needs in `pending_runs`.
     fn queued_with_recency(
+        pending_runs: &mut std::collections::HashMap<RunKey, PendingRun>,
         room_id: ruma::OwnedRoomId,
         priority: Priority,
         recency: Option<super::RoomRecencyStamp>,
         seq: u64,
-    ) -> ScheduledRequest {
-        ScheduledRequest {
-            request: BackPaginationRequest {
-                room_id,
-                priority,
-                recency,
-                // Scheduling tests never evaluate the stop condition.
-                stop: StopCondition::WhenBatch(Box::new(|_| ControlFlow::Continue(()))),
-                batch_size: 10,
-                max_batches: None,
-            },
-            seq,
-            token: tokio_util::sync::CancellationToken::new(),
-        }
+    ) -> ScheduledRun {
+        pending_runs
+            .entry((room_id.clone(), priority))
+            .or_insert_with(|| PendingRun { batch_size: 10, needs: Vec::new() })
+            .needs
+            .push(dummy_need());
+        ScheduledRun { room_id, priority, recency, seq }
     }
 
     /// `next_runnable` serves highest priority first, then FIFO within a
@@ -1075,17 +1242,19 @@ mod tests {
         let (a, b, c, d) = (room_id!("!a:e"), room_id!("!b:e"), room_id!("!c:e"), room_id!("!d:e"));
 
         let mut scheduled_requests = BinaryHeap::new();
+        let mut pending_runs = std::collections::HashMap::new();
         // Push out of priority order, with monotonic seqs.
-        scheduled_requests.push(queued(a.to_owned(), Priority::Low, 0));
-        scheduled_requests.push(queued(b.to_owned(), Priority::High, 1));
-        scheduled_requests.push(queued(c.to_owned(), Priority::Prefetch, 2));
-        scheduled_requests.push(queued(d.to_owned(), Priority::High, 3));
+        scheduled_requests.push(queued(&mut pending_runs, a.to_owned(), Priority::Low, 0));
+        scheduled_requests.push(queued(&mut pending_runs, b.to_owned(), Priority::High, 1));
+        scheduled_requests.push(queued(&mut pending_runs, c.to_owned(), Priority::Prefetch, 2));
+        scheduled_requests.push(queued(&mut pending_runs, d.to_owned(), Priority::High, 3));
 
         let mut active_requests = Vec::new();
-        let picked: Vec<_> = next_runnable(&mut scheduled_requests, &mut active_requests, 10)
-            .into_iter()
-            .map(|r| r.request.room_id)
-            .collect();
+        let picked: Vec<_> =
+            next_runnable(&mut scheduled_requests, &mut pending_runs, &mut active_requests, 10)
+                .into_iter()
+                .map(|(key, _)| key.0)
+                .collect();
 
         // High first (b before d by FIFO), then Prefetch, then Low.
         assert_eq!(picked, vec![b.to_owned(), d.to_owned(), c.to_owned(), a.to_owned()]);
@@ -1107,23 +1276,39 @@ mod tests {
         );
 
         let mut scheduled_requests = BinaryHeap::new();
+        let mut pending_runs = std::collections::HashMap::new();
         // Enqueue stamped requests out of recency order, interleaved with
         // unstamped ones, all at the same priority.
-        scheduled_requests.push(queued_with_recency(a.to_owned(), Priority::High, None, 0));
         scheduled_requests.push(queued_with_recency(
+            &mut pending_runs,
+            a.to_owned(),
+            Priority::High,
+            None,
+            0,
+        ));
+        scheduled_requests.push(queued_with_recency(
+            &mut pending_runs,
             b.to_owned(),
             Priority::High,
             Some(10.into()),
             1,
         ));
         scheduled_requests.push(queued_with_recency(
+            &mut pending_runs,
             c.to_owned(),
             Priority::High,
             Some(30.into()),
             2,
         ));
-        scheduled_requests.push(queued_with_recency(d.to_owned(), Priority::High, None, 3));
         scheduled_requests.push(queued_with_recency(
+            &mut pending_runs,
+            d.to_owned(),
+            Priority::High,
+            None,
+            3,
+        ));
+        scheduled_requests.push(queued_with_recency(
+            &mut pending_runs,
             e.to_owned(),
             Priority::High,
             Some(20.into()),
@@ -1131,7 +1316,13 @@ mod tests {
         ));
         // A higher priority still beats the highest recency stamp.
         let f = room_id!("!f:e");
-        scheduled_requests.push(queued_with_recency(f.to_owned(), Priority::Viewport, None, 5));
+        scheduled_requests.push(queued_with_recency(
+            &mut pending_runs,
+            f.to_owned(),
+            Priority::Viewport,
+            None,
+            5,
+        ));
 
         // Drain in waves: High is capped at 2 concurrent, so completions are
         // simulated by clearing the active list between calls. The cumulative
@@ -1139,9 +1330,10 @@ mod tests {
         let mut picked = Vec::new();
         while !scheduled_requests.is_empty() {
             let mut active_requests = Vec::new();
-            let wave = next_runnable(&mut scheduled_requests, &mut active_requests, 10);
+            let wave =
+                next_runnable(&mut scheduled_requests, &mut pending_runs, &mut active_requests, 10);
             assert!(!wave.is_empty(), "the scheduler must make progress");
-            picked.extend(wave.into_iter().map(|r| r.request.room_id));
+            picked.extend(wave.into_iter().map(|(key, _)| key.0));
         }
 
         // Viewport first; then the stamped High requests by recency
@@ -1169,20 +1361,28 @@ mod tests {
         use std::collections::BinaryHeap;
 
         let mut scheduled_requests = BinaryHeap::new();
+        let mut pending_runs = std::collections::HashMap::new();
         for (i, room) in ["!a:e", "!b:e", "!c:e", "!d:e", "!e:e"].iter().enumerate() {
             scheduled_requests.push(queued(
+                &mut pending_runs,
                 ruma::RoomId::parse(room).unwrap(),
                 Priority::High,
                 i as u64,
             ));
         }
-        scheduled_requests.push(queued(ruma::RoomId::parse("!h:e").unwrap(), Priority::Low, 7));
+        scheduled_requests.push(queued(
+            &mut pending_runs,
+            ruma::RoomId::parse("!h:e").unwrap(),
+            Priority::Low,
+            7,
+        ));
 
         let mut active_requests = Vec::new();
-        let picked = next_runnable(&mut scheduled_requests, &mut active_requests, 10);
+        let picked =
+            next_runnable(&mut scheduled_requests, &mut pending_runs, &mut active_requests, 10);
 
         // 2 High + the Low one; the other 3 High wait.
-        let mut priorities: Vec<_> = picked.iter().map(|r| r.request.priority).collect();
+        let mut priorities: Vec<_> = picked.iter().map(|(key, _)| key.1).collect();
         priorities.sort();
         assert_eq!(priorities, vec![Priority::Low, Priority::High, Priority::High]);
         assert_eq!(scheduled_requests.len(), 3);
@@ -1194,13 +1394,20 @@ mod tests {
         use std::collections::BinaryHeap;
 
         let mut scheduled_requests = BinaryHeap::new();
+        let mut pending_runs = std::collections::HashMap::new();
         for (i, room) in [room_id!("!a:e"), room_id!("!b:e"), room_id!("!c:e")].iter().enumerate() {
             // `Low` has no per-priority cap: only the global budget binds.
-            scheduled_requests.push(queued((*room).to_owned(), Priority::Low, i as u64));
+            scheduled_requests.push(queued(
+                &mut pending_runs,
+                (*room).to_owned(),
+                Priority::Low,
+                i as u64,
+            ));
         }
 
         let mut active_requests = Vec::new();
-        let picked = next_runnable(&mut scheduled_requests, &mut active_requests, 2);
+        let picked =
+            next_runnable(&mut scheduled_requests, &mut pending_runs, &mut active_requests, 2);
 
         assert_eq!(picked.len(), 2);
         assert_eq!(active_requests.len(), 2);
@@ -1220,46 +1427,122 @@ mod tests {
         let mut active_requests = vec![(a.to_owned(), Priority::High)];
 
         let mut scheduled_requests = BinaryHeap::new();
-        scheduled_requests.push(queued(a.to_owned(), Priority::High, 0)); // same room as active
-        scheduled_requests.push(queued(a.to_owned(), Priority::High, 1)); // and again
-        scheduled_requests.push(queued(b.to_owned(), Priority::Low, 2)); // a different room
+        let mut pending_runs = std::collections::HashMap::new();
+        // Same room as active, at another priority (same-priority requests
+        // would have attached to the active run instead of queueing).
+        scheduled_requests.push(queued(&mut pending_runs, a.to_owned(), Priority::Viewport, 0));
+        scheduled_requests.push(queued(&mut pending_runs, b.to_owned(), Priority::Low, 2)); // a different room
 
-        let picked: Vec<_> = next_runnable(&mut scheduled_requests, &mut active_requests, 10)
-            .into_iter()
-            .map(|r| r.request.room_id)
-            .collect();
+        let picked: Vec<_> =
+            next_runnable(&mut scheduled_requests, &mut pending_runs, &mut active_requests, 10)
+                .into_iter()
+                .map(|(key, _)| key.0)
+                .collect();
 
-        // Only `b` runs; both `a` requests stay queued (a is busy).
+        // Only `b` runs; the `a` run stays queued (a is busy).
         assert_eq!(picked, vec![b.to_owned()]);
-        assert_eq!(scheduled_requests.len(), 2);
+        assert_eq!(scheduled_requests.len(), 1);
     }
 
-    /// The first request for a room + priority opens a new run; a later one at
-    /// the same key coalesces onto it (shares its waiter list); a different
-    /// priority for the same room opens its own run.
+    /// The first request for a room + priority opens a queued run; a later
+    /// one at the same key attaches to it as an extra need; a different
+    /// priority for the same room opens its own run; and while a run is
+    /// active, a new request attaches to the running walk.
     #[test]
-    fn test_coalescing() {
-        use std::collections::HashMap;
+    fn test_attach_or_queue() {
+        use std::collections::{BinaryHeap, HashMap};
 
         let a = room_id!("!a:e");
-        let mut waiters = HashMap::new();
 
+        let request = |priority| BackPaginationRequest {
+            room_id: a.to_owned(),
+            priority,
+            recency: None,
+            stop: StopCondition::WhenBatch(Box::new(|_| ControlFlow::Continue(()))),
+            batch_size: 10,
+            max_batches: None,
+        };
+        let token = tokio_util::sync::CancellationToken::new;
         let completion = || tokio::sync::oneshot::channel().0;
-        let viewport = (a.to_owned(), Priority::Viewport);
+
+        let mut active = HashMap::new();
+        let mut pending = HashMap::new();
+        let mut heap = BinaryHeap::new();
+        let mut seq = 0u64;
+
         let high = (a.to_owned(), Priority::High);
+        let viewport = (a.to_owned(), Priority::Viewport);
+        let low = (a.to_owned(), Priority::Low);
 
-        // First request at (a, Viewport): opens a new run.
-        assert!(!try_coalesce(&mut waiters, &viewport, completion()));
-        assert_eq!(waiters[&viewport].len(), 1);
+        // First request at (a, High): opens a queued run.
+        attach_or_queue(
+            request(Priority::High),
+            token(),
+            completion(),
+            &active,
+            &mut pending,
+            &mut heap,
+            &mut seq,
+        );
+        assert_eq!(heap.len(), 1);
+        assert_eq!(pending[&high].needs.len(), 1);
 
-        // Second request at the same key: coalesces onto it.
-        assert!(try_coalesce(&mut waiters, &viewport, completion()));
-        assert_eq!(waiters[&viewport].len(), 2);
+        // Second request at the same key: attaches to the queued run, no new
+        // heap entry.
+        attach_or_queue(
+            request(Priority::High),
+            token(),
+            completion(),
+            &active,
+            &mut pending,
+            &mut heap,
+            &mut seq,
+        );
+        assert_eq!(heap.len(), 1);
+        assert_eq!(pending[&high].needs.len(), 2);
 
-        // Same room, different priority: a separate run, not a coalesce.
-        assert!(!try_coalesce(&mut waiters, &high, completion()));
-        assert_eq!(waiters.len(), 2);
-        assert_eq!(waiters[&high].len(), 1);
+        // Same room, different priority: its own queued run.
+        attach_or_queue(
+            request(Priority::Viewport),
+            token(),
+            completion(),
+            &active,
+            &mut pending,
+            &mut heap,
+            &mut seq,
+        );
+        assert_eq!(heap.len(), 2);
+        assert_eq!(pending[&viewport].needs.len(), 1);
+
+        // With an active run for a key, a new request attaches to the running
+        // walk instead of queueing.
+        let (needs_tx, mut needs_rx) = tokio::sync::mpsc::unbounded_channel();
+        active.insert(low.clone(), needs_tx);
+        attach_or_queue(
+            request(Priority::Low),
+            token(),
+            completion(),
+            &active,
+            &mut pending,
+            &mut heap,
+            &mut seq,
+        );
+        assert!(needs_rx.try_recv().is_ok());
+        assert!(!pending.contains_key(&low));
+
+        // If the active run has just ended (its channel is closed), the
+        // request queues a fresh run instead of getting lost.
+        needs_rx.close();
+        attach_or_queue(
+            request(Priority::Low),
+            token(),
+            completion(),
+            &active,
+            &mut pending,
+            &mut heap,
+            &mut seq,
+        );
+        assert_eq!(pending[&low].needs.len(), 1);
     }
 
     /// `OlderThan` stops once the oldest event in a batch is at/before the
@@ -1352,5 +1635,78 @@ mod tests {
         assert_eq!(room_events.len(), 2);
         assert_eq!(room_events[0].event_id().unwrap(), event_id!("$1"));
         assert_eq!(room_events[1].event_id().unwrap(), event_id!("$2"));
+    }
+
+    /// Two requests for the same room at the same priority share one walk:
+    /// exactly one `/messages` call serves both needs (guaranteed by
+    /// `mock_once`), and both resolve.
+    #[async_test]
+    async fn test_two_needs_share_one_walk() {
+        use std::time::Duration;
+
+        let server = MatrixMockServer::new().await;
+        // No automatic back-pagination: the only consumer of the `/messages`
+        // mock below must be the test's own queue, so the `mock_once`
+        // accounting is deterministic.
+        let client = server.client_builder().build().await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        let room_id = room_id!("!omelette:fromage.fr");
+        let f = EventFactory::new().room(room_id).sender(*BOB);
+
+        server.sync_joined_room(&client, room_id).await;
+        server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id)
+                    .set_timeline_limited()
+                    .set_timeline_prev_batch("prev_batch"),
+            )
+            .await;
+
+        server
+            .mock_room_messages()
+            .match_from("prev_batch")
+            .ok(RoomMessagesResponseTemplate::default()
+                .end_token("further_back")
+                .events(vec![f.text_msg("gruyère").event_id(event_id!("$1"))]))
+            .mock_once()
+            .mount()
+            .await;
+
+        // A queue of our own (the client's automatic one is disabled).
+        let queue = super::BackPaginationQueue::new(
+            std::sync::Arc::downgrade(&event_cache.inner),
+            4,
+            client.task_monitor(),
+        );
+
+        // Both needs stop on the first non-empty batch. Enqueued back to back,
+        // the second attaches to the first's run (queued or already walking).
+        let need = || {
+            queue.enqueue(BackPaginationRequest::read_receipt(
+                room_id.to_owned(),
+                |outcome: &BackPaginationOutcome| {
+                    if outcome.events.is_empty() {
+                        ControlFlow::Continue(())
+                    } else {
+                        ControlFlow::Break(())
+                    }
+                },
+            ))
+        };
+        let (first, second) = (need(), need());
+
+        let first = tokio::time::timeout(Duration::from_secs(5), first.join())
+            .await
+            .expect("first need must resolve");
+        let second = tokio::time::timeout(Duration::from_secs(5), second.join())
+            .await
+            .expect("second need must resolve");
+
+        assert_eq!(first.end, super::RoomBackPaginationEnd::StopConditionMet);
+        assert_eq!(second.end, super::RoomBackPaginationEnd::StopConditionMet);
     }
 }
