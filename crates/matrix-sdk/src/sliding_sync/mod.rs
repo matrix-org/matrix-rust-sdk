@@ -880,11 +880,8 @@ impl SlidingSync {
             // event cache silently loses those events, as the server won't
             // send them again (element-hq/element-x-ios#5973). The in-memory
             // `pos` advances normally; the sync loop is not delayed.
-            this.persist_pos(
-                position_guard.pos.clone(),
-                this.inner.client.last_room_updates_seq(),
-            )
-            .await;
+            this.persist_pos(position_guard.pos.clone(), this.inner.client.last_room_updates_seq())
+                .await;
 
             // Release the position guard lock.
             // It means that other responses can be generated and then handled later.
@@ -1091,7 +1088,10 @@ impl SlidingSync {
 ///
 /// Only the extensions that are configured in `deferred` (i.e. whose `enabled`
 /// flag is set) overwrite their counterpart; the others are left untouched.
-fn merge_extensions(extensions: &mut http::request::Extensions, deferred: &http::request::Extensions) {
+fn merge_extensions(
+    extensions: &mut http::request::Extensions,
+    deferred: &http::request::Extensions,
+) {
     if deferred.to_device.enabled.is_some() {
         extensions.to_device = deferred.to_device.clone();
     }
@@ -3436,8 +3436,7 @@ mod tests {
 
         // Give the persister task ample opportunity to (incorrectly) write.
         tokio::time::sleep(Duration::from_millis(100)).await;
-        let restored =
-            restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key).await?;
+        let restored = restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key).await?;
         assert_ne!(
             restored.and_then(|fields| fields.pos).as_deref(),
             Some("deferred"),

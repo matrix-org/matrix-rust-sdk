@@ -57,7 +57,7 @@
 //! subscribes to [`RedecryptorReport`] stream.
 //!
 //! ```markdown
-//! 
+//!
 //!      .----------------------.
 //!     |                        |
 //!     |      Beeb, boop!       |
@@ -412,7 +412,10 @@ impl EventCache {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
                     }),
-                    Some(RoomEventCacheGenericUpdate { room_id: room_id.to_owned(), origin: EventsOrigin::Cache }),
+                    Some(RoomEventCacheGenericUpdate {
+                        room_id: room_id.to_owned(),
+                        origin: EventsOrigin::Cache,
+                    }),
                 );
             }
         }
@@ -1541,7 +1544,8 @@ mod tests {
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1572,7 +1576,8 @@ mod tests {
         assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1626,7 +1631,8 @@ mod tests {
         assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1660,7 +1666,8 @@ mod tests {
         assert_matches!(&encryption_info.verification_state, VerificationState::Unverified(_));
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1710,7 +1717,8 @@ mod tests {
         );
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1782,7 +1790,8 @@ mod tests {
 
         // And the companion generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
 
@@ -1801,7 +1810,8 @@ mod tests {
 
         // And the companion generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());

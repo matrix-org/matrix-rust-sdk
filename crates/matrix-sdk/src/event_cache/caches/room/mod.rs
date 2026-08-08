@@ -158,7 +158,10 @@ impl RoomEventCache {
     ///
     /// **Warning**! It looks into the loaded events from the in-memory linked
     /// chunk **only**. It doesn't look inside the storage.
-    pub async fn rfind_map_event_in_memory_before_gap_by<O, P>(&self, predicate: P) -> Result<Option<O>>
+    pub async fn rfind_map_event_in_memory_before_gap_by<O, P>(
+        &self,
+        predicate: P,
+    ) -> Result<Option<O>>
     where
         P: FnMut(&Event) -> Option<O>,
     {
@@ -280,7 +283,10 @@ impl RoomEventCache {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Sync,
                 }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone(), origin: EventsOrigin::Sync }),
+                Some(RoomEventCacheGenericUpdate {
+                    room_id: self.inner.room_id.clone(),
+                    origin: EventsOrigin::Sync,
+                }),
             );
         }
 
@@ -461,7 +467,10 @@ impl RoomEventCacheInner {
                     diffs: timeline_event_diffs,
                     origin: EventsOrigin::Sync,
                 }),
-                Some(RoomEventCacheGenericUpdate { room_id: self.room_id.clone(), origin: EventsOrigin::Sync }),
+                Some(RoomEventCacheGenericUpdate {
+                    room_id: self.room_id.clone(),
+                    origin: EventsOrigin::Sync,
+                }),
             );
         }
 
@@ -1105,7 +1114,8 @@ mod timed_tests {
 
         // … same with a generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: received_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: received_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(received_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1555,7 +1565,8 @@ mod timed_tests {
 
         // Same for the generic update.
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1841,7 +1852,8 @@ mod timed_tests {
         assert!(stream1.is_empty());
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
@@ -1994,7 +2006,11 @@ mod timed_tests {
 
         // Look for an event that doesn't exist.
         assert!(
-            room_event_cache.rfind_map_event_in_memory_before_gap_by(|_| None::<()>).await.unwrap().is_none()
+            room_event_cache
+                .rfind_map_event_in_memory_before_gap_by(|_| None::<()>)
+                .await
+                .unwrap()
+                .is_none()
         );
     }
 

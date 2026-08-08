@@ -139,8 +139,10 @@ impl ThreadEventCache {
         // If at least one event has been loaded, it means there is a timeline. Let's
         // emit a generic update.
         if timeline_is_not_empty {
-            let _ = generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room_id.to_owned(), origin: EventsOrigin::Cache });
+            let _ = generic_update_sender.send(RoomEventCacheGenericUpdate {
+                room_id: room_id.to_owned(),
+                origin: EventsOrigin::Cache,
+            });
         }
 
         Ok(cache)
@@ -300,7 +302,10 @@ impl ThreadEventCache {
                         diffs: timeline_event_diffs,
                         origin: EventsOrigin::Cache,
                     },
-                    Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone(), origin: EventsOrigin::Cache }),
+                    Some(RoomEventCacheGenericUpdate {
+                        room_id: self.inner.room_id.clone(),
+                        origin: EventsOrigin::Cache,
+                    }),
                 );
 
                 true
@@ -1302,7 +1307,8 @@ mod timed_tests {
         assert!(stream1.is_empty());
 
         assert_let_timeout!(
-            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) = generic_stream.recv()
+            Ok(RoomEventCacheGenericUpdate { room_id: expected_room_id, .. }) =
+                generic_stream.recv()
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());

@@ -121,9 +121,11 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
+use std::ops::ControlFlow;
+
 use super::{
-    super::back_pagination_queue::{BackPaginationQueue, stop_on_event_ids},
-    event_linked_chunk::EventLinkedChunk,
+    super::back_pagination_queue::BackPaginationQueue, event_linked_chunk::EventLinkedChunk,
+    pagination::BackPaginationOutcome,
 };
 
 trait RoomReadReceiptsExt {
@@ -436,19 +438,6 @@ pub(crate) async fn compute_unread_counts(
         return;
     }
 
-    // Request a pagination: we haven't found a better receipt, but we haven't even
-    // found the latest active receipt! Hand it the receipt event ids we're chasing
-    // so the backfill can stop as soon as one of them is loaded.
-    if let Some(back_pagination_queue) = back_pagination_queue {
-        let targets: HashSet<OwnedEventId> = read_receipts
-            .pending
-            .iter()
-            .cloned()
-            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
-            .collect();
-        back_pagination_queue.paginate_for_read_receipt(room_id, stop_on_event_ids(targets));
-    }
-
     // If we haven't returned at this point, it means we don't have any new "active"
     // read receipt. So either there was a previous one further in the past, or
     // none.
@@ -459,6 +448,30 @@ pub(crate) async fn compute_unread_counts(
 
     for (_pos, event) in linked_chunk.events() {
         read_receipts.process_event(event, user_id, with_threading_support);
+    }
+
+    // If the recount found anything, the room is provably unread: the receipt (if
+    // any) points below every cached event, so no pagination can change the
+    // verdict, only refine counts the UI doesn't need beyond a lower bound. Only
+    // when the cached events resolve nothing (no receipt found, nothing
+    // interesting cached, e.g. a cache full of state churn) is it worth
+    // paginating: walk backwards until either a receipt target or one of our own
+    // events proves the room read, or an interesting event proves it unread (see
+    // [`stop_for_read_receipt_hunt`]).
+    if read_receipts.num_unread == 0
+        && read_receipts.num_notifications == 0
+        && read_receipts.num_mentions == 0
+        && let Some(back_pagination_queue) = back_pagination_queue
+    {
+        let targets: HashSet<OwnedEventId> = read_receipts
+            .pending
+            .iter()
+            .cloned()
+            .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
+            .collect();
+        let stop =
+            stop_for_read_receipt_hunt(targets.clone(), user_id.to_owned(), with_threading_support);
+        back_pagination_queue.paginate_for_read_receipt(room_id, targets, stop);
     }
 
     debug!(?read_receipts, "no better receipt");
@@ -519,6 +532,40 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
     true
 }
 
+/// A back-pagination stop predicate for the read-receipt hunt: stop as soon as
+/// a batch resolves the room's unread-ness, i.e. contains
+///
+/// - one of the receipt `targets` (the exact counts can be computed from it),
+/// - or an event sent by us (an implicit read receipt, same effect),
+/// - or any event that [`marks_as_unread`]: the room is then provably unread,
+///   and the counts computed from the cached events are a lower bound, which
+///   is all the UI needs (a hunt for the exact count could paginate
+///   arbitrarily far into rooms the user hasn't read in a long time).
+///
+/// Threaded events are skipped when threading support is enabled: they affect
+/// their thread's unread-ness, not the room's.
+pub(crate) fn stop_for_read_receipt_hunt(
+    targets: HashSet<OwnedEventId>,
+    user_id: OwnedUserId,
+    with_threading_support: bool,
+) -> impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static {
+    move |outcome| {
+        let found = outcome.events.iter().any(|event| {
+            if event.event_id().is_some_and(|id| targets.contains(id)) {
+                return true;
+            }
+
+            if with_threading_support && extract_thread_root(event.raw()).is_some() {
+                return false;
+            }
+
+            event.sender().as_deref() == Some(&user_id) || marks_as_unread(event.raw(), &user_id)
+        });
+
+        if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
@@ -537,7 +584,8 @@ mod tests {
         room_id, user_id,
     };
 
-    use super::marks_as_unread;
+    use super::{marks_as_unread, stop_for_read_receipt_hunt};
+    use crate::event_cache::caches::pagination::BackPaginationOutcome;
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk,
         read_receipts::{RoomReadReceiptsExt as _, select_best_receipt},
@@ -1171,5 +1219,70 @@ mod tests {
         assert_eq!(pending_receipts.len(), 2);
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$6")));
         assert!(pending_receipts.iter().any(|ev| ev == event_id!("$7")));
+    }
+
+    /// The read-receipt hunt stops on the first event resolving the room's
+    /// unread-ness: a receipt target, one of our own events, or an
+    /// interesting event; and keeps going through boring events (reactions,
+    /// state churn) and, with threading enabled, threaded events.
+    #[test]
+    fn test_stop_for_read_receipt_hunt() {
+        use std::{collections::HashSet, ops::ControlFlow};
+
+        let own_user = user_id!("@alice:example.org");
+        let other_user = user_id!("@bob:example.org");
+        let f = EventFactory::new().room(room_id!("!galette:saucisse.bzh"));
+
+        let batch = |events| BackPaginationOutcome { reached_start: false, events };
+        let no_targets = HashSet::new();
+        let stop = |targets: &HashSet<_>, threading: bool, outcome: &BackPaginationOutcome| {
+            matches!(
+                stop_for_read_receipt_hunt(targets.clone(), own_user.to_owned(), threading)(
+                    outcome
+                ),
+                ControlFlow::Break(())
+            )
+        };
+
+        // A boring event (a reaction) resolves nothing: keep going.
+        let boring =
+            batch(vec![f.reaction(event_id!("$other"), "👍").sender(other_user).into_event()]);
+        assert!(!stop(&no_targets, false, &boring));
+
+        // An interesting event from somebody else proves the room unread: stop.
+        let interesting = batch(vec![f.text_msg("hello").sender(other_user).into_event()]);
+        assert!(stop(&no_targets, false, &interesting));
+
+        // One of our own events is an implicit read receipt, proving the room
+        // read: stop.
+        let own = batch(vec![f.text_msg("mine").sender(own_user).into_event()]);
+        assert!(stop(&no_targets, false, &own));
+
+        // A receipt target proves the room read even on a boring event: stop.
+        let target_id = event_id!("$target");
+        let target_batch = batch(vec![
+            f.reaction(event_id!("$other"), "👍")
+                .sender(other_user)
+                .event_id(target_id)
+                .into_event(),
+        ]);
+        let targets = HashSet::from([target_id.to_owned()]);
+        assert!(stop(&targets, false, &target_batch));
+
+        // With threading enabled, a threaded event (even an interesting one, or
+        // ours) affects its thread, not the room: keep going.
+        let threaded = batch(vec![
+            f.text_msg("in thread")
+                .sender(other_user)
+                .in_thread(event_id!("$root"), event_id!("$latest"))
+                .into_event(),
+            f.text_msg("mine, in thread")
+                .sender(own_user)
+                .in_thread(event_id!("$root"), event_id!("$latest"))
+                .into_event(),
+        ]);
+        assert!(!stop(&no_targets, true, &threaded));
+        // Without threading support, the same events resolve the room: stop.
+        assert!(stop(&no_targets, false, &threaded));
     }
 }

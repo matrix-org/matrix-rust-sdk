@@ -25,7 +25,7 @@ use ruma::{
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 
-use super::super::{TimelineVectorDiffs, super::EventsOrigin};
+use super::super::{super::EventsOrigin, TimelineVectorDiffs};
 
 /// An update related to events happened in a room.
 #[derive(Debug, Clone)]

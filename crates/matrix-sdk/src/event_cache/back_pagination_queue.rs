@@ -20,10 +20,16 @@
 //! back-paginate, at which priority, and until when and they get a
 //! [`BackPaginationHandle`] to await.
 //!
+//! Requests come in two shapes: rapid, shallow seeks for a room's most recent
+//! visible events (latest-event resolution, read-receipt hunts, viewport
+//! fills; small batches, stop predicates that fire almost immediately), and
+//! slow bulk spidering of history (the search backfill; bigger batches, no
+//! deadline).
+//!
 //! The executor:
 //! - runs at most [`EventCacheConfig::max_concurrent_back_paginations`]
 //!   requests at once, and additionally caps each priority class to its own
-//!   concurrency ([`Priority::max_active`]) so bulk background sweeps (latest
+//!   concurrency ([`Priority::max_active`]) so sweeps over many rooms (latest
 //!   events, read receipts) cannot monopolize the budget and flood the
 //!   homeserver while a sync catch-up is in progress
 //! - schedules by [`Priority`], higher first; within a priority, requests
@@ -47,7 +53,7 @@ use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap, HashSet},
     ops::ControlFlow,
-    sync::{Arc, Weak},
+    sync::{Arc, Mutex as StdMutex, Weak},
     time::Duration,
 };
 
@@ -74,7 +80,16 @@ const MAX_BACKFILL_WEEKS: u64 = 13;
 const ROOM_BATCH: usize = 100;
 
 /// Number of read-receipt paginations allowed per request.
-const READ_RECEIPT_MAX_BATCHES: usize = 20;
+///
+/// The read-receipt hunt is only enqueued when the cached events resolve
+/// nothing, and its stop predicate fires on the first event that proves the
+/// room read or unread (see `stop_for_read_receipt_hunt`), so it's a shallow
+/// seek exactly like the latest-event one, sharing its batch size. The budget
+/// is slightly larger because the hunt starts where the cache ends, which in
+/// pathological rooms is a run of uninteresting state churn. A room that
+/// exhausts the budget is remembered and not hunted again until its receipt
+/// changes (see [`BackPaginationQueue::paginate_for_read_receipt`]).
+const READ_RECEIPT_MAX_BATCHES: usize = 3;
 
 /// Number of paginations allowed per latest-event request.
 ///
@@ -85,12 +100,12 @@ const READ_RECEIPT_MAX_BATCHES: usize = 20;
 /// looking for one.
 const LATEST_EVENT_MAX_BATCHES: usize = 1;
 
-/// Number of events requested per latest-event pagination.
+/// Number of events requested per latest-event or read-receipt pagination.
 ///
-/// Deliberately small (compared to [`BATCH_SIZE`]): the latest-event resolver
-/// only wants the most recent visible event, and searching more than a few
-/// events deep rarely changes the outcome. Bulk use cases (search backfill,
-/// read receipts) keep the larger [`BATCH_SIZE`].
+/// Deliberately small (compared to [`BATCH_SIZE`]): these seeks only want the
+/// most recent visible events, and searching more than a few events deep
+/// rarely changes the outcome. The bulk use case (search backfill) keeps the
+/// larger [`BATCH_SIZE`].
 const LATEST_EVENT_BATCH_SIZE: u16 = 10;
 
 /// Number of paginations allowed per viewport request.
@@ -135,9 +150,10 @@ enum Priority {
     /// prefetch for viewport rooms): above the search sweep, below all
     /// reactive work.
     Prefetch,
-    /// Reactive work backing a background computation (read receipts).
-    Normal,
-    /// Reactive, user-facing work that wants a result promptly (latest event).
+    /// Reactive, user-facing work that wants a result promptly: the shallow
+    /// seeks for a room's most recent visible event (latest-event resolution,
+    /// read-receipt hunts). Sharing one priority means concurrent seeks for
+    /// the same room coalesce into a single walk.
     High,
     /// The user is looking at the room right now (room-list viewport preview
     /// fill): beats everything else.
@@ -158,7 +174,6 @@ impl Priority {
     fn max_active(self) -> usize {
         match self {
             Self::High => 2,
-            Self::Normal => 1,
             Self::Low | Self::Prefetch | Self::Viewport => usize::MAX,
         }
     }
@@ -287,23 +302,24 @@ impl BackPaginationRequest {
         }
     }
 
-    /// A read-receipt request: back-paginate at [`Normal`] priority until
-    /// `stop` fires, capped at `max_batches` (the safety net for a receipt
-    /// target that never surfaces). See [`stop_on_event_ids`] for the usual
-    /// predicate.
+    /// A read-receipt request: a shallow seek for the first event resolving
+    /// the room's unread-ness, at [`High`] priority like the latest-event
+    /// seek it closely mirrors (so the two coalesce when concurrent for the
+    /// same room), capped at [`READ_RECEIPT_MAX_BATCHES`].
+    ///
+    /// Carries no recency stamp, so within [`High`] it schedules after the
+    /// stamped latest-event backlog.
     fn read_receipt(
         room_id: OwnedRoomId,
-        batch_size: u16,
-        max_batches: usize,
         stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
     ) -> Self {
         Self {
             room_id,
-            priority: Priority::Normal,
+            priority: Priority::High,
             recency: None,
             stop: StopCondition::WhenBatch(Box::new(stop)),
-            batch_size,
-            max_batches: Some(max_batches),
+            batch_size: LATEST_EVENT_BATCH_SIZE,
+            max_batches: Some(READ_RECEIPT_MAX_BATCHES),
         }
     }
 }
@@ -374,6 +390,10 @@ pub struct BackPaginationQueue {
 struct BackPaginationQueueInner {
     sender: mpsc::UnboundedSender<SubmittedRequest>,
     event_cache: Weak<EventCacheInner>,
+    /// Per room, the read-receipt targets of the last hunt that exhausted its
+    /// batch budget; identical hunts are skipped until the targets change.
+    /// See [`BackPaginationQueue::paginate_for_read_receipt`].
+    exhausted_receipt_hunts: StdMutex<HashMap<OwnedRoomId, HashSet<OwnedEventId>>>,
     _task: matrix_sdk_base::task_monitor::BackgroundTaskHandle,
 }
 
@@ -398,7 +418,14 @@ impl BackPaginationQueue {
             scheduler(event_cache.clone(), receiver, max_concurrent),
         );
 
-        Self { inner: Arc::new(BackPaginationQueueInner { sender, event_cache, _task: task }) }
+        Self {
+            inner: Arc::new(BackPaginationQueueInner {
+                sender,
+                event_cache,
+                exhausted_receipt_hunts: StdMutex::new(HashMap::new()),
+                _task: task,
+            }),
+        }
     }
 
     /// Enqueue a new request returning a handle to await it.
@@ -421,29 +448,63 @@ impl BackPaginationQueue {
     }
 
     /// Enqueue fire-and-forget and capped read-receipt back-pagination for a
-    /// room. Used when a read receipt's target event isn't loaded yet; `stop`
-    /// fires once a suitable event is loaded (see [`stop_on_event_ids`]).
+    /// room. Used when the cached events don't resolve the room's unread-ness;
+    /// `stop` fires once an event resolving it is loaded (see
+    /// `stop_for_read_receipt_hunt`).
+    ///
+    /// `targets` are the receipt event ids the hunt is chasing, used to
+    /// remember exhausted hunts: a hunt that hit its batch budget is not
+    /// retried for the same targets (nothing has changed, it would fail
+    /// identically, and in state-churn-heavy rooms each attempt downloads
+    /// megabytes of useless history); the memo clears once the receipt (and
+    /// so the target set) changes, or a later hunt succeeds.
     pub(crate) fn paginate_for_read_receipt(
         &self,
         room_id: &RoomId,
+        targets: HashSet<OwnedEventId>,
         stop: impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static,
     ) {
+        {
+            let exhausted_hunts = self.inner.exhausted_receipt_hunts.lock().unwrap();
+            if exhausted_hunts.get(room_id).is_some_and(|exhausted| *exhausted == targets) {
+                debug!(
+                    %room_id,
+                    "skipping read-receipt backfill: an identical hunt already \
+                     exhausted its batch budget"
+                );
+                return;
+            }
+        }
+
         let room_id = room_id.to_owned();
         debug!(%room_id, "started backfill request for read receipts");
 
-        let handle = self.enqueue(BackPaginationRequest::read_receipt(
-            room_id.clone(),
-            BATCH_SIZE,
-            READ_RECEIPT_MAX_BATCHES,
-            stop,
-        ));
+        let handle = self.enqueue(BackPaginationRequest::read_receipt(room_id.clone(), stop));
 
-        // Await completion in the background purely to log when it's done; the
+        // Await completion in the background to record the outcome and log; the
         // spawned task itself is never awaited or aborted, so the request always
         // runs to completion regardless of this function's caller.
+        let this = self.clone();
         spawn(async move {
-            handle.join().await;
-            debug!(%room_id, "finished backfill request for read receipts");
+            let BackPaginationRunResult { end, .. } = handle.join().await;
+
+            {
+                let mut exhausted_hunts = this.inner.exhausted_receipt_hunts.lock().unwrap();
+                match end {
+                    RoomBackPaginationEnd::BatchLimitReached => {
+                        exhausted_hunts.insert(room_id.clone(), targets);
+                    }
+                    RoomBackPaginationEnd::StopConditionMet
+                    | RoomBackPaginationEnd::ReachedTimelineStart => {
+                        exhausted_hunts.remove(&room_id);
+                    }
+                    // Transient outcomes (failure, cancellation, no data):
+                    // leave the memo alone, a retry may fare better.
+                    _ => {}
+                }
+            }
+
+            debug!(%room_id, ?end, "finished backfill request for read receipts");
         });
     }
 
@@ -459,8 +520,10 @@ impl BackPaginationQueue {
         let room_id = room_id.to_owned();
         debug!(%room_id, "started backfill request for the viewport");
 
-        let BackPaginationRunResult { end, .. } =
-            self.enqueue(BackPaginationRequest::viewport(room_id.clone(), BATCH_SIZE, stop)).join().await;
+        let BackPaginationRunResult { end, .. } = self
+            .enqueue(BackPaginationRequest::viewport(room_id.clone(), BATCH_SIZE, stop))
+            .join()
+            .await;
 
         debug!(%room_id, ?end, "finished backfill request for the viewport");
 
@@ -946,21 +1009,6 @@ fn oldest_event_timestamp(outcome: &BackPaginationOutcome) -> Option<MilliSecond
     outcome.events.iter().filter_map(|event| event.timestamp()).min()
 }
 
-/// A stop predicate that fires as soon as a batch loads any of `targets`. With
-/// no targets it never fires, so the request runs to its batch cap.
-pub(crate) fn stop_on_event_ids(
-    targets: HashSet<OwnedEventId>,
-) -> impl FnMut(&BackPaginationOutcome) -> ControlFlow<()> + Send + 'static {
-    move |outcome| {
-        let found = outcome
-            .events
-            .iter()
-            .any(|event| event.event_id().is_some_and(|id| targets.contains(id)));
-
-        if found { ControlFlow::Break(()) } else { ControlFlow::Continue(()) }
-    }
-}
-
 /// Evaluate a [`StopCondition`] against a freshly loaded batch.
 fn stop_now(stop: &mut StopCondition, outcome: &BackPaginationOutcome) -> bool {
     match stop {
@@ -982,7 +1030,7 @@ mod tests {
 
     use super::{
         BackPaginationOutcome, BackPaginationRequest, BackPaginationStrategy, Priority,
-        ScheduledRequest, StopCondition, next_runnable, stop_now, stop_on_event_ids, try_coalesce,
+        ScheduledRequest, StopCondition, next_runnable, stop_now, try_coalesce,
     };
     use crate::{
         assert_let_timeout,
@@ -1030,7 +1078,7 @@ mod tests {
         // Push out of priority order, with monotonic seqs.
         scheduled_requests.push(queued(a.to_owned(), Priority::Low, 0));
         scheduled_requests.push(queued(b.to_owned(), Priority::High, 1));
-        scheduled_requests.push(queued(c.to_owned(), Priority::Normal, 2));
+        scheduled_requests.push(queued(c.to_owned(), Priority::Prefetch, 2));
         scheduled_requests.push(queued(d.to_owned(), Priority::High, 3));
 
         let mut active_requests = Vec::new();
@@ -1039,7 +1087,7 @@ mod tests {
             .map(|r| r.request.room_id)
             .collect();
 
-        // High first (b before d by FIFO), then Normal, then Low.
+        // High first (b before d by FIFO), then Prefetch, then Low.
         assert_eq!(picked, vec![b.to_owned(), d.to_owned(), c.to_owned(), a.to_owned()]);
     }
 
@@ -1062,10 +1110,25 @@ mod tests {
         // Enqueue stamped requests out of recency order, interleaved with
         // unstamped ones, all at the same priority.
         scheduled_requests.push(queued_with_recency(a.to_owned(), Priority::High, None, 0));
-        scheduled_requests.push(queued_with_recency(b.to_owned(), Priority::High, Some(10.into()), 1));
-        scheduled_requests.push(queued_with_recency(c.to_owned(), Priority::High, Some(30.into()), 2));
+        scheduled_requests.push(queued_with_recency(
+            b.to_owned(),
+            Priority::High,
+            Some(10.into()),
+            1,
+        ));
+        scheduled_requests.push(queued_with_recency(
+            c.to_owned(),
+            Priority::High,
+            Some(30.into()),
+            2,
+        ));
         scheduled_requests.push(queued_with_recency(d.to_owned(), Priority::High, None, 3));
-        scheduled_requests.push(queued_with_recency(e.to_owned(), Priority::High, Some(20.into()), 4));
+        scheduled_requests.push(queued_with_recency(
+            e.to_owned(),
+            Priority::High,
+            Some(20.into()),
+            4,
+        ));
         // A higher priority still beats the highest recency stamp.
         let f = room_id!("!f:e");
         scheduled_requests.push(queued_with_recency(f.to_owned(), Priority::Viewport, None, 5));
@@ -1098,7 +1161,7 @@ mod tests {
 
     /// A priority class never runs more than its own concurrency cap
     /// ([`Priority::max_active`]), even when the global budget has room:
-    /// the latest-event sweep (High, 2) and the read-receipt hunts (Normal, 1)
+    /// the recent-history seeks (High, 2: latest events and read receipts)
     /// must not flood the homeserver during a sync catch-up. Lower-priority
     /// classes behind a capped class still get scheduled.
     #[test]
@@ -1113,23 +1176,16 @@ mod tests {
                 i as u64,
             ));
         }
-        for (i, room) in ["!f:e", "!g:e"].iter().enumerate() {
-            scheduled_requests.push(queued(
-                ruma::RoomId::parse(room).unwrap(),
-                Priority::Normal,
-                (5 + i) as u64,
-            ));
-        }
         scheduled_requests.push(queued(ruma::RoomId::parse("!h:e").unwrap(), Priority::Low, 7));
 
         let mut active_requests = Vec::new();
         let picked = next_runnable(&mut scheduled_requests, &mut active_requests, 10);
 
-        // 2 High + 1 Normal + the Low one; the other 3 High and 1 Normal wait.
+        // 2 High + the Low one; the other 3 High wait.
         let mut priorities: Vec<_> = picked.iter().map(|r| r.request.priority).collect();
         priorities.sort();
-        assert_eq!(priorities, vec![Priority::Low, Priority::Normal, Priority::High, Priority::High]);
-        assert_eq!(scheduled_requests.len(), 4);
+        assert_eq!(priorities, vec![Priority::Low, Priority::High, Priority::High]);
+        assert_eq!(scheduled_requests.len(), 3);
     }
 
     /// `next_runnable` never returns more than `max_concurrent`.
@@ -1189,16 +1245,16 @@ mod tests {
         let mut waiters = HashMap::new();
 
         let completion = || tokio::sync::oneshot::channel().0;
-        let normal = (a.to_owned(), Priority::Normal);
+        let viewport = (a.to_owned(), Priority::Viewport);
         let high = (a.to_owned(), Priority::High);
 
-        // First request at (a, Normal): opens a new run.
-        assert!(!try_coalesce(&mut waiters, &normal, completion()));
-        assert_eq!(waiters[&normal].len(), 1);
+        // First request at (a, Viewport): opens a new run.
+        assert!(!try_coalesce(&mut waiters, &viewport, completion()));
+        assert_eq!(waiters[&viewport].len(), 1);
 
         // Second request at the same key: coalesces onto it.
-        assert!(try_coalesce(&mut waiters, &normal, completion()));
-        assert_eq!(waiters[&normal].len(), 2);
+        assert!(try_coalesce(&mut waiters, &viewport, completion()));
+        assert_eq!(waiters[&viewport].len(), 2);
 
         // Same room, different priority: a separate run, not a coalesce.
         assert!(!try_coalesce(&mut waiters, &high, completion()));
@@ -1226,32 +1282,6 @@ mod tests {
         // Oldest event at/below floor → stop.
         assert!(stop_now(&mut StopCondition::OlderThan(floor(1000)), &outcome));
         assert!(stop_now(&mut StopCondition::OlderThan(floor(1500)), &outcome));
-    }
-
-    /// `stop_on_event_ids` breaks as soon as one of its target ids is loaded;
-    /// with no targets it never breaks (falls back to the batch cap).
-    #[test]
-    fn test_stop_on_event_ids() {
-        use std::collections::HashSet;
-
-        use ruma::owned_event_id;
-
-        let room = room_id!("!omelette:fromage.fr");
-        let f = EventFactory::new().room(room).sender(*BOB);
-        let outcome = BackPaginationOutcome {
-            reached_start: false,
-            events: vec![
-                f.text_msg("a").event_id(event_id!("$1")).into_event(),
-                f.text_msg("b").event_id(event_id!("$2")).into_event(),
-            ],
-        };
-
-        // A target present in the batch → stop.
-        assert!(stop_on_event_ids(HashSet::from([owned_event_id!("$2")]))(&outcome).is_break());
-        // No target in the batch → keep going.
-        assert!(stop_on_event_ids(HashSet::from([owned_event_id!("$3")]))(&outcome).is_continue());
-        // No targets at all → never stops on content.
-        assert!(stop_on_event_ids(HashSet::new())(&outcome).is_continue());
     }
 
     /// A search backfill sweeps the rooms, back-paginating each until it

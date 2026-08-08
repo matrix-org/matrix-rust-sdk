@@ -151,8 +151,10 @@ impl Caches {
         // If at least one event has been loaded, it means there is a timeline. Let's
         // emit a generic update.
         if timeline_is_not_empty {
-            let _ = generic_update_sender
-                .send(room::RoomEventCacheGenericUpdate { room_id: room_id.to_owned(), origin: EventsOrigin::Cache });
+            let _ = generic_update_sender.send(room::RoomEventCacheGenericUpdate {
+                room_id: room_id.to_owned(),
+                origin: EventsOrigin::Cache,
+            });
         }
 
         Ok(Self {

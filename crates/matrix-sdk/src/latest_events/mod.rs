@@ -237,14 +237,12 @@ impl LatestEvents {
             if let Some(room_latest_events) = rooms.get(room_id)
                 && room_latest_events.read().await.for_room().value_is_none().await
             {
-                let _ = self
-                    .state
-                    .registered_rooms
-                    .latest_event_queue_sender
-                    .send(LatestEventQueueUpdate::EventCache {
+                let _ = self.state.registered_rooms.latest_event_queue_sender.send(
+                    LatestEventQueueUpdate::EventCache {
                         room_id: room_id.clone(),
                         origin: EventsOrigin::Sync,
-                    });
+                    },
+                );
             }
         }
     }
@@ -359,11 +357,12 @@ impl LatestEvents {
                                 | RoomBackPaginationEnd::ReachedTimelineStart
                                 | RoomBackPaginationEnd::BatchLimitReached
                         ) {
-                            let _ = latest_event_queue_sender
-                                .send(LatestEventQueueUpdate::BackfillCompleted {
+                            let _ = latest_event_queue_sender.send(
+                                LatestEventQueueUpdate::BackfillCompleted {
                                     room_id: room_id.clone(),
                                     from_auto_backfill: false,
-                                });
+                                },
+                            );
                         }
                     }
 
@@ -1299,7 +1298,10 @@ mod tests {
         // New event cache update, but the `LatestEvents` isn't listening to it.
         {
             room_event_cache_generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room_id.clone(), origin: crate::event_cache::EventsOrigin::Sync })
+                .send(RoomEventCacheGenericUpdate {
+                    room_id: room_id.clone(),
+                    origin: crate::event_cache::EventsOrigin::Sync,
+                })
                 .unwrap();
 
             // Run the task.
@@ -1326,7 +1328,10 @@ mod tests {
                 With::inner(RoomLatestEvents::new(weak_room, event_cache)),
             );
             room_event_cache_generic_update_sender
-                .send(RoomEventCacheGenericUpdate { room_id: room_id.clone(), origin: crate::event_cache::EventsOrigin::Sync })
+                .send(RoomEventCacheGenericUpdate {
+                    room_id: room_id.clone(),
+                    origin: crate::event_cache::EventsOrigin::Sync,
+                })
                 .unwrap();
 
             assert!(
@@ -1892,7 +1897,9 @@ mod tests {
             .match_from("token_0")
             .ok(RoomMessagesResponseTemplate::default()
                 .events(vec![
-                    event_factory.reaction(event_id!("$whatever"), "👍").event_id(event_id!("$ev0")),
+                    event_factory
+                        .reaction(event_id!("$whatever"), "👍")
+                        .event_id(event_id!("$ev0")),
                 ])
                 .end_token("token_1"))
             .mock_once()
@@ -1905,7 +1912,9 @@ mod tests {
             .match_limit(10)
             .ok(RoomMessagesResponseTemplate::default()
                 .events(vec![
-                    event_factory.reaction(event_id!("$whatever"), "👎").event_id(event_id!("$ev1")),
+                    event_factory
+                        .reaction(event_id!("$whatever"), "👎")
+                        .event_id(event_id!("$ev1")),
                 ])
                 .end_token("token_2"))
             .never()
@@ -2214,9 +2223,7 @@ mod tests {
 
         // Re-trigger the computation, as `compute_missing_room_latest_events`
         // does once a sync response has been processed.
-        latest_events
-            .trigger_computation_for_rooms_with_no_value(std::iter::once(&room_id))
-            .await;
+        latest_events.trigger_computation_for_rooms_with_no_value(std::iter::once(&room_id)).await;
 
         // The value is computed now.
         assert_matches!(

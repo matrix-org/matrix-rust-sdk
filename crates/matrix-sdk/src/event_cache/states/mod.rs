@@ -430,7 +430,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
                     }),
-                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone(), origin: EventsOrigin::Cache }),
+                    Some(room::RoomEventCacheGenericUpdate {
+                        room_id: room_id.clone(),
+                        origin: EventsOrigin::Cache,
+                    }),
                 );
             }
 
@@ -448,7 +451,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                         diffs: updates_as_vector_diffs,
                         origin: EventsOrigin::Cache,
                     },
-                    Some(room::RoomEventCacheGenericUpdate { room_id: room_id.clone(), origin: EventsOrigin::Cache }),
+                    Some(room::RoomEventCacheGenericUpdate {
+                        room_id: room_id.clone(),
+                        origin: EventsOrigin::Cache,
+                    }),
                 );
             }
 

@@ -217,12 +217,12 @@ mod tests {
 
     use matrix_sdk_test::async_test;
 
-    #[cfg(feature = "e2e-encryption")]
-    use super::{format_storage_key_for_sliding_sync, store_sliding_sync_pos};
     use super::{
         super::SlidingSyncList, format_storage_key_for_sliding_sync_list,
         format_storage_key_prefix, restore_sliding_sync_state, store_sliding_sync_state,
     };
+    #[cfg(feature = "e2e-encryption")]
+    use super::{format_storage_key_for_sliding_sync, store_sliding_sync_pos};
     use crate::{Result, test_utils::logged_in_client};
 
     #[allow(clippy::await_holding_lock)]
