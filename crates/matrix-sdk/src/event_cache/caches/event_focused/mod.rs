@@ -732,13 +732,11 @@ impl<'a> StateLockWriteGuard<'a, EventFocusedCacheState> {
                 }
             }
 
-            maybe_chunk =
-                self.store.load_previous_chunk(linked_chunk_id, chunk.identifier).await?;
+            maybe_chunk = self.store.load_previous_chunk(linked_chunk_id, chunk.identifier).await?;
         }
 
-        let Some(focused_event) = events
-            .iter()
-            .find(|event| event.event_id() == Some(&self.state.focused_event_id))
+        let Some(focused_event) =
+            events.iter().find(|event| event.event_id() == Some(&self.state.focused_event_id))
         else {
             return Ok(None);
         };
@@ -756,15 +754,12 @@ impl<'a> StateLockWriteGuard<'a, EventFocusedCacheState> {
         // Automatic mode with a non-threaded focused event hides thread
         // events, mirroring the network path in `reload_impl`. The focused
         // event survives the filter thanks to the check above.
-        let events: Vec<_> = events
-            .into_iter()
-            .filter(|event| extract_thread_root(event.raw()).is_none())
-            .collect();
+        let events: Vec<_> =
+            events.into_iter().filter(|event| extract_thread_root(event.raw()).is_none()).collect();
 
         self.state.initial_num_context_events = num_context_events;
         self.state.thread_mode = thread_mode;
-        self.state.pagination_mode =
-            EventFocusedPaginationMode::Room { hide_thread_events: true };
+        self.state.pagination_mode = EventFocusedPaginationMode::Room { hide_thread_events: true };
 
         let has_prev = backward_token.is_some();
         self.state.add_initial_events_with_gaps(events.clone(), backward_token, None);

@@ -732,11 +732,7 @@ impl NotificationClient {
     ///
     /// If this times out or fails, the main app's own redecryptor recovers
     /// later; it's only less prompt.
-    async fn upgrade_persisted_utd(
-        &self,
-        room_id: &RoomId,
-        raw_event: &Raw<AnySyncTimelineEvent>,
-    ) {
+    async fn upgrade_persisted_utd(&self, room_id: &RoomId, raw_event: &Raw<AnySyncTimelineEvent>) {
         if !matches!(self.process_setup, NotificationProcessSetup::MultipleProcesses) {
             return;
         }
@@ -767,9 +763,10 @@ impl NotificationClient {
         let resolved = async {
             while let Some(Ok(report)) = reports.next().await {
                 if let RedecryptorReport::ResolvedUtds { room_id: resolved_room_id, .. } = report
-                    && resolved_room_id == room_id {
-                        break;
-                    }
+                    && resolved_room_id == room_id
+                {
+                    break;
+                }
             }
         };
 

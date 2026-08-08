@@ -43,8 +43,8 @@
 //!   priority onto that run as an extra [`Need`], rather than paginating the
 //!   same history twice: one walk serves every need, each resolving
 //!   individually as soon as its own stop condition or batch budget is met
-//!   (e.g. a latest-event seek and a read-receipt hunt for the same room
-//!   share a single walk).
+//!   (e.g. a latest-event seek and a read-receipt hunt for the same room share
+//!   a single walk).
 //!
 //! Requests are meant to be short, so a higher-priority request for a busy
 //! room only waits for the current run, not a full sweep. Latest-event and
@@ -60,7 +60,7 @@ use std::{
     time::Duration,
 };
 
-use matrix_sdk_base::{RoomRecencyStamp, sleep::sleep, task_monitor::TaskMonitor};
+use matrix_sdk_base::{RoomRecencyStamp, RoomState, sleep::sleep, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::spawn;
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::{
@@ -1043,6 +1043,18 @@ async fn run_request(
             finish_run(needs, &mut incoming, RoomBackPaginationEnd::Cancelled, None);
             return;
         };
+
+        // Rooms we aren't joined to can't be paginated: the server rejects
+        // /messages once membership is gone (e.g. a declined invite forgets
+        // the room outright, and its leave update re-arms the backfill).
+        let state =
+            inner.client.get().and_then(|client| client.get_room(room_id)).map(|room| room.state());
+        if state != Some(RoomState::Joined) {
+            trace!(?state, "skipping back-pagination for a room we're not joined to");
+            finish_run(needs, &mut incoming, RoomBackPaginationEnd::Cancelled, None);
+            return;
+        }
+
         match inner.all_caches_for_room(room_id).await {
             Ok(caches) => caches.room.pagination(),
             Err(err) => {
