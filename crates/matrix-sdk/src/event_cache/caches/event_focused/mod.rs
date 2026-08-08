@@ -35,7 +35,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{Event, Gap},
-    linked_chunk::OwnedLinkedChunkId,
+    linked_chunk::{ChunkContent, LinkedChunkId, OwnedLinkedChunkId},
 };
 use matrix_sdk_common::{linked_chunk::ChunkIdentifier, serde_helpers::extract_thread_root};
 use ruma::{OwnedEventId, UInt, api::Direction};
@@ -48,7 +48,8 @@ use super::{
     super::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
         states::{
-            CacheStateLock, ReloadPreprocessing, StateLock, selectors::EventFocusedStateSelector,
+            CacheStateLock, ReloadPreprocessing, StateLock, StateLockWriteGuard,
+            selectors::EventFocusedStateSelector,
         },
     },
     TimelineVectorDiffs,
@@ -628,14 +629,30 @@ impl EventFocusedCache {
         Ok(self.inner.read().await?.last_chunk_as_gap().is_none())
     }
 
-    /// Start the event-focused timeline from the focused event, fetching
-    /// context events and detecting thread membership.
+    /// Start the event-focused timeline from the focused event, serving it
+    /// from the room's persisted linked chunk when possible (e.g. the event
+    /// was ingested by a notification process), and fetching context events
+    /// over the network otherwise. Thread membership is detected either way.
     pub(super) async fn start_from(
         &self,
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
-        self.inner.write().await?.start_from(num_context_events, thread_mode).await
+        let mut guard = self.inner.write().await?;
+
+        if matches!(thread_mode, EventFocusThreadMode::Automatic) {
+            match guard.try_hydrate_from_store(num_context_events, thread_mode).await {
+                Ok(Some(result)) => return Ok(result),
+                Ok(None) => {}
+                Err(err) => {
+                    // Hydration is an optimisation: never let a store problem
+                    // take down the network path.
+                    trace!("failed to hydrate the focused timeline from the store: {err}");
+                }
+            }
+        }
+
+        guard.start_from(num_context_events, thread_mode).await
     }
 
     /// Paginate backwards in this event-focused timeline, be it room or thread
@@ -671,6 +688,96 @@ impl EventFocusedCache {
         }
 
         Ok(())
+    }
+}
+
+impl<'a> StateLockWriteGuard<'a, EventFocusedCacheState> {
+    /// Try to serve the focused window from the room's persisted linked chunk,
+    /// walking back from the live tail until the first gap (whose token
+    /// becomes the backward pagination token) or the timeline start.
+    ///
+    /// Returns `None` to fall back to `/context`: when the focused event isn't
+    /// in the contiguous tail segment, is part of a thread (threaded focus
+    /// keeps its dedicated network path), or the segment is unreasonably
+    /// large.
+    async fn try_hydrate_from_store(
+        &mut self,
+        num_context_events: u16,
+        thread_mode: EventFocusThreadMode,
+    ) -> Result<Option<StartFromResult>> {
+        // A fully-paginated room's tail segment can reach back to the timeline
+        // start; past this budget `/context`'s small window is the better deal.
+        const MAX_HYDRATED_EVENTS: usize = 256;
+
+        let room_id = self.state.room.room_id().to_owned();
+        let linked_chunk_id = LinkedChunkId::Room(&room_id);
+
+        let (mut maybe_chunk, _chunk_identifier_generator) =
+            self.store.load_last_chunk(linked_chunk_id).await?;
+
+        let mut events: Vec<TimelineEvent> = Vec::new();
+        let mut backward_token = None;
+
+        while let Some(chunk) = maybe_chunk {
+            match chunk.content {
+                ChunkContent::Items(items) => {
+                    if events.len() + items.len() > MAX_HYDRATED_EVENTS {
+                        return Ok(None);
+                    }
+                    events.splice(0..0, items);
+                }
+                ChunkContent::Gap(gap) => {
+                    backward_token = Some(gap.token);
+                    break;
+                }
+            }
+
+            maybe_chunk =
+                self.store.load_previous_chunk(linked_chunk_id, chunk.identifier).await?;
+        }
+
+        let Some(focused_event) = events
+            .iter()
+            .find(|event| event.event_id().as_deref() == Some(&self.state.focused_event_id))
+        else {
+            return Ok(None);
+        };
+
+        if extract_thread_root(focused_event.raw()).is_some() {
+            return Ok(None);
+        }
+
+        trace!(
+            num_events = events.len(),
+            has_prev = backward_token.is_some(),
+            "serving the focused timeline from the persisted linked chunk"
+        );
+
+        // Automatic mode with a non-threaded focused event hides thread
+        // events, mirroring the network path in `reload_impl`. The focused
+        // event survives the filter thanks to the check above.
+        let events: Vec<_> = events
+            .into_iter()
+            .filter(|event| extract_thread_root(event.raw()).is_none())
+            .collect();
+
+        self.state.initial_num_context_events = num_context_events;
+        self.state.thread_mode = thread_mode;
+        self.state.pagination_mode =
+            EventFocusedPaginationMode::Room { hide_thread_events: true };
+
+        let has_prev = backward_token.is_some();
+        self.state.add_initial_events_with_gaps(events.clone(), backward_token, None);
+        self.state.propagate_changes();
+
+        // Constructor flow: drain the initial diffs exactly like
+        // `EventFocusedCacheState::start_from` does, so a fresh subscriber
+        // doesn't see the initial events twice.
+        let _ = self.state.chunk.updates_as_vector_diffs();
+
+        // The tail segment ends at the local live head, so there is no forward
+        // gap: same terminal state as having forward-paginated to the end.
+        Ok(Some(StartFromResult { events, has_prev, has_next: false }))
     }
 }
 

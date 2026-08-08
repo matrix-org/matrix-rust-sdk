@@ -850,7 +850,7 @@ mod tests {
     use ruma::{event_id, room_id, user_id};
     use tokio::time::sleep;
 
-    use super::{EventCacheError, RoomEventCacheGenericUpdate};
+    use super::{EventCacheError, EventFocusThreadMode, RoomEventCacheGenericUpdate};
     use crate::test_utils::{
         assert_event_matches_msg, client::MockClientBuilder, logged_in_client,
     };
@@ -912,6 +912,58 @@ mod tests {
         assert_event_matches_msg(&found, "psst");
 
         assert_eq!(*event_cache.processed_room_updates_seq().borrow(), 42);
+    }
+
+    #[async_test]
+    async fn test_event_focused_hydrates_from_store() {
+        let client = logged_in_client(None).await;
+        let room_id = room_id!("!omelette:fromage.fr");
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        // Seed the room's persisted linked chunk, as an NSE ingest would: a
+        // limited window behind a pagination token.
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+        let eid1 = event_id!("$before");
+        let eid2 = event_id!("$focused");
+        let eid3 = event_id!("$after");
+
+        let mut updates = RoomUpdates::default();
+        updates.seq = 1;
+        updates.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("back-token".to_owned()),
+                    events: vec![
+                        f.text_msg("one").event_id(eid1).into(),
+                        f.text_msg("two").event_id(eid2).into(),
+                        f.text_msg("three").event_id(eid3).into(),
+                    ],
+                },
+                ..Default::default()
+            },
+        );
+        event_cache.ingest_out_of_band_room_updates(updates).await.unwrap();
+
+        // The focused timeline is served from the store: no server is mocked
+        // here, so any `/context` attempt would error this call.
+        let (focused, _drop_handles) = event_cache
+            .event_focused(room_id, eid2, EventFocusThreadMode::Automatic, 10)
+            .await
+            .unwrap();
+
+        let (events, _receiver) = focused.subscribe().await.unwrap();
+        let ids: Vec<_> = events.iter().filter_map(|event| event.event_id()).collect();
+        assert_eq!(ids, [eid1.to_owned(), eid2.to_owned(), eid3.to_owned()]);
+
+        // The pre-window token became the backward pagination gap, and the
+        // tail segment ends at the local live head.
+        assert!(!focused.hit_timeline_start().await.unwrap());
+        assert!(focused.hit_timeline_end().await.unwrap());
     }
 
     #[async_test]
