@@ -76,6 +76,15 @@ impl fmt::Debug for SyncResponse {
 /// Updates to rooms in a [`SyncResponse`].
 #[derive(Clone, Default)]
 pub struct RoomUpdates {
+    /// Sequence number of this batch of updates, assigned by the client when
+    /// broadcasting it: strictly increasing, `0` meaning "not stamped".
+    ///
+    /// Consumers that persist state derived from these updates (the event
+    /// cache) advertise the last sequence number they have durably processed,
+    /// so that persisting the sync position can be ordered *after* the
+    /// derived state it acknowledges. Otherwise a process kill between the
+    /// two writes silently loses the events of this batch.
+    pub seq: u64,
     /// The rooms that the user has left or been banned from.
     pub left: BTreeMap<OwnedRoomId, LeftRoomUpdate>,
     /// The rooms that the user has joined.
@@ -130,6 +139,7 @@ mod tests {
         let room_id_6 = room_id!("!r6");
         let room_id_7 = room_id!("!r7");
         let room_updates = RoomUpdates {
+            seq: 0,
             left: {
                 let mut left = BTreeMap::new();
                 left.insert(room_id_0.to_owned(), LeftRoomUpdate::default());

@@ -9,7 +9,7 @@ use matrix_sdk_common::timer;
 use ruma::UserId;
 use tracing::{trace, warn};
 
-use super::{FrozenSlidingSyncList, SlidingSync, SlidingSyncPositionMarkers};
+use super::{FrozenSlidingSyncList, SlidingSync};
 #[cfg(doc)]
 use crate::sliding_sync::SlidingSyncList;
 use crate::{Client, Result, sliding_sync::SlidingSyncListCachePolicy};
@@ -43,30 +43,43 @@ async fn remove_cached_list(
     let _ = storage.remove_custom_value(storage_key_for_list.as_bytes()).await;
 }
 
-/// Store the `SlidingSync`'s state in the storage.
-pub(super) async fn store_sliding_sync_state(
-    sliding_sync: &SlidingSync,
-    _position: &SlidingSyncPositionMarkers,
+/// Store the `pos` marker of a `SlidingSync` instance in the storage.
+///
+/// Split out of [`store_sliding_sync_state`] because the `pos` write must be
+/// deferred until the event cache has durably processed the corresponding
+/// room updates (see the pos-persister task in the parent module), while the
+/// lists can be persisted eagerly.
+pub(super) async fn store_sliding_sync_pos(
+    client: &Client,
+    storage_key: &str,
+    _pos: &Option<String>,
 ) -> Result<()> {
-    let storage_key = &sliding_sync.inner.storage_key;
-
-    trace!(storage_key, "Saving a `SlidingSync` to the state store");
-    let storage = sliding_sync.inner.client.state_store();
+    trace!(storage_key, "Saving the `SlidingSync` pos");
 
     #[cfg(feature = "e2e-encryption")]
     {
-        let position = _position;
         let instance_storage_key = format_storage_key_for_sliding_sync(storage_key);
 
         // FIXME (TERRIBLE HACK): we want to save `pos` in a cross-process safe manner,
         // with both processes sharing the same database backend; that needs to
         // go in the crypto process store at the moment, but should be fixed
         // later on.
-        if let Some(olm_machine) = &*sliding_sync.inner.client.olm_machine().await {
-            let pos_blob = serde_json::to_vec(&FrozenSlidingSyncPos { pos: position.pos.clone() })?;
+        if let Some(olm_machine) = &*client.olm_machine().await {
+            let pos_blob = serde_json::to_vec(&FrozenSlidingSyncPos { pos: _pos.clone() })?;
             olm_machine.store().set_custom_value(&instance_storage_key, pos_blob).await?;
         }
     }
+
+    Ok(())
+}
+
+/// Store the `SlidingSync`'s state (except the `pos` marker, see
+/// [`store_sliding_sync_pos`]) in the storage.
+pub(super) async fn store_sliding_sync_state(sliding_sync: &SlidingSync) -> Result<()> {
+    let storage_key = &sliding_sync.inner.storage_key;
+
+    trace!(storage_key, "Saving a `SlidingSync` to the state store");
+    let storage = sliding_sync.inner.client.state_store();
 
     // Write every `SlidingSyncList` that's configured for caching into the store.
     let frozen_lists = {
@@ -205,7 +218,7 @@ mod tests {
     use matrix_sdk_test::async_test;
 
     #[cfg(feature = "e2e-encryption")]
-    use super::format_storage_key_for_sliding_sync;
+    use super::{format_storage_key_for_sliding_sync, store_sliding_sync_pos};
     use super::{
         super::SlidingSyncList, format_storage_key_for_sliding_sync_list,
         format_storage_key_prefix, restore_sliding_sync_state, store_sliding_sync_state,
@@ -262,8 +275,7 @@ mod tests {
                 list_bar.set_maximum_number_of_rooms(Some(1337));
             }
 
-            let position_guard = sliding_sync.inner.position.lock().await;
-            assert!(sliding_sync.cache_to_storage(&position_guard).await.is_ok());
+            assert!(store_sliding_sync_state(&sliding_sync).await.is_ok());
 
             storage_key
         };
@@ -358,7 +370,8 @@ mod tests {
             position_guard.pos = Some(pos.clone());
 
             // Then, we can correctly cache the sliding sync instance.
-            store_sliding_sync_state(&sliding_sync, &position_guard).await?;
+            store_sliding_sync_state(&sliding_sync).await?;
+            store_sliding_sync_pos(&client, &storage_key_prefix, &position_guard.pos).await?;
         }
 
         // Ok, forget about the sliding sync, let's recreate one from scratch.

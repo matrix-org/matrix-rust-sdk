@@ -26,7 +26,7 @@ use std::{
     fmt::Debug,
     future::Future,
     sync::{
-        Arc, RwLock as StdRwLock,
+        Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -45,7 +45,7 @@ use ruma::{
 };
 use tokio::{
     select,
-    sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock, broadcast::Sender},
+    sync::{Mutex as AsyncMutex, OwnedMutexGuard, RwLock as AsyncRwLock, broadcast::Sender, watch},
 };
 use tracing::{Instrument, Span, debug, error, info, instrument, trace, warn};
 
@@ -132,15 +132,76 @@ pub(super) struct SlidingSyncInner {
     /// Internal channel used to pass messages between Sliding Sync and other
     /// types.
     internal_channel: Sender<SlidingSyncInternalMessage>,
+
+    /// The latest `pos` waiting to be written to the database, once the event
+    /// cache has caught up with the corresponding room updates broadcast.
+    ///
+    /// All database writes of `pos` go through this channel and are performed
+    /// by a single task ([`pos_persister_task`]), so that the on-disk `pos`
+    /// can never run ahead of the event cache's durable state: a process kill
+    /// between "pos persisted" and "events persisted" silently loses those
+    /// events, as the server won't send them again
+    /// (element-hq/element-x-ios#5973, matrix-org/matrix-rust-sdk#5500).
+    pos_persist: watch::Sender<Option<PendingPosPersist>>,
+
+    /// The last `pos` this instance has written to (or knowingly adopted
+    /// from) the database.
+    ///
+    /// Since `pos` writes are deferred, the database routinely lags the
+    /// in-memory `pos`; this field tells that apart from another process
+    /// (e.g. a notification process) having moved the position, which is the
+    /// only case where the database value should override the in-memory one.
+    persisted_pos: StdMutex<Option<String>>,
+}
+
+/// A deferred write of `pos` to the database: performed only once the event
+/// cache's processed sequence number reaches `target_seq`.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct PendingPosPersist {
+    /// The `pos` to write.
+    pos: Option<String>,
+    /// The room updates broadcast that must be durably processed first (see
+    /// `matrix_sdk_base::sync::RoomUpdates::seq`); `0` to write immediately.
+    target_seq: u64,
 }
 
 impl SlidingSync {
-    pub(super) fn new(inner: SlidingSyncInner) -> Self {
-        Self { inner: Arc::new(inner) }
+    pub(super) fn new(
+        inner: SlidingSyncInner,
+        pos_persist_rx: watch::Receiver<Option<PendingPosPersist>>,
+    ) -> Self {
+        let this = Self { inner: Arc::new(inner) };
+
+        // The task exits when `this` (thus the sender) is dropped; the weak
+        // reference avoids keeping the instance alive from its own task.
+        spawn(pos_persister_task(Arc::downgrade(&this.inner), pos_persist_rx));
+
+        this
     }
 
-    async fn cache_to_storage(&self, position: &SlidingSyncPositionMarkers) -> Result<()> {
-        cache::store_sliding_sync_state(self, position).await
+    async fn cache_to_storage(&self) -> Result<()> {
+        cache::store_sliding_sync_state(self).await
+    }
+
+    /// Persist `pos` to the database, deferred until the event cache has
+    /// durably processed the room updates broadcasts up to `target_seq` (see
+    /// [`pos_persister_task`]).
+    ///
+    /// Without a subscribed event cache there is nothing to wait for: the
+    /// write happens immediately, as it used to (e.g. for notification
+    /// clients). Both paths funnel every write of an instance's `pos` through
+    /// a single serialized writer: the persister task in the former case, the
+    /// `position`-lock-holding caller in the latter.
+    async fn persist_pos(&self, pos: Option<String>, target_seq: u64) {
+        if self.inner.client.event_cache().has_subscribed() {
+            self.inner.pos_persist.send_replace(Some(PendingPosPersist { pos, target_seq }));
+        } else if let Err(err) =
+            cache::store_sliding_sync_pos(&self.inner.client, &self.inner.storage_key, &pos).await
+        {
+            warn!("Failed to store the `pos`: {err}");
+        } else {
+            *self.inner.persisted_pos.lock().unwrap() = pos;
+        }
     }
 
     /// Create a new [`SlidingSyncBuilder`].
@@ -590,16 +651,25 @@ impl SlidingSync {
         // sync was configured so, or read it from the memory cache.
         let pos = if self.inner.share_pos {
             if let Some(fields) = &restored_fields {
-                // Override the memory one with the database one, for consistency.
-                if fields.pos != position_guard.pos {
+                // Adopt the database `pos` only when it's a foreign write:
+                // `pos` writes are deferred until the event cache catches up
+                // (see `pos_persister_task`), so the database routinely holds
+                // our own *older* `pos`; overriding memory with it would
+                // replay already-processed responses. A database value that
+                // matches neither memory nor our last write means another
+                // process (e.g. a notification process) advanced the
+                // position: take it.
+                let ours = self.inner.persisted_pos.lock().unwrap().clone();
+                if fields.pos != position_guard.pos && fields.pos != ours {
                     info!(
-                        "Pos from previous request ('{:?}') was different from \
-                         pos in database ('{:?}').",
-                        position_guard.pos, fields.pos
+                        "Pos in database ('{:?}') was written by another process; \
+                         overriding pos from previous request ('{:?}').",
+                        fields.pos, position_guard.pos
                     );
+                    *self.inner.persisted_pos.lock().unwrap() = fields.pos.clone();
                     position_guard.pos = fields.pos.clone();
                 }
-                fields.pos.clone()
+                position_guard.pos.clone()
             } else {
                 position_guard.pos.clone()
             }
@@ -802,7 +872,19 @@ impl SlidingSync {
                 .handle_response(response, &mut position_guard, requested_required_states)
                 .await?;
 
-            this.cache_to_storage(&position_guard).await?;
+            this.cache_to_storage().await?;
+
+            // Defer the database write of the new `pos` until the event cache
+            // has durably processed this response's room updates: if the
+            // process is killed in between, an on-disk `pos` ahead of the
+            // event cache silently loses those events, as the server won't
+            // send them again (element-hq/element-x-ios#5973). The in-memory
+            // `pos` advances normally; the sync loop is not delayed.
+            this.persist_pos(
+                position_guard.pos.clone(),
+                this.inner.client.last_room_updates_seq(),
+            )
+            .await;
 
             // Release the position guard lock.
             // It means that other responses can be generated and then handled later.
@@ -977,12 +1059,16 @@ impl SlidingSync {
             // Invalidate in memory.
             position.pos = None;
 
-            // Propagate to disk.
-            // Note: this propagates both the sliding sync state and the cached lists'
-            // state to disk.
-            if let Err(err) = self.cache_to_storage(&position).await {
+            // Propagate the cached lists' state to disk.
+            if let Err(err) = self.cache_to_storage().await {
                 warn!("Failed to invalidate cached sliding sync state: {err}");
             }
+
+            // Invalidate the persisted `pos`. When deferred, this also
+            // supersedes any not-yet-written pending `pos`, which would
+            // otherwise resurrect the expired session on disk; a target of 0
+            // means there's nothing to wait for.
+            self.persist_pos(None, 0).await;
         }
 
         {
@@ -1183,6 +1269,90 @@ impl PollTimeout {
     }
 }
 
+/// The single writer of `pos` to the database.
+///
+/// Waits, for each queued [`PendingPosPersist`], until the event cache has
+/// durably processed the room updates broadcasts up to its `target_seq`, then
+/// writes the `pos`. A newer pending value supersedes an older one that
+/// hasn't been written yet: the newest `pos` is the only one worth writing,
+/// and waiting for its `target_seq` covers the older ones too.
+///
+/// Exits when the owning [`SlidingSync`] is dropped.
+async fn pos_persister_task(
+    inner: Weak<SlidingSyncInner>,
+    mut pending_rx: watch::Receiver<Option<PendingPosPersist>>,
+) {
+    'next: loop {
+        let Some(pending) = pending_rx.borrow_and_update().clone() else {
+            // Nothing queued: wait for a change, exiting when the sender (the
+            // owning `SlidingSync`) is gone.
+            if pending_rx.changed().await.is_err() {
+                return;
+            }
+            continue;
+        };
+
+        // Snapshot what's needed without keeping the `SlidingSyncInner` alive
+        // across the wait below.
+        let (client, storage_key) = {
+            let Some(inner) = inner.upgrade() else { return };
+            (inner.client.clone(), inner.storage_key.clone())
+        };
+
+        // Wait for the event cache to durably process the room updates this
+        // `pos` acknowledges; persisting the `pos` any earlier would lose
+        // those updates if the process were killed in between. If the event
+        // cache never subscribed, nobody will ever acknowledge: don't wait.
+        let event_cache = client.event_cache();
+        if event_cache.has_subscribed() && pending.target_seq > 0 {
+            let mut ack = event_cache.processed_room_updates_seq();
+            let mut waited_secs = 0u64;
+
+            loop {
+                select! {
+                    result = ack.wait_for(|seq| *seq >= pending.target_seq) => {
+                        // On a closed channel (event cache dropped), write anyway
+                        // rather than never persisting a `pos` again.
+                        let _ = result;
+                        break;
+                    }
+
+                    changed = pending_rx.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                        // A newer `pos` supersedes this one.
+                        continue 'next;
+                    }
+
+                    _ = matrix_sdk_common::sleep::sleep(Duration::from_secs(10)) => {
+                        waited_secs += 10;
+                        warn!(
+                            waited_secs,
+                            target_seq = pending.target_seq,
+                            "`pos` persistence is still waiting for the event cache to \
+                             catch up; the event cache may be stalled"
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Err(err) = cache::store_sliding_sync_pos(&client, &storage_key, &pending.pos).await {
+            warn!("Failed to store the `pos`: {err}");
+        } else if let Some(inner) = inner.upgrade() {
+            *inner.persisted_pos.lock().unwrap() = pending.pos.clone();
+        }
+
+        // If nothing new was queued while writing, park until there is.
+        if pending_rx.borrow_and_update().as_ref() == Some(&pending)
+            && pending_rx.changed().await.is_err()
+        {
+            return;
+        }
+    }
+}
+
 #[cfg(all(test, not(target_family = "wasm")))]
 #[allow(clippy::dbg_macro)]
 mod tests {
@@ -1221,7 +1391,9 @@ mod tests {
 
     use super::{
         SlidingSync, SlidingSyncBuilder, SlidingSyncInternalMessage, SlidingSyncList,
-        SlidingSyncListBuilder, SlidingSyncMode, cache::restore_sliding_sync_state, http,
+        SlidingSyncListBuilder, SlidingSyncMode,
+        cache::{restore_sliding_sync_state, store_sliding_sync_pos},
+        http,
     };
     use crate::{
         Client, Result,
@@ -2137,7 +2309,8 @@ mod tests {
             let mut position_guard = other_sync.inner.position.lock().await;
             position_guard.pos = Some("yolo".to_owned());
 
-            other_sync.cache_to_storage(&position_guard).await?;
+            store_sliding_sync_pos(&client, &other_sync.inner.storage_key, &position_guard.pos)
+                .await?;
         }
 
         // It's still 0, not "yolo".
@@ -2224,7 +2397,8 @@ mod tests {
             let mut position_guard = other_sync.inner.position.lock().await;
             position_guard.pos = Some("42".to_owned());
 
-            other_sync.cache_to_storage(&position_guard).await?;
+            store_sliding_sync_pos(&client, &other_sync.inner.storage_key, &position_guard.pos)
+                .await?;
         }
 
         // It's alright, the next request will load it from the database.
@@ -3243,5 +3417,53 @@ mod tests {
         assert_key_count!(client, 10);
 
         Ok(())
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_pos_persistence_waits_for_the_event_cache() -> Result<()> {
+        use matrix_sdk_base::sync::RoomUpdates;
+
+        let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
+        let sliding_sync = client.sliding_sync("deferred-pos")?.build().await?;
+
+        client.event_cache().subscribe().unwrap();
+
+        // Queue a `pos` persist gated on a broadcast the event cache hasn't
+        // processed yet.
+        let target_seq = client.last_room_updates_seq() + 1;
+        sliding_sync.persist_pos(Some("deferred".to_owned()), target_seq).await;
+
+        // Give the persister task ample opportunity to (incorrectly) write.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let restored =
+            restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key).await?;
+        assert_ne!(
+            restored.and_then(|fields| fields.pos).as_deref(),
+            Some("deferred"),
+            "`pos` must not be persisted before the event cache has processed the \
+             corresponding room updates"
+        );
+
+        // Emulate the sync flow broadcasting the corresponding room updates;
+        // once the event cache has durably processed them, the write may
+        // proceed.
+        client
+            .inner
+            .room_updates_sender
+            .send(RoomUpdates { seq: target_seq, ..Default::default() })
+            .unwrap();
+
+        // The write is asynchronous; poll for it.
+        for _ in 0..500 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let restored =
+                restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key).await?;
+            if restored.and_then(|fields| fields.pos).as_deref() == Some("deferred") {
+                return Ok(());
+            }
+        }
+
+        panic!("`pos` was never persisted after the event cache caught up");
     }
 }

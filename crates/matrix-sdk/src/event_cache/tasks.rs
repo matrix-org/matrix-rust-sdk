@@ -55,6 +55,8 @@ pub(super) async fn room_updates_task(
             Ok(updates) => {
                 trace!("Receiving `RoomUpdates`");
 
+                let seq = updates.seq;
+
                 if let Err(err) = inner.handle_room_updates(updates).await {
                     match err {
                         EventCacheError::ClientDropped => {
@@ -69,6 +71,13 @@ pub(super) async fn room_updates_task(
                         }
                     }
                 }
+
+                // Acknowledge this broadcast so deferred sync-position persists can
+                // proceed (see `processed_room_updates_seq`). Acknowledged even when
+                // handling failed above: the data won't become more durable by holding
+                // the sync position back, and not acknowledging would defer position
+                // persistence until the next broadcast for no benefit.
+                inner.processed_room_updates_seq.send_replace(seq);
             }
 
             Err(RecvError::Lagged(num_skipped)) => {

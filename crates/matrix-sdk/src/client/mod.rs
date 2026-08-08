@@ -356,6 +356,10 @@ pub(crate) struct ClientInner {
     /// sync response.
     pub(crate) room_updates_sender: broadcast::Sender<RoomUpdates>,
 
+    /// The sequence number stamped on the last [`RoomUpdates`] broadcast over
+    /// [`ClientInner::room_updates_sender`] (see [`RoomUpdates::seq`]).
+    pub(crate) room_updates_seq: std::sync::atomic::AtomicU64,
+
     /// Whether the client should update its homeserver URL with the discovery
     /// information present in the login response.
     respect_login_well_known: bool,
@@ -488,6 +492,7 @@ impl ClientInner {
             // A single `RoomUpdates` is sent once per sync, so we assume that 32 is sufficient
             // ballast for all observers to catch up.
             room_updates_sender: broadcast::Sender::new(32),
+            room_updates_seq: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
             event_cache,
@@ -1400,6 +1405,16 @@ impl Client {
     /// a sync response.
     pub fn subscribe_to_all_room_updates(&self) -> broadcast::Receiver<RoomUpdates> {
         self.inner.room_updates_sender.subscribe()
+    }
+
+    /// The sequence number stamped on the most recently broadcast
+    /// [`RoomUpdates`], or `0` if none was broadcast yet.
+    ///
+    /// Waiting until the event cache's processed sequence number reaches this
+    /// value guarantees every room update emitted so far has been durably
+    /// applied (see [`RoomUpdates::seq`]).
+    pub(crate) fn last_room_updates_seq(&self) -> u64 {
+        self.inner.room_updates_seq.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     pub(crate) async fn notification_handlers(

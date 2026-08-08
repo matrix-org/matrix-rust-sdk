@@ -45,7 +45,7 @@ use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
     OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock,
     broadcast::{Receiver, Sender, channel},
-    mpsc,
+    mpsc, watch,
 };
 use tracing::{error, instrument, trace};
 
@@ -272,6 +272,7 @@ impl EventCache {
                 enable_automatic_back_pagination,
                 back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
+                processed_room_updates_seq: watch::Sender::new(0),
             }),
         }
     }
@@ -404,6 +405,15 @@ impl EventCache {
     /// Check whether [`EventCache::subscribe`] has been called.
     pub fn has_subscribed(&self) -> bool {
         self.inner.drop_handles.get().is_some()
+    }
+
+    /// Watch the [`RoomUpdates::seq`] of the last room updates broadcast this
+    /// event cache has durably processed.
+    ///
+    /// Only meaningful when [`EventCache::has_subscribed`] is `true`;
+    /// otherwise it stays at `0` forever.
+    pub(crate) fn processed_room_updates_seq(&self) -> watch::Receiver<u64> {
+        self.inner.processed_room_updates_seq.subscribe()
     }
 
     /// Return a room-specific view over the [`EventCache`].
@@ -619,6 +629,15 @@ struct EventCacheInner {
     /// Deferred initialization: spawned at subscription time, if
     /// `enable_automatic_back_pagination` is set.
     back_pagination_queue: OnceLock<BackPaginationQueue>,
+
+    /// The [`RoomUpdates::seq`] of the last room updates broadcast this event
+    /// cache has finished processing (`0` if none yet), i.e. whose derived
+    /// state has been written to the event cache store.
+    ///
+    /// Persisting a sync position is safe only once this has reached the
+    /// sequence number of that sync's broadcast; otherwise a process kill in
+    /// between silently loses the events (the server won't resend them).
+    processed_room_updates_seq: watch::Sender<u64>,
 }
 
 impl EventCacheInner {

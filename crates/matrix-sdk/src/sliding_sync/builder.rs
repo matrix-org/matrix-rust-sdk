@@ -1,14 +1,14 @@
 use std::{
     collections::BTreeMap,
     fmt::Debug,
-    sync::{Arc, RwLock as StdRwLock, atomic::AtomicBool},
+    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, atomic::AtomicBool},
     time::Duration,
 };
 
 use cfg_if::cfg_if;
 use matrix_sdk_common::timer;
 use ruma::{OwnedRoomId, api::client::sync::sync_events::v5 as http};
-use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel};
+use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock, broadcast::channel, watch};
 
 use super::{
     Error, SlidingSync, SlidingSyncInner, SlidingSyncListBuilder, SlidingSyncPositionMarkers,
@@ -304,26 +304,35 @@ impl SlidingSyncBuilder {
 
         let lists = AsyncRwLock::new(lists);
 
-        Ok(SlidingSync::new(SlidingSyncInner {
-            id: self.id,
+        let (pos_persist_tx, pos_persist_rx) = watch::channel(None);
 
-            client,
-            storage_key: self.storage_key,
-            share_pos,
+        Ok(SlidingSync::new(
+            SlidingSyncInner {
+                id: self.id,
 
-            lists,
+                client,
+                storage_key: self.storage_key,
+                share_pos,
 
-            position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
+                // The restored `pos` is, by definition, what the database holds.
+                persisted_pos: StdMutex::new(pos.clone()),
+                pos_persist: pos_persist_tx,
 
-            room_subscriptions: StdRwLock::new(self.room_subscriptions),
-            extensions: self.extensions.unwrap_or_default(),
-            deferred_extensions: self.deferred_extensions.unwrap_or_default(),
-            deferred_extensions_applied: AtomicBool::new(false),
+                position: Arc::new(AsyncMutex::new(SlidingSyncPositionMarkers { pos })),
 
-            internal_channel: internal_channel_sender,
+                lists,
 
-            poll_timeout: self.poll_timeout,
-            network_timeout: self.network_timeout,
-        }))
+                room_subscriptions: StdRwLock::new(self.room_subscriptions),
+                extensions: self.extensions.unwrap_or_default(),
+                deferred_extensions: self.deferred_extensions.unwrap_or_default(),
+                deferred_extensions_applied: AtomicBool::new(false),
+
+                internal_channel: internal_channel_sender,
+
+                poll_timeout: self.poll_timeout,
+                network_timeout: self.network_timeout,
+            },
+            pos_persist_rx,
+        ))
     }
 }

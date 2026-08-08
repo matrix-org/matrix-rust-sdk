@@ -195,7 +195,10 @@ impl Client {
         self.handle_sync_to_device_events(to_device).await?;
 
         // Ignore errors when there are no receivers.
-        let _ = self.inner.room_updates_sender.send(rooms.clone());
+        let mut room_updates = rooms.clone();
+        room_updates.seq =
+            self.inner.room_updates_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let _ = self.inner.room_updates_sender.send(room_updates);
 
         for (room_id, room_info) in &rooms.joined {
             let Some(room) = self.get_room(room_id) else {

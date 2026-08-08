@@ -390,7 +390,7 @@ async fn test_subscribe_all_room_updates() {
     client.sync_once(sync_settings).await.unwrap();
 
     let room_updates = rx.recv().now_or_never().unwrap().unwrap();
-    assert_let!(RoomUpdates { left, joined, invited, knocked } = room_updates);
+    assert_let!(RoomUpdates { left, joined, invited, knocked, .. } = room_updates);
 
     // Check the left room updates.
     {
