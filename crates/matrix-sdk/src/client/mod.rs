@@ -2219,7 +2219,14 @@ impl Client {
     /// 3. If we couldn't get the well-known contents with either the explicit
     ///    server name or the implicit extracted one, we try the homeserver URL
     ///    as a last resort.
+    ///
+    /// Always returns `None` if well-known lookups were disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     pub async fn fetch_client_well_known(&self) -> Option<discover_homeserver::Response> {
+        if self.inner.well_known_lookup_disabled {
+            return None;
+        }
+
         let homeserver = self.homeserver();
         let scheme = homeserver.scheme();
 
@@ -4832,6 +4839,7 @@ pub(crate) mod tests {
         // The other well-known consumers are disabled too.
         assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
         assert!(client.tile_server().await.is_none());
+        assert!(client.fetch_client_well_known().await.is_none());
     }
 
     #[async_test]
