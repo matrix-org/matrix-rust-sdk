@@ -658,6 +658,26 @@ impl Timeline {
         Ok(self.inner.toggle_reaction(&item_id.try_into()?, &key).await?)
     }
 
+    /// Like [`Self::toggle_reaction`], but merges the given additional
+    /// top-level fields (a JSON object, encoded as a string) into the
+    /// reaction's content when one is added.
+    ///
+    /// Removing a reaction is a redaction, which carries no content, so the
+    /// extra fields are only used when adding one.
+    pub async fn toggle_reaction_with_extra_content(
+        &self,
+        item_id: EventOrTransactionId,
+        key: String,
+        extra_content_json: Option<String>,
+    ) -> Result<bool, ClientError> {
+        let extra_content: Option<serde_json::Map<String, serde_json::Value>> =
+            extra_content_json.map(|json| serde_json::from_str(&json)).transpose()?;
+        Ok(self
+            .inner
+            .toggle_reaction_with_extra_content(&item_id.try_into()?, &key, extra_content)
+            .await?)
+    }
+
     pub async fn fetch_details_for_event(&self, event_id: String) -> Result<(), ClientError> {
         let event_id = <&EventId>::try_from(event_id.as_str())?;
         self.inner
