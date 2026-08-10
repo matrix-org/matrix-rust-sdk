@@ -345,6 +345,17 @@ enum LogTarget {
 
     // SDK search modules
     MatrixSdkSearch,
+
+    // First-party crate roots. Every SDK crate must have a root target here:
+    // the filter has no global default directive (third-party crates stay
+    // opt-in so they can't leak sensitive information), so a first-party
+    // crate missing from this list has ALL its logs dropped, at every app log
+    // level, except for modules explicitly listed above.
+    MatrixSdkBase,
+    MatrixSdkCommon,
+    MatrixSdkSqlite,
+    MatrixSdkStoreEncryption,
+    MatrixSdkUi,
 }
 
 impl LogTarget {
@@ -378,6 +389,11 @@ impl LogTarget {
             LogTarget::MatrixSdkUiTimeline => "matrix_sdk_ui::timeline",
             LogTarget::MatrixSdkUiNotificationClient => "matrix_sdk_ui::notification_client",
             LogTarget::MatrixSdkSearch => "matrix_sdk_search",
+            LogTarget::MatrixSdkBase => "matrix_sdk_base",
+            LogTarget::MatrixSdkCommon => "matrix_sdk_common",
+            LogTarget::MatrixSdkSqlite => "matrix_sdk_sqlite",
+            LogTarget::MatrixSdkStoreEncryption => "matrix_sdk_store_encryption",
+            LogTarget::MatrixSdkUi => "matrix_sdk_ui",
         }
     }
 }
@@ -407,6 +423,15 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkUiNotificationClient, LogLevel::Info),
     (LogTarget::MatrixSdkBaseResponseProcessors, LogLevel::Info),
     (LogTarget::MatrixSdkSearch, LogLevel::Info),
+    // Crate roots, so that first-party logs are never silently dropped; the
+    // more specific module targets above take precedence over these. The
+    // SQLite crate defaults to debug so its `open_with_config` timers
+    // attribute slow store opens (migrations, WAL checkpoints) on launch.
+    (LogTarget::MatrixSdkBase, LogLevel::Info),
+    (LogTarget::MatrixSdkCommon, LogLevel::Info),
+    (LogTarget::MatrixSdkSqlite, LogLevel::Debug),
+    (LogTarget::MatrixSdkStoreEncryption, LogLevel::Info),
+    (LogTarget::MatrixSdkUi, LogLevel::Info),
 ];
 
 const IMMUTABLE_LOG_TARGETS: &[LogTarget] = &[
@@ -665,12 +690,6 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
         filters.push(format!("{}={}", target.as_str(), level.as_str()));
     });
 
-    // Log all the SQLite stores at debug, so their `open_with_config` timers
-    // attribute slow store opens (migrations, WAL checkpoints) on launch. The
-    // `matrix_sdk_sqlite::event_cache_store` target above stays more specific,
-    // hence needs its own debug default.
-    filters.push("matrix_sdk_sqlite=debug".to_owned());
-
     // Finally append the extra targets requested by the client.
     for target in &config.extra_targets {
         filters.push(format!("{}={}", target, config.log_level.as_str()));
@@ -854,7 +873,11 @@ mod tests {
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=info,
             matrix_sdk_search=info,
+            matrix_sdk_base=info,
+            matrix_sdk_common=info,
             matrix_sdk_sqlite=debug,
+            matrix_sdk_store_encryption=info,
+            matrix_sdk_ui=info,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -904,7 +927,11 @@ mod tests {
             matrix_sdk_ui::notification_client=trace,
             matrix_sdk_base::response_processors=trace,
             matrix_sdk_search=trace,
-            matrix_sdk_sqlite=debug,
+            matrix_sdk_base=trace,
+            matrix_sdk_common=trace,
+            matrix_sdk_sqlite=trace,
+            matrix_sdk_store_encryption=trace,
+            matrix_sdk_ui=trace,
             super_duper_app=trace,
             some_other_span=trace"#
                 .split('\n')
@@ -955,7 +982,11 @@ mod tests {
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=info,
             matrix_sdk_search=info,
+            matrix_sdk_base=info,
+            matrix_sdk_common=info,
             matrix_sdk_sqlite=debug,
+            matrix_sdk_store_encryption=info,
+            matrix_sdk_ui=info,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())
