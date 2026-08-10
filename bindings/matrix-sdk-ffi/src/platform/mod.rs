@@ -400,7 +400,7 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkEventCacheBackPagination, LogLevel::Debug),
     (LogTarget::MatrixSdkLatestEvents, LogLevel::Debug),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
-    (LogTarget::MatrixSdkEventCacheStore, LogLevel::Info),
+    (LogTarget::MatrixSdkEventCacheStore, LogLevel::Debug),
     (LogTarget::MatrixSdkCommonCrossProcessLock, LogLevel::Warn),
     (LogTarget::MatrixSdkCommonDeserializedResponses, LogLevel::Warn),
     (LogTarget::MatrixSdkBaseStoreAmbiguityMap, LogLevel::Warn),
@@ -665,6 +665,12 @@ fn build_tracing_filter(config: &TracingConfiguration) -> String {
         filters.push(format!("{}={}", target.as_str(), level.as_str()));
     });
 
+    // Log all the SQLite stores at debug, so their `open_with_config` timers
+    // attribute slow store opens (migrations, WAL checkpoints) on launch. The
+    // `matrix_sdk_sqlite::event_cache_store` target above stays more specific,
+    // hence needs its own debug default.
+    filters.push("matrix_sdk_sqlite=debug".to_owned());
+
     // Finally append the extra targets requested by the client.
     for target in &config.extra_targets {
         filters.push(format!("{}={}", target, config.log_level.as_str()));
@@ -841,13 +847,14 @@ mod tests {
             matrix_sdk::event_cache::back_pagination_queue=debug,
             matrix_sdk::latest_events=debug,
             matrix_sdk_base::event_cache=info,
-            matrix_sdk_sqlite::event_cache_store=info,
+            matrix_sdk_sqlite::event_cache_store=debug,
             matrix_sdk_common::cross_process_lock=warn,
             matrix_sdk_common::deserialized_responses=warn,
             matrix_sdk_base::store::ambiguity_map=warn,
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=info,
             matrix_sdk_search=info,
+            matrix_sdk_sqlite=debug,
             super_duper_app=error"#
                 .split('\n')
                 .map(|s| s.trim())
@@ -897,6 +904,7 @@ mod tests {
             matrix_sdk_ui::notification_client=trace,
             matrix_sdk_base::response_processors=trace,
             matrix_sdk_search=trace,
+            matrix_sdk_sqlite=debug,
             super_duper_app=trace,
             some_other_span=trace"#
                 .split('\n')
@@ -947,6 +955,7 @@ mod tests {
             matrix_sdk_ui::notification_client=info,
             matrix_sdk_base::response_processors=info,
             matrix_sdk_search=info,
+            matrix_sdk_sqlite=debug,
             super_duper_app=info"#
                 .split('\n')
                 .map(|s| s.trim())
