@@ -21,6 +21,7 @@ use std::{
 };
 
 use anyhow::{Context as _, anyhow};
+use eyeball::SharedObservable;
 use futures_util::pin_mut;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
@@ -1484,14 +1485,29 @@ impl Client {
     pub async fn get_media_content(
         &self,
         media_source: Arc<MediaSource>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
+        let progress = SharedObservable::new(matrix_sdk::TransmissionProgress::default());
+
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = progress.subscribe();
+            get_runtime_handle().spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
 
         debug!(?source, "requesting media file");
         Ok(self
             .inner
             .media()
-            .get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, true)
+            .get_media_content_with_progress(
+                &MediaRequestParameters { source, format: MediaFormat::File },
+                true,
+                progress,
+            )
             .await?)
     }
 
@@ -1500,14 +1516,25 @@ impl Client {
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
+        let progress = SharedObservable::new(matrix_sdk::TransmissionProgress::default());
+
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = progress.subscribe();
+            get_runtime_handle().spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
 
         debug!(?source, width, height, "requesting media thumbnail");
         Ok(self
             .inner
             .media()
-            .get_media_content(
+            .get_media_content_with_progress(
                 &MediaRequestParameters {
                     source,
                     format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
@@ -1516,6 +1543,7 @@ impl Client {
                     )),
                 },
                 true,
+                progress,
             )
             .await?)
     }
