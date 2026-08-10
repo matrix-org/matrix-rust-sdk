@@ -189,7 +189,7 @@ const ROOM_LOAD_PAGE_SIZE: usize = 200;
 /// fetches its rows in index order - i.e. random table lookups, unlike the
 /// background fill's sequential scans - so it pays more per room, on the
 /// caller's critical path, and a room list only renders a screenful anyway.
-const INLINE_ROOM_LOAD_PAGE_SIZE: usize = 100;
+const INLINE_ROOM_LOAD_PAGE_SIZE: usize = 64;
 
 /// A state store wrapper for the SDK.
 ///
