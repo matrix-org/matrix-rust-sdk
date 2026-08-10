@@ -574,7 +574,23 @@ impl Timeline {
         item_id: &TimelineEventItemId,
         reaction_key: &str,
     ) -> Result<bool, Error> {
-        self.controller.toggle_reaction_local(item_id, reaction_key).await
+        self.controller.toggle_reaction_local(item_id, reaction_key, None).await
+    }
+
+    /// Same as [`Timeline::toggle_reaction`], merging `extra_content`'s fields
+    /// into the reaction's content when one is added.
+    ///
+    /// The reaction's own fields take precedence on conflicts. Removing a
+    /// reaction is a redaction, which carries no content, so `extra_content` is
+    /// only used when adding one — and only for reactions to remote events,
+    /// since a local echo is the user's own not-yet-sent event.
+    pub async fn toggle_reaction_with_extra_content(
+        &self,
+        item_id: &TimelineEventItemId,
+        reaction_key: &str,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<bool, Error> {
+        self.controller.toggle_reaction_local(item_id, reaction_key, extra_content).await
     }
 
     /// Sends an attachment to the room.

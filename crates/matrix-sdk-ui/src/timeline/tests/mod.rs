@@ -225,7 +225,16 @@ impl TestTimeline {
         item_id: &TimelineEventItemId,
         key: &str,
     ) -> Result<(), super::Error> {
-        if self.controller.toggle_reaction_local(item_id, key).await? {
+        self.toggle_reaction_local_with_extra_content(item_id, key, None).await
+    }
+
+    async fn toggle_reaction_local_with_extra_content(
+        &self,
+        item_id: &TimelineEventItemId,
+        key: &str,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<(), super::Error> {
+        if self.controller.toggle_reaction_local(item_id, key, extra_content).await? {
             let items = self.controller.items().await;
             if let Some(event_id) = rfind_event_by_item_id(&items, item_id)
                 .and_then(|(_pos, item)| item.event_id().map(ToOwned::to_owned))
@@ -256,6 +265,8 @@ impl TestTimeline {
 type ReadReceiptMap =
     HashMap<ReceiptType, HashMap<ReceiptThread, HashMap<OwnedUserId, (OwnedEventId, Receipt)>>>;
 
+type ExtraContent = serde_json::Map<String, serde_json::Value>;
+
 #[derive(Clone, Debug, Default)]
 struct TestRoomDataProvider {
     /// The room ID.
@@ -276,6 +287,9 @@ struct TestRoomDataProvider {
 
     /// Events sent with that room data provider.
     pub sent_events: Arc<RwLock<Vec<AnyMessageLikeEventContent>>>,
+
+    /// Extra content sent alongside each event in [`Self::sent_events`].
+    pub sent_extra_content: Arc<RwLock<Vec<Option<ExtraContent>>>>,
 
     /// Events redacted with that room data providier.
     pub redacted: Arc<RwLock<Vec<OwnedEventId>>>,
@@ -389,8 +403,13 @@ impl RoomDataProvider for TestRoomDataProvider {
         self.fully_read_marker.clone()
     }
 
-    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
+    async fn send(
+        &self,
+        content: AnyMessageLikeEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<(), super::Error> {
         self.sent_events.write().await.push(content);
+        self.sent_extra_content.write().await.push(extra_content);
         Ok(())
     }
 
