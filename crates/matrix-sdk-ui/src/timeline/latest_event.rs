@@ -88,6 +88,30 @@ pub enum LatestEventValueLocalState {
     CannotBeSent,
 }
 
+/// Load a sender's profile for a latest-event preview.
+///
+/// A preview renders a display name and an avatar. The full
+/// [`Profile::load`] path builds a whole `RoomMember` - seven store queries
+/// per call (member event, power levels, display-name ambiguity, presence,
+/// ignored users, …) - which is what makes rendering a page of room-list
+/// entries expensive. Read the profile row alone, and fall back to the full
+/// member load only when there is none.
+async fn load_preview_profile(room: &Room, user_id: &ruma::UserId) -> Option<Profile> {
+    if let Ok(Some(profile_event)) = room.get_member_profile(user_id).await {
+        return Some(Profile {
+            display_name: profile_event.content.displayname.clone(),
+            display_name_ambiguous: false,
+            avatar_url: profile_event.content.avatar_url.clone(),
+            #[cfg(feature = "unstable-msc4426")]
+            status: None,
+            #[cfg(feature = "unstable-msc4426")]
+            call: None,
+        });
+    }
+
+    Profile::load(room, user_id).await
+}
+
 impl LatestEventValue {
     pub(crate) async fn from_base_latest_event_value(
         value: BaseLatestEventValue,
@@ -106,7 +130,7 @@ impl LatestEventValue {
                 let is_own = client.user_id().map(|user_id| user_id == sender).unwrap_or(false);
 
                 let profile =
-                    TimelineDetails::from_initial_value(Profile::load(room, &sender).await);
+                    TimelineDetails::from_initial_value(load_preview_profile(room, &sender).await);
 
                 match TimelineItemContent::from_event(room, timeline_event).await {
                     Some(content) => Self::Remote { timestamp, sender, is_own, profile, content },
@@ -115,7 +139,7 @@ impl LatestEventValue {
             }
             BaseLatestEventValue::RemoteInvite { timestamp, inviter, .. } => {
                 let inviter_profile = if let Some(inviter_id) = &inviter {
-                    TimelineDetails::from_initial_value(Profile::load(room, inviter_id).await)
+                    TimelineDetails::from_initial_value(load_preview_profile(room, inviter_id).await)
                 } else {
                     TimelineDetails::Unavailable
                 };
@@ -134,7 +158,7 @@ impl LatestEventValue {
                 let sender =
                     client.user_id().expect("The `Client` is supposed to be logged").to_owned();
                 let profile =
-                    TimelineDetails::from_initial_value(Profile::load(room, &sender).await);
+                    TimelineDetails::from_initial_value(load_preview_profile(room, &sender).await);
 
                 match TimelineAction::from_content(message_like_event_content, None, None, None) {
                     TimelineAction::AddItem { content } => Self::Local {

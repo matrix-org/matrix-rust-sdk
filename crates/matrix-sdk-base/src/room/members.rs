@@ -147,6 +147,19 @@ impl Room {
         self.info.read().joined_members_count()
     }
 
+    /// Get the profile (display name and avatar) of a room member from the
+    /// state store, without building a full [`RoomMember`].
+    ///
+    /// [`Self::get_member`] costs several extra store queries per call (power
+    /// levels, display-name ambiguity, presence, ignored users) that pure
+    /// display use cases - a message preview, say - don't need.
+    pub async fn get_member_profile(
+        &self,
+        user_id: &UserId,
+    ) -> StoreResult<Option<MinimalRoomMemberEvent>> {
+        self.store.get_profile(self.room_id(), user_id).await
+    }
+
     /// Get the `RoomMember` with the given `user_id`.
     ///
     /// Returns `None` if the member was never part of this room, otherwise
