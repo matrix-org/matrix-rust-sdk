@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use matrix_sdk_base::store::WellKnownResponse;
-use matrix_sdk_common::{locks::Mutex, ttl::TtlValue};
+use matrix_sdk_common::{
+    locks::Mutex,
+    ttl::{Clock, TtlValue},
+};
 use ruma::api::{
     SupportedVersions,
     client::{
@@ -46,6 +49,10 @@ pub(crate) struct ClientCaches {
     pub(crate) server_metadata: Cache<AuthorizationServerMetadata, ()>,
     /// Homeserver capabilities.
     pub(crate) homeserver_capabilities: Cache<Capabilities, Arc<HttpError>>,
+    /// The duration after which cached discovery data is considered stale.
+    pub(crate) discovery_cache_timeout: Duration,
+    /// The clock used to determine the current time when checking staleness.
+    pub(crate) clock: Arc<dyn Clock>,
     /// RTC transports advertised by the homeserver
     /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
     ///

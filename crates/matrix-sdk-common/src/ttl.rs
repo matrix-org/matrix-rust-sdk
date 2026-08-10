@@ -15,8 +15,26 @@
 //! Types to implement TTL caches which can be used to persist data for a fixed
 //! duration.
 
+use std::{sync::Arc, time::Duration};
+
 use ruma::time::SystemTime;
 use serde::{Deserialize, Serialize};
+
+/// A source of the current time, used so that tests can control what "now" is.
+pub trait Clock: std::fmt::Debug + Send + Sync {
+    /// Get the current time as milliseconds since the Unix epoch.
+    fn now_ms(&self) -> f64;
+}
+
+/// A [`Clock`] that returns the real, current system time.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_ms(&self) -> f64 {
+        now_timestamp_ms()
+    }
+}
 
 /// A value that expires after some time.
 ///
@@ -42,7 +60,7 @@ impl<T> TtlValue<T> {
     /// The number of milliseconds after which the data is considered stale.
     ///
     /// This matches 1 day.
-    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24) as _;
+    pub const STALE_THRESHOLD: Duration = Duration::from_secs(60 * 60 * 24);
 
     /// Construct a new `TtlValue` with the given data.
     pub fn new(data: T) -> Self {
@@ -67,9 +85,10 @@ impl<T> TtlValue<T> {
         TtlValue { data: f(self.data), last_fetch_ts: self.last_fetch_ts }
     }
 
-    /// Whether this value has expired.
-    pub fn has_expired(&self) -> bool {
-        self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= Self::STALE_THRESHOLD)
+    /// Whether this value has expired, given a custom stale threshold.
+    pub fn has_expired(&self, stale_threshold: Duration, clock: Arc<dyn Clock>) -> bool {
+        self.last_fetch_ts
+            .is_some_and(|ts| clock.now_ms() - ts >= stale_threshold.as_millis() as f64)
     }
 
     /// Mark this value has expired.
@@ -112,24 +131,26 @@ mod tests {
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    use super::{TtlValue, now_timestamp_ms};
+    use super::{TtlValue, now_timestamp_ms, *};
 
     #[test]
     fn test_ttl_value_expiry() {
         // Definitely stale.
         let ttl_value = TtlValue {
             data: (),
-            last_fetch_ts: Some(now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD - 1.0),
+            last_fetch_ts: Some(
+                now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD.as_millis() as f64 - 1.0,
+            ),
         };
-        assert!(ttl_value.has_expired());
+        assert!(ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD, Arc::new(SystemClock)));
 
         // Definitely not stale.
         let ttl_value = TtlValue::new(());
-        assert!(!ttl_value.has_expired());
+        assert!(!ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD, Arc::new(SystemClock)));
 
         // Cannot be stale.
         let ttl_value = TtlValue::without_expiry(());
-        assert!(!ttl_value.has_expired());
+        assert!(!ttl_value.has_expired(TtlValue::<()>::STALE_THRESHOLD, Arc::new(SystemClock)));
     }
 
     #[test]

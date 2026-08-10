@@ -14,7 +14,10 @@
 
 //! Augmented [`ClientBuilder`] that can set up an already logged-in user.
 
+use std::{sync::Arc, time::Duration};
+
 use matrix_sdk_base::{SessionMeta, store::RoomLoadSettings};
+use matrix_sdk_common::ttl::Clock;
 use ruma::{OwnedDeviceId, OwnedUserId, api::MatrixVersion, owned_device_id, owned_user_id};
 
 use crate::{
@@ -137,6 +140,19 @@ impl MockClientBuilder {
         self.auth_state.maybe_restore_client(&client).await;
 
         client
+    }
+
+    /// Set a custom [`Clock`] implementation, useful for testing time-dependent
+    /// behavior like cache expiry.
+    pub fn clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.builder = self.builder.clock(clock);
+        self
+    }
+
+    /// Set the duration after which cached discovery data is considered stale.
+    pub fn discovery_cache_timeout(mut self, timeout: Duration) -> Self {
+        self.builder = self.builder.discovery_cache_timeout(timeout);
+        self
     }
 }
 
