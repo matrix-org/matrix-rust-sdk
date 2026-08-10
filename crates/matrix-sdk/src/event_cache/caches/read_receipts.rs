@@ -170,6 +170,14 @@ impl RoomReadReceiptsExt for RoomReadReceipts {
         }
 
         if marks_as_unread(event.raw(), user_id) {
+            // Name the culprit: a room stuck unread despite an up-to-date
+            // receipt means some event keeps counting here, and nothing else
+            // identifies it.
+            debug!(
+                event_id = ?event.event_id(),
+                event_type = ?event.raw().get_field::<String>("type").ok().flatten(),
+                "event counts as unread"
+            );
             self.num_unread += 1;
         }
 
