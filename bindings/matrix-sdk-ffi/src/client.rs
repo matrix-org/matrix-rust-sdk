@@ -2148,7 +2148,7 @@ impl Client {
     /// `ClientBuilder::disable_well_known_lookup`.
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         let transports = self.discover_rtc_transports().await?;
-        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
+        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
     }
 
     /// Discover the RTC transports advertised by the homeserver.
