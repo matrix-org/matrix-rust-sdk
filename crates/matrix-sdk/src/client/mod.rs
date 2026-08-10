@@ -2681,7 +2681,7 @@ impl Client {
     ///
     /// Returns an empty list if well-known discovery was disabled with
     /// [`ClientBuilder::disable_well_known_lookup`].
-    #[deprecated = "Use `Client::rtc_transports` instead"]
+    #[deprecated = "Use `Client::discover_rtc_transports` instead"]
     pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
         self.well_known_rtc_transports().await
     }
@@ -2689,10 +2689,10 @@ impl Client {
     /// Get information about the homeserver's advertised RTC foci by fetching
     /// the well-known file from the server or the cache.
     ///
-    /// This will be soon deprecated in favor of [`Client::rtc_transports`],
-    /// which fetches the RTC transports advertised by the homeserver
-    /// through the authenticated `GET /_matrix/client/v1/rtc/transports`
-    /// endpoint.
+    /// This will be soon deprecated in favor of
+    /// [`Client::discover_rtc_transports`], which fetches the RTC
+    /// transports advertised by the homeserver through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint.
     ///
     /// Returns an empty list if well-known discovery was disabled with
     /// [`ClientBuilder::disable_well_known_lookup`].
@@ -2837,12 +2837,11 @@ impl Client {
     ///
     /// The transports are first looked up through the authenticated
     /// `GET /_matrix/client/v1/rtc/transports` endpoint
-    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)),
-    /// see [`Client::rtc_transports`]. If the homeserver doesn't implement
-    /// that endpoint, this falls back to the `m.rtc_foci` field of the
-    /// well-known, see [`Client::well_known_rtc_transports`] — unless
-    /// well-known discovery was disabled with
-    /// [`ClientBuilder::disable_well_known_lookup`].
+    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
+    /// If the homeserver doesn't implement that endpoint, this falls back to
+    /// the `m.rtc_foci` field of the  well-known, see
+    /// [`Client::well_known_rtc_transports`] — unless well-known discovery
+    /// was disabled with [`ClientBuilder::disable_well_known_lookup`].
     ///
     /// Returns `None` if neither source could provide transports, which is
     /// kept distinct from `Some(vec![])`, i.e. a homeserver that advertises no
