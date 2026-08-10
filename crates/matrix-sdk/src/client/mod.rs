@@ -1450,6 +1450,16 @@ impl Client {
             .collect()
     }
 
+    /// Wait until every room known to the state store has been loaded into
+    /// memory.
+    ///
+    /// Rooms are loaded progressively in the background after the session is
+    /// restored, so [`Client::rooms`] and [`Client::rooms_stream`] may return
+    /// an arbitrary subset of the stored rooms until this has resolved.
+    pub async fn wait_for_rooms_loaded(&self) {
+        self.base_client().wait_for_rooms_loaded().await;
+    }
+
     /// Get a stream of all the rooms, in addition to the existing rooms.
     pub fn rooms_stream(&self) -> (Vector<Room>, impl Stream<Item = Vec<VectorDiff<Room>>> + '_) {
         let (rooms, stream) = self.base_client().rooms_stream();

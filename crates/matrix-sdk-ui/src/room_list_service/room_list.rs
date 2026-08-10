@@ -52,6 +52,14 @@ impl RoomList {
         sliding_sync_list_name: &str,
         room_list_service_state: Subscriber<State>,
     ) -> Result<Self, Error> {
+        // Rooms are loaded progressively in the background after the session
+        // is restored, in state-store row order, i.e. roughly
+        // least-recently-updated first. Snapshotting the rooms
+        // (`Self::entries`) mid-load would show an arbitrary stale subset of
+        // the account as if it were the real room list, so wait for the load
+        // to complete.
+        client.wait_for_rooms_loaded().await;
+
         let sliding_sync_list = sliding_sync
             .on_list(sliding_sync_list_name, |list| ready(list.clone()))
             .await
