@@ -440,10 +440,31 @@ impl BaseClient {
         self.state_store.sync_token.read().await.clone()
     }
 
+    /// Wait until every room known to the state store has been loaded into
+    /// memory.
+    ///
+    /// With [`RoomLoadSettings::All`], rooms are loaded progressively in
+    /// pages, so the in-memory rooms map can be incomplete for a short while
+    /// after the session is restored. Response processing must wait for the
+    /// load to complete before creating rooms, otherwise a room that exists
+    /// in the store but isn't loaded yet would be recreated blank and its
+    /// stored state overwritten.
+    ///
+    /// Must not be called while holding the state store lock
+    /// ([`BaseClient::state_store_lock`]): the background room load may need
+    /// that lock to make progress.
+    pub async fn wait_for_rooms_loaded(&self) {
+        self.state_store.wait_for_rooms_loaded().await;
+    }
+
     /// User has knocked on a room.
     ///
     /// Update the internal and cached state accordingly. Return the final Room.
     pub async fn room_knocked(&self, room_id: &RoomId) -> Result<Room> {
+        // Wait for a progressive room load to complete, so we don't create a
+        // blank room that shadows a stored, not-yet-loaded one.
+        self.wait_for_rooms_loaded().await;
+
         let room = self.state_store.get_or_create_room(room_id, RoomState::Knocked);
 
         if room.state() != RoomState::Knocked {
@@ -516,6 +537,10 @@ impl BaseClient {
         room_id: &RoomId,
         inviter: Option<OwnedUserId>,
     ) -> Result<Room> {
+        // Wait for a progressive room load to complete, so we don't create a
+        // blank room that shadows a stored, not-yet-loaded one.
+        self.wait_for_rooms_loaded().await;
+
         let room = self.state_store.get_or_create_room(room_id, RoomState::Joined);
 
         // If the state isn't `RoomState::Joined` then this means that we knew about
@@ -565,6 +590,10 @@ impl BaseClient {
     ///
     /// Update the internal and cached state accordingly.
     pub async fn room_left(&self, room_id: &RoomId) -> Result<()> {
+        // Wait for a progressive room load to complete, so we don't create a
+        // blank room that shadows a stored, not-yet-loaded one.
+        self.wait_for_rooms_loaded().await;
+
         let room = self.state_store.get_or_create_room(room_id, RoomState::Left);
 
         if room.state() != RoomState::Left {
@@ -635,6 +664,11 @@ impl BaseClient {
         }
 
         let now = if enabled!(Level::INFO) { Some(Instant::now()) } else { None };
+
+        // Wait for a progressive room load to complete before acquiring the
+        // state store lock (the load needs it to make progress), so we don't
+        // create blank rooms that shadow stored, not-yet-loaded ones.
+        self.wait_for_rooms_loaded().await;
 
         // Acquire the state store lock and hold on to it while processing
         // the sync response below.

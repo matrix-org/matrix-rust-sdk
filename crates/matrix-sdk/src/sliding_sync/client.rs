@@ -143,6 +143,8 @@ impl Client {
         response: &http::Response,
         requested_required_states: &RequestedRequiredStates,
     ) -> Result<SyncResponse> {
+        self.base_client().wait_for_rooms_loaded().await;
+
         let response = self
             .base_client()
             .process_sliding_sync(

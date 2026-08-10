@@ -93,6 +93,10 @@ impl BaseClient {
     /// * `response` - The response that we received after a successful sliding
     ///   sync.
     #[instrument(skip_all, level = "trace")]
+    /// Note: callers must await [`BaseClient::wait_for_rooms_loaded`]
+    /// *before* acquiring `state_store_guard`: processing a room that a
+    /// progressive room load hasn't reached yet would recreate it blank, and
+    /// the load needs the state store lock to make progress.
     pub async fn process_sliding_sync(
         &self,
         response: &http::Response,

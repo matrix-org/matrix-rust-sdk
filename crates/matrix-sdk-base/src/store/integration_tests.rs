@@ -1866,6 +1866,36 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_eq!(all_rooms.len(), 0);
         }
 
+        // Paginating with `get_room_infos_page` returns every room exactly
+        // once, regardless of the page size the backend honours (the default
+        // implementation returns everything in a single page).
+        {
+            changes.add_room(RoomInfo::new(room_id_2, RoomState::Joined));
+            self.save_changes(&changes).await?;
+
+            let mut paged_rooms = Vec::new();
+            let mut cursor = None;
+
+            loop {
+                let (page, next_cursor) = self.get_room_infos_page(cursor, 2).await?;
+                paged_rooms.extend(page);
+
+                match next_cursor {
+                    Some(_) => cursor = next_cursor,
+                    None => break,
+                }
+
+                assert!(paged_rooms.len() <= 3, "pagination did not terminate");
+            }
+
+            paged_rooms.sort_by(|a, b| a.room_id.cmp(&b.room_id));
+
+            assert_eq!(paged_rooms.len(), 3);
+            assert_eq!(paged_rooms[0].room_id, room_id_0);
+            assert_eq!(paged_rooms[1].room_id, room_id_1);
+            assert_eq!(paged_rooms[2].room_id, room_id_2);
+        }
+
         Ok(())
     }
 

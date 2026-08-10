@@ -974,6 +974,29 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         })
     }
 
+    /// Get a page of room info blobs with their rowids, in rowid order.
+    ///
+    /// Keyset pagination on the rowid: stable under concurrent
+    /// `INSERT OR REPLACE` (a replaced row moves to a fresh, larger rowid, so
+    /// it is re-read later rather than making the page window skip a row, as
+    /// OFFSET pagination would).
+    async fn get_room_infos_page(
+        &self,
+        after_rowid: i64,
+        limit: i64,
+    ) -> Result<Vec<(i64, Vec<u8>)>> {
+        Ok(self
+            .prepare(
+                "SELECT rowid, data FROM room_info WHERE rowid > ? ORDER BY rowid LIMIT ?",
+                move |mut stmt| {
+                    stmt.query((after_rowid, limit))?
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                        .collect()
+                },
+            )
+            .await?)
+    }
+
     async fn get_maybe_stripped_state_events_for_keys(
         &self,
         room_id: Key,
@@ -1822,6 +1845,28 @@ impl StateStore for SqliteStateStore {
             .into_iter()
             .map(|data| self.deserialize_json(&data))
             .collect()
+    }
+
+    async fn get_room_infos_page(
+        &self,
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<RoomInfo>, Option<u64>)> {
+        let rows =
+            self.read().await?.get_room_infos_page(cursor.unwrap_or(0) as i64, limit as i64).await?;
+
+        let next_cursor = if rows.len() == limit {
+            rows.last().map(|(rowid, _)| *rowid as u64)
+        } else {
+            None
+        };
+
+        let room_infos = rows
+            .into_iter()
+            .map(|(_, data)| self.deserialize_json(&data))
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok((room_infos, next_cursor))
     }
 
     async fn get_users_with_display_name(

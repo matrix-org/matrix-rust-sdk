@@ -213,6 +213,32 @@ pub trait StateStore: AsyncTraitDeps {
         room_load_settings: &RoomLoadSettings,
     ) -> Result<Vec<RoomInfo>, Self::Error>;
 
+    /// Get a page of the pure `RoomInfo`s the store knows about, so that
+    /// large accounts can be loaded progressively.
+    ///
+    /// `cursor` must be `None` for the first page; subsequent calls must pass
+    /// the cursor returned by the previous call. A returned cursor of `None`
+    /// means there are no further pages. Cursor values are opaque and
+    /// backend-defined.
+    ///
+    /// Rooms updated or removed while paginating may be returned in more than
+    /// one page or not at all, but rooms present and unchanged for the whole
+    /// pagination are returned exactly once.
+    ///
+    /// The default implementation ignores `limit` and returns everything in a
+    /// single page.
+    async fn get_room_infos_page(
+        &self,
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
+        let _ = limit;
+        Ok(match cursor {
+            None => (self.get_room_infos(&RoomLoadSettings::All).await?, None),
+            Some(_) => (Vec::new(), None),
+        })
+    }
+
     /// Get all the users that use the given display name in the given room.
     ///
     /// # Arguments
@@ -663,6 +689,14 @@ impl<T: StateStore> StateStore for &T {
         (*self).get_room_infos(room_load_settings).await
     }
 
+    async fn get_room_infos_page(
+        &self,
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
+        (*self).get_room_infos_page(cursor, limit).await
+    }
+
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -983,6 +1017,14 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         room_load_settings: &RoomLoadSettings,
     ) -> Result<Vec<RoomInfo>, Self::Error> {
         self.deref().get_room_infos(room_load_settings).await
+    }
+
+    async fn get_room_infos_page(
+        &self,
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
+        self.deref().get_room_infos_page(cursor, limit).await
     }
 
     async fn get_users_with_display_name(
@@ -1315,6 +1357,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         room_load_settings: &RoomLoadSettings,
     ) -> Result<Vec<RoomInfo>, Self::Error> {
         self.0.get_room_infos(room_load_settings).await.map_err(Into::into)
+    }
+
+    async fn get_room_infos_page(
+        &self,
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
+        self.0.get_room_infos_page(cursor, limit).await.map_err(Into::into)
     }
 
     async fn get_users_with_display_name(
@@ -1721,6 +1771,14 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         room_load_settings: &RoomLoadSettings,
     ) -> Result<Vec<RoomInfo>, Self::Error> {
         self.store.get_room_infos(room_load_settings).await
+    }
+
+    async fn get_room_infos_page(
+        &self,
+        cursor: Option<u64>,
+        limit: usize,
+    ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
+        self.store.get_room_infos_page(cursor, limit).await
     }
 
     async fn get_users_with_display_name(

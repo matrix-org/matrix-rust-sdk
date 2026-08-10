@@ -65,7 +65,8 @@ use ruma::{
     serde::Raw,
 };
 use serde::de::DeserializeOwned;
-use tokio::sync::{Mutex, RwLock, broadcast};
+use matrix_sdk_common::executor::spawn;
+use tokio::sync::{Mutex, RwLock, broadcast, watch};
 use tracing::warn;
 pub use traits::compare_thread_subscription_bump_stamps;
 
@@ -174,6 +175,10 @@ impl StoreError {
 /// A `StateStore` specific result type.
 pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 
+/// Number of rooms to load per state-store page when loading all rooms, see
+/// [`BaseStateStore::load_rooms`].
+const ROOM_LOAD_PAGE_SIZE: usize = 200;
+
 /// A state store wrapper for the SDK.
 ///
 /// This adds additional higher level store functionality on top of a
@@ -193,6 +198,13 @@ pub(crate) struct BaseStateStore {
 
     /// All rooms the store knows about.
     rooms: Arc<StdRwLock<ObservableMap<OwnedRoomId, Room>>>,
+
+    /// Flips to `true` once every room known to the state store has been
+    /// loaded into [`BaseStateStore::rooms`]. With
+    /// [`RoomLoadSettings::All`], rooms are loaded progressively in pages,
+    /// so the map can be incomplete for a short while after
+    /// [`BaseStateStore::load_rooms`] returns.
+    rooms_loaded: Arc<watch::Sender<bool>>,
 
     /// Which rooms have already logged a log line about missing room info, in
     /// the context of response processors?
@@ -221,6 +233,7 @@ impl BaseStateStore {
             room_info_notable_update_sender,
             sync_token: Default::default(),
             rooms: Arc::new(StdRwLock::new(ObservableMap::new())),
+            rooms_loaded: Arc::new(watch::Sender::new(false)),
             already_logged_missing_room: Default::default(),
         }
     }
@@ -248,11 +261,86 @@ impl BaseStateStore {
     ) -> Result<()> {
         *self.room_load_settings.write().await = room_load_settings.clone();
 
-        let room_infos = self.load_and_migrate_room_infos(room_load_settings).await?;
+        match &room_load_settings {
+            RoomLoadSettings::One(_) => {
+                let room_infos = self.inner.get_room_infos(&room_load_settings).await?;
+                let room_infos = self.migrate_room_infos(room_infos).await?;
+                self.restore_rooms(user_id, room_infos);
+                self.mark_rooms_loaded();
+            }
 
+            RoomLoadSettings::All => {
+                // Load the first page inline so rooms are available
+                // immediately, then fill the rest of the map on a background
+                // task: deserializing a large account in full takes hundreds
+                // of milliseconds, which would otherwise be paid on the
+                // caller's (i.e. the app's startup) critical path.
+                let (room_infos, mut cursor) =
+                    self.inner.get_room_infos_page(None, ROOM_LOAD_PAGE_SIZE).await?;
+                let room_infos = self.migrate_room_infos(room_infos).await?;
+                self.restore_rooms(user_id, room_infos);
+
+                if cursor.is_none() {
+                    self.mark_rooms_loaded();
+                } else {
+                    let this = self.clone();
+                    let user_id = user_id.to_owned();
+
+                    spawn(async move {
+                        while let Some(current_cursor) = cursor {
+                            match this
+                                .inner
+                                .get_room_infos_page(Some(current_cursor), ROOM_LOAD_PAGE_SIZE)
+                                .await
+                            {
+                                Ok((room_infos, next_cursor)) => {
+                                    match this.migrate_room_infos(room_infos).await {
+                                        Ok(room_infos) => this.restore_rooms(&user_id, room_infos),
+                                        Err(error) => {
+                                            warn!(
+                                                ?error,
+                                                "Failed to migrate a page of rooms while \
+                                                 loading rooms in the background"
+                                            );
+                                            break;
+                                        }
+                                    }
+
+                                    cursor = next_cursor;
+                                }
+
+                                Err(error) => {
+                                    warn!(
+                                        ?error,
+                                        "Failed to load a page of rooms in the background"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Always flip the barrier, even on errors: sync
+                        // response processing waits on it.
+                        this.mark_rooms_loaded();
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Restore rooms into [`BaseStateStore::rooms`], skipping rooms that are
+    /// already present: sync (or a user action such as a join) may have raced
+    /// ahead of a background load with fresher data than our store snapshot.
+    fn restore_rooms(&self, user_id: &UserId, room_infos: Vec<RoomInfo>) {
         let mut rooms = self.rooms.write().unwrap();
 
         for room_info in room_infos {
+            if rooms.get(&room_info.room_id).is_some() {
+                continue;
+            }
+
             let new_room = Room::restore(
                 user_id,
                 self.inner.clone(),
@@ -263,17 +351,28 @@ impl BaseStateStore {
 
             rooms.insert(new_room_id, new_room);
         }
-
-        Ok(())
     }
 
-    /// Load room infos from the [`StateStore`] and applies migrations onto
-    /// them.
-    async fn load_and_migrate_room_infos(
-        &self,
-        room_load_settings: RoomLoadSettings,
-    ) -> Result<Vec<RoomInfo>> {
-        let mut room_infos = self.inner.get_room_infos(&room_load_settings).await?;
+    /// Mark loading of the rooms as complete, see
+    /// [`BaseStateStore::wait_for_rooms_loaded`].
+    fn mark_rooms_loaded(&self) {
+        self.rooms_loaded.send_replace(true);
+    }
+
+    /// Wait until every room known to the state store has been loaded into
+    /// [`BaseStateStore::rooms`].
+    ///
+    /// Must not be called while holding the state store lock
+    /// ([`BaseStateStore::lock`]): the background room load may need that
+    /// lock (to persist migrated room infos) to make progress.
+    pub(crate) async fn wait_for_rooms_loaded(&self) {
+        let mut receiver = self.rooms_loaded.subscribe();
+        // The sender lives as long as `self`, so this cannot fail.
+        let _ = receiver.wait_for(|loaded| *loaded).await;
+    }
+
+    /// Apply migrations onto loaded [`RoomInfo`]s.
+    async fn migrate_room_infos(&self, mut room_infos: Vec<RoomInfo>) -> Result<Vec<RoomInfo>> {
         let mut migrated_room_infos = Vec::with_capacity(room_infos.len());
 
         for room_info in room_infos.iter_mut() {
@@ -320,6 +419,9 @@ impl BaseStateStore {
         let room_load_settings = other.room_load_settings.read().await.clone();
 
         self.load_rooms(&session_meta.user_id, room_load_settings).await?;
+        // Derived stores are not on the app-startup critical path: preserve
+        // the previous semantics of a fully-loaded rooms map on return.
+        self.wait_for_rooms_loaded().await;
         self.load_sync_token().await?;
         self.set_session_meta(session_meta.clone());
 

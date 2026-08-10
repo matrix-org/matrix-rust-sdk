@@ -431,6 +431,12 @@ impl SlidingSync {
             let _timer = timer!("response processor");
 
             let response_processor = {
+                // Wait for a progressive room load to complete before taking
+                // the state store lock: the load needs that lock to make
+                // progress, and processing a room it hasn't reached yet would
+                // recreate it blank.
+                self.inner.client.base_client().wait_for_rooms_loaded().await;
+
                 // Take the lock to synchronise accesses to the state store, to avoid concurrent
                 // sliding syncs overwriting each other's room infos.
                 let state_store_guard = {
