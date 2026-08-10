@@ -212,6 +212,10 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// This is the only one of them that never performs a
+    /// `.well-known/matrix/client` lookup, so it is the one to use together
+    /// with [`Self::disable_well_known_lookup`].
     pub fn homeserver_url(mut self, url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::HomeserverUrl(url.as_ref().to_owned()));
         self
@@ -226,6 +230,10 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
     pub fn server_name(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -243,6 +251,10 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
     pub fn insecure_server_name_no_tls(mut self, server_name: &ServerName) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerName {
             server: server_name.to_owned(),
@@ -261,6 +273,11 @@ impl ClientBuilder {
     /// [`Self::server_name`] [`Self::insecure_server_name_no_tls`],
     /// [`Self::server_name_or_homeserver_url`].
     /// If you set more than one, then whatever was set last will be used.
+    ///
+    /// With [`Self::disable_well_known_lookup`], the discovery step is skipped
+    /// and only the homeserver URL check is performed, so a homeserver URL
+    /// still works while a delegating server name fails with
+    /// [`ClientBuildError::InvalidServerName`].
     pub fn server_name_or_homeserver_url(mut self, server_name_or_url: impl AsRef<str>) -> Self {
         self.homeserver_cfg = Some(HomeserverConfig::ServerNameOrHomeserverUrl(
             server_name_or_url.as_ref().to_owned(),
@@ -366,14 +383,30 @@ impl ClientBuilder {
         self
     }
 
-    /// Disable all the `.well-known/matrix/client` lookups performed by the
-    /// built [`Client`].
+    /// Disable all the `.well-known/matrix/client` lookups, both the one
+    /// performed by [`Self::build`] to discover the homeserver, and all the
+    /// ones performed later by the built [`Client`].
     ///
-    /// Note that this doesn't affect the homeserver lookup performed by
-    /// [`ClientBuilder::server_name`] and
-    /// [`ClientBuilder::server_name_or_homeserver_url`], which happens before
-    /// the client is built. Use [`ClientBuilder::homeserver_url`] to avoid
-    /// that lookup too.
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, [`Client::tile_server`] returns `None`,
+    /// [`Client::well_known_rtc_transports`] returns an empty list, and
+    /// [`Client::discover_rtc_transports`] doesn't fall back to the well-known
+    /// `m.rtc_foci`, relying only on the MSC4143 discovery endpoint.
+    ///
+    /// # Interaction with the homeserver setters
+    ///
+    /// The homeserver must then be resolvable without a well-known lookup:
+    ///
+    /// * [`Self::homeserver_url`] works, and is the recommended choice.
+    /// * [`Self::server_name`] and [`Self::insecure_server_name_no_tls`] can
+    ///   *only* be resolved through the well-known, so [`Self::build`] fails
+    ///   with [`ClientBuildError::WellKnownLookupDisabled`]. Assuming that the
+    ///   server name is also the homeserver would silently talk to the wrong
+    ///   host for any deployment that delegates.
+    /// * [`Self::server_name_or_homeserver_url`] skips the well-known step and
+    ///   goes straight to checking whether the value points at a homeserver, so
+    ///   it works when given a homeserver URL, and fails with
+    ///   [`ClientBuildError::InvalidServerName`] otherwise.
     ///
     /// [`Client::discover_rtc_transports`]: crate::Client::discover_rtc_transports
     /// [`Client::tile_server`]: crate::Client::tile_server
@@ -652,7 +685,7 @@ impl ClientBuilder {
 
         #[allow(unused_variables)]
         let HomeserverDiscoveryResult { server, homeserver, supported_versions, well_known } =
-            homeserver_cfg.discover(&http_client).await?;
+            homeserver_cfg.discover(&http_client, self.well_known_lookup_disabled).await?;
 
         let sliding_sync_version = {
             let supported_versions = match supported_versions {
@@ -905,6 +938,15 @@ pub enum ClientBuildError {
     #[error("The supplied server name is invalid")]
     InvalidServerName,
 
+    /// Resolving the homeserver requires a `.well-known/matrix/client` lookup,
+    /// but those were disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
+    #[error(
+        "Homeserver discovery requires a .well-known lookup, which was disabled; \
+         use `ClientBuilder::homeserver_url` instead"
+    )]
+    WellKnownLookupDisabled,
+
     /// Error looking up the .well-known endpoint on auto-discovery
     #[error("Error looking up the .well-known endpoint on auto-discovery")]
     AutoDiscovery(Box<FromHttpResponseError<RumaApiError>>),
@@ -1077,6 +1119,60 @@ pub(crate) mod tests {
         // Then a client should be built with native support for sliding sync.
         // It's native support because it's the default. Nothing is checked here.
         assert!(client.sliding_sync_version().is_native());
+    }
+
+    #[async_test]
+    async fn test_discovery_server_name_with_well_known_lookup_disabled() {
+        // Given a new client builder configured with a server name only.
+        let builder = ClientBuilder::new()
+            .server_name(&ServerName::parse("example.org").unwrap())
+            .disable_well_known_lookup(true);
+
+        // When building it. Note that no mock server is involved: the whole point is
+        // that not a single request is made.
+        let error = builder.build().await.unwrap_err();
+
+        // Then the operation should fail, rather than assume that the server name is
+        // also the homeserver.
+        assert_matches!(error, ClientBuildError::WellKnownLookupDisabled);
+
+        // And the same goes for its insecure counterpart.
+        let error = ClientBuilder::new()
+            .insecure_server_name_no_tls(&ServerName::parse("example.org").unwrap())
+            .disable_well_known_lookup(true)
+            .build()
+            .await
+            .unwrap_err();
+
+        assert_matches!(error, ClientBuildError::WellKnownLookupDisabled);
+    }
+
+    #[async_test]
+    async fn test_discovery_server_name_or_url_with_well_known_lookup_disabled() {
+        // Given a homeserver that also serves a well-known file, which must never be
+        // requested. `MockServer` verifies the expectation when it is dropped.
+        let homeserver = make_mock_homeserver().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(make_well_known_json(&homeserver.uri())),
+            )
+            .named("well-known mock")
+            .expect(0)
+            .mount(&homeserver)
+            .await;
+
+        // When building a client with its URL.
+        let client = ClientBuilder::new()
+            .server_name_or_homeserver_url(homeserver.uri())
+            .disable_well_known_lookup(true)
+            .build()
+            .await
+            .unwrap();
+
+        // Then the homeserver should have been resolved through the
+        // `/_matrix/client/versions` check alone.
+        assert_eq!(client.homeserver().as_str().trim_end_matches('/'), homeserver.uri());
     }
 
     #[async_test]

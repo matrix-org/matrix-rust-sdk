@@ -74,6 +74,11 @@ enum HomeserverConfig {
 pub enum ClientBuildError {
     #[error("The supplied server name is invalid.")]
     InvalidServerName,
+    #[error(
+        "Homeserver discovery requires a .well-known lookup, which was disabled; \
+         use `ClientBuilder::homeserver_url` instead."
+    )]
+    WellKnownLookupDisabled,
     #[error(transparent)]
     ServerUnreachable(HttpError),
     #[error(transparent)]
@@ -99,6 +104,9 @@ impl From<MatrixClientBuildError> for ClientBuildError {
     fn from(e: MatrixClientBuildError) -> Self {
         match e {
             MatrixClientBuildError::InvalidServerName => ClientBuildError::InvalidServerName,
+            MatrixClientBuildError::WellKnownLookupDisabled => {
+                ClientBuildError::WellKnownLookupDisabled
+            }
             MatrixClientBuildError::Http(e) => ClientBuildError::ServerUnreachable(e),
             MatrixClientBuildError::AutoDiscovery(e) => match *e {
                 FromHttpResponseError::Server(e) => {
@@ -275,6 +283,14 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set the user ID the homeserver is derived from, when none of
+    /// `homeserver_url`, `server_name` or `server_name_or_homeserver_url` was
+    /// called.
+    ///
+    /// The homeserver is then discovered from the server name of that user ID,
+    /// which requires a `.well-known/matrix/client` lookup. This is therefore
+    /// incompatible with `disable_well_known_lookup`, which makes `build` fail
+    /// with `ClientBuildError::WellKnownLookupDisabled`.
     pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.username = Some(username);
@@ -374,8 +390,9 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    /// Disable all the `.well-known/matrix/client` lookups performed by the
-    /// built client.
+    /// Disable all the `.well-known/matrix/client` lookups, both the one
+    /// performed by `ClientBuilder::build` to discover the homeserver, and all
+    /// the ones performed later by the built client.
     ///
     /// Some deployments must not emit any request to the well-known URI of
     /// their domain. When disabled, `Client::tile_server` returns `None` and
@@ -383,11 +400,13 @@ impl ClientBuilder {
     /// `m.rtc_foci`, meaning `Client::is_livekit_rtc_supported` only relies on
     /// the MSC4143 discovery endpoint.
     ///
-    /// Note that this doesn't affect the homeserver discovery performed by
-    /// `ClientBuilder::server_name` and
-    /// `ClientBuilder::server_name_or_homeserver_url`, which happens before the
-    /// client is built. Use `ClientBuilder::homeserver_url` to avoid that
-    /// lookup too.
+    /// The homeserver must then be resolvable without a well-known lookup, so
+    /// `ClientBuilder::homeserver_url` must be used.
+    /// `ClientBuilder::server_name` and `ClientBuilder::username` can only
+    /// be resolved through the well-known, and `ClientBuilder::build` fails
+    /// with `ClientBuildError::WellKnownLookupDisabled` in that case.
+    /// `ClientBuilder::server_name_or_homeserver_url` skips the well-known step
+    /// and works only when given a homeserver URL.
     pub fn disable_well_known_lookup(
         self: Arc<Self>,
         disable_well_known_lookup: bool,
