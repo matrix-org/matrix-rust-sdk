@@ -182,6 +182,15 @@ pub type Result<T, E = StoreError> = std::result::Result<T, E>;
 /// [`BaseStateStore::load_rooms`].
 const ROOM_LOAD_PAGE_SIZE: usize = 200;
 
+/// Number of rooms to load inline (blocking session restore) before the rest
+/// load in the background, see [`BaseStateStore::load_rooms`].
+///
+/// Smaller than [`ROOM_LOAD_PAGE_SIZE`]: the recency-ordered inline read
+/// fetches its rows in index order - i.e. random table lookups, unlike the
+/// background fill's sequential scans - so it pays more per room, on the
+/// caller's critical path, and a room list only renders a screenful anyway.
+const INLINE_ROOM_LOAD_PAGE_SIZE: usize = 64;
+
 /// A state store wrapper for the SDK.
 ///
 /// This adds additional higher level store functionality on top of a
@@ -284,7 +293,7 @@ impl BaseStateStore {
                 // right from the very first render, long before the full load
                 // completes.
                 let (room_infos, fully_loaded) =
-                    match self.inner.get_room_infos_by_recency(ROOM_LOAD_PAGE_SIZE).await? {
+                    match self.inner.get_room_infos_by_recency(INLINE_ROOM_LOAD_PAGE_SIZE).await? {
                         // The store can't order by recency: fall back to the
                         // first page in storage order.
                         room_infos if room_infos.is_empty() => {
@@ -295,7 +304,7 @@ impl BaseStateStore {
 
                         // A short recency page is the entire account.
                         room_infos => {
-                            let fully_loaded = room_infos.len() < ROOM_LOAD_PAGE_SIZE;
+                            let fully_loaded = room_infos.len() < INLINE_ROOM_LOAD_PAGE_SIZE;
                             (room_infos, fully_loaded)
                         }
                     };
