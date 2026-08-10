@@ -3665,4 +3665,59 @@ mod tests {
         assert!(client.content_scanner().await.is_none());
         assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
     }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_media_content_reports_download_progress() {
+        use std::sync::mpsc;
+
+        use matrix_sdk::test_utils::mocks::MatrixMockServer;
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+
+        use crate::{
+            client::{ProgressWatcher, TransmissionProgress},
+            ruma::MediaSource,
+        };
+
+        struct TestProgressWatcher {
+            sender: mpsc::Sender<TransmissionProgress>,
+        }
+
+        impl ProgressWatcher for TestProgressWatcher {
+            fn transmission_progress(&self, progress: TransmissionProgress) {
+                let _ = self.sender.send(progress);
+            }
+        }
+
+        let server = MatrixMockServer::new().await;
+        let sdk_client = server
+            .client_builder()
+            .on_builder(|builder| {
+                builder.cross_process_store_config(CrossProcessLockConfig::SingleProcess)
+            })
+            .build()
+            .await;
+        let ffi_client = super::Client::new(sdk_client, None, None).await.unwrap();
+
+        let body = b"some-fake-ffi-media-bytes".to_vec();
+        server.mock_authed_media_download().ok_bytes(body.clone()).mock_once().mount().await;
+
+        let media_source = MediaSource::from_url("mxc://server.local/abcdef".to_owned()).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let watcher: Box<dyn ProgressWatcher> = Box::new(TestProgressWatcher { sender: tx });
+
+        let content = ffi_client.get_media_content(media_source, Some(watcher)).await.unwrap();
+        assert_eq!(content, body);
+
+        let mut last = rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("expected at least one progress update");
+        while let Ok(progress) = rx.try_recv() {
+            last = progress;
+        }
+
+        assert_eq!(last.current, body.len() as u64);
+        assert_eq!(last.total, body.len() as u64);
+    }
 }

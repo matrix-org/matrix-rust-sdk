@@ -901,6 +901,8 @@ impl MediaFetcher for DefaultMediaFetcher {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_matches;
+    use eyeball::SharedObservable;
+    use matrix_sdk_test::async_test;
     use ruma::{
         MxcUri,
         events::room::{EncryptedFile, MediaSource},
@@ -908,7 +910,8 @@ mod tests {
     };
     use serde_json::json;
 
-    use super::Media;
+    use super::{Media, MediaFormat, MediaRequestParameters};
+    use crate::{TransmissionProgress, test_utils::mocks::MatrixMockServer};
 
     /// Create an `EncryptedFile` with the given MXC URI.
     fn encrypted_file(mxc_uri: &MxcUri) -> Box<EncryptedFile> {
@@ -962,5 +965,71 @@ mod tests {
         // Test invalid MXC URI.
         let source = MediaSource::Plain("https://server.local/nbvcxw".into());
         assert_matches!(Media::as_local_uri(&source), None);
+    }
+
+    #[async_test]
+    async fn test_get_media_content_with_progress_reports_download_progress() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let body = b"some-fake-media-bytes-for-progress-test".to_vec();
+        server.mock_authed_media_download().ok_bytes(body.clone()).mock_once().mount().await;
+
+        let request = MediaRequestParameters {
+            source: MediaSource::Plain(owned_mxc_uri!("mxc://server.local/abcdef")),
+            format: MediaFormat::File,
+        };
+
+        let progress = SharedObservable::new(TransmissionProgress::default());
+        let _subscriber = progress.subscribe();
+
+        let content = client
+            .media()
+            .get_media_content_with_progress(&request, false, progress.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(content, body);
+        let final_progress = progress.get();
+        assert_eq!(final_progress.current, body.len());
+        assert_eq!(final_progress.total, body.len());
+    }
+
+    #[async_test]
+    async fn test_get_media_content_with_progress_cache_hit_reports_full_progress() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        let body = b"some-other-fake-media-bytes".to_vec();
+        server.mock_authed_media_download().ok_bytes(body.clone()).mock_once().mount().await;
+
+        let request = MediaRequestParameters {
+            source: MediaSource::Plain(owned_mxc_uri!("mxc://server.local/ghijkl")),
+            format: MediaFormat::File,
+        };
+
+        client
+            .media()
+            .get_media_content_with_progress(
+                &request,
+                true,
+                SharedObservable::new(Default::default()),
+            )
+            .await
+            .unwrap();
+
+        let progress = SharedObservable::new(TransmissionProgress::default());
+        let _subscriber = progress.subscribe();
+
+        let content = client
+            .media()
+            .get_media_content_with_progress(&request, true, progress.clone())
+            .await
+            .unwrap();
+
+        assert_eq!(content, body);
+        let final_progress = progress.get();
+        assert_eq!(final_progress.current, body.len());
+        assert_eq!(final_progress.total, body.len());
     }
 }
