@@ -1896,6 +1896,35 @@ impl StateStoreIntegrationTests for DynStateStore {
             assert_eq!(paged_rooms[2].room_id, room_id_2);
         }
 
+        // `get_room_infos_by_recency` returns the most recently active rooms
+        // first, when the backend supports it at all (the default
+        // implementation returns nothing).
+        {
+            let mut changes = StateChanges::default();
+
+            let mut room_info_0 = RoomInfo::new(room_id_0, RoomState::Joined);
+            room_info_0.update_recency_stamp(20.into());
+            changes.add_room(room_info_0);
+
+            let mut room_info_1 = RoomInfo::new(room_id_1, RoomState::Joined);
+            room_info_1.update_recency_stamp(30.into());
+            changes.add_room(room_info_1);
+
+            let mut room_info_2 = RoomInfo::new(room_id_2, RoomState::Joined);
+            room_info_2.update_recency_stamp(10.into());
+            changes.add_room(room_info_2);
+
+            self.save_changes(&changes).await?;
+
+            let recent_rooms = self.get_room_infos_by_recency(2).await?;
+
+            if !recent_rooms.is_empty() {
+                assert_eq!(recent_rooms.len(), 2);
+                assert_eq!(recent_rooms[0].room_id, room_id_1);
+                assert_eq!(recent_rooms[1].room_id, room_id_0);
+            }
+        }
+
         Ok(())
     }
 

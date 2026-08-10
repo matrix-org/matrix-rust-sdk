@@ -27,7 +27,10 @@ use std::{
     ops::Deref,
     result::Result as StdResult,
     str::{FromStr, Utf8Error},
-    sync::{Arc, OnceLock, RwLock as StdRwLock},
+    sync::{
+        Arc, OnceLock, RwLock as StdRwLock,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use eyeball_im::{Vector, VectorDiff};
@@ -270,54 +273,44 @@ impl BaseStateStore {
             }
 
             RoomLoadSettings::All => {
-                // Load the first page inline so rooms are available
-                // immediately, then fill the rest of the map on a background
-                // task: deserializing a large account in full takes hundreds
-                // of milliseconds, which would otherwise be paid on the
-                // caller's (i.e. the app's startup) critical path.
-                let (room_infos, mut cursor) =
-                    self.inner.get_room_infos_page(None, ROOM_LOAD_PAGE_SIZE).await?;
+                // Load one page inline so rooms are available immediately,
+                // then fill the rest of the map on background tasks:
+                // deserializing a large account in full takes hundreds of
+                // milliseconds, which would otherwise be paid on the caller's
+                // (i.e. the app's startup) critical path.
+                //
+                // Prefer a page of the most recently active rooms: it is what
+                // a room list shows first, so the visible part of the list is
+                // right from the very first render, long before the full load
+                // completes.
+                let (room_infos, fully_loaded) =
+                    match self.inner.get_room_infos_by_recency(ROOM_LOAD_PAGE_SIZE).await? {
+                        // The store can't order by recency: fall back to the
+                        // first page in storage order.
+                        room_infos if room_infos.is_empty() => {
+                            let (room_infos, cursor) =
+                                self.inner.get_room_infos_page(None, ROOM_LOAD_PAGE_SIZE).await?;
+                            (room_infos, cursor.is_none())
+                        }
+
+                        // A short recency page is the entire account.
+                        room_infos => {
+                            let fully_loaded = room_infos.len() < ROOM_LOAD_PAGE_SIZE;
+                            (room_infos, fully_loaded)
+                        }
+                    };
+
                 let room_infos = self.migrate_room_infos(room_infos).await?;
                 self.restore_rooms(user_id, room_infos);
 
-                if cursor.is_none() {
+                if fully_loaded {
                     self.mark_rooms_loaded();
                 } else {
                     let this = self.clone();
                     let user_id = user_id.to_owned();
 
                     spawn(async move {
-                        while let Some(current_cursor) = cursor {
-                            match this
-                                .inner
-                                .get_room_infos_page(Some(current_cursor), ROOM_LOAD_PAGE_SIZE)
-                                .await
-                            {
-                                Ok((room_infos, next_cursor)) => {
-                                    match this.migrate_room_infos(room_infos).await {
-                                        Ok(room_infos) => this.restore_rooms(&user_id, room_infos),
-                                        Err(error) => {
-                                            warn!(
-                                                ?error,
-                                                "Failed to migrate a page of rooms while \
-                                                 loading rooms in the background"
-                                            );
-                                            break;
-                                        }
-                                    }
-
-                                    cursor = next_cursor;
-                                }
-
-                                Err(error) => {
-                                    warn!(
-                                        ?error,
-                                        "Failed to load a page of rooms in the background"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
+                        this.load_remaining_rooms(&user_id).await;
 
                         // Always flip the barrier, even on errors: sync
                         // response processing waits on it.
@@ -328,6 +321,108 @@ impl BaseStateStore {
         }
 
         Ok(())
+    }
+
+    /// Load every page of rooms into [`BaseStateStore::rooms`]. Rooms that
+    /// are already present - e.g. from the recency page loaded inline - are
+    /// skipped as they are met.
+    ///
+    /// When the store can enumerate the page cursors upfront, the pages are
+    /// fetched on a small pool of workers: most of a page read is
+    /// CPU (store-cipher decrypt and deserialization), and both the room
+    /// list's completeness and sync response processing wait on the whole
+    /// load, so wall-clock time matters more here than leaving cores idle.
+    async fn load_remaining_rooms(&self, user_id: &UserId) {
+        let cursors = match self.inner.get_room_infos_page_cursors(ROOM_LOAD_PAGE_SIZE).await {
+            Ok(cursors) => cursors,
+            Err(error) => {
+                warn!(?error, "Failed to enumerate room page cursors");
+                Vec::new()
+            }
+        };
+
+        if cursors.is_empty() {
+            // The store can't enumerate cursors: chain each page on the
+            // previous one's returned cursor.
+            let mut cursor = Some(None);
+
+            while let Some(current_cursor) = cursor {
+                match self.load_room_page(user_id, current_cursor).await {
+                    Ok(next_cursor) => cursor = next_cursor.map(Some),
+                    Err(()) => break,
+                }
+            }
+
+            return;
+        }
+
+        // Each cursor is the end of the page before it, so `None` fetches the
+        // first page and each enumerated cursor the page after it. Rooms
+        // replaced between the cursor enumeration and the page reads could be
+        // missed here, but nothing in this process writes rooms while the
+        // rooms-loaded barrier is up, and a miss from another process (the
+        // NSE) heals on the room's next sync.
+        let cursors =
+            Arc::new(std::iter::once(None).chain(cursors.into_iter().map(Some)).collect::<Vec<_>>());
+        let next_cursor_index = Arc::new(AtomicUsize::new(0));
+
+        let num_workers = std::thread::available_parallelism()
+            .map_or(1, |cores| cores.get().saturating_sub(2))
+            .clamp(1, 4)
+            .min(cursors.len());
+
+        let workers = (0..num_workers)
+            .map(|_| {
+                let this = self.clone();
+                let user_id = user_id.to_owned();
+                let cursors = cursors.clone();
+                let next_cursor_index = next_cursor_index.clone();
+
+                spawn(async move {
+                    loop {
+                        let index = next_cursor_index.fetch_add(1, Ordering::Relaxed);
+                        let Some(cursor) = cursors.get(index) else { break };
+
+                        if this.load_room_page(&user_id, *cursor).await.is_err() {
+                            break;
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for worker in workers {
+            let _ = worker.await;
+        }
+    }
+
+    /// Load a single page of rooms into [`BaseStateStore::rooms`], returning
+    /// the next page's cursor. Failures are logged, not returned: callers
+    /// only need to know to stop paginating.
+    async fn load_room_page(
+        &self,
+        user_id: &UserId,
+        cursor: Option<u64>,
+    ) -> StdResult<Option<u64>, ()> {
+        match self.inner.get_room_infos_page(cursor, ROOM_LOAD_PAGE_SIZE).await {
+            Ok((room_infos, next_cursor)) => match self.migrate_room_infos(room_infos).await {
+                Ok(room_infos) => {
+                    self.restore_rooms(user_id, room_infos);
+                    Ok(next_cursor)
+                }
+                Err(error) => {
+                    warn!(
+                        ?error,
+                        "Failed to migrate a page of rooms while loading rooms in the background"
+                    );
+                    Err(())
+                }
+            },
+            Err(error) => {
+                warn!(?error, "Failed to load a page of rooms in the background");
+                Err(())
+            }
+        }
     }
 
     /// Restore rooms into [`BaseStateStore::rooms`], skipping rooms that are

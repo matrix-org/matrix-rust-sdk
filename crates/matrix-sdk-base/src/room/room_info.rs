@@ -1240,6 +1240,12 @@ impl RoomInfo {
         self.recency_stamp = Some(stamp);
     }
 
+    /// The recency stamp of this room, i.e. the server's view of how recently
+    /// the room was meaningfully active (the `bump_stamp` of MSC4186).
+    pub fn recency_stamp(&self) -> Option<RoomRecencyStamp> {
+        self.recency_stamp
+    }
+
     /// Returns the current pinned event ids for this room.
     pub fn pinned_event_ids(&self) -> Option<Vec<OwnedEventId>> {
         self.base_info.pinned_events.clone().and_then(|c| c.pinned)

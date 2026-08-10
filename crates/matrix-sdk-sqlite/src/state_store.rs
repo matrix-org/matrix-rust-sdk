@@ -11,7 +11,8 @@ use async_trait::async_trait;
 use deadpool::managed::PoolConfig;
 use matrix_sdk_base::{
     MinimalRoomMemberEvent, ROOM_VERSION_FALLBACK, ROOM_VERSION_RULES_FALLBACK, RoomInfo,
-    RoomMemberships, RoomState, StateChanges, StateStore, StateStoreDataKey, StateStoreDataValue,
+    RoomMemberships, RoomRecencyStamp, RoomState, StateChanges, StateStore, StateStoreDataKey,
+    StateStoreDataValue,
     deserialized_responses::{DisplayName, RawAnySyncOrStrippedState, SyncOrStrippedState},
     store::{
         ChildTransactionId, DependentQueuedRequest, DependentQueuedRequestKind, QueueWedgeError,
@@ -510,6 +511,46 @@ impl SqliteStateStore {
             return Ok(());
         }
 
+        if from < 17 {
+            debug!("Upgrading database to version 17");
+            let this = self.clone();
+            conn.with_transaction(move |txn| {
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/015_room_info_recency.sql"
+                ))?;
+
+                // Backfill the new column from the recency stamp inside the
+                // encrypted room info blobs, so the ordering is right from
+                // the first load. A room that fails to deserialize keeps the
+                // default of 0 rather than failing the migration: the column
+                // is only an ordering hint.
+                for row in txn
+                    .prepare("SELECT room_id, data FROM room_info")?
+                    .query_map((), |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)))?
+                {
+                    let (room_id, data) = row?;
+
+                    let Some(recency) = this
+                        .deserialize_json::<RoomInfo>(&data)
+                        .ok()
+                        .and_then(|room_info| room_info.recency_stamp())
+                    else {
+                        continue;
+                    };
+
+                    txn.prepare_cached("UPDATE room_info SET recency = ? WHERE room_id = ?")?
+                        .execute((recency_stamp_to_column(recency), room_id))?;
+                }
+
+                txn.set_db_version(17)
+            })
+            .await?;
+        }
+
+        if to == Some(17) {
+            return Ok(());
+        }
+
         Ok(())
     }
 
@@ -622,6 +663,11 @@ impl EncryptableStore for SqliteStateStore {
     }
 }
 
+/// Convert a room's recency stamp to its `room_info.recency` column value.
+fn recency_stamp_to_column(stamp: RoomRecencyStamp) -> i64 {
+    i64::try_from(u64::from(stamp)).unwrap_or(i64::MAX)
+}
+
 /// Initialize the database.
 async fn init(conn: &SqliteAsyncConn) -> Result<()> {
     // First turn on WAL mode, this can't be done in the transaction, it fails with
@@ -649,7 +695,13 @@ trait SqliteConnectionStateStoreExt {
     ) -> rusqlite::Result<()>;
     fn remove_room_account_data(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 
-    fn set_room_info(&self, room_id: &[u8], state: &[u8], data: &[u8]) -> rusqlite::Result<()>;
+    fn set_room_info(
+        &self,
+        room_id: &[u8],
+        state: &[u8],
+        recency: i64,
+        data: &[u8],
+    ) -> rusqlite::Result<()>;
     fn get_room_info(&self, room_id: &[u8]) -> rusqlite::Result<Option<Vec<u8>>>;
     fn remove_room_info(&self, room_id: &[u8]) -> rusqlite::Result<()>;
 
@@ -743,12 +795,18 @@ impl SqliteConnectionStateStoreExt for rusqlite::Connection {
         Ok(())
     }
 
-    fn set_room_info(&self, room_id: &[u8], state: &[u8], data: &[u8]) -> rusqlite::Result<()> {
+    fn set_room_info(
+        &self,
+        room_id: &[u8],
+        state: &[u8],
+        recency: i64,
+        data: &[u8],
+    ) -> rusqlite::Result<()> {
         self.prepare_cached(
-            "INSERT OR REPLACE INTO room_info (room_id, state, data)
-             VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO room_info (room_id, state, recency, data)
+             VALUES (?, ?, ?, ?)",
         )?
-        .execute((room_id, state, data))?;
+        .execute((room_id, state, recency, data))?;
         Ok(())
     }
 
@@ -972,6 +1030,19 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
                 .await?
             }
         })
+    }
+
+    /// Get the room info blobs of the `limit` most recent rooms, by their
+    /// `recency` column, most recent first.
+    async fn get_room_infos_by_recency(&self, limit: i64) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .prepare(
+                "SELECT data FROM room_info ORDER BY recency DESC, rowid DESC LIMIT ?",
+                move |mut stmt| {
+                    stmt.query((limit,))?.mapped(|row| row.get(0)).collect()
+                },
+            )
+            .await?)
     }
 
     /// Get a page of room info blobs with their rowids, in rowid order.
@@ -1384,8 +1455,10 @@ impl StateStore for SqliteStateStore {
                     let room_id = this.encode_key(keys::ROOM_INFO, room_id);
                     let state = this
                         .encode_key(keys::ROOM_INFO, serde_json::to_string(&room_info.state())?);
+                    let recency =
+                        room_info.recency_stamp().map_or(0, recency_stamp_to_column);
                     let data = this.serialize_json(&room_info)?;
-                    txn.set_room_info(&room_id, &state, &data)?;
+                    txn.set_room_info(&room_id, &state, recency, &data)?;
                 }
 
                 for (room_id, user_ids) in profiles_to_delete {
@@ -1847,6 +1920,16 @@ impl StateStore for SqliteStateStore {
             .collect()
     }
 
+    async fn get_room_infos_by_recency(&self, limit: usize) -> Result<Vec<RoomInfo>> {
+        self.read()
+            .await?
+            .get_room_infos_by_recency(limit as i64)
+            .await?
+            .into_iter()
+            .map(|data| self.deserialize_json(&data))
+            .collect()
+    }
+
     async fn get_room_infos_page(
         &self,
         cursor: Option<u64>,
@@ -1867,6 +1950,29 @@ impl StateStore for SqliteStateStore {
             .collect::<Result<Vec<_>>>()?;
 
         Ok((room_infos, next_cursor))
+    }
+
+    async fn get_room_infos_page_cursors(&self, limit: usize) -> Result<Vec<u64>> {
+        // Scanning only rowids skips the expensive part of a page read
+        // (decrypting and deserializing the blobs), which is the point: it
+        // lets callers fetch the pages themselves concurrently.
+        let rowids = self
+            .read()
+            .await?
+            .prepare("SELECT rowid FROM room_info ORDER BY rowid", move |mut stmt| {
+                stmt.query(())?
+                    .mapped(|row| row.get::<_, i64>(0))
+                    .collect::<rusqlite::Result<Vec<i64>>>()
+            })
+            .await?;
+
+        // The cursor of each page is the last rowid of the page before it, so
+        // the cursors are the last rowid of every page except the final one.
+        let mut cursors =
+            rowids.chunks(limit.max(1)).map(|page| *page.last().unwrap() as u64).collect::<Vec<_>>();
+        cursors.pop();
+
+        Ok(cursors)
     }
 
     async fn get_users_with_display_name(

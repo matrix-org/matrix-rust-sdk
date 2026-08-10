@@ -239,6 +239,33 @@ pub trait StateStore: AsyncTraitDeps {
         })
     }
 
+    /// Get the [`Self::get_room_infos_page`] cursor of every page after the
+    /// first, so that pages can be fetched concurrently instead of chaining
+    /// each call on the previous one's returned cursor.
+    ///
+    /// Backends that can't enumerate cursors cheaply return an empty list,
+    /// meaning callers must paginate sequentially.
+    async fn get_room_infos_page_cursors(&self, limit: usize) -> Result<Vec<u64>, Self::Error> {
+        let _ = limit;
+        Ok(Vec::new())
+    }
+
+    /// Get the pure `RoomInfo`s of the `limit` most recently active rooms,
+    /// most recent first, by their recency stamps
+    /// ([`RoomInfo::recency_stamp`]).
+    ///
+    /// This exists so that a progressive room load
+    /// ([`Self::get_room_infos_page`]) can make the rooms a room list shows
+    /// first available first. Backends that can't order by recency cheaply
+    /// return an empty list.
+    async fn get_room_infos_by_recency(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RoomInfo>, Self::Error> {
+        let _ = limit;
+        Ok(Vec::new())
+    }
+
     /// Get all the users that use the given display name in the given room.
     ///
     /// # Arguments
@@ -697,6 +724,17 @@ impl<T: StateStore> StateStore for &T {
         (*self).get_room_infos_page(cursor, limit).await
     }
 
+    async fn get_room_infos_page_cursors(&self, limit: usize) -> Result<Vec<u64>, Self::Error> {
+        (*self).get_room_infos_page_cursors(limit).await
+    }
+
+    async fn get_room_infos_by_recency(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RoomInfo>, Self::Error> {
+        (*self).get_room_infos_by_recency(limit).await
+    }
+
     async fn get_users_with_display_name(
         &self,
         room_id: &RoomId,
@@ -1025,6 +1063,17 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         limit: usize,
     ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
         self.deref().get_room_infos_page(cursor, limit).await
+    }
+
+    async fn get_room_infos_page_cursors(&self, limit: usize) -> Result<Vec<u64>, Self::Error> {
+        self.deref().get_room_infos_page_cursors(limit).await
+    }
+
+    async fn get_room_infos_by_recency(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RoomInfo>, Self::Error> {
+        self.deref().get_room_infos_by_recency(limit).await
     }
 
     async fn get_users_with_display_name(
@@ -1365,6 +1414,17 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         limit: usize,
     ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
         self.0.get_room_infos_page(cursor, limit).await.map_err(Into::into)
+    }
+
+    async fn get_room_infos_page_cursors(&self, limit: usize) -> Result<Vec<u64>, Self::Error> {
+        self.0.get_room_infos_page_cursors(limit).await.map_err(Into::into)
+    }
+
+    async fn get_room_infos_by_recency(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RoomInfo>, Self::Error> {
+        self.0.get_room_infos_by_recency(limit).await.map_err(Into::into)
     }
 
     async fn get_users_with_display_name(
@@ -1779,6 +1839,17 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         limit: usize,
     ) -> Result<(Vec<RoomInfo>, Option<u64>), Self::Error> {
         self.store.get_room_infos_page(cursor, limit).await
+    }
+
+    async fn get_room_infos_page_cursors(&self, limit: usize) -> Result<Vec<u64>, Self::Error> {
+        self.store.get_room_infos_page_cursors(limit).await
+    }
+
+    async fn get_room_infos_by_recency(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RoomInfo>, Self::Error> {
+        self.store.get_room_infos_by_recency(limit).await
     }
 
     async fn get_users_with_display_name(
