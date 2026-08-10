@@ -23,6 +23,7 @@ use backon::{ExponentialBuilder, Retryable};
 use bytes::Bytes;
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
+use futures_util::{Stream, TryStreamExt};
 use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
@@ -256,12 +257,10 @@ pub(super) async fn execute_request(
             tokio::task::yield_now().await;
 
             let mut req = reqwest::Request::try_from(request.map(|body| {
-                let chunks = stream::iter(BytesChunks::new(body, 8192).map(
-                    move |chunk| -> Result<_, Infallible> {
-                        send_progress.update(|p| p.current += chunk.len());
-                        Ok(chunk)
-                    },
-                ));
+                let chunks = track_chunk_progress(
+                    stream::iter(BytesChunks::new(body, 8192).map(Ok::<_, Infallible>)),
+                    send_progress,
+                );
                 reqwest::Body::wrap_stream(chunks)
             }))?;
 
@@ -281,6 +280,16 @@ pub(super) async fn execute_request(
 
     let response = client.execute(request).await?;
     Ok(response_to_http_response(response).await?)
+}
+
+fn track_chunk_progress<S, E>(
+    stream: S,
+    progress: SharedObservable<TransmissionProgress>,
+) -> impl Stream<Item = Result<Bytes, E>>
+where
+    S: Stream<Item = Result<Bytes, E>>,
+{
+    stream.inspect_ok(move |chunk| progress.update(|p| p.current += chunk.len()))
 }
 
 struct BytesChunks {
