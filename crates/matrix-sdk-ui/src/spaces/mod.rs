@@ -27,7 +27,11 @@
 //! - `SpaceRoomList`: A component for retrieving a space's children rooms and
 //!   their details.
 
-use std::{cmp::Ordering, collections::HashMap, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use eyeball_im::{ObservableVector, VectorSubscriberBatchedStream};
 use futures_util::{future::join_all, pin_mut};
@@ -499,6 +503,8 @@ impl SpaceService {
 
     async fn build_space_state(client: &Client) -> (Vec<SpaceRoom>, Vec<SpaceFilter>, SpaceGraph) {
         let joined_spaces = client.joined_space_rooms();
+        let joined_space_ids =
+            joined_spaces.iter().map(|space| space.room_id()).collect::<HashSet<_>>();
 
         // Build a graph to hold the parent-child relations
         let mut graph = SpaceGraph::new();
@@ -523,7 +529,9 @@ impl SpaceService {
                         trace!(room_id = ?space.room_id(), "Could not deserialize m.space.parent: {e}");
                         None
                     }
-                }).for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
+                })
+                .filter(|parent| joined_space_ids.contains(&**parent))
+                .for_each(|parent| graph.add_edge(parent, space.room_id().to_owned()));
             } else {
                 error!(room_id = ?space.room_id(), "Could not get m.space.parent events");
             }
@@ -945,6 +953,60 @@ mod tests {
             space_service.top_level_joined_spaces().await,
             vec![SpaceRoom::new_from_known(&client.get_room(first_space_id).unwrap(), 0).await]
         );
+    }
+
+    #[async_test]
+    async fn test_joined_child_space_becomes_top_level_after_leaving_parent() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_room_state_encryption().plain().mount().await;
+
+        let parent_space_id = room_id!("!parent_space:example.org");
+        let child_space_id = room_id!("!child_space:example.org");
+        let child_room_id = room_id!("!child_room:example.org");
+
+        add_space_rooms(
+            vec![
+                MockSpaceRoomParameters {
+                    room_id: child_space_id,
+                    order: None,
+                    parents: vec![parent_space_id],
+                    children: vec![child_room_id],
+                    power_level: None,
+                },
+                MockSpaceRoomParameters {
+                    room_id: parent_space_id,
+                    order: None,
+                    parents: vec![],
+                    children: vec![child_space_id],
+                    power_level: None,
+                },
+            ],
+            &client,
+            &server,
+            &EventFactory::new(),
+            client.user_id().unwrap(),
+        )
+        .await;
+
+        let space_service = SpaceService::new(client.clone()).await;
+
+        let top_level_spaces = space_service.top_level_joined_spaces().await;
+        assert_eq!(top_level_spaces.len(), 1);
+        assert_eq!(top_level_spaces[0].room_id, parent_space_id);
+
+        server.sync_room(&client, LeftRoomBuilder::new(parent_space_id)).await;
+
+        let top_level_spaces = space_service.top_level_joined_spaces().await;
+        assert_eq!(top_level_spaces.len(), 1);
+        assert_eq!(top_level_spaces[0].room_id, child_space_id);
+        assert_eq!(top_level_spaces[0].children_count, 1);
+
+        let filters = space_service.space_filters().await;
+        assert_eq!(filters.len(), 1);
+        assert_eq!(filters[0].space_room.room_id, child_space_id);
+        assert_eq!(filters[0].descendants, vec![child_room_id]);
     }
 
     #[async_test]
