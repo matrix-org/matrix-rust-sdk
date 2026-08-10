@@ -650,7 +650,12 @@ impl Client {
         use ruma::api::federation::discovery::get_server_version;
 
         let res = self
-            .send_inner(get_server_version::v1::Request::new(), request_config, Default::default())
+            .send_inner(
+                get_server_version::v1::Request::new(),
+                request_config,
+                Default::default(),
+                Default::default(),
+            )
             .await?;
 
         // Extract server info, using defaults if fields are missing.
@@ -2080,6 +2085,7 @@ impl Client {
             request,
             config: None,
             send_progress: Default::default(),
+            recv_progress: Default::default(),
         }
     }
 
@@ -2088,6 +2094,7 @@ impl Client {
         request: Request,
         config: Option<RequestConfig>,
         send_progress: SharedObservable<TransmissionProgress>,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<Request::IncomingResponse>
     where
         Request: OutgoingRequest + Debug,
@@ -2113,6 +2120,7 @@ impl Client {
                 access_token.as_deref(),
                 path_builder_input,
                 send_progress,
+                recv_progress,
             )
             .await;
 
@@ -2180,6 +2188,7 @@ impl Client {
                     Some(&access_token),
                     (),
                     Default::default(),
+                    Default::default(),
                 )
                 .await;
 
@@ -2204,6 +2213,7 @@ impl Client {
                 homeserver.clone(),
                 None,
                 (),
+                Default::default(),
                 Default::default(),
             )
             .await
@@ -2267,6 +2277,7 @@ impl Client {
                 url,
                 None,
                 (),
+                Default::default(),
                 Default::default(),
             )
             .await;
@@ -5264,6 +5275,7 @@ pub(crate) mod tests {
             request: upload_request,
             config: None,
             send_progress: SharedObservable::new(TransmissionProgress::default()),
+            recv_progress: SharedObservable::new(TransmissionProgress::default()),
         };
         let media_request = SendMediaUploadRequest::new(request);
 
