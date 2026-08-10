@@ -27,6 +27,7 @@ use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
 use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
+use matrix_sdk_common::timer;
 use tracing::{error, trace, warn};
 use zeroize::Zeroize;
 
@@ -224,6 +225,7 @@ pub(crate) trait SqliteAsyncConnExt {
     ///
     /// [WAL checkpoint]: https://sqlite.org/c3ref/wal_checkpoint.html
     async fn wal_checkpoint(&self) {
+        let _timer = timer!("wal_checkpoint");
         match self.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").await {
             Ok(_) => trace!("WAL checkpoint completed"),
             Err(error) => error!(?error, "WAL checkpoint error"),

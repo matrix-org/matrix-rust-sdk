@@ -34,6 +34,7 @@ deadpool-sync = { version = "0.2", default-features = false }
 hkdf.workspace = true
 itertools.workspace = true
 matrix-sdk-base = { workspace = true, optional = true }
+matrix-sdk-common.workspace = true
 matrix-sdk-crypto = { workspace = true, optional = true }
 matrix-sdk-store-encryption.workspace = true
 num_cpus = { version = "1.17.0", default-features = false }

@@ -43,6 +43,7 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
+use matrix_sdk_common::timer;
 use tracing::{debug, instrument, warn};
 
 use crate::{
@@ -120,7 +121,10 @@ impl SqliteStateStore {
     }
 
     /// Open the SQLite-based state store with the config open config.
+    #[instrument(skip(config), fields(path = ?config.path))]
     pub async fn open_with_config(config: &SqliteStoreConfig) -> Result<Self, OpenStoreError> {
+        let _timer = timer!("open_with_config");
+
         fs::create_dir_all(&config.path).await.map_err(OpenStoreError::CreateDir)?;
 
         let pool = config.build_pool_of_connections(DATABASE_NAME)?;
