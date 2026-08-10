@@ -231,7 +231,7 @@ impl SqliteEventCacheStore {
 
         run_migrations(&conn, version).await?;
 
-        conn.wal_checkpoint().await;
+        connection::spawn_deferred_passive_wal_checkpoint(&pool, "event cache store");
 
         let cipher = match secret {
             Some(s) => Some(conn.get_or_create_store_cipher(s).await?),

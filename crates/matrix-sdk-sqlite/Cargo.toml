@@ -46,7 +46,7 @@ serde_json.workspace = true
 serde_path_to_error = { version = "0.1.20", default-features = false }
 sha2.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs"] }
+tokio = { workspace = true, features = ["fs", "time"] }
 tracing.workspace = true
 vodozemac.workspace = true
 zeroize.workspace = true

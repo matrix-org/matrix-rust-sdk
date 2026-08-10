@@ -69,8 +69,11 @@ use std::{convert::Infallible, path::PathBuf, sync::Arc, time::Duration};
 pub use deadpool::managed::reexports::*;
 use deadpool::managed::{self, Metrics, PoolConfig, RecycleError};
 use deadpool_sync::SyncWrapper;
-use tokio::sync::Mutex;
-use tracing::{info, warn};
+use matrix_sdk_common::executor::spawn;
+use tokio::{sync::Mutex, time::sleep};
+use tracing::{debug, info, warn};
+
+use crate::utils::SqliteAsyncConnExt;
 
 /// The default runtime used by `matrix-sdk-sqlite` for `deadpool`.
 pub const RUNTIME: Runtime = Runtime::Tokio1;
@@ -123,6 +126,36 @@ impl managed::Manager for Manager {
 
         Ok(())
     }
+}
+
+/// How long to wait after a store open before passively checkpointing the
+/// WAL, to keep the backfill I/O away from launch-critical reads.
+const DEFERRED_WAL_CHECKPOINT_DELAY: Duration = Duration::from_secs(10);
+
+/// Backfill the WAL into the database, off the caller's critical path.
+///
+/// The WAL can be large at open time: automatic checkpoints starve while
+/// concurrent readers hold snapshots, and a notification process may have
+/// appended to it for a long time with no foreground app around to
+/// checkpoint. A synchronous TRUNCATE checkpoint here used to cost a
+/// WAL-proportional stall on the app-launch paint path. Instead, checkpoint
+/// PASSIVE-ly on a pool connection after a delay: it blocks neither readers
+/// nor writers (the dedicated write connection stays free), and once a pass
+/// has backfilled everything the next write resets the WAL, letting
+/// `journal_size_limit` bound the file.
+pub(crate) fn spawn_deferred_passive_wal_checkpoint(pool: &Pool, label: &'static str) {
+    let pool = pool.clone();
+    spawn(async move {
+        sleep(DEFERRED_WAL_CHECKPOINT_DELAY).await;
+        match pool.get().await {
+            Ok(conn) => conn.wal_checkpoint_passive().await,
+            // The store may have been closed (paused) in the meantime; its
+            // close path runs a checkpoint of its own.
+            Err(error) => {
+                debug!(?error, "Skipping the deferred WAL checkpoint of the {label}")
+            }
+        }
+    });
 }
 
 /// Gracefully close the store-owned write connection.
@@ -229,7 +262,7 @@ pub(crate) async fn close_connections(connections: &Mutex<Option<SqliteConnectio
             );
             break;
         }
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(50)).await;
     }
 }
 

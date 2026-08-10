@@ -193,11 +193,11 @@ impl SqliteCryptoStore {
 
         let version = initialize_store(&conn, version).await?;
 
+        connection::spawn_deferred_passive_wal_checkpoint(&pool, "crypto store");
+
         let store = Self::create_raw(secret, pool, conn, pool_config, runtime_config).await?;
 
         run_migrations(&store, version, None).await?;
-
-        store.write().await?.wal_checkpoint().await;
 
         Ok(store)
     }

@@ -155,7 +155,7 @@ impl SqliteMediaStore {
         let version = conn.db_version().await?;
         run_migrations(&conn, version).await?;
 
-        conn.wal_checkpoint().await;
+        connection::spawn_deferred_passive_wal_checkpoint(&pool, "media store");
 
         let store_cipher = match &secret {
             Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s.clone()).await?)),

@@ -232,6 +232,20 @@ pub(crate) trait SqliteAsyncConnExt {
         }
     }
 
+    /// Adds a passive [WAL checkpoint]: backfills as much of the WAL into the
+    /// database as possible without blocking readers or writers, and without
+    /// resetting the WAL file. Once some pass has backfilled everything, the
+    /// next writer resets the WAL and `journal_size_limit` bounds the file.
+    ///
+    /// [WAL checkpoint]: https://sqlite.org/c3ref/wal_checkpoint.html
+    async fn wal_checkpoint_passive(&self) {
+        let _timer = timer!("wal_checkpoint_passive");
+        match self.execute_batch("PRAGMA wal_checkpoint(PASSIVE);").await {
+            Ok(_) => trace!("passive WAL checkpoint completed"),
+            Err(error) => error!(?error, "passive WAL checkpoint error"),
+        }
+    }
+
     async fn get_db_size(&self) -> Result<usize> {
         let page_size =
             self.query_row("PRAGMA page_size;", (), |row| row.get::<_, usize>(0)).await?;

@@ -160,6 +160,8 @@ impl SqliteStateStore {
             Some(s) => Some(Arc::new(conn.get_or_create_store_cipher(s).await?)),
             None => None,
         };
+        connection::spawn_deferred_passive_wal_checkpoint(&pool, "state store");
+
         let this = Self {
             store_cipher,
             connections: Arc::new(Mutex::new(Some(SqliteConnections {
@@ -171,8 +173,6 @@ impl SqliteStateStore {
             runtime_config,
         };
         this.run_migrations(version, None).await?;
-
-        this.read().await?.wal_checkpoint().await;
 
         Ok(this)
     }
