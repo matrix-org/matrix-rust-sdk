@@ -741,8 +741,12 @@ impl EventCacheInner {
             };
 
             if let Err(err) = caches.handle_left_room_update(left_room_update).await {
-                // Non-fatal error, try to continue to the next room.
+                // Non-fatal error, try to continue to the next room. The in-memory
+                // linked chunk may be divergent from the store now, though: force a
+                // reload before the next mutation, or deduplication (which trusts the
+                // store) will misclassify re-deliveries and duplicate events.
                 error!("handling left room update: {err}");
+                caches.room.mark_poisoned();
             }
         }
 
@@ -756,8 +760,12 @@ impl EventCacheInner {
             };
 
             if let Err(err) = caches.handle_joined_room_update(joined_room_update).await {
-                // Non-fatal error, try to continue to the next room.
+                // Non-fatal error, try to continue to the next room. The in-memory
+                // linked chunk may be divergent from the store now, though: force a
+                // reload before the next mutation, or deduplication (which trusts the
+                // store) will misclassify re-deliveries and duplicate events.
                 error!(%room_id, "handling joined room update: {err}");
+                caches.room.mark_poisoned();
             }
         }
 

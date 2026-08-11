@@ -16,7 +16,14 @@ pub mod pagination;
 mod state;
 mod updates;
 
-use std::{collections::BTreeMap, fmt, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 use eyeball::SharedObservable;
 use matrix_sdk_base::{
@@ -43,7 +50,9 @@ pub use self::{
 use super::{
     super::{
         EventsOrigin, Result,
-        states::{CacheStateLock, StateLockWriteGuard, selectors::RoomStateSelector},
+        states::{
+            CacheStateLock, ReloadPreprocessing, StateLockWriteGuard, selectors::RoomStateSelector,
+        },
     },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
@@ -87,6 +96,7 @@ impl RoomEventCache {
                 pagination_batch_token_notifier: Notify::new(),
                 auto_shrink_sender,
                 shared_pagination_status,
+                poisoned: AtomicBool::new(false),
             }),
         }
     }
@@ -252,6 +262,8 @@ impl RoomEventCache {
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.room_id()))]
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
+        self.heal_if_poisoned().await?;
+
         self.inner
             .handle_timeline(
                 updates.timeline,
@@ -263,6 +275,56 @@ impl RoomEventCache {
         self.inner.handle_account_data(updates.account_data);
 
         Ok(())
+    }
+
+    /// Mark this room's in-memory linked chunk as potentially divergent from
+    /// the store, after a failure while handling an update.
+    ///
+    /// See the doc comment of [`RoomEventCacheInner::poisoned`].
+    pub(in super::super) fn mark_poisoned(&self) {
+        self.inner.poisoned.store(true, Ordering::SeqCst);
+    }
+
+    /// If the room was marked as poisoned, reload the in-memory linked chunk
+    /// from the store (the source of truth for deduplication) before any
+    /// further mutation.
+    ///
+    /// See the doc comment of [`RoomEventCacheInner::poisoned`].
+    async fn heal_if_poisoned(&self) -> Result<()> {
+        if !self.inner.poisoned.swap(false, Ordering::SeqCst) {
+            return Ok(());
+        }
+
+        warn!(
+            room_id = %self.inner.room_id,
+            "Reloading the linked chunk from the store after an earlier update failure"
+        );
+
+        let reload_result =
+            self.inner.state.write().await?.reload(ReloadPreprocessing::None).await;
+
+        match reload_result {
+            Ok(diffs) => {
+                if !diffs.is_empty() {
+                    self.inner.update_sender.send(
+                        RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                            diffs,
+                            origin: EventsOrigin::Cache,
+                        }),
+                        Some(RoomEventCacheGenericUpdate {
+                            room_id: self.inner.room_id.clone(),
+                            origin: EventsOrigin::Cache,
+                        }),
+                    );
+                }
+                Ok(())
+            }
+            Err(err) => {
+                // Still failing: stay poisoned and report the error.
+                self.inner.poisoned.store(true, Ordering::SeqCst);
+                Err(err)
+            }
+        }
     }
 
     /// Handle a [`LeftRoomUpdate`].
@@ -311,6 +373,8 @@ impl RoomEventCache {
 
     /// Handle a single event from the `SendQueue`.
     pub(crate) async fn insert_sent_event_from_send_queue(&self, event: Event) -> Result<()> {
+        self.heal_if_poisoned().await?;
+
         self.inner.insert_sent_event_from_send_queue(event).await
     }
 
@@ -354,6 +418,18 @@ pub(super) struct RoomEventCacheInner {
 
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,
+
+    /// Whether handling an update for this room failed mid-way, potentially
+    /// leaving the in-memory linked chunk divergent from the store.
+    ///
+    /// The store is the deduplication oracle: once memory and store disagree,
+    /// every re-delivery of an event already in memory is misclassified as
+    /// new and appended again (observed in the wild as double/triple echoes
+    /// of every sent message until the chunk was next reloaded, e.g.
+    /// rageshake 6945 where a closed store aborted a `JoinedRoomUpdate`
+    /// mid-way). When this is set, the next update entry point reloads the
+    /// linked chunk from the store before processing anything else.
+    poisoned: AtomicBool,
 }
 
 impl RoomEventCacheInner {
@@ -821,9 +897,88 @@ mod timed_tests {
 
     use super::{
         super::{super::TimelineVectorDiffs, pagination::LoadMoreEventsBackwardsOutcome},
-        RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+        EventsOrigin, RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     };
     use crate::{assert_let_timeout, test_utils::client::MockClientBuilder};
+
+    #[async_test]
+    async fn test_poisoned_room_reloads_from_the_store_before_the_next_update() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Deliver a first event.
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: None,
+                    events: vec![f.text_msg("comté").event_id(event_id!("$ev0")).into_event()],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let (events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(events.len(), 1);
+
+        // Pretend an earlier update failed mid-way, leaving the in-memory
+        // linked chunk potentially divergent from the store.
+        room_event_cache.mark_poisoned();
+
+        // The next update first reloads the linked chunk from the store…
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: None,
+                    events: vec![f.text_msg("gruyère").event_id(event_id!("$ev1")).into_event()],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // …which is observable as a cache-originated update before the
+        // sync-originated one.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                origin: EventsOrigin::Cache,
+                ..
+            })) = subscriber.recv()
+        );
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                origin: EventsOrigin::Sync,
+                ..
+            })) = subscriber.recv()
+        );
+
+        // No duplicates: both events are present exactly once.
+        let (events, _) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$ev0")));
+        assert_eq!(events[1].event_id().as_deref(), Some(event_id!("$ev1")));
+    }
 
     #[async_test]
     async fn test_write_to_storage() {
