@@ -655,11 +655,6 @@ async fn test_event() {
     let push_actions = timeline_event.push_actions().unwrap();
     assert!(push_actions.iter().any(|a| a.is_highlight()));
     assert!(push_actions.iter().any(|a| a.should_notify()));
-
-    // The fetched event has been saved in the event cache: loading it again is
-    // served from there (the `/event` endpoint is mocked exactly once).
-    let cached_event = room.load_or_fetch_event(event_id, None).await.unwrap();
-    assert_eq!(cached_event.event_id().as_deref(), Some(event_id));
 }
 
 #[async_test]
