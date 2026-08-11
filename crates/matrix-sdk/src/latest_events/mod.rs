@@ -231,17 +231,28 @@ impl LatestEvents {
         &self,
         room_ids: impl Iterator<Item = &'a OwnedRoomId>,
     ) {
-        let rooms = self.state.registered_rooms.rooms.read().await;
+        // Snapshot the handles and release the map lock BEFORE awaiting any
+        // per-room lock. Holding the map guard across the whole loop wedged
+        // the sync loop (2026-08-11): the compute task holds a room's write
+        // lock while it works, a room registration can be queued on
+        // `rooms.write()`, and the write-preferring `RwLock` then parks every
+        // other `rooms.read()` in the subsystem behind that queued writer -
+        // with this task still holding its read guard and awaiting the very
+        // room lock the compute task owns.
+        let room_handles = {
+            let rooms = self.state.registered_rooms.rooms.read().await;
 
-        for room_id in room_ids {
-            if let Some(room_latest_events) = rooms.get(room_id)
-                && room_latest_events.read().await.for_room().value_is_none().await
-            {
+            room_ids
+                .filter_map(|room_id| {
+                    rooms.get(room_id).map(|handle| (room_id.clone(), handle.clone()))
+                })
+                .collect::<Vec<_>>()
+        };
+
+        for (room_id, room_latest_events) in room_handles {
+            if room_latest_events.read().await.for_room().value_is_none().await {
                 let _ = self.state.registered_rooms.latest_event_queue_sender.send(
-                    LatestEventQueueUpdate::EventCache {
-                        room_id: room_id.clone(),
-                        origin: EventsOrigin::Sync,
-                    },
+                    LatestEventQueueUpdate::EventCache { room_id, origin: EventsOrigin::Sync },
                 );
             }
         }
@@ -820,21 +831,24 @@ async fn compute_latest_events(
         registered_rooms: &RegisteredRooms,
         room_id: &OwnedRoomId,
     ) -> ControlFlow<RoomLatestEventsWriteGuard, ()> {
-        let rooms = registered_rooms.rooms.read().await;
+        // Clone the handle and release the map lock before awaiting the
+        // per-room write lock: awaiting it under the map guard is one arc of
+        // the lock cycle described in
+        // `trigger_computation_for_rooms_with_no_value`.
+        let room_latest_events = {
+            let rooms = registered_rooms.rooms.read().await;
 
-        if let Some(room_latest_events) = rooms.get(room_id) {
-            let room_latest_events = room_latest_events.write().await;
+            match rooms.get(room_id) {
+                Some(room_latest_events) => room_latest_events.clone(),
+                None => {
+                    info!(?room_id, "Failed to find the room");
 
-            // Release the lock on `registered_rooms`.
-            // It is possible because `room_latest_events` is an owned lock guard.
-            drop(rooms);
+                    return ControlFlow::Continue(());
+                }
+            }
+        };
 
-            ControlFlow::Break(room_latest_events)
-        } else {
-            info!(?room_id, "Failed to find the room");
-
-            ControlFlow::Continue(())
-        }
+        ControlFlow::Break(room_latest_events.write().await)
     }
 
     // Phase 1: compute the new `LatestEventValue`s, without persisting them.
