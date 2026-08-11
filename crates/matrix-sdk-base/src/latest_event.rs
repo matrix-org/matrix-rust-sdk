@@ -1,6 +1,9 @@
 //! The Latest Event basic types.
 
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
+use matrix_sdk_common::{
+    deserialized_responses::TimelineEvent,
+    serde_helpers::{extract_thread_root, extract_thread_root_from_content},
+};
 use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId};
 use serde::{Deserialize, Serialize};
 
@@ -127,6 +130,20 @@ impl LatestEventValue {
             Self::RemoteInvite { event_id, .. } => event_id.clone(),
             Self::LocalHasBeenSent { event_id, .. } => Some(event_id.clone()),
             Self::LocalIsSending(_) | Self::LocalCannotBeSent(_) | Self::None => None,
+        }
+    }
+
+    /// Get the thread root ID when the event representing the
+    /// [`LatestEventValue`] is a threaded reply, `None` otherwise.
+    pub fn thread_root_id(&self) -> Option<OwnedEventId> {
+        match self {
+            Self::Remote(event) => extract_thread_root(event.raw()),
+            Self::LocalIsSending(LocalLatestEventValue { content, .. })
+            | Self::LocalHasBeenSent { value: LocalLatestEventValue { content, .. }, .. }
+            | Self::LocalCannotBeSent(LocalLatestEventValue { content, .. }) => {
+                extract_thread_root_from_content(content.raw().0.clone())
+            }
+            Self::None | Self::RemoteInvite { .. } => None,
         }
     }
 }
@@ -284,6 +301,38 @@ mod tests_latest_event_value {
         };
 
         assert_eq!(value.event_id(), Some(event_id));
+    }
+
+    #[test]
+    fn test_thread_root_id() {
+        let make_remote = |content: serde_json::Value| {
+            LatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+                Raw::from_json_string(
+                    json!({
+                        "content": content,
+                        "type": "m.room.message",
+                        "event_id": "$ev0",
+                        "room_id": "!r0",
+                        "origin_server_ts": 42,
+                        "sender": "@mnt_io:matrix.org",
+                    })
+                    .to_string(),
+                )
+                .unwrap(),
+            ))
+        };
+
+        let unthreaded = make_remote(json!({ "msgtype": "m.text", "body": "raclette" }));
+        assert!(unthreaded.thread_root_id().is_none());
+
+        let threaded = make_remote(json!({
+            "msgtype": "m.text",
+            "body": "raclette",
+            "m.relates_to": { "rel_type": "m.thread", "event_id": "$thread_root" },
+        }));
+        assert_eq!(threaded.thread_root_id(), Some(owned_event_id!("$thread_root")));
+
+        assert!(LatestEventValue::None.thread_root_id().is_none());
     }
 
     #[test]

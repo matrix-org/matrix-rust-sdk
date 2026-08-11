@@ -222,6 +222,15 @@ impl Room {
         matrix_sdk::BaseRoom::latest_event_timestamp(&self.inner).map(Into::into)
     }
 
+    /// The thread root ID of the room's latest event, when that event is a
+    /// threaded reply. Lets callers open the thread rather than the main
+    /// timeline (which hides threaded events) when entering the room.
+    pub fn latest_event_thread_root_id(&self) -> Option<String> {
+        matrix_sdk::BaseRoom::latest_event(&self.inner)
+            .thread_root_id()
+            .map(|event_id| event_id.to_string())
+    }
+
     /// Returns the room heroes for this room.
     pub async fn heroes(&self) -> Vec<RoomHero> {
         self.inner.heroes().await.into_iter().map(Into::into).collect()
