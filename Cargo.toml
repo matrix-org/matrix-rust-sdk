@@ -210,6 +210,15 @@ debug = 2
 # `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dbg"
+# Only lightly optimize our own crates as they're the ones being edited, and
+# recompiling them at `opt-level = 3` roughly doubles the time of an
+# incremental binding build. Dependencies keep full optimizations below.
+# Don't lower this to 0 as the app then crashes on device, as it used to with the
+# plain `dev` profile (https://github.com/matrix-org/matrix-rust-sdk/issues/4009).
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.reldbg.package."*"]
 opt-level = 3
 
 # Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
