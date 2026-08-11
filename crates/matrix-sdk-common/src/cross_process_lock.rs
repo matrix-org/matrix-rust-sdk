@@ -168,6 +168,16 @@ impl CrossProcessLockGuard {
             .unwrap_or(false)
     }
 
+    /// The generation this holder last held before the lock was dirtied.
+    ///
+    /// `None` when the lock isn't dirty, when the holder had never held the
+    /// lock before it was dirtied, or when the lock has been dropped - in all
+    /// of which a caller cannot scope its recovery and must assume everything
+    /// changed.
+    pub fn dirty_since_generation(&self) -> Option<CrossProcessLockGeneration> {
+        self.inner.upgrade().and_then(|inner| inner.dirty_since_generation())
+    }
+
     /// Clear the dirty state from the cross-process lock associated to this
     /// guard.
     ///
@@ -261,6 +271,15 @@ struct CrossProcessLockInner {
     /// See [`CrossProcessLockState::Dirty`] to learn more about the semantics
     /// of _dirty_.
     is_dirty: AtomicBool,
+
+    /// The generation this holder last held before the lock was dirtied,
+    /// [`NO_CROSS_PROCESS_LOCK_GENERATION`] while the lock is clean.
+    ///
+    /// Everything written by other holders is tagged with a generation
+    /// strictly greater than this value, so recovery can be scoped to it.
+    /// Repeated dirtying without a recovery in between keeps the OLDEST
+    /// value, so nothing written since the last recovery is missed.
+    dirty_since_generation: AtomicU64,
 }
 
 impl CrossProcessLockInner {
@@ -272,6 +291,22 @@ impl CrossProcessLockInner {
         self.is_dirty.load(Ordering::SeqCst)
     }
 
+    /// The generation this holder last held before the lock was dirtied.
+    ///
+    /// `None` when the lock isn't dirty, or when the holder had never held
+    /// the lock before it was dirtied (in which case a caller cannot scope
+    /// its recovery and must assume everything changed).
+    pub fn dirty_since_generation(&self) -> Option<CrossProcessLockGeneration> {
+        if !self.is_dirty() {
+            return None;
+        }
+
+        match self.dirty_since_generation.load(Ordering::SeqCst) {
+            NO_CROSS_PROCESS_LOCK_GENERATION => None,
+            generation => Some(generation),
+        }
+    }
+
     /// Clear the dirty state from this cross-process lock.
     ///
     /// If the cross-process lock is dirtied, it will remain dirtied until
@@ -279,6 +314,7 @@ impl CrossProcessLockInner {
     /// marking that it has recovered.
     pub fn clear_dirty(&self) {
         self.is_dirty.store(false, Ordering::SeqCst);
+        self.dirty_since_generation.store(NO_CROSS_PROCESS_LOCK_GENERATION, Ordering::SeqCst);
     }
 }
 
@@ -335,6 +371,8 @@ where
                 generation: AtomicU64::new(NO_CROSS_PROCESS_LOCK_GENERATION),
 
                 is_dirty: AtomicBool::new(false),
+
+                dirty_since_generation: AtomicU64::new(NO_CROSS_PROCESS_LOCK_GENERATION),
             }),
             backoff: Arc::new(Mutex::new(WaitingTime::Some(INITIAL_BACKOFF_MS))),
             config,
@@ -416,6 +454,14 @@ where
                         ?previous_generation,
                         ?new_generation,
                         "The lock has been obtained, but it's been dirtied!"
+                    );
+                    // Keep the oldest un-recovered generation if the lock gets dirtied
+                    // again before `clear_dirty` runs.
+                    let _ = self.inner.dirty_since_generation.compare_exchange(
+                        NO_CROSS_PROCESS_LOCK_GENERATION,
+                        previous_generation,
+                        Ordering::SeqCst,
+                        Ordering::SeqCst,
                     );
                     self.inner.is_dirty.store(true, Ordering::SeqCst);
                 }

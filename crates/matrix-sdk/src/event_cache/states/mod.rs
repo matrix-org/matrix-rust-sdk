@@ -15,7 +15,7 @@
 //! This module handles the state of the [`EventCache`].
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt,
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -28,7 +28,7 @@ use matrix_sdk_base::{
 };
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
-use tracing::{instrument, trace};
+use tracing::{info, instrument, trace, warn};
 
 use super::{
     CachesByRoom, EventCacheError, EventsOrigin, Result,
@@ -42,6 +42,35 @@ use super::{
 };
 
 pub(in super::super) mod selectors;
+
+/// Determine which rooms a dirty-lock recovery must reload.
+///
+/// `None` means the set couldn't be determined (never held before, no journal,
+/// a store-wide operation was journaled, or the journal read failed) and
+/// everything must reload.
+async fn touched_rooms_for_recovery(
+    store_guard: &EventCacheStoreLockGuard,
+) -> Option<HashSet<OwnedRoomId>> {
+    let generation = EventCacheStoreLockGuard::dirty_since_generation(store_guard)?;
+
+    match store_guard.load_rooms_touched_since(generation).await {
+        Ok(Some(room_ids)) => {
+            info!(
+                num_rooms = room_ids.len(),
+                since_generation = generation,
+                "Scoping the dirty-lock recovery to the journaled rooms"
+            );
+
+            Some(room_ids.into_iter().collect())
+        }
+        Ok(None) => None,
+        Err(error) => {
+            warn!(?error, "Failed to read the touched-rooms journal, reloading everything");
+
+            None
+        }
+    }
+}
 
 /// The type containing all the states, for real.
 pub struct State {
@@ -174,8 +203,9 @@ impl StateLock {
                     tracing_timer,
                 };
 
-                // Reload the state.
-                guard.reload(ReloadPreprocessing::None).await?;
+                // Reload the state, scoped to the journaled rooms when possible.
+                let touched_rooms = touched_rooms_for_recovery(&guard.store).await;
+                guard.reload(ReloadPreprocessing::None, touched_rooms.as_ref()).await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
@@ -221,8 +251,9 @@ impl StateLock {
                     tracing_timer,
                 };
 
-                // Reload the state.
-                guard.reload(ReloadPreprocessing::None).await?;
+                // Reload the state, scoped to the journaled rooms when possible.
+                let touched_rooms = touched_rooms_for_recovery(&guard.store).await;
+                guard.reload(ReloadPreprocessing::None, touched_rooms.as_ref()).await?;
 
                 // All good now, mark the cross-process lock as non-dirty.
                 EventCacheStoreLockGuard::clear_dirty(&guard.store);
@@ -264,7 +295,7 @@ impl StateLock {
 
         // At this point, all the in-memory `LinkedChunk`s are desynchronised
         // from the storage. Resynchronise them manually by reloading them.
-        guard.reload(ReloadPreprocessing::ForgetAll).await?;
+        guard.reload(ReloadPreprocessing::ForgetAll, None).await?;
 
         if EventCacheStoreLockGuard::is_dirty(&guard.store) {
             // All good because the state has been reloaded, mark the
@@ -409,13 +440,36 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         }
     }
 
-    async fn reload(&mut self, preprocessing: ReloadPreprocessing) -> Result<()> {
-        trace!("Reloading the state");
+    /// Reload the state from the store.
+    ///
+    /// When `touched_rooms` is `Some`, only the states of those rooms are
+    /// reloaded: the store content of every other room was last written by
+    /// this process, so its in-memory state is already in sync. `None` means
+    /// the set of modified rooms is unknown and everything reloads.
+    async fn reload(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+        touched_rooms: Option<&HashSet<OwnedRoomId>>,
+    ) -> Result<()> {
+        match touched_rooms {
+            Some(touched_rooms) => trace!(
+                num_touched_rooms = touched_rooms.len(),
+                num_loaded_rooms = self.state.by_room.len(),
+                "Reloading the state (scoped to the touched rooms)"
+            ),
+            None => trace!("Reloading the state (all rooms)"),
+        }
 
         // Iterate over all states and reload them.
         for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
             self.state.by_room.iter_mut()
         {
+            if let Some(touched_rooms) = touched_rooms
+                && !touched_rooms.contains(room_id)
+            {
+                continue;
+            }
+
             // Room.
             if let Some(room_state) = room {
                 let mut room_state = StateLockWriteGuard {
@@ -601,7 +655,7 @@ where
     /// test.
     #[cfg(test)]
     pub async fn reload_no_preprocessing(&self) -> Result<()> {
-        self.state_lock.write().await?.reload(ReloadPreprocessing::None).await
+        self.state_lock.write().await?.reload(ReloadPreprocessing::None, None).await
     }
 }
 

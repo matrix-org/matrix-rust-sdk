@@ -23,7 +23,7 @@ use matrix_sdk_common::{
         RawChunk, Update,
     },
 };
-use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
 
 use super::EventCacheStoreError;
 use crate::event_cache::{Event, Gap};
@@ -57,6 +57,21 @@ pub trait EventCacheStore: AsyncTraitDeps {
         linked_chunk_id: LinkedChunkId<'_>,
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error>;
+
+    /// Load the IDs of the rooms whose linked chunks were modified under a
+    /// cross-process-lock generation strictly greater than `generation`.
+    ///
+    /// Stores that journal their writes (see
+    /// [`handle_linked_chunk_updates`][Self::handle_linked_chunk_updates])
+    /// return `Some` with the touched rooms, letting a process recovering
+    /// from a dirtied cross-process lock reload only the state those rooms
+    /// need, instead of everything. `None` means the store cannot answer
+    /// (no journal, or the journal recorded a store-wide operation): callers
+    /// must assume everything changed.
+    async fn load_rooms_touched_since(
+        &self,
+        generation: CrossProcessLockGeneration,
+    ) -> Result<Option<Vec<OwnedRoomId>>, Self::Error>;
 
     /// Return all the raw components of a linked chunk, so the caller may
     /// reconstruct the linked chunk later.
@@ -235,6 +250,13 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         updates: Vec<Update<Event, Gap>>,
     ) -> Result<(), Self::Error> {
         self.0.handle_linked_chunk_updates(linked_chunk_id, updates).await.map_err(Into::into)
+    }
+
+    async fn load_rooms_touched_since(
+        &self,
+        generation: CrossProcessLockGeneration,
+    ) -> Result<Option<Vec<OwnedRoomId>>, Self::Error> {
+        self.0.load_rooms_touched_since(generation).await.map_err(Into::into)
     }
 
     async fn load_all_chunks(

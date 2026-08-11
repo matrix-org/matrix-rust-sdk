@@ -20,7 +20,10 @@ use std::{
     iter::once,
     ops::{Deref, Not},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use async_trait::async_trait;
@@ -40,7 +43,8 @@ use matrix_sdk_base::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, RoomId, events::relation::RelationType,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId,
+    events::relation::RelationType,
 };
 use rusqlite::{
     OptionalExtension, ToSql, Transaction, TransactionBehavior, params, params_from_iter,
@@ -163,6 +167,12 @@ pub struct SqliteEventCacheStore {
 
     /// Retained so we can re-apply runtime config on reopen.
     runtime_config: RuntimeConfig,
+
+    /// The last cross-process lock generation returned by
+    /// [`EventCacheStore::try_take_leased_lock`], used to tag journal entries
+    /// in `linked_chunk_touches`. All writes happen under the lock, so the
+    /// value is always current when a write runs.
+    last_lock_generation: Arc<AtomicU64>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -250,6 +260,7 @@ impl SqliteEventCacheStore {
             db_path,
             pool_config,
             runtime_config,
+            last_lock_generation: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -640,6 +651,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 17 {
+        debug!("Upgrading database to version 17");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/017_linked_chunk_touches.sql"
+            ))?;
+            txn.set_db_version(17)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -689,6 +711,10 @@ impl EventCacheStore for SqliteEventCacheStore {
             })
             .await?;
 
+        if let Some(generation) = generation {
+            self.last_lock_generation.store(generation, Ordering::SeqCst);
+        }
+
         Ok(generation)
     }
 
@@ -700,15 +726,32 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
+        if updates.is_empty() {
+            return Ok(());
+        }
+
         let hashed_linked_chunk_id =
             self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let hashed_room_id =
             self.encryption.encode_room_id(keys::EVENTS, linked_chunk_id.room_id());
         let encryption = self.encryption.clone();
 
+        // Journal the room as touched under the current cross-process lock
+        // generation, so another process recovering from a dirtied lock can
+        // scope its reload to the touched rooms.
+        let touch_journal_room_id =
+            self.encryption.encode_value(String::from(linked_chunk_id.room_id().as_str()))?;
+        let touch_journal_generation = self.last_lock_generation.load(Ordering::SeqCst);
+
         // Use a single transaction throughout this function, so that either all updates
         // work, or none is taken into account.
         with_immediate_transaction(self, move |txn| {
+            txn.execute(
+                "INSERT OR IGNORE INTO linked_chunk_touches (hashed_room_id, room_id, generation) \
+                 VALUES (?, ?, ?)",
+                (&hashed_room_id, &touch_journal_room_id, touch_journal_generation),
+            )?;
+
             for update in updates {
                 match update {
                     Update::NewItemsChunk { previous, new, next } => {
@@ -1078,6 +1121,83 @@ impl EventCacheStore for SqliteEventCacheStore {
     }
 
     #[instrument(skip(self))]
+    #[instrument(skip(self))]
+    async fn load_rooms_touched_since(
+        &self,
+        generation: CrossProcessLockGeneration,
+    ) -> Result<Option<Vec<OwnedRoomId>>> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+
+        let (has_wildcard, encoded_room_ids) = self
+            .write()
+            .await?
+            .with_transaction(move |txn| -> Result<(bool, Vec<Vec<u8>>)> {
+                // Opportunistically prune entries so old that no holder plausibly
+                // still recovers from them. Generations only bump when the lock
+                // changes holder, so 64 tenures of history is far more than any
+                // suspended process can lag behind. In case one does lag further,
+                // leave the wildcard marker at the pruning horizon: its recovery
+                // then sees the marker and correctly falls back to a full reload
+                // instead of trusting a journal with holes.
+                let pruned = txn.execute(
+                    "DELETE FROM linked_chunk_touches WHERE generation < ? - 64",
+                    (generation,),
+                )?;
+
+                if pruned > 0 {
+                    txn.execute(
+                        "INSERT OR IGNORE INTO linked_chunk_touches (hashed_room_id, room_id, generation) \
+                         VALUES (X'2A', X'', ? - 64)",
+                        (generation,),
+                    )?;
+                }
+
+                let has_wildcard = txn
+                    .prepare(
+                        "SELECT 1 FROM linked_chunk_touches \
+                         WHERE hashed_room_id = X'2A' AND generation > ? LIMIT 1",
+                    )?
+                    .exists((generation,))?;
+
+                if has_wildcard {
+                    return Ok((true, Vec::new()));
+                }
+
+                let encoded_room_ids = txn
+                    .prepare(
+                        "SELECT room_id FROM linked_chunk_touches \
+                         WHERE generation > ? GROUP BY hashed_room_id",
+                    )?
+                    .query_map((generation,), |row| row.get::<_, Vec<u8>>(0))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+
+                Ok((false, encoded_room_ids))
+            })
+            .await?;
+
+        if has_wildcard {
+            // A store-wide operation happened: the set of touched rooms is unknowable.
+            return Ok(None);
+        }
+
+        let mut room_ids = Vec::with_capacity(encoded_room_ids.len());
+
+        for encoded_room_id in encoded_room_ids {
+            let decoded = encryption.decode_value(&encoded_room_id)?;
+            let as_str = std::str::from_utf8(decoded.as_ref())
+                .map_err(|error| Error::InvalidData { details: error.to_string() })?;
+
+            room_ids.push(
+                RoomId::parse(as_str)
+                    .map_err(|error| Error::InvalidData { details: error.to_string() })?,
+            );
+        }
+
+        Ok(Some(room_ids))
+    }
+
     async fn load_all_chunks(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,
@@ -1393,6 +1513,8 @@ impl EventCacheStore for SqliteEventCacheStore {
         match room_id {
             // Clear all events.
             None => {
+                let generation = self.last_lock_generation.load(Ordering::SeqCst);
+
                 self.write()
                     .await?
                     .with_transaction(move |txn| {
@@ -1401,6 +1523,14 @@ impl EventCacheStore for SqliteEventCacheStore {
 
                         // Also clear all the events' contents, and let cascading do its job.
                         txn.execute("DELETE FROM events", ())?;
+
+                        // A store-wide operation can't be journaled per room: leave the
+                        // wildcard marker so recovery assumes everything changed.
+                        txn.execute(
+                            "INSERT OR IGNORE INTO linked_chunk_touches (hashed_room_id, room_id, generation) \
+                             VALUES (X'2A', X'', ?)",
+                            (generation,),
+                        )?;
 
                         Ok(())
                     })
@@ -1411,10 +1541,24 @@ impl EventCacheStore for SqliteEventCacheStore {
             Some(room_id) => {
                 let encryption = self.encryption.clone();
                 let room_id = room_id.to_owned();
+                let touch_journal_room_id =
+                    self.encryption.encode_value(String::from(room_id.as_str()))?;
+                let touch_journal_generation = self.last_lock_generation.load(Ordering::SeqCst);
 
                 self.write()
                     .await?
                     .with_transaction(move |txn| {
+                        // Journal the room as touched (see `handle_linked_chunk_updates`).
+                        txn.execute(
+                            "INSERT OR IGNORE INTO linked_chunk_touches (hashed_room_id, room_id, generation) \
+                             VALUES (?, ?, ?)",
+                            (
+                                encryption.encode_room_id(keys::EVENTS, &room_id),
+                                &touch_journal_room_id,
+                                touch_journal_generation,
+                            ),
+                        )?;
+
                         // Delete linked chunks for the room and pinned-events caches.
                         {
                             let mut delete =
@@ -1972,6 +2116,101 @@ mod tests {
 
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
+
+    #[async_test]
+    async fn test_touched_rooms_journal() {
+        use matrix_sdk_common::linked_chunk::{ChunkIdentifier, Update};
+        use ruma::room_id;
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        // Simulate a first tenure of the lock at generation 1.
+        store.last_lock_generation.store(1, SeqCst);
+
+        let room_a = room_id!("!a:b.c");
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_a),
+                vec![Update::NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                }],
+            )
+            .await
+            .unwrap();
+
+        // Another holder writes at generation 2.
+        store.last_lock_generation.store(2, SeqCst);
+
+        let room_b = room_id!("!b:b.c");
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_b),
+                vec![Update::NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                }],
+            )
+            .await
+            .unwrap();
+
+        // Empty updates must not journal anything.
+        store
+            .handle_linked_chunk_updates(LinkedChunkId::Room(room_id!("!c:b.c")), vec![])
+            .await
+            .unwrap();
+
+        // Rooms touched since generation 1 = room B only.
+        let touched = store.load_rooms_touched_since(1).await.unwrap().unwrap();
+        assert_eq!(touched, [room_b.to_owned()]);
+
+        // Rooms touched since generation 0 = both rooms.
+        let touched = store.load_rooms_touched_since(0).await.unwrap().unwrap();
+        assert_eq!(touched.len(), 2);
+        assert!(touched.contains(&room_a.to_owned()));
+        assert!(touched.contains(&room_b.to_owned()));
+
+        // Nothing since generation 2.
+        let touched = store.load_rooms_touched_since(2).await.unwrap().unwrap();
+        assert!(touched.is_empty());
+
+        // A store-wide clear journals the wildcard: the set becomes unknowable.
+        store.clear_all_events(None).await.unwrap();
+        assert!(store.load_rooms_touched_since(1).await.unwrap().is_none());
+    }
+
+    #[async_test]
+    async fn test_touched_rooms_journal_pruning_leaves_a_horizon() {
+        use matrix_sdk_common::linked_chunk::{ChunkIdentifier, Update};
+        use ruma::room_id;
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        // A row at generation 1.
+        store.last_lock_generation.store(1, SeqCst);
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id!("!a:b.c")),
+                vec![Update::NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                }],
+            )
+            .await
+            .unwrap();
+
+        // A recovery far in the future prunes it (horizon = 100 - 64 = 36)…
+        assert!(store.load_rooms_touched_since(100).await.unwrap().unwrap().is_empty());
+
+        // …so a holder older than the horizon must not trust the journal…
+        assert!(store.load_rooms_touched_since(1).await.unwrap().is_none());
+
+        // …while a holder within the horizon still can.
+        assert!(store.load_rooms_touched_since(50).await.unwrap().unwrap().is_empty());
+    }
 
     #[async_test]
     async fn test_encryption_encode_decode_thread_id_roundtrip() {

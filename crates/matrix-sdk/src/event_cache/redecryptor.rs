@@ -1230,6 +1230,13 @@ mod tests {
             self.memory_store.try_take_leased_lock(lease_duration_ms, key, holder).await
         }
 
+        async fn load_rooms_touched_since(
+            &self,
+            generation: CrossProcessLockGeneration,
+        ) -> Result<Option<Vec<ruma::OwnedRoomId>>, Self::Error> {
+            self.memory_store.load_rooms_touched_since(generation).await
+        }
+
         async fn handle_linked_chunk_updates(
             &self,
             linked_chunk_id: LinkedChunkId<'_>,

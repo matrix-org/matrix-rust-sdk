@@ -117,6 +117,15 @@ impl EventCacheStore for MemoryStore {
         Ok(())
     }
 
+    async fn load_rooms_touched_since(
+        &self,
+        _generation: CrossProcessLockGeneration,
+    ) -> Result<Option<Vec<OwnedRoomId>>, Self::Error> {
+        // The memory store cannot be shared across processes, so the lock can
+        // never be dirtied and no journal is kept.
+        Ok(None)
+    }
+
     async fn load_all_chunks(
         &self,
         linked_chunk_id: LinkedChunkId<'_>,

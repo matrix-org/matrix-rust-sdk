@@ -273,6 +273,14 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         Ok(())
     }
 
+    async fn load_rooms_touched_since(
+        &self,
+        _generation: CrossProcessLockGeneration,
+    ) -> Result<Option<Vec<ruma::OwnedRoomId>>, IndexeddbEventCacheStoreError> {
+        // No journal is kept: recovery must assume everything changed.
+        Ok(None)
+    }
+
     #[instrument(skip(self))]
     async fn load_all_chunks(
         &self,

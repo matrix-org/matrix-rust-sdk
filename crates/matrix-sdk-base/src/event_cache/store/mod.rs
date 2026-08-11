@@ -132,6 +132,14 @@ impl EventCacheStoreLockGuard {
     pub fn is_dirty(this: &Self) -> bool {
         this.cross_process_lock_guard.is_dirty()
     }
+
+    /// Forward to [`CrossProcessLockGuard::dirty_since_generation`].
+    ///
+    /// This is an associated method to avoid colliding with the [`Deref`]
+    /// implementation.
+    pub fn dirty_since_generation(this: &Self) -> Option<CrossProcessLockGeneration> {
+        this.cross_process_lock_guard.dirty_since_generation()
+    }
 }
 
 #[cfg(not(tarpaulin_include))]
