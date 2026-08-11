@@ -80,6 +80,7 @@ pub use error::{
     BeaconError, Error, HttpError, HttpResult, NotificationSettingsError, RefreshTokenError,
     Result, RumaApiError,
 };
+pub use eyeball::SharedObservable;
 pub use http_client::{SupportedAuthScheme, SupportedPathBuilder, TransmissionProgress};
 #[cfg(all(feature = "e2e-encryption", feature = "sqlite"))]
 pub use matrix_sdk_sqlite::SqliteCryptoStore;
