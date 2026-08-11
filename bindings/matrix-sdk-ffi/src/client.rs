@@ -1502,15 +1502,26 @@ impl Client {
     pub async fn get_media_content(
         &self,
         media_source: Arc<MediaSource>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
         debug!(?source, "requesting media file");
-        Ok(self
+        let mut request = self
             .inner
             .media()
-            .get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, true)
-            .await?)
+            .get_media_content(&MediaRequestParameters { source, format: MediaFormat::File }, true);
+
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_recv_progress();
+            get_runtime_handle().spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
+
+        Ok(request.await?)
     }
 
     pub async fn get_media_thumbnail(
@@ -1518,24 +1529,32 @@ impl Client {
         media_source: Arc<MediaSource>,
         width: u64,
         height: u64,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Vec<u8>, ClientError> {
         let source = (*media_source).clone().media_source;
 
         debug!(?source, width, height, "requesting media thumbnail");
-        Ok(self
-            .inner
-            .media()
-            .get_media_content(
-                &MediaRequestParameters {
-                    source,
-                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                        UInt::new(width).unwrap(),
-                        UInt::new(height).unwrap(),
-                    )),
-                },
-                true,
-            )
-            .await?)
+        let mut request = self.inner.media().get_media_content(
+            &MediaRequestParameters {
+                source,
+                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
+                    UInt::new(width).unwrap(),
+                    UInt::new(height).unwrap(),
+                )),
+            },
+            true,
+        );
+
+        if let Some(progress_watcher) = progress_watcher {
+            let mut subscriber = request.subscribe_to_recv_progress();
+            get_runtime_handle().spawn(async move {
+                while let Some(progress) = subscriber.next().await {
+                    progress_watcher.transmission_progress(progress.into());
+                }
+            });
+        }
+
+        Ok(request.await?)
     }
 
     /// Get the homeserver-generated preview for a URL, as OpenGraph JSON.
