@@ -497,6 +497,11 @@ impl Room {
             }
         };
 
+        // Short-circuiting if there is no heroes: we can't do anything.
+        if heroes.is_empty() {
+            return Vec::new();
+        }
+
         // Return with empty profile fields when the user status feature is disabled.
         #[cfg(not(feature = "unstable-msc4426"))]
         {
