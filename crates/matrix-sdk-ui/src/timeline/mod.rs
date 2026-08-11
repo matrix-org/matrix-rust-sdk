@@ -646,7 +646,12 @@ impl Timeline {
 
         match event.handle() {
             TimelineItemHandle::Remote(event_id) => {
-                self.room().redact(event_id, reason, None).await.map_err(RedactError::HttpError)?;
+                // Send via the queue rather than directly: the queue broadcasts a
+                // `LocalEchoContent::Redaction` which the timeline applies to the target
+                // item immediately (`handle_local_redaction`), so the message shows as
+                // redacted without waiting for the server round-trip, and the redaction
+                // survives offline periods and retries like any other queued event.
+                self.room().send_queue().redact(event_id.to_owned(), reason).await?;
             }
             TimelineItemHandle::Local(handle) => {
                 if !handle.abort().await.map_err(RoomSendQueueError::StorageError)? {
