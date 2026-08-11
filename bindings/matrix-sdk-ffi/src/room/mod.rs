@@ -201,6 +201,15 @@ impl Room {
         self.inner.state().into()
     }
 
+    /// The ID of the room's latest event, as computed by the latest-events
+    /// subsystem. `None` when no value has been computed yet, or when the
+    /// latest event is a local echo that hasn't been sent.
+    pub fn latest_event_id(&self) -> Option<String> {
+        matrix_sdk::BaseRoom::latest_event(&self.inner)
+            .event_id()
+            .map(|event_id| event_id.to_string())
+    }
+
     /// Returns the room heroes for this room.
     pub async fn heroes(&self) -> Vec<RoomHero> {
         self.inner.heroes().await.into_iter().map(Into::into).collect()
