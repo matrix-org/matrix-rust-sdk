@@ -25,6 +25,7 @@ use std::{
     collections::BTreeSet,
     fmt,
     sync::{Arc, RwLock as StdRwLock},
+    time::Duration,
 };
 
 #[cfg(feature = "sqlite")]
@@ -39,7 +40,10 @@ use matrix_sdk_base::crypto::{CollectStrategy, TrustRequirement};
 use matrix_sdk_base::{
     BaseClient, DmRoomDefinition, ThreadingSupport, store::StoreConfig, ttl::TtlValue,
 };
-use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig,
+    ttl::{Clock, SystemClock},
+};
 #[cfg(feature = "sqlite")]
 use matrix_sdk_sqlite::SqliteStoreConfig;
 #[cfg(not(target_family = "wasm"))]
@@ -114,6 +118,23 @@ use crate::{
 ///     Client::builder().http_client(reqwest_builder.build()?);
 /// # anyhow::Ok(())
 /// ```
+/// The default duration after which cached discovery data is considered stale.
+///
+/// This matches 1 day.
+const DEFAULT_DISCOVERY_CACHE_TIMEOUT: Duration = Duration::from_secs(60 * 60 * 24);
+
+/// A builder for the [`Client`].
+///
+/// # Examples
+///
+/// ```no_run
+/// # use matrix_sdk::Client;
+/// # use url::Url;
+/// # async {
+/// let homeserver = Url::parse("https://example.com")?;
+/// let client = Client::builder().homeserver_url(homeserver).build().await?;
+/// # anyhow::Ok(()) };
+/// ```
 #[must_use]
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
@@ -144,6 +165,8 @@ pub struct ClientBuilder {
     x509_verifier: Option<Arc<dyn RawX509Verifier>>,
     dm_room_definition: DmRoomDefinition,
     media_fetcher: Arc<dyn MediaFetcher>,
+    discovery_cache_timeout: Duration,
+    clock: Arc<dyn Clock>,
 }
 
 impl ClientBuilder {
@@ -186,6 +209,8 @@ impl ClientBuilder {
             x509_verifier: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: Arc::new(DefaultMediaFetcher),
+            discovery_cache_timeout: DEFAULT_DISCOVERY_CACHE_TIMEOUT,
+            clock: Arc::new(SystemClock),
         }
     }
 
@@ -702,12 +727,30 @@ impl ClientBuilder {
             search_index,
             thread_subscriptions_catchup,
             self.media_fetcher.clone(),
+            self.discovery_cache_timeout,
+            self.clock.clone(),
         )
         .await;
 
         debug!("Done building the Client");
 
         Ok(Client { inner })
+    }
+
+    /// Set the duration after which cached discovery data (e.g. supported
+    /// versions, well-known info) is considered stale and needs to be
+    /// refreshed.
+    ///
+    /// By default, this is 24 hours
+    pub fn discovery_cache_timeout(mut self, stale_timeout: Duration) -> Self {
+        self.discovery_cache_timeout = stale_timeout;
+        self
+    }
+
+    /// Set a custom [`Clock`] implementation, useful for testing.
+    pub fn clock(mut self, clock: Arc<dyn Clock>) -> Self {
+        self.clock = clock;
+        self
     }
 }
 

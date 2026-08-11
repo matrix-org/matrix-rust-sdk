@@ -711,9 +711,19 @@ async fn test_server_metadata_cache() {
     // Call the method to trigger a cache refresh background task.
     oauth.cached_server_metadata().await.expect("We should be able to fetch the server metadata");
 
-    // We wait for the task to finish, the endpoint should have been called again.
-    sleep(Duration::from_secs(1)).await;
-    assert_matches!(client.inner.caches.server_metadata.value(), CachedValue::Cached(value) if !value.has_expired());
+    // Poll for the background task to finish and update the cache.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let CachedValue::Cached(value) = client.inner.caches.server_metadata.value()
+                && !value.has_expired(client.discovery_cache_timeout(), client.clock())
+            {
+                return;
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("Timed out waiting for OAuth metadata cache to refresh");
 }
 
 #[async_test]

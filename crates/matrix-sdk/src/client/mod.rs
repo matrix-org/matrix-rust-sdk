@@ -41,7 +41,10 @@ use matrix_sdk_base::{
     sync::{Notification, RoomUpdates},
     task_monitor::TaskMonitor,
 };
-use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, ttl::TtlValue};
+use matrix_sdk_common::{
+    cross_process_lock::CrossProcessLockConfig,
+    ttl::{Clock, TtlValue},
+};
 #[cfg(feature = "e2e-encryption")]
 use ruma::events::{InitialStateEvent, room::encryption::RoomEncryptionEventContent};
 use ruma::{
@@ -460,6 +463,8 @@ impl ClientInner {
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
         media_fetcher: Arc<dyn MediaFetcher>,
+        discovery_cache_timeout: Duration,
+        clock: Arc<dyn Clock>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
@@ -467,6 +472,8 @@ impl ClientInner {
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
             rtc_transports: Cache::new(),
+            discovery_cache_timeout,
+            clock,
         };
 
         let client = Self {
@@ -573,6 +580,13 @@ impl Client {
 
     pub(crate) fn auth_ctx(&self) -> &AuthCtx {
         &self.inner.auth_ctx
+    }
+
+    pub(crate) fn discovery_cache_timeout(&self) -> Duration {
+        self.inner.caches.discovery_cache_timeout
+    }
+    pub(crate) fn clock(&self) -> Arc<dyn Clock> {
+        self.inner.caches.clock.clone()
     }
 
     /// The cross-process store lock configuration used by this [`Client`].
@@ -2374,7 +2388,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = cached_supported_versions.value()
-                    && !value.has_expired()
+                    && !value.has_expired(self.discovery_cache_timeout(), self.clock())
                 {
                     return Ok(value.into_data());
                 }
@@ -2483,7 +2497,7 @@ impl Client {
 
         // Spawn a task to refresh the cache if it has expired and we have a valid
         // access token.
-        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+        if self.discovery_has_expired(&value) && self.auth_ctx().has_valid_access_token() {
             debug!("spawning task to refresh supported versions cache");
 
             let client = self.clone();
@@ -2581,7 +2595,7 @@ impl Client {
         };
 
         // Spawn a task to refresh the cache if it has expired.
-        if value.has_expired() {
+        if value.has_expired(self.discovery_cache_timeout(), self.clock()) {
             debug!("spawning task to refresh well-known cache");
 
             let client = self.clone();
@@ -2608,7 +2622,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = well_known_cache.value()
-                    && !value.has_expired()
+                    && !value.has_expired(self.discovery_cache_timeout(), self.clock())
                 {
                     return value.into_data();
                 }
@@ -2756,7 +2770,7 @@ impl Client {
 
         // Spawn a task to refresh the cache if it has expired and we have a valid
         // access token.
-        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+        if self.discovery_has_expired(&value) && self.auth_ctx().has_valid_access_token() {
             debug!("spawning task to refresh RTC transports cache");
 
             let client = self.clone();
@@ -2787,7 +2801,7 @@ impl Client {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = cache.value()
-                    && !value.has_expired()
+                    && !self.discovery_has_expired(&value)
                 {
                     return Ok(value.into_data());
                 }
@@ -3531,6 +3545,8 @@ impl Client {
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
                 (*self.inner.media_fetcher.read().await).clone(),
+                self.inner.caches.discovery_cache_timeout,
+                self.inner.caches.clock.clone(),
             )
             .await,
         };
@@ -3671,6 +3687,12 @@ impl Client {
             .contains(&FeatureFlag::from("org.matrix.msc4306"));
 
         Ok(server_enabled)
+    }
+
+    /// Check if a cached discovery value has expired based on the client's
+    /// configured timeout.
+    fn discovery_has_expired<T>(&self, value: &TtlValue<T>) -> bool {
+        value.has_expired(self.discovery_cache_timeout(), self.clock())
     }
 
     /// Fetch thread subscriptions changes between `from` and up to `to`.
@@ -3931,6 +3953,8 @@ pub(crate) mod tests {
         DEFAULT_TEST_ROOM_ID, JoinedRoomBuilder, SyncResponseBuilder, async_test,
         event_factory::EventFactory,
     };
+
+    use super::*;
     #[cfg(target_family = "wasm")]
     wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
@@ -4180,6 +4204,79 @@ pub(crate) mod tests {
                 .is_err(),
             "Creating a client from a user ID should fail when the .well-known request fails."
         );
+    }
+
+    #[async_test]
+    async fn test_discovery_cache_respects_timeout() {
+        // Start at time zero for a deterministic test.
+        let clock = Arc::new(FakeClock::new(matrix_sdk_common::ttl::SystemClock.now()));
+        let server = MatrixMockServer::new().await;
+
+        let client = server
+            .client_builder()
+            .no_server_versions()
+            .clock(clock.clone())
+            .discovery_cache_timeout(Duration::from_secs(1))
+            .build()
+            .await;
+
+        // Mock v1.11 for the initial fetch.
+        server.mock_versions().with_versions(vec!["v1.11"]).ok().mock_once().mount().await;
+
+        // First fetch: hits the server.
+        // First fetch: hits the server for v1.11
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_11));
+
+        // Set up the mock for the background refresh BEFORE advancing time
+        server.mock_versions().with_versions(vec!["v1.10"]).ok().mount().await;
+
+        // Now advance the clock past the 1-second timeout
+        clock.advance(Duration::from_secs(2));
+
+        // Third fetch: triggers the background task
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_11));
+
+        // Poll for the background task to finish and update the cache to v1.10.
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if let CachedValue::Cached(value) = client.inner.caches.supported_versions.value()
+                    && value.data().versions.contains(&MatrixVersion::V1_10)
+                {
+                    return;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("Timed out waiting for discovery cache to refresh");
+
+        // Final check: ensure the cache is now fresh with v1.10.
+        let versions = client.supported_versions().await.unwrap();
+        assert!(versions.versions.contains(&MatrixVersion::V1_10));
+    }
+
+    #[derive(Debug)]
+    struct FakeClock {
+        current: std::sync::Mutex<Duration>,
+    }
+
+    impl FakeClock {
+        fn new(start: Duration) -> Self {
+            Self { current: std::sync::Mutex::new(start) }
+        }
+
+        fn advance(&self, duration: Duration) {
+            let mut current = self.current.lock().unwrap();
+            *current += duration;
+        }
+    }
+
+    impl Clock for FakeClock {
+        fn now(&self) -> Duration {
+            *self.current.lock().unwrap()
+        }
     }
 
     #[async_test]
@@ -4501,7 +4598,7 @@ pub(crate) mod tests {
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
         // Hits in-memory cache again.
         assert!(client.server_versions().await.unwrap().contains(&MatrixVersion::V1_0));
-        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired(client.discovery_cache_timeout(), client.clock()));
 
         // Force an expiry of the data.
         let supported_versions = client.supported_versions_cached().await.unwrap().unwrap();
@@ -4514,7 +4611,7 @@ pub(crate) mod tests {
 
         // We wait for the task to finish, the endpoint should have been called again.
         sleep(Duration::from_secs(1)).await;
-        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.supported_versions.value(), CachedValue::Cached(value) if !value.has_expired(client.discovery_cache_timeout(), client.clock()));
     }
 
     #[async_test]
@@ -4594,7 +4691,7 @@ pub(crate) mod tests {
         // We need to wait a bit because the first requests using the server name of the
         // user will fail, only the requests using the homeserver URL will succeed.
         sleep(Duration::from_secs(5)).await;
-        assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired(client.discovery_cache_timeout(), client.clock()));
     }
 
     #[async_test]
@@ -4625,8 +4722,7 @@ pub(crate) mod tests {
         assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
         // Subsequent call hits the in-memory cache.
         assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
-        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
-
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired(client.discovery_cache_timeout(), client.clock()));
         drop(transports_mock);
 
         // Reset the cache, and observe the endpoint being called again once.
@@ -4659,7 +4755,7 @@ pub(crate) mod tests {
 
         // We wait for the task to finish, the endpoint should have been called again.
         sleep(Duration::from_secs(1)).await;
-        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired(client.discovery_cache_timeout(), client.clock()));
     }
 
     #[async_test]
@@ -4693,7 +4789,7 @@ pub(crate) mod tests {
         assert_eq!(client.rtc_transports().await.unwrap(), None);
         // Subsequent call hits the in-memory cache, without re-hitting the endpoint.
         assert_eq!(client.rtc_transports().await.unwrap(), None);
-        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired(client.discovery_cache_timeout(), client.clock()));
     }
 
     #[async_test]
@@ -5220,8 +5316,7 @@ pub(crate) mod tests {
         assert_eq!(*client.inner.server_max_upload_size.lock().await.get().unwrap(), uint!(1));
 
         let data = vec![1, 2];
-        let upload_request =
-            ruma::api::client::media::create_content::v3::Request::new(data.clone());
+        let upload_request = media::create_content::v3::Request::new(data.clone());
         let request = SendRequest {
             client: client.clone(),
             request: upload_request,

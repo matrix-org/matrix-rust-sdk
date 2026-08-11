@@ -159,7 +159,7 @@ impl HomeserverCapabilities {
         };
 
         // Spawn a task to refresh the cache if it has expired.
-        if value.has_expired() {
+        if value.has_expired(self.client.discovery_cache_timeout(), self.client.clock()) {
             debug!("spawning task to refresh homeserver capabilities cache");
 
             let homeserver_capabilities = self.clone();
@@ -218,7 +218,8 @@ impl HomeserverCapabilities {
 
                 // Reuse the data if it was cached and it hasn't expired.
                 if let CachedValue::Cached(value) = capabilities_cache.value()
-                    && !value.has_expired()
+                    && !value
+                        .has_expired(self.client.discovery_cache_timeout(), self.client.clock())
                 {
                     return Ok(value.into_data());
                 }
@@ -313,7 +314,6 @@ struct ProfileCapabilities {
 mod tests {
     use std::time::Duration;
 
-    use assert_matches::assert_matches;
     use matrix_sdk_base::sleep::sleep;
     use matrix_sdk_test::async_test;
     #[allow(deprecated)]
@@ -420,9 +420,20 @@ mod tests {
         // Call a method to trigger a cache refresh background task.
         capabilities.homeserver_capabilities_cached().await.unwrap().unwrap();
 
-        // We wait for the task to finish, the endpoint should have been called again.
-        sleep(Duration::from_secs(1)).await;
-        assert_matches!(client.inner.caches.homeserver_capabilities.value(), CachedValue::Cached(value) if !value.has_expired());
+        // Poll for the background task to finish and update the cache.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let CachedValue::Cached(value) =
+                    client.inner.caches.homeserver_capabilities.value()
+                    && !value.has_expired(client.discovery_cache_timeout(), client.clock())
+                {
+                    return;
+                }
+                sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("Timed out waiting for homeserver capabilities cache to refresh");
     }
 
     #[async_test]

@@ -15,8 +15,28 @@
 //! Types to implement TTL caches which can be used to persist data for a fixed
 //! duration.
 
+use std::{sync::Arc, time::Duration};
+
 use ruma::time::SystemTime;
 use serde::{Deserialize, Serialize};
+
+/// A source of the current time, used so that tests can control what "now" is.
+pub trait Clock: std::fmt::Debug + Send + Sync {
+    /// Get the current time as a Duration since the Unix epoch.
+    fn now(&self) -> Duration;
+}
+
+/// A [`Clock`] that returns the real, current system time.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> Duration {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("System clock was before 1970.")
+    }
+}
 
 /// A value that expires after some time.
 ///
@@ -39,14 +59,9 @@ pub struct TtlValue<T> {
 }
 
 impl<T> TtlValue<T> {
-    /// The number of milliseconds after which the data is considered stale.
-    ///
-    /// This matches 1 day.
-    pub const STALE_THRESHOLD: f64 = (1000 * 60 * 60 * 24) as _;
-
     /// Construct a new `TtlValue` with the given data.
     pub fn new(data: T) -> Self {
-        Self { data, last_fetch_ts: Some(now_timestamp_ms()) }
+        Self { data, last_fetch_ts: Some(SystemClock.now().as_secs_f64() * 1000.0) }
     }
 
     /// Construct a new `TtlValue` with the given data that never expires.
@@ -67,9 +82,13 @@ impl<T> TtlValue<T> {
         TtlValue { data: f(self.data), last_fetch_ts: self.last_fetch_ts }
     }
 
-    /// Whether this value has expired.
-    pub fn has_expired(&self) -> bool {
-        self.last_fetch_ts.is_some_and(|ts| now_timestamp_ms() - ts >= Self::STALE_THRESHOLD)
+    /// Whether this value has expired, given a custom stale threshold.
+    pub fn has_expired(&self, max_age: Duration, clock: Arc<dyn Clock>) -> bool {
+        self.last_fetch_ts.is_some_and(|ts_ms| {
+            // Convert the clock's Duration to milliseconds to match our storage format
+            let now_ms = clock.now().as_secs_f64() * 1000.0;
+            now_ms - ts_ms >= max_age.as_secs_f64() * 1000.0
+        })
     }
 
     /// Mark this value has expired.
@@ -88,19 +107,15 @@ impl<T> TtlValue<T> {
     pub fn into_data(self) -> T {
         self.data
     }
-}
 
-/// Get the current timestamp as the number of milliseconds since Unix Epoch.
-fn now_timestamp_ms() -> f64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("System clock was before 1970.")
-        .as_secs_f64()
-        * 1000.0
+    /// Construct a new `TtlValue` with a specific timestamp (for testing).
+    #[cfg(test)]
+    pub fn new_with_timestamp(data: T, timestamp: Duration) -> Self {
+        Self { data, last_fetch_ts: Some(timestamp.as_secs_f64() * 1000.0) }
+    }
 }
 
 /// The default timestamp if it is missing during deserialization.
-///
 /// We expect that a value that was serialized always has an expiry time, so the
 /// default is `Some(0.0)`.
 fn default_timestamp() -> Option<f64> {
@@ -109,27 +124,33 @@ fn default_timestamp() -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use serde::{Deserialize, Serialize};
     use serde_json::json;
 
-    use super::{TtlValue, now_timestamp_ms};
+    use super::{SystemClock, TtlValue, *};
 
     #[test]
     fn test_ttl_value_expiry() {
-        // Definitely stale.
+        let one_day = Duration::from_secs(60 * 60 * 24);
+
+        // Definitely stale (older than 1 day).
         let ttl_value = TtlValue {
             data: (),
-            last_fetch_ts: Some(now_timestamp_ms() - TtlValue::<()>::STALE_THRESHOLD - 1.0),
+            last_fetch_ts: Some(
+                SystemClock.now().as_secs_f64() * 1000.0 - (one_day.as_secs_f64() * 1000.0) - 1.0,
+            ),
         };
-        assert!(ttl_value.has_expired());
+        assert!(ttl_value.has_expired(one_day, Arc::new(SystemClock)));
 
         // Definitely not stale.
         let ttl_value = TtlValue::new(());
-        assert!(!ttl_value.has_expired());
+        assert!(!ttl_value.has_expired(one_day, Arc::new(SystemClock)));
 
         // Cannot be stale.
         let ttl_value = TtlValue::without_expiry(());
-        assert!(!ttl_value.has_expired());
+        assert!(!ttl_value.has_expired(one_day, Arc::new(SystemClock)));
     }
 
     #[test]
