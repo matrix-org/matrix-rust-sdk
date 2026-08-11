@@ -3656,4 +3656,61 @@ mod tests {
         assert!(client.content_scanner().await.is_none());
         assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
     }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_get_media_content_reports_download_progress() {
+        use std::sync::Arc;
+
+        use matrix_sdk::{
+            ruma::{
+                api::MatrixVersion, events::room::MediaSource as RumaMediaSource, owned_mxc_uri,
+            },
+            test_utils::mocks::MatrixMockServer,
+        };
+        use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
+        use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
+        use crate::client::{ProgressWatcher, TransmissionProgress};
+
+        struct ChannelProgressWatcher(UnboundedSender<TransmissionProgress>);
+
+        impl ProgressWatcher for ChannelProgressWatcher {
+            fn transmission_progress(&self, progress: TransmissionProgress) {
+                let _ = self.0.send(progress);
+            }
+        }
+
+        let server = MatrixMockServer::new().await;
+        let sdk_client = server
+            .client_builder()
+            .server_versions(vec![MatrixVersion::V1_1])
+            .on_builder(|b| b.cross_process_store_config(CrossProcessLockConfig::SingleProcess))
+            .build()
+            .await;
+
+        server.mock_media_download().ok_plain_text().expect(1).mount().await;
+
+        let client = super::Client::new(sdk_client, None, None).await.expect("build ffi client");
+
+        let media_source = Arc::new(crate::ruma::MediaSource {
+            media_source: RumaMediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
+        });
+
+        let (tx, mut rx) = unbounded_channel();
+        let watcher: Box<dyn ProgressWatcher> = Box::new(ChannelProgressWatcher(tx));
+
+        let content =
+            client.get_media_content(media_source, Some(watcher)).await.expect("get media content");
+
+        assert_eq!(content, b"Hello, World!");
+
+        let mut last = None;
+        while let Some(progress) = rx.recv().await {
+            last = Some(progress);
+        }
+        let last = last.expect("expected at least one progress update");
+        assert_eq!(last.current, content.len() as u64);
+        assert_eq!(last.total, content.len() as u64);
+    }
 }

@@ -297,7 +297,10 @@ mod tests {
     use assert_matches2::assert_matches;
     #[cfg(feature = "e2e-encryption")]
     use matrix_sdk::media::{MediaFormat, MediaRequestParameters};
-    use matrix_sdk::{HttpError, RumaApiError, test_utils::mocks::MatrixMockServer};
+    use matrix_sdk::{
+        HttpError, RumaApiError, SharedObservable, TransmissionProgress,
+        test_utils::mocks::MatrixMockServer,
+    };
     use matrix_sdk_test::async_test;
     use ruma::{
         api::{
@@ -364,6 +367,37 @@ mod tests {
             .get_media(&client, &media_source, Default::default())
             .await
             .expect("Get media");
+    }
+
+    #[async_test]
+    async fn test_get_media_reports_download_progress() {
+        let server = MatrixMockServer::new().await;
+        let client =
+            server.client_builder().server_versions(vec![MatrixVersion::V1_11]).build().await;
+
+        let content_scanner_server = MockServer::start().await;
+        let body = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+        Mock::given(method("GET"))
+            .and(path_regex(r"/_matrix/media_proxy/unstable/download/.+/.+"))
+            .and(header_exists("Authorization"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body.clone()))
+            .mount(&content_scanner_server)
+            .await;
+
+        let content_scanner = ContentScanner::new(content_scanner_server.uri());
+        let media_source =
+            MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
+
+        let progress = SharedObservable::new(TransmissionProgress::default());
+        let subscriber = progress.subscribe();
+        let response =
+            content_scanner.get_media(&client, &media_source, progress).await.expect("Get media");
+
+        assert_eq!(response.content, body);
+
+        let progress = subscriber.get();
+        assert_eq!(progress.current, body.len());
+        assert_eq!(progress.total, body.len());
     }
 
     #[async_test]
