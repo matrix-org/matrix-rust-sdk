@@ -826,18 +826,32 @@ impl Room {
         event_id: &EventId,
         request_config: Option<RequestConfig>,
     ) -> Result<TimelineEvent> {
-        match self.event_cache().await {
+        let event_cache = match self.event_cache().await {
             Ok((event_cache, _drop_handles)) => {
                 if let Some(event) = event_cache.find_event(event_id).await? {
                     return Ok(event);
                 }
                 // Fallthrough: try with a request.
+                Some(event_cache)
             }
             Err(err) => {
                 debug!("error when getting the event cache: {err}");
+                None
             }
+        };
+
+        let event = self.event(event_id, request_config).await?;
+
+        // Save the fetched event out-of-band: later lookups then hit the cache
+        // instead of the network, and if it's a UTD the redecryptor can
+        // resolve it in place once its room key arrives.
+        if let Some(event_cache) = event_cache
+            && let Err(err) = event_cache.save_events([event.clone()]).await
+        {
+            warn!("couldn't save the fetched event in the event cache: {err}");
         }
-        self.event(event_id, request_config).await
+
+        Ok(event)
     }
 
     /// Try to load the event and its relations from the

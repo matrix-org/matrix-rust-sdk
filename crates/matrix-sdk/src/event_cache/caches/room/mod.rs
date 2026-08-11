@@ -168,6 +168,17 @@ impl RoomEventCache {
         Ok(self.inner.state.read().await?.rfind_map_event_in_memory_before_gap_by(predicate))
     }
 
+    /// Save events out-of-band, i.e. without being part of the room's linked
+    /// chunk.
+    ///
+    /// Later [`Self::find_event`] lookups will hit the cache, and the
+    /// redecryptor can resolve them in place if they're UTDs whose room key
+    /// arrives later.
+    pub async fn save_events(&self, events: impl IntoIterator<Item = Event>) -> Result<()> {
+        self.inner.state.write().await?.save_events(events).await?;
+        Ok(())
+    }
+
     /// Try to find an event by ID in this room.
     ///
     /// It starts by looking into loaded events before looking inside the
