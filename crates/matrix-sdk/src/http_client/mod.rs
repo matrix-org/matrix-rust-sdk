@@ -26,7 +26,6 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
-use eyeball::SharedObservable;
 use http::Method;
 use matrix_sdk_base::SendOutsideWasm;
 use ruma::api::{
@@ -38,7 +37,9 @@ use ruma::api::{
 use tokio::sync::{Semaphore, SemaphorePermit};
 use tracing::{Instrument, debug, error, field::debug, trace};
 
-use crate::{HttpResult, config::RequestConfig, error::HttpError};
+use crate::{
+    HttpResult, client::futures::RequestProgress, config::RequestConfig, error::HttpError,
+};
 
 #[cfg(not(target_family = "wasm"))]
 mod native;
@@ -134,6 +135,7 @@ impl HttpClient {
         Ok(request)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send<R>(
         &self,
         request: R,
@@ -141,7 +143,7 @@ impl HttpClient {
         homeserver: String,
         access_token: Option<&str>,
         path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
-        send_progress: SharedObservable<TransmissionProgress>,
+        progress: RequestProgress,
     ) -> impl Future<Output = Result<R::IncomingResponse, HttpError>>
     where
         R: OutgoingRequest + Debug,
@@ -216,7 +218,7 @@ impl HttpClient {
 
             // There's a bunch of state in send_request, factor out a pinned inner
             // future to reduce the size of futures that await this function.
-            match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
+            match Box::pin(self.send_request::<R>(request, config, progress)).await {
                 Ok(response) => {
                     log_got_response();
                     Ok(response)

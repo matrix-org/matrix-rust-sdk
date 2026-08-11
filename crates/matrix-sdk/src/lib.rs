@@ -57,7 +57,7 @@ pub mod utils;
 pub mod futures {
     //! Named futures returned from methods on types in [the crate root][crate].
 
-    pub use super::client::futures::SendRequest;
+    pub use super::client::futures::{RequestProgress, SendRequest};
 }
 pub mod sliding_sync;
 pub mod sync;
