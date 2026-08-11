@@ -629,7 +629,6 @@ mod tests {
     /// The app must notice the rotation, adopt the token the NSE stored, and
     /// stay signed in.
     #[async_test]
-    #[should_panic(expected = "the app was signed out after the NSE rotated the refresh token")]
     async fn test_refresh_interrupted_by_suspension_does_not_sign_out() {
         use std::{thread, time::Duration};
 
