@@ -75,7 +75,7 @@ use crate::{
         configuration::{TimelineConfiguration, TimelineFilter},
         threads::{ThreadListService, ThreadSubscription},
     },
-    utils::{AsyncRuntimeDropped, u64_to_uint},
+    utils::{AsyncRuntimeDropped, Timestamp, u64_to_uint},
 };
 
 mod power_levels;
@@ -208,6 +208,18 @@ impl Room {
         matrix_sdk::BaseRoom::latest_event(&self.inner)
             .event_id()
             .map(|event_id| event_id.to_string())
+    }
+
+    /// The timestamp of the room's latest event, as computed by the
+    /// latest-events subsystem. `None` when no value has been computed yet.
+    ///
+    /// Together with [`Self::latest_event_id`] this lets callers decide
+    /// whether some event is at least as new as anything the client knows
+    /// about, even when the client's sync is lagging (e.g. deciding whether a
+    /// notification tap should open the room live rather than focus the
+    /// event).
+    pub fn latest_event_timestamp(&self) -> Option<Timestamp> {
+        matrix_sdk::BaseRoom::latest_event_timestamp(&self.inner).map(Into::into)
     }
 
     /// Returns the room heroes for this room.
