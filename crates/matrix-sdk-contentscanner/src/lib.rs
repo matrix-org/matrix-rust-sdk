@@ -26,7 +26,7 @@ use api::{
     public_server_key::PublicServerKeyRequest,
 };
 use matrix_sdk::{
-    BoxFuture, Client, Error, IdParseError,
+    BoxFuture, Client, Error, IdParseError, SharedObservable, TransmissionProgress,
     encryption::vodozemac::pk_encryption::Message,
     locks::Mutex,
     media::{MediaFetcher, MediaRequestParameters},
@@ -96,6 +96,7 @@ impl ContentScanner {
         &self,
         client: &Client,
         media_source: &MediaSource,
+        progress: SharedObservable<TransmissionProgress>,
     ) -> Result<DownloadAndScanMediaResponse, Error> {
         match &media_source {
             MediaSource::Encrypted(encrypted) => {
@@ -108,6 +109,7 @@ impl ContentScanner {
                         public_server_key,
                         *encrypted.clone(),
                     ))
+                    .with_recv_progress_observable(progress)
                     .await?)
             }
             MediaSource::Plain(mxc) => {
@@ -119,6 +121,7 @@ impl ContentScanner {
                         server_name.as_str(),
                         media_id,
                     ))
+                    .with_recv_progress_observable(progress)
                     .await?)
             }
         }
@@ -215,9 +218,11 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         &'a self,
         client: &'a Client,
         request: &'a MediaRequestParameters,
+        progress: SharedObservable<TransmissionProgress>,
     ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
         Box::pin(async move {
-            let content = self.content_scanner.get_media(client, &request.source).await?.content;
+            let content =
+                self.content_scanner.get_media(client, &request.source, progress).await?.content;
             #[cfg(feature = "e2e-encryption")]
             let content = {
                 match &request.source {
@@ -355,7 +360,10 @@ mod tests {
         let content_scanner = ContentScanner::new(content_scanner_server.uri());
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/RhfpOXOzAwzkuqcmbgMwQUrJ"));
-        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+        content_scanner
+            .get_media(&client, &media_source, Default::default())
+            .await
+            .expect("Get media");
     }
 
     #[async_test]
@@ -378,8 +386,10 @@ mod tests {
         let content_scanner = ContentScanner::new(content_scanner_server.uri());
         let media_source =
             MediaSource::Plain(owned_mxc_uri!("mxc://matrix.org/ckTaStcNnFXLzKApkBmgRDoC"));
-        let err =
-            content_scanner.get_media(&client, &media_source).await.expect_err("Get media error");
+        let err = content_scanner
+            .get_media(&client, &media_source, Default::default())
+            .await
+            .expect_err("Get media error");
         let client_error = err.as_client_api_error().expect("Get client error");
         assert_eq!(client_error.status_code, StatusCode::FORBIDDEN);
         assert_eq!(
@@ -420,7 +430,10 @@ mod tests {
             file_info,
             hashes,
         )));
-        content_scanner.get_media(&client, &media_source).await.expect("Get media");
+        content_scanner
+            .get_media(&client, &media_source, Default::default())
+            .await
+            .expect("Get media");
     }
 
     #[async_test]
@@ -456,7 +469,7 @@ mod tests {
             hashes,
         )));
         let err = content_scanner
-            .get_media(&client, &media_source)
+            .get_media(&client, &media_source, Default::default())
             .await
             .expect_err("Invalid type error");
         let client_error = err.as_client_api_error().expect("Invalid error");
