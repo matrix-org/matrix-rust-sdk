@@ -72,13 +72,22 @@ async fn redecryption_report_task(timeline_controller: TimelineController) {
 
     while let Some(report) = stream.next().await {
         match report {
-            Ok(RedecryptorReport::ResolvedUtds { events, .. }) => {
-                let state = timeline_controller.state.read().await;
+            Ok(RedecryptorReport::ResolvedUtds { room_id, events }) => {
+                {
+                    let state = timeline_controller.state.read().await;
 
-                if let Some(utd_hook) = &state.meta.unable_to_decrypt_hook {
-                    for event_id in events {
-                        utd_hook.on_late_decrypt(&event_id).await;
+                    if let Some(utd_hook) = &state.meta.unable_to_decrypt_hook {
+                        for event_id in &events {
+                            utd_hook.on_late_decrypt(event_id).await;
+                        }
                     }
+                }
+
+                // A redecrypted event may be the target of replies in this
+                // timeline without being a timeline item itself; refresh
+                // those replies' embedded details.
+                if room_id == timeline_controller.room().room_id() {
+                    timeline_controller.update_replies_to_redecrypted_events(&events).await;
                 }
             }
             Ok(RedecryptorReport::Lagging | RedecryptorReport::BackupAvailable) | Err(_) => {

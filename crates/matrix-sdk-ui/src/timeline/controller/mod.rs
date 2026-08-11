@@ -73,6 +73,7 @@ use super::{
     TimelineItem, TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
     VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
+    event_handler::TimelineEventHandler,
     event_item::{ReactionStatus, RemoteEventOrigin},
     item::TimelineUniqueId,
     subscriber::TimelineSubscriber,
@@ -1441,6 +1442,55 @@ impl<P: RoomDataProvider> TimelineController<P> {
     ) -> Result<Option<EmbeddedEvent>, Error> {
         let state = self.state.read().await;
         EmbeddedEvent::try_from_timeline_event(event, &self.room_data_provider, &state.meta).await
+    }
+
+    /// Refresh the `in_reply_to` details of items replying to any of the
+    /// given just-redecrypted events.
+    ///
+    /// [`TimelineEventHandler::maybe_update_responses`] covers targets that
+    /// are themselves timeline items; a replied-to event outside the loaded
+    /// timeline has its details fetched once (as a UTD when the key was
+    /// missing) and would otherwise keep the stale preview until the timeline
+    /// is rebuilt.
+    pub(super) async fn update_replies_to_redecrypted_events(
+        &self,
+        event_ids: &BTreeSet<OwnedEventId>,
+    ) {
+        let targets: Vec<_> = {
+            let state = self.state.read().await;
+            event_ids
+                .iter()
+                .filter(|event_id| state.meta.replies.contains_key(*event_id))
+                .cloned()
+                .collect()
+        };
+
+        for event_id in targets {
+            // Loaded outside the state lock: this can hit the network.
+            let Ok(event) =
+                RoomDataProvider::load_event(&self.room_data_provider, &event_id).await
+            else {
+                continue;
+            };
+
+            let mut state = self.state.write().await;
+
+            let Ok(Some(embedded)) =
+                EmbeddedEvent::try_from_timeline_event(event, &self.room_data_provider, &state.meta)
+                    .await
+            else {
+                continue;
+            };
+
+            let mut txn = state.transaction();
+            TimelineEventHandler::maybe_update_responses(
+                &mut txn.meta,
+                &mut txn.items,
+                &event_id,
+                embedded,
+            );
+            txn.commit();
+        }
     }
 }
 

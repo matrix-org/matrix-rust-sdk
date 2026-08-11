@@ -1381,7 +1381,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
 
     /// After updating the timeline item `new_item` which id is
     /// `target_event_id`, update other items that are responses to this item.
-    fn maybe_update_responses(
+    pub(in crate::timeline) fn maybe_update_responses(
         meta: &mut TimelineMetadata,
         items: &mut ObservableItemsTransaction<'_>,
         target_event_id: &EventId,
