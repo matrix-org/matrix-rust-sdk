@@ -2159,13 +2159,15 @@ impl Client {
         Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
     }
 
+    /// Checks if the server supports the Profiles sliding sync extension.
+    pub async fn is_profiles_sliding_sync_extension_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4262")))
+    }
+
     /// Checks if the server supports user status.
     pub async fn is_user_status_supported(&self) -> Result<bool, ClientError> {
-        let supports_profiles_sync_extension = self
-            .inner
-            .unstable_features()
-            .await?
-            .contains(&FeatureFlag::from("org.matrix.msc4262"));
+        let supports_profiles_sync_extension =
+            self.is_profiles_sliding_sync_extension_supported().await?;
 
         let can_set_status_field = self
             .inner
