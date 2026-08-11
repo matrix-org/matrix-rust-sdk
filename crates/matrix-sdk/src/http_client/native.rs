@@ -20,9 +20,8 @@ use std::{
 };
 
 use backon::{ExponentialBuilder, Retryable};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
-use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
@@ -30,9 +29,10 @@ use reqwest::tls;
 use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
-use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
+use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, response_to_http_response};
 use crate::{
     HttpResult,
+    client::futures::RequestProgress,
     config::RequestConfig,
     error::{HttpError, RetryKind},
 };
@@ -42,7 +42,7 @@ impl HttpClient {
         &self,
         request: http::Request<Bytes>,
         config: RequestConfig,
-        send_progress: SharedObservable<TransmissionProgress>,
+        progress: RequestProgress,
     ) -> HttpResult<R::IncomingResponse>
     where
         R: OutgoingRequest + Debug,
@@ -77,13 +77,13 @@ impl HttpClient {
             request: &http::Request<Bytes>,
             timeout: Option<Duration>,
             retry_count: &AtomicU64,
-            send_progress: SharedObservable<TransmissionProgress>,
+            progress: RequestProgress,
         ) -> HttpResult<http::Response<Bytes>> {
             let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
             debug!(num_attempt, "Sending request");
             let before = ruma::time::Instant::now();
 
-            let response = execute_request(http_client, request, timeout, send_progress).await?;
+            let response = execute_request(http_client, request, timeout, progress).await?;
 
             let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
 
@@ -142,14 +142,14 @@ impl HttpClient {
         let retry_count = AtomicU64::new(1);
 
         let send_request = || {
-            let send_progress = send_progress.clone();
+            let progress = progress.clone();
             async {
                 let response = send_request_inner(
                     &self.inner,
                     &request,
                     config.timeout,
                     &retry_count,
-                    send_progress,
+                    progress,
                 )
                 .await?;
                 let (parts, body) = response.into_parts();
@@ -240,7 +240,7 @@ pub(super) async fn execute_request(
     client: &reqwest::Client,
     request: &http::Request<Bytes>,
     timeout: Option<Duration>,
-    send_progress: SharedObservable<TransmissionProgress>,
+    RequestProgress { send: send_progress, receive: receive_progress }: RequestProgress,
 ) -> Result<http::Response<Bytes>, HttpError> {
     use std::convert::Infallible;
 
@@ -248,7 +248,7 @@ pub(super) async fn execute_request(
 
     let request = request.clone();
     let request = {
-        let mut request = if send_progress.subscriber_count() != 0 {
+        let mut request = if let Some(send_progress) = send_progress {
             let content_length = request.body().len();
             send_progress.update(|p| p.total += content_length);
 
@@ -281,8 +281,33 @@ pub(super) async fn execute_request(
         request
     };
 
-    let response = client.execute(request).await?;
-    Ok(response_to_http_response(response).await?)
+    let mut response = client.execute(request).await?;
+
+    let Some(receive_progress) = receive_progress else {
+        return Ok(response_to_http_response(response).await?);
+    };
+
+    // Read the content length before draining the headers below.
+    let content_length = response.content_length().unwrap_or(0) as usize;
+
+    let status = response.status();
+    let mut http_builder = http::Response::builder().status(status);
+    let headers = http_builder.headers_mut().expect("Can't get the response builder headers");
+    for (k, v) in response.headers_mut().drain() {
+        if let Some(key) = k {
+            headers.insert(key, v);
+        }
+    }
+
+    receive_progress.update(|p| p.total += content_length);
+
+    let mut body = BytesMut::new();
+    while let Some(chunk) = response.chunk().await? {
+        receive_progress.update(|p| p.current += chunk.len());
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(http_builder.body(body.freeze()).expect("Can't construct a response using the given body"))
 }
 
 struct BytesChunks {

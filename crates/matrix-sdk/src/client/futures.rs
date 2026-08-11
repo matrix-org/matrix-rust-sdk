@@ -38,27 +38,36 @@ use crate::{
     media::MediaError,
 };
 
+/// The upload and download progress of a request, tracked as a pair since a
+/// single HTTP exchange can have both a request body being sent and a
+/// response body being received.
+#[derive(Debug, Clone, Default)]
+pub struct RequestProgress {
+    /// Progress of sending the request body.
+    pub send: Option<SharedObservable<TransmissionProgress>>,
+    /// Progress of receiving the response body.
+    pub receive: Option<SharedObservable<TransmissionProgress>>,
+}
+
 /// `IntoFuture` returned by [`Client::send`].
 #[allow(missing_debug_implementations)]
 pub struct SendRequest<R> {
     pub(crate) client: Client,
     pub(crate) request: R,
     pub(crate) config: Option<RequestConfig>,
-    pub(crate) send_progress: SharedObservable<TransmissionProgress>,
+    pub(crate) progress: RequestProgress,
 }
 
 impl<R> SendRequest<R> {
-    /// Replace the default `SharedObservable` used for tracking upload
-    /// progress.
+    /// Replace the default [`RequestProgress`] used for tracking upload and
+    /// download progress.
     ///
     /// Note that any subscribers obtained from
-    /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress]
-    /// will be invalidated by this.
-    pub fn with_send_progress_observable(
-        mut self,
-        send_progress: SharedObservable<TransmissionProgress>,
-    ) -> Self {
-        self.send_progress = send_progress;
+    /// [`subscribe_to_send_progress`][Self::subscribe_to_send_progress] or
+    /// [`subscribe_to_recv_progress`][Self::subscribe_to_recv_progress] will
+    /// be invalidated by this.
+    pub fn with_progress_observable(mut self, progress: RequestProgress) -> Self {
+        self.progress = progress;
         self
     }
 
@@ -71,8 +80,14 @@ impl<R> SendRequest<R> {
 
     /// Get a subscriber to observe the progress of sending the request
     /// body.
-    pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
-        self.send_progress.subscribe()
+    pub fn subscribe_to_send_progress(&mut self) -> Subscriber<TransmissionProgress> {
+        self.progress.send.get_or_insert_with(SharedObservable::default).subscribe()
+    }
+
+    /// Get a subscriber to observe the progress of receiving the response
+    /// body.
+    pub fn subscribe_to_recv_progress(&mut self) -> Subscriber<TransmissionProgress> {
+        self.progress.receive.get_or_insert_with(SharedObservable::default).subscribe()
     }
 }
 
@@ -162,16 +177,15 @@ where
             }
         }
 
-        let Self { client, request, config, send_progress } = self;
+        let Self { client, request, config, progress } = self;
 
         Box::pin(async move {
-            let res =
-                Box::pin(client.send_inner(request.clone(), config, send_progress.clone())).await;
+            let res = Box::pin(client.send_inner(request.clone(), config, progress.clone())).await;
 
             if let Err(e) = &res
                 && let RetryRequest::Yes = handle_unknown_token_error(e, &client).await?
             {
-                return Box::pin(client.send_inner(request, config, send_progress)).await;
+                return Box::pin(client.send_inner(request, config, progress)).await;
             }
 
             res
@@ -202,14 +216,14 @@ impl SendMediaUploadRequest {
         mut self,
         send_progress: SharedObservable<TransmissionProgress>,
     ) -> Self {
-        self.send_request = self.send_request.with_send_progress_observable(send_progress);
+        self.send_request.progress.send = Some(send_progress);
         self
     }
 
     /// Get a subscriber to observe the progress of sending the request
     /// body.
-    pub fn subscribe_to_send_progress(&self) -> Subscriber<TransmissionProgress> {
-        self.send_request.send_progress.subscribe()
+    pub fn subscribe_to_send_progress(&mut self) -> Subscriber<TransmissionProgress> {
+        self.send_request.progress.send.get_or_insert_with(SharedObservable::default).subscribe()
     }
 }
 
