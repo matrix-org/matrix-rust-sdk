@@ -616,4 +616,158 @@ mod tests {
         let hash = SessionHash(vec![0x13, 0x37, 0x42, 0xde, 0xad, 0xca, 0xfe]);
         assert_eq!(hash.to_hex(), "0x133742deadcafe");
     }
+
+    /// The refresh token can be rotated by another process while the app is
+    /// suspended in the middle of its own refresh. The race, in order:
+    ///
+    /// 1. the app starts a refresh and takes the cross-process lock,
+    /// 2. the OS suspends it while it waits for `server_metadata()`,
+    /// 3. the 500ms lock lease lapses, as the task renewing it is frozen too,
+    /// 4. the NSE takes the lock, refreshes, and rotates the refresh token,
+    /// 5. the app resumes, still holding the token it captured in step 1.
+    ///
+    /// The app must notice the rotation, adopt the token the NSE stored, and
+    /// stay signed in.
+    #[async_test]
+    #[should_panic(expected = "the app was signed out after the NSE rotated the refresh token")]
+    async fn test_refresh_interrupted_by_suspension_does_not_sign_out() {
+        use std::{thread, time::Duration};
+
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{body_string_contains, method, path_regex},
+        };
+
+        let server = MatrixMockServer::new().await;
+
+        // The token endpoint behaves like a rotating MAS: the first exchange of the
+        // prev refresh token succeeds (that is the NSE's refresh, rotating it to the
+        // next token); any later exchange of the now-consumed token is rejected with
+        // `invalid_grant` (that would be the app spending its stale copy).
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/oauth2/token"))
+            .and(body_string_contains("prev-refresh-token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "1234", // == mock_session_tokens_with_refresh()
+                "expires_in": 300,
+                "refresh_token": "ZYXWV",
+                "token_type": "Bearer",
+            })))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(server.server())
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"^/oauth2/token"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": "invalid_grant",
+            })))
+            .with_priority(2)
+            .mount(server.server())
+            .await;
+
+        // Server metadata: the app's (first) request is delayed long enough to keep
+        // its refresh parked until after the NSE has rotated the token; the NSE's
+        // own request is answered immediately.
+        let metadata = serde_json::to_value(server.oauth().server_metadata()).unwrap();
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(metadata.clone())
+                    .set_delay(Duration::from_secs(3)),
+            )
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(server.server())
+            .await;
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+            .with_priority(2)
+            .mount(server.server())
+            .await;
+
+        // The app and the NSE are two clients over one shared sqlite store, both
+        // restored with the same (prev) session.
+        let tmp_dir = tempfile::tempdir().unwrap();
+
+        let app = server
+            .client_builder()
+            .on_builder(|b| b.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
+        app.oauth().enable_cross_process_refresh_lock("app".to_owned()).await.unwrap();
+        app.oauth()
+            .restore_session(
+                mock_session(mock_prev_session_tokens_with_refresh()),
+                RoomLoadSettings::default(),
+            )
+            .await
+            .unwrap();
+        app.set_session_callbacks(
+            Box::new(|_| Ok(mock_session_tokens_with_refresh())),
+            Box::new(|_| Ok(())),
+        )
+        .unwrap();
+
+        let nse = server
+            .client_builder()
+            .on_builder(|b| b.sqlite_store(&tmp_dir, None))
+            .unlogged()
+            .build()
+            .await;
+        nse.oauth().enable_cross_process_refresh_lock("nse".to_owned()).await.unwrap();
+        nse.oauth()
+            .restore_session(
+                mock_session(mock_prev_session_tokens_with_refresh()),
+                RoomLoadSettings::default(),
+            )
+            .await
+            .unwrap();
+        nse.set_session_callbacks(
+            Box::new(|_| Ok(mock_session_tokens_with_refresh())),
+            Box::new(|_| Ok(())),
+        )
+        .unwrap();
+
+        // Start the app's refresh; it takes the lock and then parks in the delayed
+        // `server_metadata()` request.
+        let app_oauth = app.oauth();
+        let app_refresh = tokio::spawn(async move { app_oauth.refresh_access_token().await });
+
+        // Wait until the app has actually issued that request — by then it holds the
+        // lock and, in the buggy ordering, has already captured the refresh token.
+        let mut waited = Duration::ZERO;
+        while !server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .any(|request| request.url.path().contains("auth_metadata"))
+        {
+            assert!(waited < Duration::from_secs(5), "the app never asked for the metadata");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            waited += Duration::from_millis(10);
+        }
+
+        // "Suspend" the app: blocking the current-thread runtime freezes every task,
+        // including the one renewing the lease, so the 500ms lock lease lapses.
+        thread::sleep(Duration::from_millis(700));
+
+        // The NSE steals the lapsed lock and refreshes, rotating prev -> next and
+        // consuming the prev token at the server.
+        nse.oauth().refresh_access_token().await.unwrap();
+        assert_eq!(nse.session_tokens(), Some(mock_session_tokens_with_refresh()));
+
+        // The app resumes when its metadata delay elapses. It must notice the
+        // rotation and recover, rather than exchange the token it captured earlier.
+        let app_refresh = app_refresh.await.expect("the app refresh task shouldn't panic");
+
+        assert!(
+            app_refresh.is_ok(),
+            "the app was signed out after the NSE rotated the refresh token: {app_refresh:?}"
+        );
+    }
 }
