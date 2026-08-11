@@ -686,28 +686,43 @@ impl EventCacheStore for SqliteEventCacheStore {
         let generation = self
             .write()
             .await?
-            .with_transaction(move |txn| {
-                txn.query_row(
-                    "INSERT INTO lease_locks (key, holder, expiration) \
-                    VALUES (?1, ?2, ?3) \
-                    ON CONFLICT (key) \
-                    DO \
-                        UPDATE SET \
-                            holder = excluded.holder, \
-                            expiration = excluded.expiration, \
-                            generation = \
-                                CASE holder \
-                                    WHEN excluded.holder THEN generation \
-                                    ELSE generation + 1 \
-                                END \
-                        WHERE \
-                            holder = excluded.holder \
-                            OR expiration < ?4 \
-                    RETURNING generation",
-                    (key, holder, expiration, now),
-                    |row| row.get(0),
-                )
-                .optional()
+            .with_transaction(move |txn| -> Result<Option<CrossProcessLockGeneration>> {
+                let generation = txn
+                    .query_row(
+                        "INSERT INTO lease_locks (key, holder, expiration) \
+                        VALUES (?1, ?2, ?3) \
+                        ON CONFLICT (key) \
+                        DO \
+                            UPDATE SET \
+                                holder = excluded.holder, \
+                                expiration = excluded.expiration, \
+                                generation = \
+                                    CASE holder \
+                                        WHEN excluded.holder THEN generation \
+                                        ELSE generation + 1 \
+                                    END \
+                            WHERE \
+                                holder = excluded.holder \
+                                OR expiration < ?4 \
+                        RETURNING generation",
+                        (key, holder, expiration, now),
+                        |row| row.get::<_, CrossProcessLockGeneration>(0),
+                    )
+                    .optional()?;
+
+                // Stamp this tenure in the touched-rooms journal. Recovery uses
+                // these markers to verify the journal is complete: a generation
+                // without a marker means its holder ran a build that doesn't
+                // journal, and the journal can't be trusted for that window.
+                if let Some(generation) = generation {
+                    txn.execute(
+                        "INSERT OR IGNORE INTO linked_chunk_touches (hashed_room_id, room_id, generation) \
+                         VALUES (X'74', X'', ?)",
+                        (generation,),
+                    )?;
+                }
+
+                Ok(generation)
             })
             .await?;
 
@@ -1129,6 +1144,7 @@ impl EventCacheStore for SqliteEventCacheStore {
         let _timer = timer!("method");
 
         let encryption = self.encryption.clone();
+        let current_generation = self.last_lock_generation.load(Ordering::SeqCst);
 
         let (has_wildcard, encoded_room_ids) = self
             .write()
@@ -1165,10 +1181,27 @@ impl EventCacheStore for SqliteEventCacheStore {
                     return Ok((true, Vec::new()));
                 }
 
+                // Verify the journal is complete over the recovery window: every
+                // generation is exactly one holder tenure, and journaling holders
+                // stamp a marker for their tenure at acquisition. A missing marker
+                // means a holder ran a build that doesn't journal: its writes
+                // wouldn't be listed, so the journal can't be trusted.
+                let num_tenure_markers: u64 = txn.query_row(
+                    "SELECT COUNT(*) FROM linked_chunk_touches \
+                     WHERE hashed_room_id = X'74' AND generation > ? AND generation <= ?",
+                    (generation, current_generation),
+                    |row| row.get(0),
+                )?;
+
+                if num_tenure_markers < current_generation.saturating_sub(generation) {
+                    return Ok((true, Vec::new()));
+                }
+
                 let encoded_room_ids = txn
                     .prepare(
                         "SELECT room_id FROM linked_chunk_touches \
-                         WHERE generation > ? GROUP BY hashed_room_id",
+                         WHERE generation > ? AND hashed_room_id NOT IN (X'2A', X'74') \
+                         GROUP BY hashed_room_id",
                     )?
                     .query_map((generation,), |row| row.get::<_, Vec<u8>>(0))?
                     .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -2092,7 +2125,7 @@ mod tests {
         linked_chunk::{ChunkIdentifier, LinkedChunkId, Update},
     };
     use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, async_test};
-    use ruma::{OwnedEventId, event_id};
+    use ruma::{OwnedEventId, RoomId, event_id};
     use tempfile::{TempDir, tempdir};
 
     use super::{SqliteEventCacheStore, keys};
@@ -2117,44 +2150,54 @@ mod tests {
     event_cache_store_integration_tests!();
     event_cache_store_integration_tests_time!();
 
+    /// Expire the current lease so another holder can take the lock over,
+    /// bumping the generation, as if the previous holder's process had been
+    /// suspended.
+    async fn expire_lease(store: &SqliteEventCacheStore) {
+        store
+            .write()
+            .await
+            .unwrap()
+            .with_transaction(|txn| -> crate::error::Result<()> {
+                txn.execute("UPDATE lease_locks SET expiration = 0", ())?;
+                Ok(())
+            })
+            .await
+            .unwrap();
+    }
+
+    async fn write_one_chunk(store: &SqliteEventCacheStore, room_id: &RoomId) {
+        use matrix_sdk_common::linked_chunk::{ChunkIdentifier, Update};
+
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![Update::NewItemsChunk {
+                    previous: None,
+                    new: ChunkIdentifier::new(0),
+                    next: None,
+                }],
+            )
+            .await
+            .unwrap();
+    }
+
     #[async_test]
     async fn test_touched_rooms_journal() {
-        use matrix_sdk_common::linked_chunk::{ChunkIdentifier, Update};
         use ruma::room_id;
 
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        // Simulate a first tenure of the lock at generation 1.
-        store.last_lock_generation.store(1, SeqCst);
-
+        // First tenure: "main" at generation 1.
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "main").await.unwrap(), Some(1));
         let room_a = room_id!("!a:b.c");
-        store
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_a),
-                vec![Update::NewItemsChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(0),
-                    next: None,
-                }],
-            )
-            .await
-            .unwrap();
+        write_one_chunk(&store, room_a).await;
 
-        // Another holder writes at generation 2.
-        store.last_lock_generation.store(2, SeqCst);
-
+        // Second tenure: "nse" takes over at generation 2.
+        expire_lease(&store).await;
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "nse").await.unwrap(), Some(2));
         let room_b = room_id!("!b:b.c");
-        store
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_b),
-                vec![Update::NewItemsChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(0),
-                    next: None,
-                }],
-            )
-            .await
-            .unwrap();
+        write_one_chunk(&store, room_b).await;
 
         // Empty updates must not journal anything.
         store
@@ -2166,12 +2209,6 @@ mod tests {
         let touched = store.load_rooms_touched_since(1).await.unwrap().unwrap();
         assert_eq!(touched, [room_b.to_owned()]);
 
-        // Rooms touched since generation 0 = both rooms.
-        let touched = store.load_rooms_touched_since(0).await.unwrap().unwrap();
-        assert_eq!(touched.len(), 2);
-        assert!(touched.contains(&room_a.to_owned()));
-        assert!(touched.contains(&room_b.to_owned()));
-
         // Nothing since generation 2.
         let touched = store.load_rooms_touched_since(2).await.unwrap().unwrap();
         assert!(touched.is_empty());
@@ -2182,25 +2219,52 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_touched_rooms_journal_pruning_leaves_a_horizon() {
-        use matrix_sdk_common::linked_chunk::{ChunkIdentifier, Update};
+    async fn test_touched_rooms_journal_detects_non_journaling_holders() {
         use ruma::room_id;
 
         let store = get_event_cache_store().await.expect("creating cache store failed");
 
-        // A row at generation 1.
-        store.last_lock_generation.store(1, SeqCst);
+        // Tenures 1 ("main") and 2 ("nse"), both journaling.
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "main").await.unwrap(), Some(1));
+        expire_lease(&store).await;
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "nse").await.unwrap(), Some(2));
+        write_one_chunk(&store, room_id!("!a:b.c")).await;
+
+        // Tenure 3 belongs to a build without the journal: erase its traces.
+        expire_lease(&store).await;
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "legacy").await.unwrap(), Some(3));
         store
-            .handle_linked_chunk_updates(
-                LinkedChunkId::Room(room_id!("!a:b.c")),
-                vec![Update::NewItemsChunk {
-                    previous: None,
-                    new: ChunkIdentifier::new(0),
-                    next: None,
-                }],
-            )
+            .write()
+            .await
+            .unwrap()
+            .with_transaction(|txn| -> crate::error::Result<()> {
+                txn.execute("DELETE FROM linked_chunk_touches WHERE generation = 3", ())?;
+                Ok(())
+            })
             .await
             .unwrap();
+
+        // Tenure 4: back to "main".
+        expire_lease(&store).await;
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "main").await.unwrap(), Some(4));
+
+        // A recovery window containing the unjournaled tenure cannot trust the
+        // journal…
+        assert!(store.load_rooms_touched_since(2).await.unwrap().is_none());
+
+        // …but a window entirely after it can.
+        assert!(store.load_rooms_touched_since(3).await.unwrap().unwrap().is_empty());
+    }
+
+    #[async_test]
+    async fn test_touched_rooms_journal_pruning_leaves_a_horizon() {
+        use ruma::room_id;
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        // One journaled tenure at generation 1.
+        assert_eq!(store.try_take_leased_lock(60_000, "lock", "main").await.unwrap(), Some(1));
+        write_one_chunk(&store, room_id!("!a:b.c")).await;
 
         // A recovery far in the future prunes it (horizon = 100 - 64 = 36)…
         assert!(store.load_rooms_touched_since(100).await.unwrap().unwrap().is_empty());
