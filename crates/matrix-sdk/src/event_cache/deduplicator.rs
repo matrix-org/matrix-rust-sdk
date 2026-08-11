@@ -91,6 +91,19 @@ pub async fn filter_duplicate_events(
 
     let non_empty_all_duplicates = at_least_one_event_not_sent_by_me && all_duplicates;
 
+    // Diagnostic for duplicated timeline items observed in the wild (double
+    // and triple echoes of just-sent messages): trace how each delivery of an
+    // event was classified, so the reconciliation can be replayed from logs.
+    if !in_memory_duplicated_event_ids.is_empty() || !in_store_duplicated_event_ids.is_empty() {
+        tracing::debug!(
+            ?linked_chunk_id,
+            in_memory_duplicates = ?in_memory_duplicated_event_ids,
+            in_store_duplicates = ?in_store_duplicated_event_ids,
+            non_empty_all_duplicates,
+            "Deduplication found duplicate events"
+        );
+    }
+
     Ok(DeduplicationOutcome {
         all_events: new_events,
         in_memory_duplicated_event_ids,

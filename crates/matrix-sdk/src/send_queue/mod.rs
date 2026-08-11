@@ -846,15 +846,24 @@ impl RoomSendQueue {
 
                                 // In case of an error, just log the error but don't stop the Send
                                 // Queue. This feature is not crucial.
-                                if let Some(timeline_event) = timeline_event
-                                    && let Err(err) = room_event_cache
+                                if let Some(timeline_event) = timeline_event {
+                                    // The inserted event carries no `unsigned.transaction_id`, so
+                                    // the timeline's local-echo reconciliation depends on the
+                                    // relative ordering of this insert and the `SentEvent` update;
+                                    // log it for the duplicated-echoes diagnosis.
+                                    debug!(
+                                        %event_id,
+                                        "Eagerly inserting the sent event into the event cache"
+                                    );
+                                    if let Err(err) = room_event_cache
                                         .insert_sent_event_from_send_queue(timeline_event)
                                         .await
-                                {
-                                    error!(
-                                        ?err,
-                                        "Failed to save the sent event in the Event Cache"
-                                    );
+                                    {
+                                        error!(
+                                            ?err,
+                                            "Failed to save the sent event in the Event Cache"
+                                        );
+                                    }
                                 }
                             } else {
                                 info!(

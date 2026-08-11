@@ -1073,6 +1073,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
         }
         let item = cowed.into_owned();
 
+        // Diagnostic tripwire for duplicated timeline items (seen in the wild
+        // as double/triple echoes of just-sent messages): creating an item for
+        // a remote event that already has one means an earlier copy wasn't
+        // removed or updated first.
+        if let Flow::Remote { event_id, position, .. } = &self.ctx.flow
+            && !matches!(position, TimelineItemPosition::UpdateAt { .. })
+            && let Some(existing_item_index) = self
+                .items
+                .get_remote_event_by_event_id(event_id)
+                .and_then(|event_meta| event_meta.timeline_item_index)
+        {
+            warn!(
+                %event_id,
+                existing_item_index,
+                ?position,
+                "Adding a second timeline item for an event that already has one"
+            );
+        }
+
         match &self.ctx.flow {
             Flow::Local { .. } => {
                 trace!("Adding new local timeline item");
@@ -1361,7 +1380,7 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                 }
             })
         {
-            trace!(
+            debug!(
                 ?event_id,
                 ?transaction_id,
                 ?local_timeline_item_index,
@@ -1375,6 +1394,18 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
             TimelineItem::new(new_item, recycled.internal_id.clone())
         } else {
             // We haven't found a matching local item to recycle; create a new item.
+            //
+            // For our own events this is a key data point when diagnosing
+            // duplicated echoes: the remote copy could not be matched to any
+            // local echo (e.g. it carried no transaction ID and the local item
+            // hadn't learnt its event ID yet).
+            if new_item.is_own() {
+                debug!(
+                    ?event_id,
+                    ?transaction_id,
+                    "Own remote event did not match any local echo; creating a new item"
+                );
+            }
             meta.new_timeline_item_with_internal_id(new_item, recycled_timeline_id)
         }
     }

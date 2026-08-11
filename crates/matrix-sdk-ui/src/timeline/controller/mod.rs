@@ -952,7 +952,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 trace!("Sent aggregation was not found");
             }
 
-            warn!("Timeline item not found, can't update send state");
+            // Record whether the event already exists as a remote item: it
+            // tells the duplicated-echoes diagnosis apart from a plainly
+            // vanished item (the former means the remote copy landed and
+            // consumed or bypassed the local echo before this update).
+            let remote_item_exists = new_event_id
+                .is_some_and(|eid| rfind_event_item(&txn.items, |it| it.event_id() == Some(eid)).is_some());
+            warn!(?new_event_id, remote_item_exists, "Timeline item not found, can't update send state");
             return;
         };
 
