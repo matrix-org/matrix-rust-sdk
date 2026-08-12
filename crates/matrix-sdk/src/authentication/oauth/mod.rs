@@ -1142,12 +1142,63 @@ impl OAuth {
         let token = RefreshToken::new(refresh_token.clone());
         let token_uri = TokenUrl::from_url(token_endpoint);
 
-        let response = OAuthClient::new(client_id)
+        let response = match OAuthClient::new(client_id)
             .set_token_uri(token_uri)
             .exchange_refresh_token(&token)
             .request_async(self.http_client())
             .await
-            .map_err(OAuthError::RefreshToken)?;
+        {
+            Ok(response) => response,
+            Err(err) => {
+                // The exchange failed. If another process (e.g. the NSE) rotated the
+                // refresh token while this request was in flight — or while we were
+                // suspended in the small window between reading the token and sending
+                // it — then the token we sent is legitimately stale and this failure
+                // is spurious; signing the user out here would be wrong. Release our
+                // now-stale guard, re-take the cross-process lock, and if the persisted
+                // session changed under us, reload it and report success (the next
+                // sync uses the fresh token).
+                #[cfg(feature = "e2e-encryption")]
+                {
+                    drop(cross_process_lock);
+                    if let Some(manager) = self.ctx().cross_process_token_refresh_manager.get() {
+                        // Recovering is best-effort: neither failing to take the lock nor
+                        // failing to reload the session must mask `err`, so both only warn
+                        // and let the original error be reported.
+                        match manager.spin_lock().await {
+                            Err(lock_err) => {
+                                warn!("couldn't take the cross-process lock back: {lock_err}");
+                            }
+
+                            Ok(mut guard) if guard.hash_mismatch => {
+                                if let Err(reload_err) =
+                                    Box::pin(self.handle_session_hash_mismatch(&mut guard)).await
+                                {
+                                    warn!("couldn't reload the session: {reload_err}");
+                                } else if self
+                                    .client
+                                    .session_tokens()
+                                    .and_then(|tokens| tokens.refresh_token)
+                                    .is_some_and(|reloaded| reloaded != refresh_token)
+                                {
+                                    // `handle_session_hash_mismatch` leaves the tokens
+                                    // untouched when its callback fails, so only a token
+                                    // that actually changed proves the failure was spurious.
+                                    tracing::info!(
+                                        "refresh token was rotated by another process during \
+                                         the exchange; recovering instead of failing"
+                                    );
+                                    return Ok(());
+                                }
+                            }
+
+                            Ok(_) => {}
+                        }
+                    }
+                }
+                return Err(OAuthError::RefreshToken(err));
+            }
+        };
 
         let new_access_token = response.access_token().secret().clone();
         let new_refresh_token = response.refresh_token().map(RefreshToken::secret).cloned();

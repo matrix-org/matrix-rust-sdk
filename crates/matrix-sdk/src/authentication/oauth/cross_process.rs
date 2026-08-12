@@ -262,7 +262,7 @@ mod tests {
 
     use super::compute_session_hash;
     use crate::{
-        Error,
+        Client, Error, RefreshTokenError,
         authentication::oauth::cross_process::SessionHash,
         test_utils::{
             client::{
@@ -629,9 +629,16 @@ mod tests {
     ///
     /// The app must notice the rotation, adopt the token the NSE stored, and
     /// stay signed in.
-    #[async_test]
-    #[should_panic(expected = "the app was signed out after the NSE rotated the refresh token")]
-    async fn test_refresh_interrupted_during_token_exchange_does_not_sign_out() {
+    ///
+    /// `app_can_reload` tells whether the app's reload callback manages to read
+    /// the session the NSE stored.
+    ///
+    /// Returns the app, the result of its refresh, and the store directory the
+    /// two clients share — keep that last one alive, dropping it wipes the
+    /// databases.
+    async fn run_refresh_interrupted_during_token_exchange(
+        app_can_reload: bool,
+    ) -> (Client, Result<(), RefreshTokenError>, tempfile::TempDir) {
         use std::{thread, time::Duration};
 
         let server = MatrixMockServer::new().await;
@@ -671,7 +678,13 @@ mod tests {
             .await
             .unwrap();
         app.set_session_callbacks(
-            Box::new(|_| Ok(mock_session_tokens_with_refresh())),
+            Box::new(move |_| {
+                if app_can_reload {
+                    Ok(mock_session_tokens_with_refresh())
+                } else {
+                    Err("the app can't read the session back".into())
+                }
+            }),
             Box::new(|_| Ok(())),
         )
         .unwrap();
@@ -725,9 +738,33 @@ mod tests {
 
         let app_refresh = app_refresh.await.expect("the app refresh task shouldn't panic");
 
+        (app, app_refresh, tmp_dir)
+    }
+
+    #[async_test]
+    async fn test_refresh_interrupted_during_token_exchange_does_not_sign_out() {
+        let (app, app_refresh, _store_dir) =
+            run_refresh_interrupted_during_token_exchange(true).await;
+
         assert!(
             app_refresh.is_ok(),
             "the app was signed out after the NSE rotated the refresh token: {app_refresh:?}"
         );
+        // Reporting success is only correct because the app now holds the token the
+        // NSE stored; the next request must not reuse the consumed one.
+        assert_eq!(app.session_tokens(), Some(mock_session_tokens_with_refresh()));
+    }
+
+    /// Recovering hinges on the reload callback handing us the session the
+    /// other process stored. When it can't, the app is still stuck with the
+    /// consumed refresh token, and reporting success would leave it
+    /// retrying forever with a token that can no longer work.
+    #[async_test]
+    async fn test_refresh_interrupted_during_token_exchange_fails_if_reload_fails() {
+        let (app, app_refresh, _store_dir) =
+            run_refresh_interrupted_during_token_exchange(false).await;
+
+        assert!(app_refresh.is_err(), "the failed exchange was reported as a success");
+        assert_eq!(app.session_tokens(), Some(mock_prev_session_tokens_with_refresh()));
     }
 }
