@@ -453,12 +453,25 @@ async fn test_redact_message() {
         .unwrap();
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 2);
 
-    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[0]);
+    // The remote event's redaction is applied immediately as a local echo.
+    assert_let!(VectorDiff::Set { index: 1, value: redacted } = &timeline_updates[0]);
+    assert!(redacted.as_event().unwrap().content().is_redacted());
+
+    assert_let!(VectorDiff::PushBack { value: second } = &timeline_updates[1]);
 
     let second = second.as_event().unwrap();
     assert_matches!(second.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+
+    // The redaction request completes (marked sent, then echoed by the eager
+    // event-cache insert), re-setting the redacted item.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 2);
+    assert_let!(VectorDiff::Set { index: 1, value: redacted } = &timeline_updates[0]);
+    assert!(redacted.as_event().unwrap().content().is_redacted());
+    assert_let!(VectorDiff::Set { index: 1, value: redacted } = &timeline_updates[1]);
+    assert!(redacted.as_event().unwrap().content().is_redacted());
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     assert_eq!(timeline_updates.len(), 1);
@@ -536,6 +549,18 @@ async fn test_redact_local_sent_message() {
 
     // Let's redact the local echo with the remote handle.
     timeline.redact(&event.identifier(), None).await.unwrap();
+
+    // The redaction is applied immediately as a local echo...
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    assert!(item.as_event().unwrap().content().is_redacted());
+
+    // ...and the send queue then delivers it to the (mocked, verified) endpoint.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1);
+    assert_let!(VectorDiff::Set { index: 1, value: item } = &timeline_updates[0]);
+    assert!(item.as_event().unwrap().content().is_redacted());
 }
 
 #[async_test]
