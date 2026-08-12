@@ -158,6 +158,12 @@ impl RoomLatestEvents {
         RoomLatestEventsReadGuard { inner: self.state.clone().read_owned().await }
     }
 
+    /// Like [`Self::read`], but returns `None` instead of waiting when the
+    /// lock cannot be acquired immediately.
+    pub fn try_read(&self) -> Option<RoomLatestEventsReadGuard> {
+        self.state.clone().try_read_owned().ok().map(|inner| RoomLatestEventsReadGuard { inner })
+    }
+
     /// Lock this type with exclusive write access, and return an owned lock
     /// guard.
     pub async fn write(&self) -> RoomLatestEventsWriteGuard {

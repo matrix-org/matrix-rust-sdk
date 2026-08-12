@@ -267,7 +267,21 @@ impl LatestEvents {
         };
 
         for (room_id, room_latest_events) in room_handles {
-            if room_latest_events.read().await.for_room().value_is_none().await {
+            // NEVER await the per-room lock here either: this loop runs inside
+            // sync-response handling (under the sliding sync `position` lock),
+            // and the compute task holds each room's write lock while it works.
+            // Awaiting convoyed the sync loop behind the whole computation
+            // backlog when a response registered hundreds of rooms (observed
+            // 2026-08-13 as a 70s+ sync wedge). A busy room is being computed
+            // or (re)registered right now; enqueueing unconditionally is
+            // harmless - recomputing an existing value is idempotent, the
+            // `value_is_none` check only avoids queue spam.
+            let value_is_none = match room_latest_events.try_read() {
+                Some(room_latest_events) => room_latest_events.for_room().value_is_none().await,
+                None => true,
+            };
+
+            if value_is_none {
                 let _ = self.state.registered_rooms.latest_event_queue_sender.send(
                     LatestEventQueueUpdate::EventCache { room_id, origin: EventsOrigin::Sync },
                 );
@@ -1288,6 +1302,18 @@ mod tests {
             .await
             .expect("the rooms map is wedged behind the busy room lock")
             .unwrap();
+
+        // The sync-side trigger must not wait for the busy room either: it
+        // runs under the sliding sync `position` lock, and awaiting the
+        // per-room lock convoyed the sync loop behind the computation backlog.
+        timeout(
+            Duration::from_secs(1),
+            latest_events.trigger_computation_for_rooms_with_no_value(
+                [room_id_0.to_owned(), room_id_1.to_owned()].iter(),
+            ),
+        )
+        .await
+        .expect("the trigger convoyed behind the busy room lock");
 
         // Release the room; the parked subscription must now complete.
         drop(room_0_guard);
