@@ -115,7 +115,7 @@ use crate::{
     room_preview::RoomPreview,
     send_queue::{SendQueue, SendQueueData},
     sliding_sync::Version as SlidingSyncVersion,
-    sync::{RoomUpdate, SyncResponse},
+    sync::{RoomUpdate, SyncResponse, SyncResponseHook},
 };
 #[cfg(feature = "e2e-encryption")]
 use crate::{
@@ -420,6 +420,9 @@ pub(crate) struct ClientInner {
 
     pub(crate) media_fetcher: RwLock<Arc<dyn MediaFetcher>>,
 
+    /// Hook invoked before processing classic sync responses.
+    pub(crate) sync_response_hook: Option<Arc<dyn SyncResponseHook>>,
+
     /// When `Some`, `m.call` auto-sync is enabled and the held
     /// [`AutomaticCallStatus`] owns the event handler registration.
     /// Dropping the `Option` (via
@@ -460,6 +463,7 @@ impl ClientInner {
         #[cfg(feature = "experimental-search")] search_index_handler: SearchIndex,
         thread_subscription_catchup: OnceCell<Arc<ThreadSubscriptionCatchup>>,
         media_fetcher: Arc<dyn MediaFetcher>,
+        sync_response_hook: Option<Arc<dyn SyncResponseHook>>,
     ) -> Arc<Self> {
         let caches = ClientCaches {
             supported_versions: Cache::with_value(supported_versions),
@@ -506,6 +510,7 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
             media_fetcher: RwLock::new(media_fetcher),
+            sync_response_hook,
             #[cfg(feature = "unstable-msc4426")]
             automatic_call_status: StdMutex::new(None),
         };
@@ -3537,6 +3542,7 @@ impl Client {
                 self.inner.search_index.clone(),
                 self.inner.thread_subscription_catchup.clone(),
                 (*self.inner.media_fetcher.read().await).clone(),
+                self.inner.sync_response_hook.clone(),
             )
             .await,
         };
