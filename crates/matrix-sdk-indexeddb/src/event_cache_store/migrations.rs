@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v7};
+    use super::{Version, v8};
 
-    pub const VERSION: Version = Version::V7;
-    pub use v7::keys;
+    pub const VERSION: Version = Version::V8;
+    pub use v8::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -66,6 +66,8 @@ pub enum Version {
     V6 = 6,
     /// Version 7 of the database, for details see [`v7`].
     V7 = 7,
+    /// Version 8 of the database, for details see [`v8`].
+    V8 = 8,
 }
 
 impl Version {
@@ -79,7 +81,8 @@ impl Version {
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
             Self::V6 => v6::upgrade(transaction).map(Some),
-            Self::V7 => Ok(None),
+            Self::V7 => v7::upgrade(transaction).map(Some),
+            Self::V8 => Ok(None),
         }
     }
 }
@@ -101,6 +104,7 @@ impl TryFrom<u32> for Version {
             5 => Ok(Version::V5),
             6 => Ok(Version::V6),
             7 => Ok(Version::V7),
+            8 => Ok(Version::V8),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -443,7 +447,45 @@ mod v7 {
     pub fn empty_threads(transaction: &Transaction<'_>) -> Result<(), Error> {
         let threads = transaction.object_store(keys::THREADS)?;
         threads.clear()?;
+        Ok(())
+    }
 
+    /// Upgrade database from `v7` to `v8`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v8::add_event_id_index_to_events_object_store(transaction)?;
+        Ok(Version::V8)
+    }
+}
+
+pub mod v8 {
+    use indexed_db_futures::Build;
+
+    use super::*;
+
+    pub mod keys {
+        // Re-use all the same keys from `v6`.
+        pub use super::v6::keys::*;
+
+        pub const EVENTS_EVENT_ID: &str = "events_event_id";
+        pub const EVENTS_EVENT_ID_KEY_PATH: &str = "event_id";
+    }
+
+    /// Add a new index to the events object store which tracks the event id of
+    /// an event.
+    ///
+    /// The primary key of the store tracks both the linked chunk id and the
+    /// event id of the event. This makes finding the same event across linked
+    /// chunks difficult.
+    ///
+    /// The new index, therefore, allows a single lookup to find all of these
+    /// events at once.
+    pub fn add_event_id_index_to_events_object_store(
+        transaction: &Transaction<'_>,
+    ) -> Result<(), Error> {
+        let events = transaction.object_store(keys::EVENTS)?;
+        let _ = events
+            .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
+            .build()?;
         Ok(())
     }
 }
