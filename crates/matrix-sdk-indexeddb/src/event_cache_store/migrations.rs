@@ -453,6 +453,7 @@ mod v7 {
     /// Upgrade database from `v7` to `v8`
     pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
         v8::add_event_id_index_to_events_object_store(transaction)?;
+        v8::empty_event_cache(transaction)?;
         Ok(Version::V8)
     }
 }
@@ -486,6 +487,24 @@ pub mod v8 {
         let _ = events
             .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
             .build()?;
+        Ok(())
+    }
+
+    /// Empty the entire store, as the logic for adding events has been updated
+    /// to ensure that event content is consistent across linked chunks.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
         Ok(())
     }
 }

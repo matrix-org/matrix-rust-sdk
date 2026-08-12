@@ -127,6 +127,14 @@ impl Event {
         }
     }
 
+    /// A reference to the underlying event.
+    pub fn content(&self) -> &TimelineEvent {
+        match self {
+            Event::InBand(e) => &e.content,
+            Event::OutOfBand(e) => &e.content,
+        }
+    }
+
     /// Sets the content of the underlying [`GenericEvent`] and returns
     /// the mutated [`Event`]
     pub fn with_content(mut self, content: TimelineEvent) -> Self {
