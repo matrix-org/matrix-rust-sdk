@@ -704,7 +704,8 @@ impl Media {
     }
 }
 
-/// `IntoFuture` returned by [`Media::get_media_content`].
+/// Builder for the future returned when polling [`Media::get_media_content`]'s
+/// result, allowing progress to be observed before awaiting it.
 #[derive(Debug)]
 #[must_use]
 pub struct GetMediaContentRequest {
@@ -755,10 +756,8 @@ impl IntoFuture for GetMediaContentRequest {
                 && let Some(content) =
                     media.client.media_store().lock().await?.get_media_content(&request).await?
             {
-                if recv_progress.subscriber_count() != 0 {
-                    recv_progress
-                        .set(TransmissionProgress { current: content.len(), total: content.len() });
-                }
+                recv_progress
+                    .set(TransmissionProgress { current: content.len(), total: content.len() });
                 return Ok(content);
             }
 
