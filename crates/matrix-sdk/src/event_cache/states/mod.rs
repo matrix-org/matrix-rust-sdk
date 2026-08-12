@@ -50,7 +50,7 @@ pub struct State {
 }
 
 #[derive(Default)]
-struct StateForRoom {
+pub(super) struct StateForRoom {
     room: Option<RoomEventCacheState>,
     threads: HashMap<OwnedEventId, ThreadEventCacheState>,
     pinned_events: Option<PinnedEventsCacheState>,
