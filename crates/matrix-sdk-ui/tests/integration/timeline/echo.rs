@@ -17,12 +17,12 @@ use std::{sync::Arc, time::Duration};
 use assert_matches::assert_matches;
 use assert_matches2::assert_let;
 use eyeball_im::VectorDiff;
-use futures_util::StreamExt;
+use futures_util::{FutureExt as _, StreamExt};
 use matrix_sdk::{assert_let_timeout, executor::spawn, test_utils::mocks::MatrixMockServer};
 use matrix_sdk_test::{JoinedRoomBuilder, async_test, event_factory::EventFactory};
 use matrix_sdk_ui::timeline::{EventSendState, RoomExt};
 use ruma::{
-    event_id,
+    EventId, event_id,
     events::room::message::{MessageType, RoomMessageEventContent},
     room_id, user_id,
 };
@@ -314,4 +314,187 @@ async fn test_cancel_failed() {
 
     // Observable local echo being removed
     assert_matches!(timeline_stream.next().await, Some(VectorDiff::Remove { index: 0 }));
+}
+
+#[async_test]
+async fn test_limited_gappy_sync_redelivering_own_sends_keeps_them_visible() {
+    // Regression test for messages vanishing after being sent on a slow
+    // connection: a limited sync with a new gap whose batch consists solely of
+    // our own just-sent events (already eagerly inserted at the tail by the
+    // send queue) must leave those events visible in the subscriber's view.
+    //
+    // The subscriber's lazy skip count must be engaged (i.e. the timeline
+    // holds more than 20 items) to reproduce the original bug: the skip
+    // stream's translation of the post-shrink `Clear` is where the view
+    // diverged.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let f = EventFactory::new();
+
+    // Enough initial history that the subscriber's lazy skip count is
+    // non-zero (more than 20 items), like a real app timeline.
+    let mut initial_room_builder = JoinedRoomBuilder::new(room_id);
+    for i in 0u32..30 {
+        initial_room_builder = initial_room_builder.add_timeline_event(
+            f.text_msg(format!("hello {i}"))
+                .sender(user_id!("@bob:example.org"))
+                .event_id(&EventId::parse(format!("$prior{i}")).unwrap())
+                .server_ts(152038200 + u64::from(i)),
+        );
+    }
+    let room = server.sync_room(&client, initial_room_builder).await;
+
+    // A limited sync collapses the room to its last chunk, leaving the older
+    // history behind a gap in the store: the shape a long-lived room takes
+    // after any timeline-limited catch-up.
+    let mut collapse_builder = JoinedRoomBuilder::new(room_id)
+        .set_timeline_limited()
+        .set_timeline_prev_batch("gap-1".to_owned());
+    for i in 30u32..35 {
+        collapse_builder = collapse_builder.add_timeline_event(
+            f.text_msg(format!("hello {i}"))
+                .sender(user_id!("@bob:example.org"))
+                .event_id(&EventId::parse(format!("$prior{i}")).unwrap())
+                .server_ts(152038200 + u64::from(i)),
+        );
+    }
+    server.sync_room(&client, collapse_builder).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // Back-pagination fills the gap with the 30 older events (reverse
+    // topological order), reaching the start of the timeline.
+    server
+        .mock_room_messages()
+        .ok(matrix_sdk::test_utils::mocks::RoomMessagesResponseTemplate::default().events(
+            (0u32..30)
+                .rev()
+                .map(|i| {
+                    f.text_msg(format!("hello {i}"))
+                        .room(room_id)
+                        .sender(user_id!("@bob:example.org"))
+                        .event_id(&EventId::parse(format!("$prior{i}")).unwrap())
+                        .server_ts(152038200 + u64::from(i))
+                })
+                .collect::<Vec<_>>(),
+        ))
+        .mount()
+        .await;
+
+    let timeline = Arc::new(room.timeline().await.unwrap());
+
+    // Load the history into the timeline, as the app does when opening the
+    // room: this reloads the pre-gap history into memory, giving the linked
+    // chunk the same multi-chunk shape as a real room.
+    timeline.paginate_backwards(20).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // Observe through the real subscriber (with its lazy skip count), as the
+    // FFI layer does.
+    let (mut observed, mut timeline_stream) = timeline.subscribe().await;
+
+    let event_ids = [event_id!("$d"), event_id!("$e"), event_id!("$f"), event_id!("$g")];
+
+    // Send four messages for real, so the timeline items go through the full
+    // local echo -> Sent -> eager event cache insert lifecycle.
+    for event_id in event_ids {
+        server.mock_room_send().ok(event_id).mock_once().mount().await;
+    }
+    for body in ["d", "e", "f", "g"] {
+        timeline.send(RoomMessageEventContent::text_plain(body).into()).await.unwrap();
+    }
+
+    // Wait until all four have been assigned their event ids, catching the
+    // subscriber's view up along the way and capturing the transaction ids
+    // for the sync re-delivery below.
+    let mut txn_ids = std::collections::HashMap::new();
+    for _ in 0u32..50 {
+        while let Some(Some(diffs)) = timeline_stream.next().now_or_never() {
+            for diff in diffs {
+                // The local echoes only live for the blink of an eye, so
+                // capture their transaction ids from the diffs themselves.
+                diff.clone().map(|item| {
+                    if let Some(event) = item.as_event() {
+                        if let (Some(msg), Some(txn_id)) =
+                            (event.content().as_message(), event.transaction_id())
+                        {
+                            txn_ids.insert(msg.body().to_owned(), txn_id.to_owned());
+                        }
+                    }
+                    item
+                });
+                diff.apply(&mut observed);
+            }
+        }
+
+        let sent = observed
+            .iter()
+            .filter(|item| {
+                item.as_event()
+                    .and_then(|ev| ev.event_id())
+                    .is_some_and(|id| event_ids.contains(&id))
+            })
+            .count();
+        if sent == 4 && txn_ids.len() == 4 {
+            break;
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(txn_ids.len(), 4, "sends did not all settle: {txn_ids:?}");
+
+    // The slow-network sync catches up: limited, with a new gap, and the
+    // batch is exactly our four events again.
+    let mut sync_room_builder = JoinedRoomBuilder::new(room_id)
+        .set_timeline_limited()
+        .set_timeline_prev_batch("prev-batch-token".to_owned());
+    for (i, (body, event_id)) in ["d", "e", "f", "g"].iter().zip(event_ids).enumerate() {
+        sync_room_builder = sync_room_builder.add_timeline_event(
+            f.text_msg(*body)
+                .sender(client.user_id().unwrap())
+                .event_id(event_id)
+                .server_ts(152038280 + i as u64)
+                .unsigned_transaction_id(&txn_ids[*body]),
+        );
+    }
+    server.sync_room(&client, sync_room_builder).await;
+
+    // Let the timeline process everything, applying every subscriber batch.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    while let Some(Some(diffs)) = timeline_stream.next().now_or_never() {
+        for diff in diffs {
+            diff.apply(&mut observed);
+        }
+    }
+
+    let visible_ids = observed
+        .iter()
+        .filter_map(|item| item.as_event().and_then(|ev| ev.event_id()).map(|id| id.to_string()))
+        .collect::<Vec<_>>();
+
+    // The subscriber's view must be a suffix of the real timeline: any stale
+    // items or misplaced events mean the view has diverged.
+    let raw_ids = timeline
+        .items()
+        .await
+        .iter()
+        .filter_map(|item| item.as_event().and_then(|ev| ev.event_id()).map(|id| id.to_string()))
+        .collect::<Vec<_>>();
+
+    assert!(
+        raw_ids.ends_with(&visible_ids),
+        "the subscriber view diverged from the timeline: view {visible_ids:?} vs timeline {raw_ids:?}"
+    );
+
+    // And the four re-delivered events must still be visible, in order, at
+    // the tail.
+    assert_eq!(
+        visible_ids.iter().rev().take(4).rev().cloned().collect::<Vec<_>>(),
+        event_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
+        "own sent events are not the tail of the observed timeline: {visible_ids:?}"
+    );
 }

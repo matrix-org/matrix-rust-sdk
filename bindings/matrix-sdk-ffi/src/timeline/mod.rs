@@ -284,6 +284,24 @@ impl From<matrix_sdk::send_queue::AbstractProgress> for AbstractProgress {
     }
 }
 
+/// Compact, content-free description of a `VectorDiff`, for the FFI
+/// forwarding diagnostics.
+fn diff_kind<T>(diff: &VectorDiff<T>) -> String {
+    match diff {
+        VectorDiff::Append { values } => format!("Append({})", values.len()),
+        VectorDiff::Clear => "Clear".to_owned(),
+        VectorDiff::PushFront { .. } => "PushFront".to_owned(),
+        VectorDiff::PushBack { .. } => "PushBack".to_owned(),
+        VectorDiff::PopFront => "PopFront".to_owned(),
+        VectorDiff::PopBack => "PopBack".to_owned(),
+        VectorDiff::Insert { index, .. } => format!("Insert({index})"),
+        VectorDiff::Set { index, .. } => format!("Set({index})"),
+        VectorDiff::Remove { index } => format!("Remove({index})"),
+        VectorDiff::Truncate { length } => format!("Truncate({length})"),
+        VectorDiff::Reset { values } => format!("Reset({})", values.len()),
+    }
+}
+
 #[matrix_sdk_ffi_macros::export]
 impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
@@ -304,8 +322,18 @@ impl Timeline {
 
             // Then forward new items.
             while let Some(diffs) = timeline_stream.next().await {
+                // Dogfood diagnostics for vanishing messages: record exactly which
+                // diff batches cross the FFI, so a rageshake can tell a rust-side
+                // gap from a Swift-side application failure.
+                tracing::info!(
+                    kinds = ?diffs.iter().map(diff_kind).collect::<Vec<_>>(),
+                    "timeline listener: forwarding diffs"
+                );
+
                 listener.on_update(diffs.into_iter().map(TimelineDiff::new).collect());
             }
+
+            tracing::info!("timeline listener: stream closed, no further updates");
         })))
     }
 

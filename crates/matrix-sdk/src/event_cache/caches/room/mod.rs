@@ -300,8 +300,7 @@ impl RoomEventCache {
             "Reloading the linked chunk from the store after an earlier update failure"
         );
 
-        let reload_result =
-            self.inner.state.write().await?.reload(ReloadPreprocessing::None).await;
+        let reload_result = self.inner.state.write().await?.reload(ReloadPreprocessing::None).await;
 
         match reload_result {
             Ok(diffs) => {
@@ -978,6 +977,148 @@ mod timed_tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].event_id().as_deref(), Some(event_id!("$ev0")));
         assert_eq!(events[1].event_id().as_deref(), Some(event_id!("$ev1")));
+    }
+
+    #[async_test]
+    async fn test_limited_gappy_sync_redelivering_own_tail_keeps_events_visible() {
+        // Regression test: a limited sync with a new gap whose batch consists
+        // solely of events we already have at the tail (our own just-sent
+        // events, eagerly inserted by the send queue) must leave those events
+        // visible to timeline observers after the post-gap shrink.
+        let room_id = room_id!("!galette:saucisse.bzh");
+        // The sender must be our own user: an all-duplicates batch of foreign
+        // events takes the `all_duplicates` early return instead.
+        let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Some initial history.
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: None,
+                    events: vec![
+                        f.text_msg("a").event_id(event_id!("$a")).into_event(),
+                        f.text_msg("b").event_id(event_id!("$b")).into_event(),
+                        f.text_msg("c").event_id(event_id!("$c")).into_event(),
+                    ],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Our own sends, eagerly inserted at the tail (same shape as
+        // `insert_sent_event_from_send_queue`: non-limited, no gap).
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: None,
+                    events: vec![
+                        f.text_msg("d").event_id(event_id!("$d")).into_event(),
+                        f.text_msg("e").event_id(event_id!("$e")).into_event(),
+                        f.text_msg("f2").event_id(event_id!("$f2")).into_event(),
+                        f.text_msg("g").event_id(event_id!("$g")).into_event(),
+                    ],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // A timeline observer's view of the room.
+        let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+        let mut observed: Vec<matrix_sdk_base::event_cache::Event> = initial_events;
+        assert_eq!(observed.len(), 7);
+
+        // The slow-network sync catches up: limited, with a new gap, and the
+        // batch is exactly the events we already know about at the tail.
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("gap-token".to_owned()),
+                    events: vec![
+                        f.text_msg("d").event_id(event_id!("$d")).into_event(),
+                        f.text_msg("e").event_id(event_id!("$e")).into_event(),
+                        f.text_msg("f2").event_id(event_id!("$f2")).into_event(),
+                        f.text_msg("g").event_id(event_id!("$g")).into_event(),
+                    ],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Apply every broadcast diff, as a timeline would.
+        while let Some(Ok(update)) = subscriber.recv().now_or_never() {
+            if let RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs, ..
+            }) = update
+            {
+                for diff in diffs {
+                    apply_diff_to_events(diff, &mut observed);
+                }
+            }
+        }
+
+        let observed_ids =
+            observed.iter().map(|ev| ev.event_id().unwrap().to_string()).collect::<Vec<_>>();
+
+        // The four re-delivered events must still be visible, in order, at the
+        // tail.
+        assert_eq!(
+            observed_ids.last_chunk::<4>().map(|chunk| chunk.to_vec()),
+            Some(vec!["$d".to_owned(), "$e".to_owned(), "$f2".to_owned(), "$g".to_owned()]),
+            "own tail events vanished from the observed timeline: {observed_ids:?}"
+        );
+    }
+
+    /// Apply a `VectorDiff` to a plain `Vec`, mimicking a timeline observer.
+    fn apply_diff_to_events(
+        diff: VectorDiff<matrix_sdk_base::event_cache::Event>,
+        events: &mut Vec<matrix_sdk_base::event_cache::Event>,
+    ) {
+        match diff {
+            VectorDiff::Append { values } => events.extend(values),
+            VectorDiff::PushBack { value } => events.push(value),
+            VectorDiff::PushFront { value } => events.insert(0, value),
+            VectorDiff::Insert { index, value } => events.insert(index, value),
+            VectorDiff::Set { index, value } => events[index] = value,
+            VectorDiff::Remove { index } => {
+                events.remove(index);
+            }
+            VectorDiff::PopBack => {
+                events.pop();
+            }
+            VectorDiff::PopFront => {
+                events.remove(0);
+            }
+            VectorDiff::Truncate { length } => events.truncate(length),
+            VectorDiff::Clear => events.clear(),
+            VectorDiff::Reset { values } => {
+                *events = values.into_iter().collect();
+            }
+        }
     }
 
     #[async_test]
