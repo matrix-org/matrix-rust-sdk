@@ -358,7 +358,7 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
     }
 
     /// See documentation of [`find_event`].
-    pub(super) async fn find_event(
+    pub(in super::super) async fn find_event(
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>> {
