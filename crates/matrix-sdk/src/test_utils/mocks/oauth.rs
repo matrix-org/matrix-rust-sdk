@@ -14,6 +14,8 @@
 
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
+use std::time::Duration;
+
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
     serde::Raw,
@@ -111,7 +113,7 @@ impl OAuthMockServer<'_> {
     /// access token.
     pub fn mock_token(&self) -> MockEndpoint<'_, TokenEndpoint> {
         let mock = Mock::given(method("POST")).and(path_regex(r"^/oauth2/token"));
-        self.mock_endpoint(mock, TokenEndpoint)
+        self.mock_endpoint(mock, TokenEndpoint::default())
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to revoke a
@@ -300,9 +302,29 @@ impl<'a> MockEndpoint<'a, DeviceAuthorizationEndpoint> {
 }
 
 /// A prebuilt mock for a `POST /oauth/token` request.
-pub struct TokenEndpoint;
+#[derive(Default)]
+pub struct TokenEndpoint {
+    /// Optional delay to respond to the query.
+    delay: Option<Duration>,
+}
 
 impl<'a> MockEndpoint<'a, TokenEndpoint> {
+    /// Respond with a given delay to the query.
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.endpoint.delay = Some(delay);
+        self
+    }
+
+    /// Returns the given response, honouring the delay set with
+    /// [`Self::with_delay`].
+    fn respond_with_delay(self, mut template: ResponseTemplate) -> MatrixMock<'a> {
+        if let Some(delay) = self.endpoint.delay {
+            template = template.set_delay(delay);
+        }
+
+        self.respond_with(template)
+    }
+
     /// Returns a successful token response with the default tokens.
     pub fn ok(self) -> MatrixMock<'a> {
         self.ok_with_tokens("1234", "ZYXWV")
@@ -310,7 +332,7 @@ impl<'a> MockEndpoint<'a, TokenEndpoint> {
 
     /// Returns a successful token response with custom tokens.
     pub fn ok_with_tokens(self, access_token: &str, refresh_token: &str) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        self.respond_with_delay(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": access_token,
             "expires_in": 300,
             "refresh_token":  refresh_token,
@@ -320,21 +342,21 @@ impl<'a> MockEndpoint<'a, TokenEndpoint> {
 
     /// Returns an error response when the request was invalid.
     pub fn access_denied(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+        self.respond_with_delay(ResponseTemplate::new(400).set_body_json(json!({
             "error": "access_denied",
         })))
     }
 
     /// Returns an error response when the token in the request has expired.
     pub fn expired_token(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+        self.respond_with_delay(ResponseTemplate::new(400).set_body_json(json!({
             "error": "expired_token",
         })))
     }
 
     /// Returns an error response when the token in the request is invalid.
     pub fn invalid_grant(self) -> MatrixMock<'a> {
-        self.respond_with(ResponseTemplate::new(400).set_body_json(json!({
+        self.respond_with_delay(ResponseTemplate::new(400).set_body_json(json!({
             "error": "invalid_grant",
         })))
     }
