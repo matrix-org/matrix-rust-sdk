@@ -642,7 +642,7 @@ mod tests {
         oauth_server
             .mock_token()
             .ok_with_tokens("1234", "ZYXWV") // == mock_session_tokens_with_refresh()
-            .up_to_n_times(1)
+            .mock_once()
             .with_priority(1)
             .mount()
             .await;
@@ -655,7 +655,7 @@ mod tests {
             .mock_server_metadata()
             .with_delay(Duration::from_secs(1))
             .ok()
-            .up_to_n_times(1)
+            .mock_once()
             .with_priority(1)
             .mount()
             .await;
