@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, ops::Deref, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
@@ -289,7 +289,7 @@ impl Caches {
 
     /// Update all the event caches with a [`JoinedRoomUpdate`].
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        let Self { room, threads, pinned_events, event_focused, internals } = &self;
+        let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
         // Room.
         {
@@ -305,13 +305,24 @@ impl Caches {
             updates.account_data.clear();
             updates.ambiguity_changes.clear();
 
-            let timeline_for_threads = aggregator::aggregate_timeline_for_threads(
-                &updates.timeline,
-                threads.read().await.deref(),
-                room.state().read().await?,
-                &internals.room_version_rules.redaction,
-            )
-            .await?;
+            let timeline_for_threads = {
+                // To aggregate the timelines for threads, we need to lookup in the room cache
+                // and the thread caches. We acquire a read lock over all the caches, and select
+                // the room cache and thread cache' states.
+                let all_states_lock = states::CacheStateLock::new(
+                    states::selectors::AllStatesSelector::new(room.room_id().to_owned()),
+                    self.internals.state.clone(),
+                );
+                let all_states = all_states_lock.read().await?;
+
+                aggregator::aggregate_timeline_for_threads(
+                    &updates.timeline,
+                    all_states.threads(),
+                    all_states.room(),
+                    &internals.room_version_rules.redaction,
+                )
+                .await?
+            };
 
             for (thread_id, timeline) in timeline_for_threads {
                 let mut updates = updates.clone();
@@ -351,7 +362,7 @@ impl Caches {
 
     /// Update all the event caches with a [`LeftRoomUpdate`].
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        let Self { room, threads, pinned_events, event_focused, internals } = &self;
+        let Self { room, threads: _, pinned_events, event_focused, internals } = &self;
 
         // Room.
         {
@@ -367,13 +378,24 @@ impl Caches {
             updates.account_data.clear();
             updates.ambiguity_changes.clear();
 
-            let timeline_for_threads = aggregator::aggregate_timeline_for_threads(
-                &updates.timeline,
-                threads.read().await.deref(),
-                room.state().read().await?,
-                &internals.room_version_rules.redaction,
-            )
-            .await?;
+            let timeline_for_threads = {
+                // To aggregate the timelines for threads, we need to lookup in the room cache
+                // and the thread caches. We acquire a read lock over all the caches, and select
+                // the room cache and thread cache' states.
+                let all_caches_states_lock = states::CacheStateLock::new(
+                    states::selectors::AllStatesSelector::new(room.room_id().to_owned()),
+                    self.internals.state.clone(),
+                );
+                let all_caches_states = all_caches_states_lock.read().await?;
+
+                aggregator::aggregate_timeline_for_threads(
+                    &updates.timeline,
+                    all_caches_states.threads(),
+                    all_caches_states.room(),
+                    &internals.room_version_rules.redaction,
+                )
+                .await?
+            };
 
             for (thread_id, timeline) in timeline_for_threads {
                 let mut updates = updates.clone();

@@ -245,7 +245,8 @@ impl ThreadEventCache {
     ///
     /// It starts by looking into loaded events in `EventLinkedChunk` before
     /// looking inside the storage.
-    pub(super) async fn find_event(
+    #[cfg(test)]
+    async fn find_event(
         &self,
         event_id: &EventId,
     ) -> Result<Option<(super::EventLocation, Event)>> {
