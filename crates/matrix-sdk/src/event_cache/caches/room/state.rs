@@ -821,10 +821,17 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     ) -> Result<(), EventCacheError> {
         match location {
             EventLocation::Memory(position) => {
-                self.state
-                    .room_linked_chunk
-                    .replace_event_at(position, event)
-                    .expect("should have been a valid position of an item");
+                // A position can be stale by the time it's used, despite being
+                // resolved moments earlier (see the same handling in
+                // `remove_events`): a stale position means the event moved or
+                // is gone, so skip the replacement rather than crash. The
+                // callers all tolerate a missed in-place update - the sync
+                // copy is dropped (the existing copy stays), a redecryption is
+                // retried later, a thread summary refreshes on the next update.
+                if let Err(err) = self.state.room_linked_chunk.replace_event_at(position, event) {
+                    error!(?err, "replace_event_at: stale position; skipping the replacement");
+                    return Ok(());
+                }
                 // We just changed the in-memory representation; synchronize this with
                 // the store.
                 self.propagate_changes().await?;
