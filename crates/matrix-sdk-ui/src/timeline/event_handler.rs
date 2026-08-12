@@ -1405,6 +1405,25 @@ impl<'a, 'o> TimelineEventHandler<'a, 'o> {
                     ?transaction_id,
                     "Own remote event did not match any local echo; creating a new item"
                 );
+
+                // Duplicated-echoes tripwire: the locals scan above misses a stale
+                // copy living in the *remotes* region (e.g. an eagerly-inserted sent
+                // event whose dedup removal never reached the timeline). Creating a
+                // second item for it is the moment a visible duplicate is born.
+                if let Some((remote_index, _)) =
+                    items.iter_remotes_region().find(|(_, timeline_item)| {
+                        timeline_item.as_event().and_then(|event_item| event_item.event_id())
+                            == Some(event_id)
+                    })
+                {
+                    warn!(
+                        ?event_id,
+                        ?transaction_id,
+                        remote_index,
+                        "Own remote event created a new item while a remote item with \
+                         the same event id already exists"
+                    );
+                }
             }
             meta.new_timeline_item_with_internal_id(new_item, recycled_timeline_id)
         }
