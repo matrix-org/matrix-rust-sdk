@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use cms::cert::x509::der;
 use ruma::{DeviceKeyId, UserId, canonical_json::to_canonical_value};
@@ -50,16 +50,16 @@ impl X509Signer {
 
     /// Add a signature to the given cross-signing key using our private X.509
     /// key.
-    pub(crate) fn sign_cross_signing_key(
+    pub(crate) async fn sign_cross_signing_key(
         &self,
         signing_user_id: &UserId,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
         let json = to_signable_json(to_canonical_value(&cross_signing_key)?)?;
 
-        let (authority_key_identifier, signature) = self
-            .x509_sign
-            .sign(json.as_bytes())?
+        let signing_result = self.x509_sign.sign(json.into_bytes()).await;
+
+        let (authority_key_identifier, signature) = signing_result?
             .into_x509_signature()
             .map_err(|e| SignatureError::X509SigningError(e.into()))?;
 
@@ -145,9 +145,19 @@ impl X509Signer {
 /// and platform-specific implementations.
 pub trait RawX509Signer: std::fmt::Debug + Send + Sync {
     /// Create a signature for the given message using our private key
-    ///
-    /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError>;
+    #[cfg(not(target_family = "wasm"))]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>>;
+
+    // (On WASM this is identical except the return value is not Send)
+    /// Create a signature for the given message using our private key
+    #[cfg(target_family = "wasm")]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>>>>;
 
     /// Return the "not after" time for the certificate's validity period.
     fn validity_not_after(&self) -> Result<der::DateTime, ValidityError>;
@@ -163,6 +173,7 @@ mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
     use rcgen::{CertificateParams, KeyPair};
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
     use vodozemac::Ed25519SecretKey;
@@ -175,8 +186,8 @@ mod tests {
         },
     };
 
-    #[test]
-    fn test_can_sign() {
+    #[async_test]
+    async fn test_can_sign() {
         let x509_signer = {
             let rust_raw_x509_signer =
                 RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
@@ -199,7 +210,7 @@ mod tests {
             CrossSigningKey::new(user_id.clone(), vec![KeyUsage::Master], keys, Default::default())
         };
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         let self_sigs = cross_signing_key.signatures.get(&user_id).unwrap();
 
@@ -216,8 +227,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_can_compare_validity() {
+    #[async_test]
+    async fn test_can_compare_validity() {
         let signing_key = KeyPair::from_pem(TEST_CERT_KEY).unwrap();
 
         let mut cert_params = CertificateParams::default();
@@ -251,7 +262,10 @@ mod tests {
                 )
             };
 
-            x509_signer_current.sign_cross_signing_key(user_id, &mut cross_signing_key).unwrap();
+            x509_signer_current
+                .sign_cross_signing_key(user_id, &mut cross_signing_key)
+                .await
+                .unwrap();
 
             cross_signing_key.signatures
         };

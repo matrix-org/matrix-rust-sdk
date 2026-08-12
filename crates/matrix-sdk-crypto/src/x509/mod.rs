@@ -117,7 +117,7 @@ pub use cms::cert::x509::der::DateTime;
 pub use errors::{
     IntoX509SignatureError, X509SignatureSigningError, X509SignatureVerificationError,
 };
-pub use raw_x509_signature::RawX509Signature;
+pub use raw_x509_signature::{RawX509Signature, X509SignatureScheme};
 pub(crate) use x509_signer::X509Signer;
 pub use x509_signer::{RawX509Signer, ValidityError};
 pub use x509_verify::RawX509Verifier;

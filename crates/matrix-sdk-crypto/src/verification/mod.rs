@@ -835,6 +835,7 @@ pub(crate) mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
         let alice_private_identity = Mutex::new(alice_private_identity);
 
@@ -845,6 +846,7 @@ pub(crate) mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
         let bob_private_identity = Mutex::new(bob_private_identity);
 

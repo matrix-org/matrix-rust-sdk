@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{future::ready, pin::Pin, sync::Arc};
 
 use cms::cert::x509::{Certificate, der};
 use rustls::{
@@ -103,13 +103,8 @@ impl RustRawX509Signer {
             validity_not_after,
         })
     }
-}
 
-impl RawX509Signer for RustRawX509Signer {
-    /// Create a signature for the given message using our private key
-    ///
-    /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
+    fn sign_impl(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
         let signer = self
             .signing_key
             .choose_scheme(&[SignatureScheme::RSA_PSS_SHA512])
@@ -124,6 +119,33 @@ impl RawX509Signer for RustRawX509Signer {
             certificate_chain: self.certificate_chain.clone(),
             signature_scheme: X509SignatureScheme::RsaPssSha512,
         })
+    }
+}
+
+impl RawX509Signer for RustRawX509Signer {
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    #[cfg(not(target_family = "wasm"))]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>> {
+        let ret = self.sign_impl(&message);
+        Box::pin(ready(ret))
+    }
+
+    // (On WASM this is identical except the return value is not Send)
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    #[cfg(target_family = "wasm")]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>>>> {
+        let ret = self.sign_impl(&message);
+        Box::pin(ready(ret))
     }
 
     fn validity_not_after(&self) -> Result<der::DateTime, ValidityError> {
@@ -143,18 +165,19 @@ impl std::fmt::Debug for RustRawX509Signer {
 #[cfg(test)]
 mod tests {
     use cms::cert::x509::der;
+    use matrix_sdk_test::async_test;
 
     use crate::x509::{
         RawX509Signer, raw_x509_signature::X509SignatureScheme,
         rust_raw_x509_signer::RustRawX509Signer,
     };
 
-    #[test]
-    fn test_can_sign() {
+    #[async_test]
+    async fn test_can_sign() {
         let x509_sign =
             RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
 
-        let sig = x509_sign.sign(b"hello world").unwrap();
+        let sig = x509_sign.sign(b"hello world".to_vec()).await.unwrap();
 
         assert_eq!(sig.certificate_chain, TEST_CERT_CHAIN);
         assert_eq!(sig.signature_scheme, X509SignatureScheme::RsaPssSha512);
