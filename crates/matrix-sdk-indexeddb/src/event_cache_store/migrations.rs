@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v7};
+    use super::{Version, v8};
 
-    pub const VERSION: Version = Version::V7;
-    pub use v7::keys;
+    pub const VERSION: Version = Version::V8;
+    pub use v8::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -66,6 +66,8 @@ pub enum Version {
     V6 = 6,
     /// Version 7 of the database, for details see [`v7`].
     V7 = 7,
+    /// Version 8 of the database, for details see [`v8`].
+    V8 = 8,
 }
 
 impl Version {
@@ -79,7 +81,8 @@ impl Version {
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
             Self::V6 => v6::upgrade(transaction).map(Some),
-            Self::V7 => Ok(None),
+            Self::V7 => v7::upgrade(transaction).map(Some),
+            Self::V8 => Ok(None),
         }
     }
 }
@@ -100,6 +103,7 @@ impl TryFrom<u32> for Version {
             4 => Ok(Version::V4),
             5 => Ok(Version::V5),
             6 => Ok(Version::V6),
+            7 => Ok(Version::V7),
             v => Err(UnknownVersionError(v)),
         }
     }
@@ -461,6 +465,36 @@ pub mod v7 {
         let _ = events
             .create_index(keys::EVENTS_EVENT_ID, keys::EVENTS_EVENT_ID_KEY_PATH.into())
             .build()?;
+        Ok(())
+    }
+
+    /// Upgrade database from `v7` to `v8`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v8::empty_event_cache(transaction)?;
+        Ok(Version::V8)
+    }
+}
+
+pub mod v8 {
+    // Re-use all the same keys from `v7`.
+    pub use super::v7::keys;
+    use super::*;
+
+    /// Empty the entire store, as the logic for adding events has been updated
+    /// to ensure that event content is consistent across linked chunks.
+    pub fn empty_event_cache(transaction: &Transaction<'_>) -> Result<(), Error> {
+        let linked_chunks = transaction.object_store(keys::LINKED_CHUNKS)?;
+        linked_chunks.clear()?;
+
+        let gaps = transaction.object_store(keys::GAPS)?;
+        gaps.clear()?;
+
+        let events = transaction.object_store(keys::EVENTS)?;
+        events.clear()?;
+
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
         Ok(())
     }
 }
