@@ -333,7 +333,8 @@ pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
 pub trait RawX509Signer: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Create a signature for the given message using our private key
     ///
-    /// Returns (key ID, signature)
+    /// Note: the matrix-rust-sdk implementation supports asynchronous signing,
+    /// but (for now) in this FFI we only support synchronous.
     fn sign(&self, message: Vec<u8>) -> Result<RawX509Signature, ClientError>;
 
     /// Return the "not after" time for the certificate's validity period as a

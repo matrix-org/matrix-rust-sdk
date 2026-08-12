@@ -245,6 +245,7 @@ fn get_attribute_value_as_string(value: &AttributeValue) -> Option<&str> {
 pub(crate) mod tests {
 
     use cms::cert::x509::der::Decode;
+    use matrix_sdk_test::async_test;
     use rcgen::generate_simple_self_signed;
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
     use vodozemac::Ed25519SecretKey;
@@ -329,8 +330,8 @@ pub(crate) mod tests {
         assert!(user_id.is_none());
     }
 
-    #[test]
-    fn test_can_verify_cert_containing_email_in_dn() {
+    #[async_test]
+    async fn test_can_verify_cert_containing_email_in_dn() {
         // Given a cert containing the email address in the Subject Distinguished Name
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
@@ -345,14 +346,14 @@ pub(crate) mod tests {
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
 
         // But when we sign it
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it verifies correctly
         assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_can_verify_cert_containing_email_in_san() {
+    #[async_test]
+    async fn test_can_verify_cert_containing_email_in_san() {
         // Given a cert containing the email address in the Subject Alternative
         // Name
         let (cert, signing_key) =
@@ -364,14 +365,14 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it verifies correctly.
         assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_can_verify_cert_containing_username_in_san() {
+    #[async_test]
+    async fn test_can_verify_cert_containing_username_in_san() {
         // Given a cert containing the Matrix user ID in the Subject Alternative
         // Name
         let (cert, signing_key) =
@@ -383,14 +384,14 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it verifies correctly.
         assert!(x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_dn_email_is_wrong() {
+    #[async_test]
+    async fn test_verification_fails_if_dn_email_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
         // Distinguished Name
         let (cert, signing_key) =
@@ -402,15 +403,15 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because the supplied email address translates
         // to a different user ID.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_san_email_is_wrong() {
+    #[async_test]
+    async fn test_verification_fails_if_san_email_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
         // Alternative Name
         let (cert, signing_key) =
@@ -422,15 +423,15 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because the supplied email address translates
         // to a different user ID.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_cert_user_id_is_wrong() {
+    #[async_test]
+    async fn test_verification_fails_if_cert_user_id_is_wrong() {
         // Given a cert containing an incorrect email address in the Subject
         // Alternative Name
         let (cert, signing_key) =
@@ -442,15 +443,15 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because the supplied user ID does not match
         // the signing user.
         assert!(!x509_verifier.verify_signed_object(&user_id, &cross_signing_key));
     }
 
-    #[test]
-    fn test_verification_fails_if_cert_user_id_is_missing() {
+    #[async_test]
+    async fn test_verification_fails_if_cert_user_id_is_missing() {
         // Given a cert with no email or user ID at all
         let (cert, signing_key) = cert_and_key_with_no_user_id();
 
@@ -460,7 +461,7 @@ pub(crate) mod tests {
         let user_id = user_id!("@alice:localhost").to_owned();
         let mut cross_signing_key = create_cross_signing_key(&user_id);
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         // Then it fails to verify because there is no user ID to check against
         // the user's ID.

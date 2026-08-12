@@ -487,7 +487,7 @@ impl IdentityManager {
             {
                 // Check if we need to re-sign our identity with the X.509 signer.
                 *self.x509_signature_upload_request.lock().await =
-                    identity.refresh_x509_signature(&self.store).unwrap_or(None).into();
+                    identity.refresh_x509_signature(&self.store).await.unwrap_or(None).into();
             }
 
             None
@@ -888,7 +888,7 @@ impl IdentityManager {
                 .and_then(UserIdentityData::into_own)
             {
                 *upload_request =
-                    identity.refresh_x509_signature(&self.store).unwrap_or(None).into();
+                    identity.refresh_x509_signature(&self.store).await.unwrap_or(None).into();
             }
         }
         match &*upload_request {
@@ -2640,6 +2640,7 @@ pub(crate) mod tests {
             let account = Account::with_device_id(&user_id, device_id);
             let identity =
                 PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
+                    .await
                     .unwrap();
             manager_with_private_identity_and_x509(identity, account, x509_signer_current.clone())
                 .await
@@ -2659,9 +2660,9 @@ pub(crate) mod tests {
 
         // Make a `/keys/query` response where the master key is signed by the
         // given X.509 signer.
-        let make_response = |x509_signer: &crate::x509::X509Signer| {
+        let make_response = async move |x509_signer: &crate::x509::X509Signer| {
             let mut master_key = master_key.clone();
-            x509_signer.sign_cross_signing_key(user_id, &mut master_key).unwrap();
+            x509_signer.sign_cross_signing_key(user_id, &mut master_key).await.unwrap();
 
             let response = json!({
                 "device_keys": {
@@ -2685,19 +2686,19 @@ pub(crate) mod tests {
 
         // We receive a master key signed by the old signer.  In this case, we
         // should re-sign the key, since our signer has a newer validity period.
-        let response = make_response(&x509_signer_old);
+        let response = make_response(&x509_signer_old).await;
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
         assert!(manager.get_x509_signature_upload_request().await.is_some());
 
         // We receive a master key signed by the same signer, so we don't need
         // to re-sign.
-        let response = make_response(&x509_signer_current);
+        let response = make_response(&x509_signer_current).await;
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
         assert!(manager.get_x509_signature_upload_request().await.is_none());
 
         // We receive a master key signed by a newer signer, so we don't need to
         // re-sign.
-        let response = make_response(&x509_signer_new);
+        let response = make_response(&x509_signer_new).await;
         manager.receive_keys_query_response(&TransactionId::new(), &response).await.unwrap();
         assert!(manager.get_x509_signature_upload_request().await.is_none());
     }
@@ -2718,7 +2719,9 @@ pub(crate) mod tests {
         // We create a cross-signing identity signed with the current signer.
         let account = Account::with_device_id(&user_id, device_id);
         let identity =
-            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current)).unwrap();
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer_current))
+                .await
+                .unwrap();
 
         // If we have an identity manager with an old signer, then it won't try
         // to re-sign the master key.

@@ -566,7 +566,8 @@ impl PrivateCrossSigningIdentity {
      *
      * * `account` - The Olm account that is creating the new identity.
      */
-    pub(crate) fn for_account(
+    #[allow(clippy::unused_async, reason = "async is needed for x509")]
+    pub(crate) async fn for_account(
         account: &Account,
         #[cfg(feature = "experimental-x509-identity-verification")] x509_signer: Option<
             &X509Signer,
@@ -583,7 +584,7 @@ impl PrivateCrossSigningIdentity {
 
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_signer) = x509_signer {
-            x509_signer.sign_cross_signing_key(&account.user_id, cross_signing_key)?;
+            x509_signer.sign_cross_signing_key(&account.user_id, cross_signing_key).await?;
         }
 
         Ok(Self::new_helper(account.user_id(), master))
@@ -769,6 +770,7 @@ mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
@@ -804,7 +806,7 @@ mod tests {
 
         // When we pass in an X509Signer to for_account, ...
         let identity =
-            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).unwrap();
+            PrivateCrossSigningIdentity::for_account(&account, Some(&x509_signer)).await.unwrap();
         let master = identity.master_key.lock().await;
         let master = master.as_ref().unwrap();
 
@@ -822,6 +824,7 @@ mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
 
         let mut device = DeviceData::from_account(&account);
@@ -844,6 +847,7 @@ mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
 
         let bob_account =
@@ -853,6 +857,7 @@ mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
         let mut bob_public = OtherUserIdentityData::from_private(&bob_private).await;
 

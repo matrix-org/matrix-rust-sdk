@@ -138,6 +138,7 @@ impl RawX509Verifier for RustRawX509Verifier {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use matrix_sdk_test::async_test;
 
     use crate::x509::{
         RawX509Signer, RawX509Verifier, X509SignatureVerificationError,
@@ -145,8 +146,8 @@ mod tests {
         tests::cert_and_key_with_email_in_subject_distinguished_name,
     };
 
-    #[test]
-    fn test_can_verify() {
+    #[async_test]
+    async fn test_can_verify() {
         let (cert, signing_key) =
             cert_and_key_with_email_in_subject_distinguished_name("alice@localhost");
 
@@ -156,7 +157,7 @@ mod tests {
         let x509_sign = RustRawX509Signer::new_from_pem_data(&cert_pem, &key_pem).unwrap();
 
         // After we sign a text
-        let sig = x509_sign.sign(b"hello world").unwrap();
+        let sig = x509_sign.sign(b"hello world".to_vec()).await.unwrap();
 
         let x509_verify = RustRawX509Verifier::new_from_pem_data(&cert_pem).unwrap();
 
