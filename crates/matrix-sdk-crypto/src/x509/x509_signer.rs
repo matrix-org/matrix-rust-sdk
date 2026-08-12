@@ -57,14 +57,14 @@ impl X509Signer {
     ) -> Result<(), SignatureError> {
         let json = to_signable_json(to_canonical_value(&cross_signing_key)?)?;
 
-        // We use the authority key identifier as a device ID because it yields
-        // a unique signature per CA, which is what we want.
         let (authority_key_identifier, signature) = self
             .x509_sign
             .sign(json.as_bytes())?
             .into_x509_signature()
             .map_err(|e| SignatureError::X509SigningError(e.into()))?;
 
+        // We use the authority key identifier as a device ID because it yields
+        // a unique signature per CA, which is what we want.
         cross_signing_key.signatures.add_signature(
             signing_user_id.to_owned(),
             DeviceKeyId::from_parts(X509_SIGNATURE_ALGORITHM.into(), &authority_key_identifier),
