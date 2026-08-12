@@ -26,10 +26,10 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventEventIdKey,
-            IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
-            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
-            IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventError,
+            IndexedEventEventIdKey, IndexedEventIdKey, IndexedEventPositionKey,
+            IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey, IndexedLease,
+            IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -444,17 +444,31 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// This functionality allows events to be promoted from
     /// out-of-band events to in-band events, but not vice versa.
     ///
+    /// Additionally, if an event with the same ID already exists anywhere
+    /// in the store, every instance is updated with the provided content, i.e.,
+    /// across all linked chunks.
+    ///
     /// When the event is successfully added, the function returns
     /// the intermediary type [`IndexedEvent`] in case inspection
     /// is needed.
     pub async fn add_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        let existing =
-            self.get_event_by_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
-        if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
-            self.put_event(event).await
-        } else {
-            self.add_item(event).await
+        let linked_chunk_id = event.linked_chunk_id();
+        let Some(event_id) = event.event_id() else {
+            return Err(TransactionError::Serialization(Box::new(IndexedEventError::NoEventId)));
+        };
+
+        let existing = self.get_event_by_id(linked_chunk_id, event_id).await?;
+        let indexed =
+            if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
+                self.put_event(event).await?
+            } else {
+                self.add_item(event).await?
+            };
+
+        for existing in self.get_events_by_event_id(event_id).await? {
+            self.put_event(&existing.with_content(event.content().clone())).await?;
         }
+        Ok(indexed)
     }
 
     /// Puts an event in IndexedDB. If an event with the same key already
