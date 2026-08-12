@@ -355,6 +355,28 @@ impl<'state> StateLockReadGuard<'state, State> {
     }
 }
 
+impl<'state> StateLockReadGuard<'state, StateForRoom> {
+    /// Project the current read lock guard onto the room cache state.
+    pub(super) fn room(&'state self) -> Option<StateLockReadGuard<'state, RoomEventCacheState>> {
+        self.state.room.as_ref().map(|room| StateLockReadGuard {
+            state: StateLockReadGuardKind::Reference(room),
+            store: self.store.clone(),
+            tracing_timer: None,
+        })
+    }
+
+    /// Project the current read lock guard onto all thread cache states.
+    pub(super) fn threads(
+        &'state self,
+    ) -> StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>> {
+        StateLockReadGuard {
+            state: StateLockReadGuardKind::Reference(&self.state.threads),
+            store: self.store.clone(),
+            tracing_timer: None,
+        }
+    }
+}
+
 impl<'state, S> Deref for StateLockReadGuard<'state, S> {
     type Target = S;
 
