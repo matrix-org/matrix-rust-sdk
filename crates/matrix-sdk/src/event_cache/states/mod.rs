@@ -299,7 +299,7 @@ impl StateLock {
 
         cache_state_selector
             .insert_once(&mut state.state, cache_state)
-            .then(|| CacheStateLock { cache_state_selector, state_lock: self.clone() })
+            .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
             .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
     }
 }
@@ -590,14 +590,21 @@ impl<'state, S> DerefMut for StateLockWriteGuardKind<'state, S> {
 
 /// A wrapper around [`State`] with a [`CacheStateSelector`], facilitating the
 /// embedding of these API in a single type.
-pub struct CacheStateLock<Selector>
-where
-    Selector: selectors::CacheState,
-{
+pub struct CacheStateLock<Selector> {
     cache_state_selector: Selector,
     state_lock: StateLock,
 }
 
+impl<Selector> CacheStateLock<Selector>
+where
+    Selector: selectors::CacheState,
+{
+    pub(super) fn new(cache_state_selector: Selector, state_lock: StateLock) -> Self {
+        Self { cache_state_selector, state_lock }
+    }
+}
+
+// Fallible methods.
 impl<Selector> CacheStateLock<Selector>
 where
     Selector: selectors::CacheState,
