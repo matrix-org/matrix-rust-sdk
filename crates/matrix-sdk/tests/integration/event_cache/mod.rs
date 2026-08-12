@@ -2168,10 +2168,11 @@ async fn test_deduplication() {
         .await;
 
     // What should we see?
-    // - On `updates_stream`: 2 events from the loaded chunk #1 must be removed, and
-    //   6 events must be added inserted (!); indeed, 4 are removed and re-inserted
-    //   at the back, plus 2 events are newly inserted at the back, so 6 are
-    //   inserted,
+    // - On `updates_stream`: the 2 events duplicated with the loaded chunk #1 sit
+    //   in the tail (after the last gap), so they are replaced in place instead of
+    //   being removed and re-appended (re-appending would visibly reorder
+    //   messages the user already sees); the 2 in-store duplicates and the 2
+    //   unique events are appended at the back,
     // - On the store, 2 events must be removed from chunk #0
     //
     // First off, let's check `updates_stream`.
@@ -2182,22 +2183,22 @@ async fn test_deduplication() {
             // 3 diffs, of course.
             assert_eq!(diffs.len(), 3);
 
-            // Note that index 2 is removed before index 0!
-            assert_matches!(&diffs[0], VectorDiff::Remove { index } => {
-                assert_eq!(*index, 2);
-            });
-            assert_matches!(&diffs[1], VectorDiff::Remove { index } => {
+            // The in-memory duplicates are replaced in place.
+            assert_matches!(&diffs[0], VectorDiff::Set { index, value: event } => {
                 assert_eq!(*index, 0);
+                assert_event_id!(event, "$ev1_0");
+            });
+            assert_matches!(&diffs[1], VectorDiff::Set { index, value: event } => {
+                assert_eq!(*index, 2);
+                assert_event_id!(event, "$ev1_2");
             });
             assert_matches!(&diffs[2], VectorDiff::Append { values: events } => {
-                assert_eq!(events.len(), 6);
+                assert_eq!(events.len(), 4);
 
-                assert_event_id!(&events[0], "$ev1_0");
-                assert_event_id!(&events[1], "$ev1_2");
-                assert_event_id!(&events[2], "$ev0_1");
-                assert_event_id!(&events[3], "$ev0_2");
-                assert_event_id!(&events[4], "$ev3_0");
-                assert_event_id!(&events[5], "$ev3_1");
+                assert_event_id!(&events[0], "$ev0_1");
+                assert_event_id!(&events[1], "$ev0_2");
+                assert_event_id!(&events[2], "$ev3_0");
+                assert_event_id!(&events[3], "$ev3_1");
             });
         });
     }

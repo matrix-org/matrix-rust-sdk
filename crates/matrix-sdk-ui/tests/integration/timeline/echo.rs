@@ -258,7 +258,7 @@ async fn test_dedup_by_event_id_late() {
 
     // The mock server has a 500ms delay, so we need more than 100ms here.
     assert_let_timeout!(Duration::from_secs(2), Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 6);
+    assert_eq!(timeline_updates.len(), 4);
 
     // Local echo and its date divider are removed.
     // Timeline: [date-divider, remote-echo, date-divider]
@@ -267,24 +267,15 @@ async fn test_dedup_by_event_id_late() {
     // Timeline: [date-divider, remote-echo]
     assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[1]);
 
-    // And now, a false negative in deduplication (because the event received by
-    // sync has been sent by the current user; see #6190 for details), so the
-    // event is deduplicated and reinserted. Timeline: [date-divider]
-    assert_let!(VectorDiff::Remove { index: 1 } = &timeline_updates[2]);
-
-    // Timeline: [remote-echo, date-divider]
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+    // The dedup false negative (the event received by sync has been sent by the
+    // current user; see #6190 for details) re-delivers the event, but as it's
+    // already in the loaded tail it's replaced in place rather than moved.
+    // Timeline: [date-divider, remote-echo]
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[2]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(event_id));
 
-    // Timeline: [date-divider, remote-echo, date-divider]
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[3]);
     assert!(value.is_date_divider());
-
-    // Timeline: [date-divider, remote-echo, date-divider]
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
-    assert!(value.is_date_divider());
-
-    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[5]);
 
     assert_pending!(timeline_stream);
 }

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -454,6 +456,17 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         in_memory_events: Vec<(OwnedEventId, Position)>,
         in_store_events: Vec<(OwnedEventId, Position)>,
     ) -> Result<(), EventCacheError> {
+        // Duplicated-echoes diagnostics: record what actually gets removed, so a
+        // rageshake can distinguish a dedup miss from a removal that never
+        // reached the timeline.
+        if !in_memory_events.is_empty() || !in_store_events.is_empty() {
+            debug!(
+                in_memory = ?in_memory_events.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                in_store = ?in_store_events.iter().map(|(id, _)| id).collect::<Vec<_>>(),
+                "Removing duplicated events"
+            );
+        }
+
         // In-store events.
         if !in_store_events.is_empty() {
             let mut positions = in_store_events
@@ -589,15 +602,89 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             self.state.waited_for_initial_prev_token = true;
         }
 
+        // Duplicates whose current copy is already loaded after the last gap (the
+        // live tail) are replaced in place rather than removed and re-appended:
+        // re-appending visibly reorders messages the user is already looking at.
+        // This is the common case for our own just-sent events, which the send
+        // queue eagerly inserted at the tail with a fabricated timestamp and no
+        // `unsigned` data - the in-place replacement swaps in the real sync
+        // payload without moving the message.
+        //
+        // This is only sound when those duplicates form a *prefix* of the sync
+        // batch, i.e. sync is merely catching up on the tail we already have and
+        // everything else in the batch comes after them. When the batch orders
+        // other events *before* a duplicate (e.g. a timeline-limit increase
+        // re-delivering a superset like [new A, new B, known C]), sync's ordering
+        // is authoritative and the legacy remove+re-append applies. Similarly, a
+        // response with a new gap means our tail's ordering can't be trusted at
+        // all, so it also takes the legacy path.
+        let mut replaced_event_ids = BTreeSet::new();
+        let in_memory_duplicated_event_ids = if prev_batch_token.is_none() {
+            let tail_chunk_ids = {
+                let mut ids = Vec::new();
+                for chunk in self.state.room_linked_chunk.chunks() {
+                    if chunk.is_gap() {
+                        ids.clear();
+                    } else {
+                        ids.push(chunk.identifier());
+                    }
+                }
+                ids
+            };
+
+            let tail_duplicates = in_memory_duplicated_event_ids
+                .iter()
+                .filter(|(_, position)| tail_chunk_ids.contains(&position.chunk_identifier()))
+                .map(|(event_id, _)| event_id.clone())
+                .collect::<BTreeSet<_>>();
+
+            let batch_prefix_len = events
+                .iter()
+                .take_while(|event| {
+                    event.event_id().is_some_and(|event_id| tail_duplicates.contains(&*event_id))
+                })
+                .count();
+
+            if !tail_duplicates.is_empty() && batch_prefix_len == tail_duplicates.len() {
+                let mut remaining = Vec::new();
+                for (event_id, position) in in_memory_duplicated_event_ids {
+                    if tail_duplicates.contains(&event_id) {
+                        let sync_copy = events
+                            .iter()
+                            .find(|event| event.event_id().as_deref() == Some(&event_id))
+                            .cloned()
+                            .expect("tail duplicates come from the sync batch");
+                        self.replace_event_at(EventLocation::Memory(position), sync_copy).await?;
+                        replaced_event_ids.insert(event_id);
+                    } else {
+                        remaining.push((event_id, position));
+                    }
+                }
+                remaining
+            } else {
+                in_memory_duplicated_event_ids
+            }
+        } else {
+            in_memory_duplicated_event_ids
+        };
+
         // Remove the old duplicated events.
         //
         // We don't have to worry the removals can change the position of the existing
         // events, because we are pushing all _new_ `events` at the back.
         self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
 
+        let pushed_events = events
+            .iter()
+            .filter(|event| {
+                event.event_id().is_none_or(|event_id| !replaced_event_ids.contains(&*event_id))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
         self.state.room_linked_chunk.push_live_events(
             prev_batch_token.map(|prev_token| Gap { token: prev_token }),
-            &events,
+            &pushed_events,
         );
 
         // Extract a new read receipt, if available.

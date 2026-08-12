@@ -541,12 +541,12 @@ async fn test_timeline_duplicated_events() -> Result<()> {
             }
         };
 
+        // The duplicated `$x1` is already loaded in the tail, so it's replaced
+        // in place rather than removed and re-appended.
         assert_timeline_stream! {
             [timeline_stream]
-            remove[1];
-            update[2] "$x3:bar.org";
-            append    "$x1:bar.org";
-            update[3] "$x1:bar.org";
+            update[1] "$x1:bar.org";
+            update[3] "$x3:bar.org";
             append    "$x4:bar.org";
         };
     }

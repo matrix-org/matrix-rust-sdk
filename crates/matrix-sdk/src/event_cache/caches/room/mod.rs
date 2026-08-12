@@ -1451,6 +1451,58 @@ mod timed_tests {
     }
 
     #[async_test]
+    async fn test_sync_duplicates_in_the_tail_are_replaced_in_place() {
+        // Our own just-sent events are eagerly inserted at the tail of the linked
+        // chunk by the send queue. When sync later delivers them (possibly
+        // lagging behind further sends), they must keep their position instead of
+        // being removed and re-appended, which visibly reorders the timeline.
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id);
+
+        let client = MockClientBuilder::new(None).build().await;
+        let user_id = client.user_id().unwrap().to_owned();
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Someone else's event arrives via sync first.
+        let ev_x = f.text_msg("base").sender(*ALICE).event_id(event_id!("$x")).into_event();
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline { limited: false, prev_batch: None, events: vec![ev_x] },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // We send A then B: the send queue eagerly inserts both at the tail.
+        let ev_a = f.text_msg("A").sender(&user_id).event_id(event_id!("$a")).into_event();
+        let ev_b = f.text_msg("B").sender(&user_id).event_id(event_id!("$b")).into_event();
+        room_event_cache.insert_sent_event_from_send_queue(ev_a.clone()).await.unwrap();
+        room_event_cache.insert_sent_event_from_send_queue(ev_b).await.unwrap();
+
+        // Sync catches up with A only, alongside a genuinely new event C.
+        let ev_c = f.text_msg("C").sender(*ALICE).event_id(event_id!("$c")).into_event();
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline { limited: false, prev_batch: None, events: vec![ev_a, ev_c] },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // A keeps its position between X and B; only C gets appended.
+        let items = room_event_cache.events().await.unwrap();
+        let ids =
+            items.iter().map(|event| event.event_id().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(ids, ["$x", "$a", "$b", "$c"]);
+    }
+
+    #[async_test]
     async fn test_load_from_storage_resilient_to_failure() {
         let room_id = room_id!("!fondue:patate.ch");
         let event_cache_store = Arc::new(MemoryStore::new());
