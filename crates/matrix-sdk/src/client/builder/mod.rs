@@ -383,7 +383,7 @@ impl ClientBuilder {
         self
     }
 
-    /// Disable all the `.well-known/matrix/client` lookups, both the one
+    /// Disable all the `/.well-known/matrix/client` lookups, both the one
     /// performed by [`Self::build`] to discover the homeserver, and all the
     /// ones performed later by the built [`Client`].
     ///

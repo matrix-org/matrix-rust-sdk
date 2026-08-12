@@ -2857,7 +2857,7 @@ impl Client {
     /// `GET /_matrix/client/v1/rtc/transports` endpoint
     /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
     /// If the homeserver doesn't implement that endpoint, this falls back to
-    /// the `m.rtc_foci` field of the  well-known, see
+    /// the `m.rtc_foci` field of the well-known, see
     /// [`Client::well_known_rtc_transports`] — unless well-known discovery
     /// was disabled with [`ClientBuilder::disable_well_known_lookup`].
     ///

@@ -1125,7 +1125,13 @@ impl Client {
     }
 
     /// Change whether this client is allowed to look up the homeserver's
-    /// /.well-known/matrix/client file.
+    /// `/.well-known/matrix/client` file.
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, [`Client::tile_server`] returns `None`,
+    /// [`Client::well_known_rtc_transports`] returns an empty list, and
+    /// [`Client::discover_rtc_transports`] doesn't fall back to the well-known
+    /// `m.rtc_foci`, relying only on the MSC4143 discovery endpoint.
     pub fn disable_well_known_lookup(&self, disable: bool) {
         self.inner.disable_well_known_lookup(disable);
     }
@@ -2151,7 +2157,8 @@ impl Client {
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
     /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
     /// a fallback, unless well-known discovery was disabled with
-    /// `ClientBuilder::disable_well_known_lookup`.
+    /// [`ClientBuilder::disable_well_known_lookup`] or
+    /// [`Client::disable_well_known_lookup`].
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
         let transports = self.discover_rtc_transports().await?;
         Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
@@ -2163,7 +2170,8 @@ impl Client {
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
     /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
     /// a fallback, unless well-known discovery was disabled with
-    /// `ClientBuilder::disable_well_known_lookup`.
+    /// [`ClientBuilder::disable_well_known_lookup`] or
+    /// [`Client::disable_well_known_lookup`].
     ///
     /// Returns an empty list if no transport could be discovered.
     pub async fn discover_rtc_transports(&self) -> Result<Vec<RtcTransport>, ClientError> {
