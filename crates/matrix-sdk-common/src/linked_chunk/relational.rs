@@ -269,8 +269,13 @@ where
                     self.items
                         .entry(linked_chunk_id.to_owned())
                         .or_default()
-                        .insert(item_id.clone(), (item, Some(at)));
-                    existing.item = Either::Item(item_id);
+                        .insert(item_id.clone(), (item.clone(), Some(at)));
+                    existing.item = Either::Item(item_id.clone());
+
+                    // Ensure item is updated if it exists anywhere else in the store
+                    for items in &mut self.items.values_mut() {
+                        items.entry(item_id.clone()).and_modify(|e| e.0 = item.clone());
+                    }
                 }
 
                 Update::RemoveItem { at } => {
