@@ -160,7 +160,11 @@ impl StateLock {
             EventCacheStoreLockState::Clean(store_guard) => {
                 trace!("Lock acquired (from clean)");
 
-                StateLockReadGuard { state: state_guard, store: store_guard, tracing_timer }
+                StateLockReadGuard {
+                    state: StateLockReadGuardKind::Owned(state_guard),
+                    store: store_guard,
+                    tracing_timer: Some(tracing_timer),
+                }
             }
             EventCacheStoreLockState::Dirty(store_guard) => {
                 // Drop the read lock, and take a write lock to modify the state.
@@ -309,13 +313,13 @@ impl fmt::Debug for StateLock {
 /// The read lock guard returned by [`StateLock::read`].
 pub struct StateLockReadGuard<'state, S> {
     /// The per-thread read lock guard over the state `S`.
-    pub state: RwLockReadGuard<'state, S>,
+    pub state: StateLockReadGuardKind<'state, S>,
 
     /// The cross-process lock guard over the store.
     pub store: EventCacheStoreLockGuard,
 
     /// The [`timer!`] value, used to compute the time the lock is live.
-    tracing_timer: TracingTimer,
+    tracing_timer: Option<TracingTimer>,
 }
 
 impl<'state> StateLockReadGuard<'state, State> {
@@ -333,8 +337,18 @@ impl<'state> StateLockReadGuard<'state, State> {
         EventCacheError: From<&'selector Selector>,
     {
         Ok(StateLockReadGuard {
-            state: RwLockReadGuard::try_map(self.state, |state| cache_state_selector.select(state))
-                .map_err(|_| EventCacheError::from(cache_state_selector))?,
+            state: match self.state {
+                StateLockReadGuardKind::Reference(state) => StateLockReadGuardKind::Reference(
+                    cache_state_selector
+                        .select(state)
+                        .ok_or_else(|| EventCacheError::from(cache_state_selector))?,
+                ),
+
+                StateLockReadGuardKind::Owned(state) => StateLockReadGuardKind::Owned(
+                    RwLockReadGuard::try_map(state, |state| cache_state_selector.select(state))
+                        .map_err(|_| EventCacheError::from(cache_state_selector))?,
+                ),
+            },
             store: self.store,
             tracing_timer: self.tracing_timer,
         })
@@ -346,6 +360,32 @@ impl<'state, S> Deref for StateLockReadGuard<'state, S> {
 
     fn deref(&self) -> &Self::Target {
         &self.state
+    }
+}
+
+/// The kind of guard [`StateLockReadGuard`] owns.
+pub enum StateLockReadGuardKind<'state, S> {
+    /// A read lock over the state is acquired, and this is a reference to a
+    /// cache (sub-)state.
+    ///
+    /// This is useful if one needs to run operations over multiple cache
+    /// (sub-)states without mapping the read lock guard over the state
+    /// (because it would consume it).
+    Reference(&'state S),
+
+    /// The read lock over the state `S` is acquired, and this is a mapped
+    /// guard to a cache (sub-)state.
+    Owned(RwLockReadGuard<'state, S>),
+}
+
+impl<'state, S> Deref for StateLockReadGuardKind<'state, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Reference(state) => state,
+            Self::Owned(state) => state.deref(),
+        }
     }
 }
 
@@ -403,9 +443,9 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
     /// state and to the store when dropped.
     fn downgrade(self) -> StateLockReadGuard<'state, State> {
         StateLockReadGuard {
-            state: self.state.downgrade(),
+            state: StateLockReadGuardKind::Owned(self.state.downgrade()),
             store: self.store,
-            tracing_timer: self.tracing_timer,
+            tracing_timer: Some(self.tracing_timer),
         }
     }
 
