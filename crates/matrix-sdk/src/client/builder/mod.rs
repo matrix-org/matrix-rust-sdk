@@ -915,13 +915,17 @@ pub enum ClientBuildError {
 // The http mocking library is not supported for wasm32
 #[cfg(all(test, not(target_family = "wasm")))]
 pub(crate) mod tests {
+    use std::{future, iter, net::SocketAddr, sync::Mutex as StdMutex};
+
     use assert_matches::assert_matches;
     use assert_matches2::assert_let;
     use matrix_sdk_test::{async_test, test_json};
+    use reqwest::dns::{Addrs, Name, Resolve, Resolving};
     use serde_json::{Value as JsonValue, json_internal};
+    use url::Url;
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
-        matchers::{method, path},
+        matchers::{header, method, path},
     };
 
     use super::*;
@@ -1060,6 +1064,58 @@ pub(crate) mod tests {
     }
 
     #[async_test]
+    async fn test_homeserver_url_never_contacts_the_server_name() {
+        // Given a deployment where the server name serves a well-known that points to
+        // the underlying homeserver (hosted on an unrelated domain in this test).
+        let mock_server = MockServer::start().await;
+        let address = *mock_server.address();
+        let port = address.port();
+        let server_name = format!("servername.com:{port}");
+        let homeserver_name = format!("matrix.server.com:{port}");
+
+        // Every host is resolved to the mock server and recorded.
+        let resolver = Arc::new(RecordingResolver { address, hosts: StdMutex::new(Vec::new()) });
+        let http_client =
+            reqwest::Client::builder().dns_resolver(resolver.clone()).build().unwrap();
+
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .and(header("host", server_name.as_str()))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(make_well_known_json(&format!("http://{homeserver_name}"))),
+            )
+            .mount(&mock_server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .and(header("host", homeserver_name.as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&*test_json::VERSIONS))
+            .mount(&mock_server)
+            .await;
+
+        // When building a client using server_name_or_homeserver_url with the
+        // homeserver's URL as the string.
+        let client = ClientBuilder::new()
+            .http_client(http_client)
+            .server_name_or_homeserver_url(format!("http://{homeserver_name}"))
+            .build()
+            .await
+            .unwrap();
+
+        // Then homeserver should be the only host that was contacted while building.
+        let resolved_hosts = resolver.hosts.lock().unwrap();
+        assert!(!resolved_hosts.is_empty(), "The homeserver should have been contacted");
+        assert!(
+            resolved_hosts.iter().all(|host| host == "matrix.server.com"),
+            "A connection was attempted to an unexpected host: {resolved_hosts:?}"
+        );
+        assert_eq!(client.homeserver(), Url::parse(&format!("http://{homeserver_name}")).unwrap());
+        assert_eq!(client.server(), None);
+    }
+
+    #[async_test]
     async fn test_sliding_sync_discover_native() {
         // Given a homeserver with a `/versions` file.
         let homeserver = make_mock_homeserver().await;
@@ -1118,14 +1174,14 @@ pub(crate) mod tests {
             let homeserver = make_mock_homeserver().await;
             let client =
                 ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
-    
+
             assert_let!(
                 CrossProcessLockConfig::MultiProcess { holder_name } =
                     client.cross_process_lock_config()
             );
             assert_eq!(holder_name, "main");
         }
-    
+
         {
             let homeserver = make_mock_homeserver().await;
             let client = ClientBuilder::new()
@@ -1134,7 +1190,7 @@ pub(crate) mod tests {
                 .build()
                 .await
                 .unwrap();
-    
+
             assert_let!(
                 CrossProcessLockConfig::MultiProcess { holder_name } =
                     client.cross_process_lock_config()
@@ -1172,5 +1228,22 @@ pub(crate) mod tests {
 
             object
         })
+    }
+
+    /// A DNS resolver that records the hostname of every lookup it is asked to
+    /// make, and resolves all of them to the same address.
+    #[derive(Debug)]
+    struct RecordingResolver {
+        address: SocketAddr,
+        hosts: StdMutex<Vec<String>>,
+    }
+
+    impl Resolve for RecordingResolver {
+        fn resolve(&self, name: Name) -> Resolving {
+            self.hosts.lock().unwrap().push(name.as_str().to_owned());
+
+            let addrs: Addrs = Box::new(iter::once(self.address));
+            Box::pin(future::ready(Ok(addrs)))
+        }
     }
 }
