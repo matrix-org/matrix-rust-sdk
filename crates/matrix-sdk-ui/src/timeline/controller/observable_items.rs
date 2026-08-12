@@ -241,6 +241,18 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
         self.all_remote_events.remove(event_index)
     }
 
+    /// Remove *all* remote events.
+    ///
+    /// Not to be confused with removing timeline items! Used by the clear
+    /// path that removes remote-event timeline items one by one (to preserve
+    /// local echoes): each per-item removal only unlinks the item mapping, so
+    /// the `EventMeta` entries must be dropped explicitly - otherwise
+    /// `all_remote_events` keeps the cleared events and every subsequent
+    /// positional diff from the event cache addresses the wrong entry.
+    pub fn clear_all_remote_events(&mut self) {
+        self.all_remote_events.clear();
+    }
+
     /// Push a new remote event at the front of all remote events.
     ///
     /// Not to be confused with pushing a timeline item to the front!

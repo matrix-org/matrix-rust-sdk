@@ -373,3 +373,65 @@ async fn test_no_reuse_of_counters() {
     // The remote id still isn't the same as the local id.
     assert_ne!(local_id, remote_id);
 }
+
+#[async_test]
+async fn test_clear_with_local_echo_keeps_remote_meta_in_sync_with_the_cache() {
+    // `all_remote_events` positionally mirrors the event cache's events
+    // vector - incoming `Insert/Set/Remove @k` diffs index it. The clear path
+    // taken when a local echo is in flight used to remove the remote *items*
+    // but leave their `EventMeta` entries behind, so after a cache collapse
+    // (`Clear` + re-deliveries) every subsequent positional diff was offset
+    // by the stale entries and a later `Remove @k` destroyed an innocent
+    // neighbour (observed live: a peer's fresh message vanishing whenever a
+    // gappy-sync collapse raced an own-message echo).
+    let timeline = TestTimeline::new().await;
+
+    // A local echo is in flight…
+    timeline
+        .handle_local_event(AnyMessageLikeEventContent::RoomMessage(
+            RoomMessageEventContent::text_plain("echo"),
+        ))
+        .await;
+
+    // …and two remote events are in the timeline (cache vector = [$1, $2]).
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.text_msg("one").sender(&ALICE).event_id(event_id!("$1"))).await;
+    timeline.handle_live_event(f.text_msg("two").sender(&BOB).event_id(event_id!("$2"))).await;
+
+    // The cache collapses (limited sync): its vector resets to just [$3].
+    timeline
+        .handle_event_update(
+            vec![
+                VectorDiff::Clear,
+                VectorDiff::Append {
+                    values: [f
+                        .text_msg("three")
+                        .sender(&ALICE)
+                        .event_id(event_id!("$3"))
+                        .into_event()]
+                    .into_iter()
+                    .collect(),
+                },
+            ],
+            RemoteEventOrigin::Sync,
+        )
+        .await;
+
+    // The cache now removes ITS index 0 - which is $3, its only event. If the
+    // clear left $1/$2's meta entries behind, index 0 resolves to a stale
+    // entry instead and $3's item wrongly survives.
+    timeline
+        .handle_event_update(vec![VectorDiff::Remove { index: 0 }], RemoteEventOrigin::Sync)
+        .await;
+
+    let items = timeline.controller.items().await;
+    assert!(
+        !items.iter().any(|item| {
+            item.as_event().and_then(|e| e.event_id()).is_some_and(|id| id == event_id!("$3"))
+        }),
+        "the positional remove addressed the cache's only event ($3); \
+         stale meta entries from the clear must not offset it"
+    );
+    // The local echo survives the clear, as before.
+    assert!(items.iter().any(|item| item.is_local_echo()));
+}

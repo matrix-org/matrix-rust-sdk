@@ -93,6 +93,35 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         }
     }
 
+    /// If `event_id` is already tracked in `all_remote_events` (and possibly
+    /// rendered as a timeline item), remove the stale copy and return its
+    /// recycled timeline id so the re-delivered event replaces it in place
+    /// (stable internal id) instead of duplicating it.
+    ///
+    /// The event-cache diff stream is *meant* to be self-consistent, but a
+    /// limited-sync collapse/rebuild can interleave with a re-delivery (e.g.
+    /// an own-message arriving via both the send queue and the sync echo)
+    /// such that an event we still hold is pushed again without a `Remove`
+    /// for the copy we have. Mirroring that faithfully would render the same
+    /// event twice - and duplicate items break per-event-id keying in
+    /// downstream UIs. Enforce the "one item per event id" invariant here.
+    fn remove_stale_duplicate(
+        &mut self,
+        event_id: Option<&ruma::EventId>,
+        date_divider_adjuster: &mut DateDividerAdjuster,
+    ) -> Option<(usize, Option<TimelineUniqueId>)> {
+        let event_id = event_id?;
+        let old_event_index = self.items.all_remote_events().position_by_event_id(event_id)?;
+        warn!(
+            ?event_id,
+            old_event_index,
+            "remote event re-delivered while already present in the timeline; \
+             removing the stale copy before re-adding"
+        );
+        let recycled = self.remove_timeline_item(old_event_index, date_divider_adjuster);
+        Some((old_event_index, recycled.map(|(id, _)| id)))
+    }
+
     /// Handle updates on events as [`VectorDiff`]s.
     pub(super) async fn handle_remote_events_with_diffs(
         &mut self,
@@ -115,6 +144,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         let recycled_timeline_id = event
                             .event_id()
                             .and_then(|event_id| recycled_timeline_ids.remove(event_id));
+                        let recycled_timeline_id = self
+                            .remove_stale_duplicate(event.event_id(), &mut date_divider_adjuster)
+                            .and_then(|(_, id)| id)
+                            .or(recycled_timeline_id);
                         self.handle_remote_event(
                             event,
                             TimelineItemPosition::End { origin },
@@ -132,6 +165,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     let recycled_timeline_id = event
                         .event_id()
                         .and_then(|event_id| recycled_timeline_ids.remove(event_id));
+                    let recycled_timeline_id = self
+                        .remove_stale_duplicate(event.event_id(), &mut date_divider_adjuster)
+                        .and_then(|(_, id)| id)
+                        .or(recycled_timeline_id);
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::Start { origin },
@@ -148,6 +185,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     let recycled_timeline_id = event
                         .event_id()
                         .and_then(|event_id| recycled_timeline_ids.remove(event_id));
+                    let recycled_timeline_id = self
+                        .remove_stale_duplicate(event.event_id(), &mut date_divider_adjuster)
+                        .and_then(|(_, id)| id)
+                        .or(recycled_timeline_id);
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::End { origin },
@@ -164,6 +205,21 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     let recycled_timeline_id = event
                         .event_id()
                         .and_then(|event_id| recycled_timeline_ids.remove(event_id));
+                    // Removing a stale duplicate shifts `all_remote_events`;
+                    // adjust the insertion index if the removed entry was
+                    // before it.
+                    let mut event_index = event_index;
+                    let recycled_timeline_id = match self
+                        .remove_stale_duplicate(event.event_id(), &mut date_divider_adjuster)
+                    {
+                        Some((old_event_index, id)) => {
+                            if old_event_index < event_index {
+                                event_index -= 1;
+                            }
+                            id.or(recycled_timeline_id)
+                        }
+                        None => recycled_timeline_id,
+                    };
                     self.handle_remote_event(
                         event,
                         TimelineItemPosition::At { event_index, origin },
@@ -1035,6 +1091,22 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     ObservableItemsTransactionEntry::remove(entry);
                 }
             });
+
+            // The per-entry removal above only unlinks the item<->event
+            // mappings - the `EventMeta` entries survive in
+            // `all_remote_events`. They must go too: `all_remote_events`
+            // positionally mirrors the event cache's events vector (incoming
+            // `Insert/Set/Remove @k` diffs index it), and the cache just
+            // cleared ITS side. Keeping stale entries offsets every
+            // subsequent positional diff - observed live as a fresh message
+            // being destroyed by a `Remove @k` that addressed a stale
+            // neighbour (the cache meant its re-delivered own-message copy;
+            // the meta list had +1 entries and resolved k to the new
+            // message). Only this branch is affected: the `else` branch's
+            // `items.clear()` already clears both. Local echoes aren't
+            // tracked in `all_remote_events`, so clearing it wholesale is
+            // safe here.
+            self.items.clear_all_remote_events();
 
             // Remove stray date dividers
             let mut idx = 0;

@@ -193,7 +193,10 @@ async fn test_rtc_members_update_last_only() {
         )
         .await;
 
-    // Should only add this notification, and not modify the most recent one
+    // The event is a re-delivery of one already in the timeline: the stale copy
+    // is removed first ("one item per event id"), then the paginated copy is
+    // added, without modifying the most recent notification.
+    assert_next_matches!(stream, VectorDiff::Remove { index: 0 });
     let notification_item =
         assert_next_matches!(stream, VectorDiff::PushFront { value, .. } => value);
     assert_eq!(
