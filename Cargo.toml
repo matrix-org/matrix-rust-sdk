@@ -119,7 +119,7 @@ uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4
 url = { version = "2.5.8", default-features = false }
 uuid = { version = "1.24.0", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "f978854", features = ["insecure-pk-encryption", "experimental-session-config"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "cfc4eee", features = ["insecure-pk-encryption", "experimental-session-config"] }
 wasm-bindgen = { version = "0.2.105", default-features = false }
 wasm-bindgen-test = { version = "0.3.55", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.103", default-features = false }
@@ -210,6 +210,15 @@ debug = 2
 # `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dbg"
+# Only lightly optimize our own crates as they're the ones being edited, and
+# recompiling them at `opt-level = 3` roughly doubles the time of an
+# incremental binding build. Dependencies keep full optimizations below.
+# Don't lower this to 0 as the app then crashes on device, as it used to with the
+# plain `dev` profile (https://github.com/matrix-org/matrix-rust-sdk/issues/4009).
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.reldbg.package."*"]
 opt-level = 3
 
 # Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%

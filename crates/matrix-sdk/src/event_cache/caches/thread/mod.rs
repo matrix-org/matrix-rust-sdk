@@ -35,7 +35,7 @@ use self::pagination::ThreadPagination;
 pub(in super::super) use self::state::ThreadEventCacheState;
 pub(super) use self::updates::ThreadEventCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
-use super::super::redecryptor::ResolvedUtd;
+use super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         Result,
@@ -282,14 +282,21 @@ impl ThreadEventCache {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     ///
     /// Return `true` if at least one event has been updated.
     #[cfg(feature = "e2e-encryption")]
-    pub(in super::super) async fn replace_utds(&self, events: &[ResolvedUtd]) -> Result<bool> {
+    pub(in super::super) async fn replace_in_memory_utds(
+        &self,
+        resolved_events: &[MaybeResolvedEvent],
+    ) -> Result<bool> {
         let mut state = self.inner.state.write().await?;
-        let timeline_event_diffs = state.replace_utds(events).await?;
+        let timeline_event_diffs = state.replace_in_memory_utds(resolved_events)?;
+
+        // Drain the updates to the store, events have already been updated before
+        // calling this method.
+        let _ = state.thread_linked_chunk_mut().store_updates().take();
 
         Ok(
             if let Some(timeline_event_diffs) = timeline_event_diffs

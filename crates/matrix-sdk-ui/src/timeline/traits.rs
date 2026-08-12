@@ -128,10 +128,12 @@ pub(super) trait RoomDataProvider:
     /// Load the current fully-read event id, from storage.
     fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
 
-    /// Send an event to that room.
+    /// Send an event to that room, merging `extra_content`'s fields into the
+    /// outgoing event's content, if provided.
     fn send(
         &self,
         content: AnyMessageLikeEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + '_;
 
     /// Redact an event from that room.
@@ -223,8 +225,18 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
-        let _ = self.send_queue().send(content).await?;
+    async fn send(
+        &self,
+        content: AnyMessageLikeEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<(), super::Error> {
+        let queue = self.send_queue();
+        let send = queue.send(content);
+        let send = match extra_content {
+            Some(extra_content) => send.with_extra_content(extra_content),
+            None => send,
+        };
+        let _ = send.await?;
         Ok(())
     }
 

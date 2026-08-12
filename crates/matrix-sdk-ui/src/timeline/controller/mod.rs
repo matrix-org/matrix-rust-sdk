@@ -566,6 +566,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         &self,
         item_id: &TimelineEventItemId,
         key: &str,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> Result<bool, Error> {
         let mut state = self.state.write().await;
 
@@ -605,7 +606,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
                     trace!("adding a reaction to a remote echo");
                     let annotation = Annotation::new(event_id.to_owned(), key.to_owned());
                     self.room_data_provider
-                        .send(ReactionEventContent::from(annotation).into())
+                        .send(ReactionEventContent::from(annotation).into(), extra_content)
                         .await?;
                     return Ok(true);
                 }

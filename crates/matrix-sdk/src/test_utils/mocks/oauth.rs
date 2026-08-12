@@ -14,6 +14,8 @@
 
 //! Helpers to mock an OAuth 2.0 server for the purpose of integration tests.
 
+use std::time::Duration;
+
 use ruma::{
     api::client::discovery::get_authorization_server_metadata::v1::AuthorizationServerMetadata,
     serde::Raw,
@@ -90,7 +92,7 @@ impl OAuthMockServer<'_> {
     pub fn mock_server_metadata(&self) -> MockEndpoint<'_, ServerMetadataEndpoint> {
         let mock = Mock::given(method("GET"))
             .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"));
-        self.mock_endpoint(mock, ServerMetadataEndpoint)
+        self.mock_endpoint(mock, ServerMetadataEndpoint::default())
     }
 
     /// Creates a prebuilt mock for the OAuth 2.0 endpoint used to register a
@@ -123,13 +125,35 @@ impl OAuthMockServer<'_> {
 }
 
 /// A prebuilt mock for a `GET /auth_metadata` request.
-pub struct ServerMetadataEndpoint;
+#[derive(Default)]
+pub struct ServerMetadataEndpoint {
+    /// Optional delay to respond to the query.
+    delay: Option<Duration>,
+}
 
 impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
+    /// Respond with a given delay to the query.
+    pub fn with_delay(mut self, delay: Duration) -> Self {
+        self.endpoint.delay = Some(delay);
+        self
+    }
+
+    /// Returns a successful response with the given metadata, honouring the
+    /// delay set with [`Self::with_delay`].
+    fn ok_with_metadata(self, metadata: Raw<AuthorizationServerMetadata>) -> MatrixMock<'a> {
+        let mut template = ResponseTemplate::new(200).set_body_json(metadata);
+
+        if let Some(delay) = self.endpoint.delay {
+            template = template.set_delay(delay);
+        }
+
+        self.respond_with(template)
+    }
+
     /// Returns a successful metadata response with all the supported endpoints.
     pub fn ok(self) -> MatrixMock<'a> {
         let metadata = MockServerMetadataBuilder::new(&self.server.uri()).build();
-        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+        self.ok_with_metadata(metadata)
     }
 
     /// Returns a successful metadata response with all the supported endpoints
@@ -142,7 +166,7 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
         let issuer = self.server.uri().replace("http://", "https://");
 
         let metadata = MockServerMetadataBuilder::new(&issuer).build();
-        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+        self.ok_with_metadata(metadata)
     }
 
     /// Returns a successful metadata response without the device authorization
@@ -151,7 +175,7 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
         let metadata = MockServerMetadataBuilder::new(&self.server.uri())
             .without_device_authorization()
             .build();
-        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+        self.ok_with_metadata(metadata)
     }
 
     /// Returns a successful metadata response without the registration
@@ -159,7 +183,7 @@ impl<'a> MockEndpoint<'a, ServerMetadataEndpoint> {
     pub fn ok_without_registration(self) -> MatrixMock<'a> {
         let metadata =
             MockServerMetadataBuilder::new(&self.server.uri()).without_registration().build();
-        self.respond_with(ResponseTemplate::new(200).set_body_json(metadata))
+        self.ok_with_metadata(metadata)
     }
 }
 

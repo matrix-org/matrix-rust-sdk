@@ -1608,7 +1608,7 @@ impl Client {
     /// server. However, if the `Client` has been built from a server URL or
     /// name, then the homeserver has been discovered, and we know both.
     pub fn server(&self) -> Option<String> {
-        self.inner.server().map(ToString::to_string)
+        self.inner.server().map(|s| s.to_string())
     }
 
     pub fn rooms(&self) -> Vec<Arc<Room>> {
@@ -2171,13 +2171,15 @@ impl Client {
         Ok(transports.into_iter().map(Into::into).collect())
     }
 
+    /// Checks if the server supports the Profiles sliding sync extension.
+    pub async fn is_profiles_sliding_sync_extension_supported(&self) -> Result<bool, ClientError> {
+        Ok(self.inner.unstable_features().await?.contains(&FeatureFlag::from("org.matrix.msc4262")))
+    }
+
     /// Checks if the server supports user status.
     pub async fn is_user_status_supported(&self) -> Result<bool, ClientError> {
-        let supports_profiles_sync_extension = self
-            .inner
-            .unstable_features()
-            .await?
-            .contains(&FeatureFlag::from("org.matrix.msc4262"));
+        let supports_profiles_sync_extension =
+            self.is_profiles_sliding_sync_extension_supported().await?;
 
         let can_set_status_field = self
             .inner
