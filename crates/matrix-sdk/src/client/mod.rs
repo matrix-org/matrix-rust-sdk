@@ -363,7 +363,7 @@ pub(crate) struct ClientInner {
     /// Whether all the `.well-known/matrix/client` lookups are disabled.
     ///
     /// See [`ClientBuilder::disable_well_known_lookup`].
-    well_known_lookup_disabled: bool,
+    well_known_lookup_disabled: StdRwLock<bool>,
 
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
@@ -494,7 +494,7 @@ impl ClientInner {
             // ballast for all observers to catch up.
             room_updates_sender: broadcast::Sender::new(32),
             respect_login_well_known,
-            well_known_lookup_disabled,
+            well_known_lookup_disabled: StdRwLock::new(well_known_lookup_disabled),
             sync_beat: event_listener::Event::new(),
             event_cache,
             send_queue_data: send_queue,
@@ -2223,7 +2223,7 @@ impl Client {
     /// Always returns `None` if well-known lookups were disabled with
     /// [`ClientBuilder::disable_well_known_lookup`].
     pub async fn fetch_client_well_known(&self) -> Option<discover_homeserver::Response> {
-        if self.inner.well_known_lookup_disabled {
+        if self.well_known_lookup_disabled() {
             return None;
         }
 
@@ -2650,13 +2650,25 @@ impl Client {
         well_known.into_data()
     }
 
+    /// Whether this client is allowed to look up the homeserver's
+    /// /.well-known/matrix/client file.
+    fn well_known_lookup_disabled(&self) -> bool {
+        *self.inner.well_known_lookup_disabled.read().unwrap()
+    }
+
+    /// Change whether this client is allowed to look up the homeserver's
+    /// /.well-known/matrix/client file.
+    pub fn disable_well_known_lookup(&self, disable: bool) {
+        *self.inner.well_known_lookup_disabled.write().unwrap() = disable;
+    }
+
     /// Get the well-known file of the homeserver by fetching it from the server
     /// or the cache.
     ///
     /// Always returns `None` if well-known discovery was disabled with
     /// [`ClientBuilder::disable_well_known_lookup`].
     async fn well_known(&self) -> Option<WellKnownResponse> {
-        if self.inner.well_known_lookup_disabled {
+        if self.well_known_lookup_disabled() {
             return None;
         }
 
@@ -3552,7 +3564,7 @@ impl Client {
                 self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.value(),
                 self.inner.respect_login_well_known,
-                self.inner.well_known_lookup_disabled,
+                self.well_known_lookup_disabled(),
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
@@ -4809,22 +4821,21 @@ pub(crate) mod tests {
         assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(rtc_foci));
     }
 
+    /// Mounts a well-known mock that must never be hit.
+    async fn mock_well_known_never_called(server: &MatrixMockServer) -> wiremock::MockGuard {
+        server.mock_well_known().ok().named("well-known mock").expect(0).mount_as_scoped().await
+    }
+
     #[async_test]
-    async fn test_discover_rtc_transports_with_well_known_lookup_disabled() {
+    async fn test_well_known_lookup_disabled() {
         let server = MatrixMockServer::new().await;
 
         let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
 
-        // This is the whole point of `disable_well_known_lookup`: not a single
-        // request must be made to the well-known URI.
-        let _well_known_mock = server
-            .mock_well_known()
-            .ok()
-            .named("well-known mock")
-            .expect(0)
-            .mount_as_scoped()
-            .await;
+        // There should be no requests to fetch the well-known.
+        let _well_known_mock = mock_well_known_never_called(&server).await;
 
+        // Disable well-known lookups at client build time.
         let client = server
             .client_builder()
             .on_builder(|builder| builder.disable_well_known_lookup(true))
@@ -4834,7 +4845,28 @@ pub(crate) mod tests {
         // The homeserver doesn't implement the discovery endpoint, and falling back to
         // the well-known isn't allowed, so nothing could be discovered.
         assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
+        // The other well-known consumers are disabled too.
+        assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
+        assert!(client.tile_server().await.is_none());
+        assert!(client.fetch_client_well_known().await.is_none());
+    }
 
+    #[async_test]
+    async fn test_well_known_lookup_disabled_after_build() {
+        let server = MatrixMockServer::new().await;
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+
+        // There should be no requests to fetch the well-known.
+        let _well_known_mock = mock_well_known_never_called(&server).await;
+
+        // Disable well-known lookups after building the client.
+        let client = server.client_builder().build().await;
+        client.disable_well_known_lookup(true);
+
+        // The homeserver doesn't implement the discovery endpoint, and falling back to
+        // the well-known isn't allowed, so nothing could be discovered.
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
         // The other well-known consumers are disabled too.
         assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
         assert!(client.tile_server().await.is_none());
