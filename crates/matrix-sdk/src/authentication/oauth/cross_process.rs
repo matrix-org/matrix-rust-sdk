@@ -653,7 +653,7 @@ mod tests {
             .mock_token()
             .with_delay(Duration::from_secs(1))
             .invalid_grant()
-            .up_to_n_times(1)
+            .mock_once()
             .mount()
             .await;
         // The NSE's exchange arrives second, and rotates the token.
