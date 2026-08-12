@@ -116,14 +116,15 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                         None => false,
                     }
                 {
-                    // The redacted event exists (in the room, because it contains _all_ the
-                    // events) **but** the event has been redacted (in
-                    // the room). It's no more possible to extract its
-                    // thread root (because this information has been removed).
+                    // The redacted event exists (in the room, because it
+                    // contains _all_ the events) **but** the event has been
+                    // redacted (in the room). It's no more possible to extract
+                    // its thread root (because this information has been
+                    // removed).
                     //
-                    // But we need to know if the event is part of a thread to apply the
-                    // redaction in the thread too. No other choice than
-                    // doing a full search…
+                    // But we need to know if the event is part of a thread to
+                    // apply the redaction in the thread too. No other choice
+                    // than doing a full search…
 
                     let mut associated_thread_root = None;
 
