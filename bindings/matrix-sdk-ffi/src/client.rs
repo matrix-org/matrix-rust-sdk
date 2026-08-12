@@ -1124,6 +1124,12 @@ impl Client {
         Ok(self.inner.reset_supported_versions().await?)
     }
 
+    /// Change whether this client is allowed to look up the homeserver's
+    /// /.well-known/matrix/client file.
+    pub fn disable_well_known_lookup(&self, disable: bool) {
+        self.inner.disable_well_known_lookup(disable);
+    }
+
     /// Empty the well-known cache.
     ///
     /// Since the SDK caches the well-known, it's possible to have a stale
