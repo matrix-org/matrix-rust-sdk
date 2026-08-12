@@ -321,6 +321,91 @@ async fn test_backpaginate_once() {
     assert!(outcome.reached_start);
 }
 
+/// Regression test: an *empty* `/messages` response for a gap must drop the gap
+/// and let back-pagination reattach to the events already in the store behind
+/// it - rather than re-parking the gap's prev-batch token forever.
+///
+/// Repro of the DMLS / sliding-sync failure: a "limited" sync collapses the
+/// live timeline to the latest events and inserts a gap in front of the
+/// history that's still on disk. If the gap's `/messages` returns an empty
+/// chunk *with* a (non-advancing) continuation token, the old behaviour
+/// re-parked the gap and never surfaced the stored history (the auto-refill
+/// scroll-back showed nothing). We now treat an empty network chunk as "no
+/// events in this gap", drop the gap, and load the stored events.
+#[async_test]
+async fn test_backpaginate_empty_gap_reattaches_to_stored_events() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    // 1. A normal (non-limited) sync: one event of history lands in the store,
+    //    with no gap.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("one").event_id(event_id!("$1"))),
+        )
+        .await;
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+    wait_for_initial_events(events, &mut room_stream).await;
+
+    // 2. A *limited* sync adds a newer event and a prev-batch token. This
+    //    inserts a gap before "$3" and shrinks the in-memory view to the latest
+    //    chunk; "$1" remains in the store, behind the gap.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("three").event_id(event_id!("$3")))
+                .set_timeline_prev_batch("pb_gap".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    // 3. The gap's `/messages` returns an EMPTY chunk whose new prev-batch token
+    //    is the SAME one we queried - a non-advancing dead end (exactly what the
+    //    server did in the stranded-history bug). Allow it to be called at most
+    //    ONCE: with the fix we drop the gap on this empty response and reattach
+    //    to the store, so a second network call would be a bug. (Without the
+    //    fix, the gap is re-parked with the same token and the next
+    //    back-pagination hits `/messages` again - `mock_once` is exhausted, so
+    //    the request fails and this test fails, as intended.)
+    server
+        .mock_room_messages()
+        .match_from("pb_gap")
+        .ok(RoomMessagesResponseTemplate::default().end_token("pb_gap"))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Back-paginate until we reach the start. Round 1 resolves+drops the gap
+    // from the empty network response; a later round loads "$1" from the store
+    // with no further network call.
+    let mut recovered = Vec::new();
+    for _ in 0..5 {
+        let outcome = room_event_cache.pagination().run_backwards_once(20).await.unwrap();
+        recovered
+            .extend(outcome.events.iter().filter_map(|e| e.event_id().map(ToOwned::to_owned)));
+        if outcome.reached_start {
+            break;
+        }
+    }
+
+    let recovered: Vec<String> = recovered.iter().map(|id| id.to_string()).collect();
+    assert!(
+        recovered.iter().any(|id| id == "$1"),
+        "expected stored event $1 to be recovered behind the empty gap, got {recovered:?}",
+    );
+}
+
 #[async_test]
 async fn test_backpaginate_many_times_with_many_iterations() {
     let server = MatrixMockServer::new().await;

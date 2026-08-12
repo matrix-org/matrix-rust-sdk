@@ -317,6 +317,41 @@ impl EventLinkedChunk {
     /// Add the previous back-pagination token (if present), followed by the
     /// timeline events themselves.
     pub fn push_live_events(&mut self, new_gap: Option<Gap>, events: &[Event]) {
+        // Idempotency guard: drop any *existing* occurrence of these events
+        // before appending, so a live push can never duplicate an event that
+        // is already in the chunk (move-to-latest semantics, matching the
+        // dedup behaviour in `handle_sync`).
+        //
+        // `handle_sync` already removes recognised duplicates before calling
+        // us - but it removes them by the *positions the deduplicator
+        // recorded earlier*, and those can go stale when the chunk is mutated
+        // in between (e.g. a limited-sync collapse/rebuild interleaving with
+        // an own-message delivered both by the send queue and by the sync
+        // echo). A stale-position remove silently misses, and the append
+        // below would then insert a second copy - which downstream consumers
+        // mirror as a duplicate timeline item. Re-resolving by event id
+        // against the *current* chunk right before the append closes that
+        // hole.
+        let stale_positions: Vec<Position> = events
+            .iter()
+            .filter_map(|event| event.event_id())
+            .filter_map(|event_id| self.find_event(&event_id).map(|(position, _)| position))
+            .collect();
+        if !stale_positions.is_empty() {
+            tracing::warn!(
+                count = stale_positions.len(),
+                "push_live_events: incoming live event(s) already present in the linked chunk; \
+                 removing the old occurrence(s) before appending (a prior positional dedup \
+                 removal must have missed)"
+            );
+            if let Err(err) = self.remove_events_by_position(stale_positions) {
+                // The positions were resolved against the current chunk just
+                // above, so this should be unreachable; don't poison the push
+                // if it somehow fails.
+                tracing::error!(?err, "push_live_events: failed to remove stale duplicate(s)");
+            }
+        }
+
         if let Some(new_gap) = new_gap {
             self.push_gap(new_gap);
         }
@@ -704,6 +739,36 @@ mod tests {
         let linked_chunk = EventLinkedChunk::new();
 
         assert_eq!(linked_chunk.events().count(), 0);
+    }
+
+    /// A live push must be idempotent for events that are *already* in the
+    /// chunk: re-delivering an event (e.g. an own-message arriving via both
+    /// the send queue and the sync echo, where `handle_sync`'s positional
+    /// dedup removal went stale and missed) must move it to the back, never
+    /// duplicate it. A duplicate here is mirrored downstream as a duplicate
+    /// timeline item - and UI-side workarounds that drop the duplicate
+    /// desync the positional diff stream and can lose the newest message.
+    #[test]
+    fn test_push_live_events_is_idempotent_for_redelivered_events() {
+        let (event_id_0, event_0) = new_event("$ev0");
+        let (event_id_1, event_1) = new_event("$ev1");
+        let (event_id_2, event_2) = new_event("$ev2");
+
+        let mut linked_chunk = EventLinkedChunk::new();
+
+        linked_chunk.push_live_events(None, &[event_0, event_1.clone()]);
+        assert_eq!(linked_chunk.events().count(), 2);
+
+        // Re-deliver `event_1` alongside a genuinely new `event_2`.
+        linked_chunk.push_live_events(None, &[event_1, event_2]);
+
+        let ids: Vec<_> =
+            linked_chunk.events().map(|(_, event)| event.event_id().unwrap().to_owned()).collect();
+        assert_eq!(
+            ids,
+            [event_id_0, event_id_1, event_id_2],
+            "the re-delivered event must appear exactly once, moved to its live position"
+        );
     }
 
     #[test]

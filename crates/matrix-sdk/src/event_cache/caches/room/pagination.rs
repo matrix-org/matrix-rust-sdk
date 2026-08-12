@@ -338,6 +338,10 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
     ) -> Result<Option<BackPaginationOutcome>> {
         let mut state = self.state.write().await?;
 
+        // Keep a copy of the gap token we queried, to detect a non-advancing
+        // dead-end below (empty response whose new token equals this one).
+        let queried_prev_token = prev_token.clone();
+
         // Check that the previous token still exists; otherwise it's a sign that the
         // room's timeline has been cleared.
         let prev_gap_id = if let Some(token) = prev_token {
@@ -358,6 +362,13 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         } else {
             None
         };
+
+        // Whether `/messages` returned no events at all for this gap. Captured
+        // before `filter_duplicate_events` consumes `events`. If the server has
+        // nothing to fill the gap with, we drop the gap below (instead of
+        // re-parking its prev-batch token) so back-pagination can reattach to
+        // the events already stored behind the gap.
+        let network_returned_no_events = events.is_empty();
 
         let DeduplicationOutcome {
             all_events: mut events,
@@ -396,6 +407,22 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             events.clear();
             // The gap can be ditched too, as it won't be useful to backpaginate any
             // further.
+            new_token = None;
+        }
+
+        // Dead-end gap guard: if `/messages` returned no events AND its new
+        // prev-batch token is the same one we just queried, the gap is a
+        // non-advancing dead end - re-parking it would loop forever, refetching
+        // the same empty page and leaving any events stored behind the gap
+        // stranded (observed after a "limited" sliding sync collapses the live
+        // timeline: the server keeps returning an empty chunk with the same
+        // token). Drop the gap (reusing the all-duplicates gap-removal path
+        // above) so the next back-pagination reattaches to the stored events.
+        //
+        // An empty response with a *different*, advancing token is legitimate
+        // (e.g. a page that contained only filtered-out events) - keep that gap
+        // and follow the new token.
+        if network_returned_no_events && new_token == queried_prev_token {
             new_token = None;
         }
 

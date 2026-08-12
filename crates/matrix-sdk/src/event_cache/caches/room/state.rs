@@ -489,12 +489,17 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         }
 
         // `remove_events_by_position` is responsible of sorting positions.
-        self.state
-            .room_linked_chunk
-            .remove_events_by_position(
-                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
-            )
-            .expect("failed to remove an event");
+        if let Err(err) = self.state.room_linked_chunk.remove_events_by_position(
+            in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+        ) {
+            // A position resolved against the chunk can still be stale by the
+            // time we remove it: a concurrent reconciliation may have shifted
+            // or dropped it ("item index is invalid"). An invalid position
+            // means the event is already gone from there, so the removal is a
+            // no-op; degrade gracefully rather than crashing the whole sync.
+            // Matches the same-failure handling in `push_live_events`.
+            error!(?err, "remove_events: a position was stale at removal time; skipping it");
+        }
 
         self.propagate_changes().await
     }
