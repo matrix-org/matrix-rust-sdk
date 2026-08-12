@@ -423,7 +423,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         EventCacheError: From<&'selector Selector>,
     {
         Ok(StateLockWriteGuard {
-            state: StateLockWriteGuardKind::MappedGuard(
+            state: StateLockWriteGuardKind::Owned(
                 RwLockWriteGuard::try_map(self.state, |state| {
                     cache_state_selector.select_mut(state)
                 })
@@ -565,7 +565,7 @@ pub enum StateLockWriteGuardKind<'state, S> {
 
     /// The write lock over the state `S` is acquired, and this is a mapped
     /// guard to a cache (sub-)state.
-    MappedGuard(RwLockMappedWriteGuard<'state, S>),
+    Owned(RwLockMappedWriteGuard<'state, S>),
 }
 
 impl<'state, S> Deref for StateLockWriteGuardKind<'state, S> {
@@ -574,7 +574,7 @@ impl<'state, S> Deref for StateLockWriteGuardKind<'state, S> {
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Reference(state) => state,
-            Self::MappedGuard(state) => state.deref(),
+            Self::Owned(state) => state.deref(),
         }
     }
 }
@@ -583,7 +583,7 @@ impl<'state, S> DerefMut for StateLockWriteGuardKind<'state, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             Self::Reference(state) => state,
-            Self::MappedGuard(state) => state.deref_mut(),
+            Self::Owned(state) => state.deref_mut(),
         }
     }
 }
