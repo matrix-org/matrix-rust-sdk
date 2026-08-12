@@ -632,60 +632,34 @@ mod tests {
     async fn test_refresh_interrupted_by_suspension_does_not_sign_out() {
         use std::{thread, time::Duration};
 
-        use wiremock::{
-            Mock, ResponseTemplate,
-            matchers::{body_string_contains, method, path_regex},
-        };
-
         let server = MatrixMockServer::new().await;
+        let oauth_server = server.oauth();
 
-        // The token endpoint behaves like a rotating MAS: the first exchange of the
-        // prev refresh token succeeds (that is the NSE's refresh, rotating it to the
-        // next token); any later exchange of the now-consumed token is rejected with
-        // `invalid_grant` (that would be the app spending its stale copy).
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/oauth2/token"))
-            .and(body_string_contains("prev-refresh-token"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "access_token": "1234", // == mock_session_tokens_with_refresh()
-                "expires_in": 300,
-                "refresh_token": "ZYXWV",
-                "token_type": "Bearer",
-            })))
+        // The token endpoint behaves like a rotating MAS. Only the first exchange
+        // succeeds and rotates the token: that one is the NSE's refresh, which the
+        // app is suspended through. Any later exchange presents the token that
+        // rotation consumed, and is rejected with `invalid_grant`.
+        oauth_server
+            .mock_token()
+            .ok_with_tokens("1234", "ZYXWV") // == mock_session_tokens_with_refresh()
             .up_to_n_times(1)
             .with_priority(1)
-            .mount(server.server())
+            .mount()
             .await;
-        Mock::given(method("POST"))
-            .and(path_regex(r"^/oauth2/token"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
-                "error": "invalid_grant",
-            })))
-            .with_priority(2)
-            .mount(server.server())
-            .await;
+        oauth_server.mock_token().invalid_grant().with_priority(2).mount().await;
 
-        // Server metadata: the app's (first) request is delayed long enough to keep
-        // its refresh parked until after the NSE has rotated the token; the NSE's
-        // own request is answered immediately.
-        let metadata = serde_json::to_value(server.oauth().server_metadata()).unwrap();
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(metadata.clone())
-                    .set_delay(Duration::from_secs(3)),
-            )
+        // The app's (first) metadata request is delayed, to keep its refresh parked
+        // until after the NSE has rotated the token. The NSE's own request is
+        // answered immediately.
+        oauth_server
+            .mock_server_metadata()
+            .with_delay(Duration::from_secs(1))
+            .ok()
             .up_to_n_times(1)
             .with_priority(1)
-            .mount(server.server())
+            .mount()
             .await;
-        Mock::given(method("GET"))
-            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc2965/auth_metadata"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(metadata))
-            .with_priority(2)
-            .mount(server.server())
-            .await;
+        oauth_server.mock_server_metadata().ok().with_priority(2).mount().await;
 
         // The app and the NSE are two clients over one shared sqlite store, both
         // restored with the same (prev) session.
