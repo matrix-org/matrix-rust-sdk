@@ -87,6 +87,7 @@ use ruma::{
             },
             profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
+            rtc::RtcTransport,
             uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
@@ -147,8 +148,7 @@ use crate::{
     room_preview::RoomPreview,
     ruma::{
         AccountDataEvent, AccountDataEventType, AuthData, InviteAvatars, MediaPreviewConfig,
-        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, RtcTransport, UserCall,
-        UserStatus,
+        MediaPreviews, MediaSource, PresenceState, RoomAccountDataEvent, UserCall, UserStatus,
     },
     runtime::get_runtime_handle,
     spaces::SpaceService,
@@ -2160,23 +2160,8 @@ impl Client {
     /// [`ClientBuilder::disable_well_known_lookup`] or
     /// [`Client::disable_well_known_lookup`].
     pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
-        let transports = self.discover_rtc_transports().await?;
-        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
-    }
-
-    /// Discover the RTC transports advertised by the homeserver.
-    ///
-    /// Transports are discovered through the authenticated
-    /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
-    /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
-    /// a fallback, unless well-known discovery was disabled with
-    /// [`ClientBuilder::disable_well_known_lookup`] or
-    /// [`Client::disable_well_known_lookup`].
-    ///
-    /// Returns an empty list if no transport could be discovered.
-    pub async fn discover_rtc_transports(&self) -> Result<Vec<RtcTransport>, ClientError> {
         let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
-        Ok(transports.into_iter().map(Into::into).collect())
+        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
     }
 
     /// Checks if the server supports the Profiles sliding sync extension.
