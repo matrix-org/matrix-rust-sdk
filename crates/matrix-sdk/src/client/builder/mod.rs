@@ -1112,6 +1112,37 @@ pub(crate) mod tests {
         );
     }
 
+    #[async_test]
+    async fn test_cross_process_store_locks_holder_name() {
+        {
+            let homeserver = make_mock_homeserver().await;
+            let client =
+                ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
+    
+            assert_let!(
+                CrossProcessLockConfig::MultiProcess { holder_name } =
+                    client.cross_process_lock_config()
+            );
+            assert_eq!(holder_name, "main");
+        }
+    
+        {
+            let homeserver = make_mock_homeserver().await;
+            let client = ClientBuilder::new()
+                .homeserver_url(homeserver.uri())
+                .cross_process_store_config(CrossProcessLockConfig::multi_process("foo"))
+                .build()
+                .await
+                .unwrap();
+    
+            assert_let!(
+                CrossProcessLockConfig::MultiProcess { holder_name } =
+                    client.cross_process_lock_config()
+            );
+            assert_eq!(holder_name, "foo");
+        }
+    }
+
     /* Helper functions */
 
     async fn make_mock_homeserver() -> MockServer {
@@ -1141,36 +1172,5 @@ pub(crate) mod tests {
 
             object
         })
-    }
-
-    #[async_test]
-    async fn test_cross_process_store_locks_holder_name() {
-        {
-            let homeserver = make_mock_homeserver().await;
-            let client =
-                ClientBuilder::new().homeserver_url(homeserver.uri()).build().await.unwrap();
-
-            assert_let!(
-                CrossProcessLockConfig::MultiProcess { holder_name } =
-                    client.cross_process_lock_config()
-            );
-            assert_eq!(holder_name, "main");
-        }
-
-        {
-            let homeserver = make_mock_homeserver().await;
-            let client = ClientBuilder::new()
-                .homeserver_url(homeserver.uri())
-                .cross_process_store_config(CrossProcessLockConfig::multi_process("foo"))
-                .build()
-                .await
-                .unwrap();
-
-            assert_let!(
-                CrossProcessLockConfig::MultiProcess { holder_name } =
-                    client.cross_process_lock_config()
-            );
-            assert_eq!(holder_name, "foo");
-        }
     }
 }
