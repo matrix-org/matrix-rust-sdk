@@ -410,13 +410,9 @@ const DEFAULT_TARGET_LOG_LEVELS: &[(LogTarget, LogLevel)] = &[
     (LogTarget::MatrixSdkHttpClient, LogLevel::Debug),
     (LogTarget::MatrixSdkSlidingSync, LogLevel::Debug),
     (LogTarget::MatrixSdkBaseSlidingSync, LogLevel::Info),
-    // Timeline, send queue and event cache run at debug while the
-    // duplicated-echoes reconciliation is under diagnosis: the deduplicator's
-    // classification and the timeline's local-echo matching only log at debug,
-    // and rageshakes need them to replay a repro.
-    (LogTarget::MatrixSdkUiTimeline, LogLevel::Debug),
-    (LogTarget::MatrixSdkSendQueue, LogLevel::Debug),
-    (LogTarget::MatrixSdkEventCache, LogLevel::Debug),
+    (LogTarget::MatrixSdkUiTimeline, LogLevel::Info),
+    (LogTarget::MatrixSdkSendQueue, LogLevel::Info),
+    (LogTarget::MatrixSdkEventCache, LogLevel::Info),
     (LogTarget::MatrixSdkEventCacheBackPagination, LogLevel::Debug),
     (LogTarget::MatrixSdkLatestEvents, LogLevel::Debug),
     (LogTarget::MatrixSdkBaseEventCache, LogLevel::Info),
@@ -864,9 +860,9 @@ mod tests {
             matrix_sdk::http_client=debug,
             matrix_sdk::sliding_sync=debug,
             matrix_sdk_base::sliding_sync=info,
-            matrix_sdk_ui::timeline=debug,
-            matrix_sdk::send_queue=debug,
-            matrix_sdk::event_cache=debug,
+            matrix_sdk_ui::timeline=info,
+            matrix_sdk::send_queue=info,
+            matrix_sdk::event_cache=info,
             matrix_sdk::event_cache::back_pagination_queue=debug,
             matrix_sdk::latest_events=debug,
             matrix_sdk_base::event_cache=info,
@@ -973,7 +969,7 @@ mod tests {
             matrix_sdk::http_client=debug,
             matrix_sdk::sliding_sync=debug,
             matrix_sdk_base::sliding_sync=info,
-            matrix_sdk_ui::timeline=debug,
+            matrix_sdk_ui::timeline=info,
             matrix_sdk::send_queue=trace,
             matrix_sdk::event_cache=trace,
             matrix_sdk::event_cache::back_pagination_queue=debug,
@@ -1016,6 +1012,6 @@ mod tests {
         let filter = build_tracing_filter(&config);
 
         assert!(filter.contains("matrix_sdk::event_cache::back_pagination_queue=trace"));
-        assert!(filter.contains("matrix_sdk::event_cache=debug"));
+        assert!(filter.contains("matrix_sdk::event_cache=info"));
     }
 }
