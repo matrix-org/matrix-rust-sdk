@@ -1093,6 +1093,110 @@ mod timed_tests {
         );
     }
 
+    #[async_test]
+    async fn test_stale_limited_sync_batch_is_ignored() {
+        // Regression test for the 2026-08-12 vanishing-sends incident: a
+        // long-poll response generated *before* our own sends completed, but
+        // delivered after them (slow network), comes back limited with a new
+        // gap and a batch of only older, already-known events. Processing its
+        // gap used to collapse the room to the stale batch and visibly drop
+        // the newer tail (the just-sent messages) until the next sync
+        // re-delivered them. Such a response must be ignored entirely.
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id).sender(user_id!("@example:localhost"));
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                        .event_cache_store(event_cache_store.clone()),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Some older history.
+        let old_events = (0u32..5)
+            .map(|i| {
+                f.text_msg(format!("old {i}"))
+                    .event_id(&EventId::parse(format!("$old{i}")).unwrap())
+                    .into_event()
+            })
+            .collect::<Vec<_>>();
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline { limited: false, prev_batch: None, events: old_events.clone() },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Our own sends land at the tail (same shape as the send queue's
+        // eager insert).
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: false,
+                    prev_batch: None,
+                    events: vec![
+                        f.text_msg("new a").event_id(event_id!("$newa")).into_event(),
+                        f.text_msg("new b").event_id(event_id!("$newb")).into_event(),
+                    ],
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+        let mut observed = initial_events;
+        assert_eq!(observed.len(), 7);
+
+        // The stale response arrives: limited, gappy, and its batch is only
+        // the old events - it doesn't know about the sends yet.
+        room_event_cache
+            .handle_joined_room_update(JoinedRoomUpdate {
+                timeline: Timeline {
+                    limited: true,
+                    prev_batch: Some("stale-gap-token".to_owned()),
+                    events: old_events,
+                },
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        while let Some(Ok(update)) = subscriber.recv().now_or_never() {
+            if let RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs, ..
+            }) = update
+            {
+                for diff in diffs {
+                    apply_diff_to_events(diff, &mut observed);
+                }
+            }
+        }
+
+        // The room state is untouched: all 7 events still there, in order,
+        // with the sends still at the tail.
+        let observed_ids =
+            observed.iter().map(|ev| ev.event_id().unwrap().to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            observed_ids,
+            vec!["$old0", "$old1", "$old2", "$old3", "$old4", "$newa", "$newb"],
+            "the stale batch must not have modified the observed timeline"
+        );
+    }
+
     /// Apply a `VectorDiff` to a plain `Vec`, mimicking a timeline observer.
     fn apply_diff_to_events(
         diff: VectorDiff<matrix_sdk_base::event_cache::Event>,

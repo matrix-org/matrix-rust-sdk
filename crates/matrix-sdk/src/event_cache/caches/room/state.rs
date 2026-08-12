@@ -39,7 +39,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, error, instrument, trace, warn};
 
 use super::{
     super::{
@@ -568,6 +568,47 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         )
         .await?;
 
+        // A batch consisting solely of events we already know, which doesn't
+        // include our most recent event, describes a server view *older* than
+        // our local state. This happens for real: a limited long-poll response
+        // that was generated before our own sends completed, but delivered
+        // after them (slow network), comes back with a batch of older events
+        // and a new gap. Processing that gap would collapse the room to the
+        // stale batch (`shrink_to_last_reloaded_chunk`) and visibly drop the
+        // newer tail we already have (our just-sent messages), until a later
+        // sync re-delivers them. There is nothing to learn from such a
+        // response, so ignore its events and its gap entirely.
+        //
+        // This is deliberately weaker than `non_empty_all_duplicates` (which
+        // requires a foreign sender, so that a gappy re-delivery of our own
+        // just-sent events keeps its gap): when the batch *does* contain our
+        // tail event, the response is up-to-date and any gap in it is
+        // legitimate catch-up.
+        //
+        // Note: in-memory events are always the newest (older chunks are the
+        // ones offloaded to storage), so "the batch doesn't contain the last
+        // in-memory event" implies every batch event is older than our tail.
+        let batch_is_stale = !events.is_empty()
+            && in_memory_duplicated_event_ids.len() + in_store_duplicated_event_ids.len()
+                == events.len()
+            && self
+                .state
+                .room_linked_chunk
+                .events()
+                .last()
+                .and_then(|(_, event)| event.event_id())
+                .is_some_and(|tail_id| {
+                    events.iter().all(|event| event.event_id().as_deref() != Some(&*tail_id))
+                });
+
+        if batch_is_stale {
+            warn!(
+                room_id = %self.state.room_id,
+                batch_len = events.len(),
+                "Ignoring a stale sync batch: all events are known and older than the current tail"
+            );
+        }
+
         // If the timeline isn't limited, and we already knew about some past events,
         // then this definitely knows what the timeline head is (either we know
         // about all the events persisted in storage, or we have a gap
@@ -582,11 +623,12 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // network splits, but this has shown to be Good Enough™.
         if !timeline.limited && self.state.room_linked_chunk.events().next().is_some()
             || all_duplicates
+            || batch_is_stale
         {
             prev_batch_token = None;
         }
 
-        if all_duplicates {
+        if all_duplicates || batch_is_stale {
             // No new events and no gap (per the previous check), thus no need to change the
             // room state. We're done!
 
