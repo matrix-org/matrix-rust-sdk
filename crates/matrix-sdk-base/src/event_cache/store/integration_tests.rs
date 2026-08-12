@@ -1150,42 +1150,81 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
     async fn test_linked_chunk_replace_item(&self) {
         let room_id = &DEFAULT_TEST_ROOM_ID;
-        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        // Create every kind of linked chunk id in the room, as well
+        // as one in a different room.
+        let linked_chunk_ids = [
+            LinkedChunkId::Room(room_id),
+            LinkedChunkId::Thread(room_id, event_id!("$thread_root")),
+            LinkedChunkId::PinnedEvents(room_id),
+            LinkedChunkId::EventFocused(room_id, event_id!("$focus_root")),
+            LinkedChunkId::Room(room_id!("!other_room")),
+        ];
+
+        // The event id of the event that will be replaced
         let event_id = event_id!("$world");
 
+        // Add the same two events to every linked chunk id in the list
+        for linked_chunk_id in linked_chunk_ids {
+            self.handle_linked_chunk_updates(
+                linked_chunk_id,
+                vec![
+                    Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
+                    Update::PushItems {
+                        at: Position::new(CId::new(42), 0),
+                        items: vec![
+                            make_test_event(room_id, "hello"),
+                            make_test_event_with_event_id(room_id, "world", Some(event_id)),
+                        ],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+            let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+
+            assert_eq!(chunks.len(), 1);
+
+            let c = chunks.remove(0);
+            assert_eq!(c.identifier, CId::new(42));
+            assert_eq!(c.previous, None);
+            assert_eq!(c.next, None);
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert_eq!(events.len(), 2);
+                check_test_event(&events[0], "hello");
+                check_test_event(&events[1], "world");
+            });
+        }
+
+        // In one of the linked chunks, replace the second event with different
+        // content, but keep the event id the same.
         self.handle_linked_chunk_updates(
-            linked_chunk_id,
-            vec![
-                Update::NewItemsChunk { previous: None, new: CId::new(42), next: None },
-                Update::PushItems {
-                    at: Position::new(CId::new(42), 0),
-                    items: vec![
-                        make_test_event(room_id, "hello"),
-                        make_test_event_with_event_id(room_id, "world", Some(event_id)),
-                    ],
-                },
-                Update::ReplaceItem {
-                    at: Position::new(CId::new(42), 1),
-                    item: make_test_event_with_event_id(room_id, "yolo", Some(event_id)),
-                },
-            ],
+            linked_chunk_ids[0],
+            vec![Update::ReplaceItem {
+                at: Position::new(CId::new(42), 1),
+                item: make_test_event_with_event_id(room_id, "yolo", Some(event_id)),
+            }],
         )
         .await
         .unwrap();
 
-        let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
+        // Ensure that the event content has been updated in every linked chunk.
+        for linked_chunk_id in linked_chunk_ids {
+            let mut chunks = self.load_all_chunks(linked_chunk_id).await.unwrap();
 
-        assert_eq!(chunks.len(), 1);
+            assert_eq!(chunks.len(), 1);
 
-        let c = chunks.remove(0);
-        assert_eq!(c.identifier, CId::new(42));
-        assert_eq!(c.previous, None);
-        assert_eq!(c.next, None);
-        assert_matches!(c.content, ChunkContent::Items(events) => {
-            assert_eq!(events.len(), 2);
-            check_test_event(&events[0], "hello");
-            check_test_event(&events[1], "yolo");
-        });
+            let c = chunks.remove(0);
+            assert_eq!(c.identifier, CId::new(42));
+            assert_eq!(c.previous, None);
+            assert_eq!(c.next, None);
+            assert_matches!(c.content, ChunkContent::Items(events) => {
+                assert_eq!(events.len(), 2);
+                check_test_event(&events[0], "hello");
+                check_test_event(&events[1], "yolo");
+            });
+        }
     }
 
     async fn test_linked_chunk_remove_item(&self) {
