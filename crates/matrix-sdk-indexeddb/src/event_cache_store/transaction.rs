@@ -26,10 +26,10 @@ use crate::{
     error::AsyncErrorDeps,
     event_cache_store::{
         serializer::indexed_types::{
-            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventIdKey,
-            IndexedEventPositionKey, IndexedEventRelationKey, IndexedEventRoomKey, IndexedGapIdKey,
-            IndexedLease, IndexedLeaseIdKey, IndexedNextChunkIdKey, IndexedThread,
-            IndexedThreadIdKey,
+            IndexedChunk, IndexedChunkIdKey, IndexedEvent, IndexedEventEventIdKey,
+            IndexedEventIdKey, IndexedEventPositionKey, IndexedEventRelationKey,
+            IndexedEventRoomKey, IndexedGapIdKey, IndexedLease, IndexedLeaseIdKey,
+            IndexedNextChunkIdKey, IndexedThread, IndexedThreadIdKey,
         },
         types::{Chunk, ChunkType, Event, Gap, Lease, Position, Thread},
     },
@@ -338,6 +338,16 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     ) -> Result<Option<Event>, TransactionError> {
         let key = self.serializer().encode_key((linked_chunk_id, event_id));
         self.get_item_by_key::<Event, IndexedEventIdKey>(key).await
+    }
+
+    /// Query IndexedDB for events that match the given event id across all
+    /// linked chunks.
+    pub async fn get_events_by_event_id(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Vec<Event>, TransactionError> {
+        let key = self.serializer().encode_key::<_, IndexedEventEventIdKey>(event_id);
+        self.get_items_by_key::<Event, IndexedEventEventIdKey>(key).await
     }
 
     /// Query IndexedDB for events that match the given event id in the given
