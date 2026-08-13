@@ -15,12 +15,11 @@
 use std::{future::ready, ops::Deref, sync::Arc};
 
 use async_cell::sync::AsyncCell;
-use async_rx::StreamExt as _;
 use async_stream::stream;
 use eyeball::{SharedObservable, Subscriber};
 use eyeball_im::{Vector, VectorDiff};
 use eyeball_im_util::vector::VectorObserverExt;
-use futures_util::{Stream, StreamExt as _, pin_mut, stream};
+use futures_util::{Stream, StreamExt as _, pin_mut};
 use matrix_sdk::{
     Client, Room, RoomRecencyStamp, RoomState, SlidingSync, SlidingSyncList,
     task_monitor::BackgroundTaskHandle,
@@ -151,16 +150,19 @@ impl RoomList {
         );
 
         let stream = stream! {
-            loop {
-                let filter_fn = filter_fn_cell.take().await;
+            let mut filter_fn = Arc::new(filter_fn_cell.take().await);
 
+            loop {
                 let (raw_values, raw_stream) = self.entries();
                 let values = raw_values.into_iter().map(Into::into).collect::<Vector<RoomListItem>>();
 
                 // Combine normal stream events with other updates from rooms
                 let stream = merge_stream_and_receiver(values.clone(), raw_stream, room_info_notable_update_receiver.resubscribe());
 
-                let (values, stream) = (values, stream).filter(filter_fn);
+                let (values, stream) = (values, stream).filter({
+                    let filter_fn = filter_fn.clone();
+                    move |item| filter_fn(item)
+                });
 
                 // Sort the rooms: unsent local latest events first, then by
                 // recency (latest event timestamp, with timestamp-less rooms
@@ -173,12 +175,41 @@ impl RoomList {
                     (values, stream).dynamic_head_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
-                yield stream::once(ready(vec![VectorDiff::Reset { values }]))
-                    .chain(stream);
+                yield vec![VectorDiff::Reset { values }];
+
+                pin_mut!(stream);
+
+                loop {
+                    select! {
+                        // Give priority to filter changes: a new filter makes
+                        // any not-yet-delivered diffs of the old chain moot.
+                        biased;
+
+                        new_filter_fn = filter_fn_cell.take() => {
+                            filter_fn = Arc::new(new_filter_fn);
+                            break;
+                        }
+
+                        diffs = stream.next() => {
+                            match diffs {
+                                Some(diffs) => yield diffs,
+                                None => {
+                                    // The adapter chain died, e.g. the entries
+                                    // stream ended after the subscriber lagged
+                                    // out. This used to leave the dynamic
+                                    // entries silently dead until the next
+                                    // filter change; rebuild the chain under
+                                    // the current filter instead, which also
+                                    // re-emits a fresh `Reset`.
+                                    error!("Room list entries stream ended; rebuilding it");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        }
-        .fuse()
-        .switch();
+        };
 
         (stream, dynamic_entries_controller)
     }
@@ -213,6 +244,11 @@ fn merge_stream_and_receiver(
 
                         yield diffs;
                     } else {
+                        // Ends the merged stream, which propagates through the
+                        // adapter chain and makes `entries_with_dynamic_adapters`
+                        // rebuild it. Log which death site it was.
+                        error!("Raw room list entries stream ended");
+
                         // Restart immediately, don't keep on waiting for the receiver
                         break;
                     }

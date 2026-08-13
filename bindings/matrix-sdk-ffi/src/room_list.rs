@@ -260,6 +260,10 @@ impl RoomList {
                         .collect(),
                 );
             }
+
+            // This task should live as long as the subscription: the stream
+            // ending means the listener will never hear anything again.
+            tracing::error!("Dynamic room list entries stream ended; the listener is dead");
         })));
 
         // Initialize the second field `controller`.
