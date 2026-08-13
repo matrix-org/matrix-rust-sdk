@@ -109,10 +109,10 @@ tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.19", default-features = false }
 tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
 tokio-stream = { version = "0.1.19", default-features = false }
-tracing = { version = "0.1.41", default-features = false, features = ["std"] }
-tracing-appender = { version = "0.2.3", default-features = false }
-tracing-core = { version = "0.1.34", default-features = false }
-tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "smallvec", "fmt"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-appender = { version = "0.2.5", default-features = false }
+tracing-core = { version = "0.1.36", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "smallvec", "fmt"] }
 unicode-normalization = { version = "0.1.25", default-features = false }
 unicode-segmentation = { version = "1.13.3", default-features = false }
 uniffi = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4821410bea19e71984ea5e06a7bc8b11ed9e5", version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
@@ -251,11 +251,8 @@ lto = false
 [patch.crates-io]
 async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
+
+[patch."https://github.com/ruma/ruma"]
 # Needed to disable checksums since they're incorrect in 32bit devices.
 # Delete this once https://github.com/mozilla/uniffi-rs/issues/2939 is fixed.
 ruma = { git = "https://github.com/matrix-org/ruma", rev = "2a1d714314f6f711d5bca755c73cf2ce3053c3d1" }
-# Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
-tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-tracing-appender = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
