@@ -3572,6 +3572,7 @@ dependencies = [
  "bytes",
  "bytesize",
  "cfg-if",
+ "chrono",
  "ctor 1.0.12",
  "dirs",
  "event-listener",

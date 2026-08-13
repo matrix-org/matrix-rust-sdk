@@ -61,6 +61,7 @@ mod deduplicator;
 mod persistence;
 #[cfg(feature = "e2e-encryption")]
 mod redecryptor;
+mod search_backfill;
 mod states;
 mod tasks;
 
@@ -84,6 +85,7 @@ pub use self::{
         subscriber::Subscriber,
         thread::{ThreadEventCache, pagination::ThreadPagination},
     },
+    search_backfill::BackPaginationStrategy,
 };
 use self::{
     caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},

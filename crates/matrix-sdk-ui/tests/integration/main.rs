@@ -15,6 +15,8 @@
 mod encryption_sync_service;
 mod notification_client;
 mod room_list_service;
+#[cfg(feature = "experimental-search")]
+mod search_service;
 mod sliding_sync;
 mod sync_service;
 mod timeline;
