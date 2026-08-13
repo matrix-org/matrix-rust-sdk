@@ -80,27 +80,29 @@ impl MatrixDriver {
 
     /// Fetches the RTC transports advertised by the homeserver.
     ///
-    /// This delegates to [`Client::rtc_transports`], so the result is served
-    /// from (and populates) the client's in-memory cache.
+    /// This delegates to [`Client::discover_rtc_transports`], so the MSC4143
+    /// discovery endpoint is tried first — its result is served from (and
+    /// populates) the client's in-memory cache — and the well-known foci are
+    /// used as a fallback, unless well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     ///
-    /// Returns an error if the homeserver doesn't implement the discovery
-    /// endpoint, so that the widget receives an error response (as opposed to
-    /// an empty list, which would be indistinguishable from a homeserver that
-    /// advertises no transports).
+    /// Returns an error if neither source could provide transports, so that
+    /// the widget receives an error response (as opposed to an empty list,
+    /// which would be indistinguishable from a homeserver that advertises no
+    /// transports).
     ///
-    /// [`Client::rtc_transports`]: crate::Client::rtc_transports
+    /// [`Client::discover_rtc_transports`]: crate::Client::discover_rtc_transports
+    /// [`ClientBuilder::disable_well_known_lookup`]: crate::ClientBuilder::disable_well_known_lookup
     pub(crate) async fn get_rtc_transports(
         &self,
     ) -> Result<Vec<ruma::api::client::rtc::RtcTransport>> {
         self.room
             .client
-            .rtc_transports()
+            .discover_rtc_transports()
             .await
             .map_err(|error| Error::Http(Box::new(error)))?
             .ok_or_else(|| {
-                Error::UnknownError(
-                    "the homeserver does not support RTC transport discovery".into(),
-                )
+                Error::UnknownError("the homeserver does not advertise any RTC transport".into())
             })
     }
 

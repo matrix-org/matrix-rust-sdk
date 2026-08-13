@@ -44,7 +44,6 @@ use matrix_sdk::{
             discovery::get_authorization_server_metadata::v1::Prompt as RumaOAuthPrompt,
             push::{EmailPusherData, PusherIds, PusherInit, PusherKind as RumaPusherKind},
             room::{Visibility, create_room},
-            rtc::RtcTransport,
             session::get_login_types,
             user_directory::search_users,
         },
@@ -88,6 +87,7 @@ use ruma::{
             },
             profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
+            rtc::RtcTransport,
             uiaa::{EmailUserIdentifier, UserIdentifier},
         },
         error::ErrorKind,
@@ -1124,6 +1124,18 @@ impl Client {
         Ok(self.inner.reset_supported_versions().await?)
     }
 
+    /// Change whether this client is allowed to look up the homeserver's
+    /// `/.well-known/matrix/client` file.
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, [`Client::tile_server`] returns `None`,
+    /// [`Client::well_known_rtc_transports`] returns an empty list, and
+    /// [`Client::discover_rtc_transports`] doesn't fall back to the well-known
+    /// `m.rtc_foci`, relying only on the MSC4143 discovery endpoint.
+    pub fn disable_well_known_lookup(&self, disable: bool) {
+        self.inner.disable_well_known_lookup(disable);
+    }
+
     /// Empty the well-known cache.
     ///
     /// Since the SDK caches the well-known, it's possible to have a stale
@@ -2143,20 +2155,13 @@ impl Client {
     ///
     /// Transports are discovered through the authenticated
     /// `GET /_matrix/client/v1/rtc/transports` endpoint (MSC4143). If the
-    /// homeserver doesn't implement it and `fallback_to_well_known` is `true`,
-    /// then the well-known will be queried.
-    #[uniffi::method(default(fallback_to_well_known = false))]
-    pub async fn is_livekit_rtc_supported(
-        &self,
-        fallback_to_well_known: bool,
-    ) -> Result<bool, ClientError> {
-        let transports = match self.inner.rtc_transports().await? {
-            Some(transports) => transports,
-            // discovery not supported, fallback to well-known if allowed
-            None if fallback_to_well_known => self.inner.well_known_rtc_transports().await?,
-            None => return Ok(false),
-        };
-        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit(_))))
+    /// homeserver doesn't implement it, the well-known `m.rtc_foci` are used as
+    /// a fallback, unless well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`] or
+    /// [`Client::disable_well_known_lookup`].
+    pub async fn is_livekit_rtc_supported(&self) -> Result<bool, ClientError> {
+        let transports = self.inner.discover_rtc_transports().await?.unwrap_or_default();
+        Ok(transports.iter().any(|focus| matches!(focus, RtcTransport::LiveKit { .. })))
     }
 
     /// Checks if the server supports the Profiles sliding sync extension.

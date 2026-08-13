@@ -74,6 +74,11 @@ enum HomeserverConfig {
 pub enum ClientBuildError {
     #[error("The supplied server name is invalid.")]
     InvalidServerName,
+    #[error(
+        "Homeserver discovery requires a .well-known lookup, which was disabled; \
+         use `ClientBuilder::homeserver_url` instead."
+    )]
+    WellKnownLookupDisabled,
     #[error(transparent)]
     ServerUnreachable(HttpError),
     #[error(transparent)]
@@ -99,6 +104,9 @@ impl From<MatrixClientBuildError> for ClientBuildError {
     fn from(e: MatrixClientBuildError) -> Self {
         match e {
             MatrixClientBuildError::InvalidServerName => ClientBuildError::InvalidServerName,
+            MatrixClientBuildError::WellKnownLookupDisabled => {
+                ClientBuildError::WellKnownLookupDisabled
+            }
             MatrixClientBuildError::Http(e) => ClientBuildError::ServerUnreachable(e),
             MatrixClientBuildError::AutoDiscovery(e) => match *e {
                 FromHttpResponseError::Server(e) => {
@@ -155,6 +163,7 @@ pub struct ClientBuilder {
     room_key_recipient_strategy: CollectStrategy,
     decryption_settings: DecryptionSettings,
     enable_share_history_on_invite: bool,
+    disable_well_known_lookup: bool,
     request_config: Option<RequestConfig>,
     #[cfg(feature = "experimental-search")]
     search_index_store: Option<SearchIndexStoreKind>,
@@ -221,6 +230,7 @@ impl ClientBuilder {
                 sender_device_trust_requirement: TrustRequirement::Untrusted,
             },
             enable_share_history_on_invite: false,
+            disable_well_known_lookup: false,
             request_config: Default::default(),
             threading_support: ThreadingSupport::Disabled,
             #[cfg(feature = "experimental-search")]
@@ -273,6 +283,14 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
+    /// Set the user ID the homeserver is derived from, when none of
+    /// `homeserver_url`, `server_name` or `server_name_or_homeserver_url` was
+    /// called.
+    ///
+    /// The homeserver is then discovered from the server name of that user ID,
+    /// which requires a `.well-known/matrix/client` lookup. This is therefore
+    /// incompatible with `disable_well_known_lookup`, which makes `build` fail
+    /// with `ClientBuildError::WellKnownLookupDisabled`.
     pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.username = Some(username);
@@ -369,6 +387,32 @@ impl ClientBuilder {
     ) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
         builder.enable_share_history_on_invite = enable_share_history_on_invite;
+        Arc::new(builder)
+    }
+
+    /// Disable all the `.well-known/matrix/client` lookups, both the one
+    /// performed by `ClientBuilder::build` to discover the homeserver, and all
+    /// the ones performed later by the built client.
+    ///
+    /// Some deployments must not emit any request to the well-known URI of
+    /// their domain. When disabled, `Client::tile_server` returns `None` and
+    /// RTC transport discovery doesn't fall back to the well-known
+    /// `m.rtc_foci`, meaning `Client::is_livekit_rtc_supported` only relies on
+    /// the MSC4143 discovery endpoint.
+    ///
+    /// The homeserver must then be resolvable without a well-known lookup, so
+    /// `ClientBuilder::homeserver_url` must be used.
+    /// `ClientBuilder::server_name` and `ClientBuilder::username` can only
+    /// be resolved through the well-known, and `ClientBuilder::build` fails
+    /// with `ClientBuildError::WellKnownLookupDisabled` in that case.
+    /// `ClientBuilder::server_name_or_homeserver_url` skips the well-known step
+    /// and works only when given a homeserver URL.
+    pub fn disable_well_known_lookup(
+        self: Arc<Self>,
+        disable_well_known_lookup: bool,
+    ) -> Arc<Self> {
+        let mut builder = unwrap_or_clone_arc(self);
+        builder.disable_well_known_lookup = disable_well_known_lookup;
         Arc::new(builder)
     }
 
@@ -516,7 +560,8 @@ impl ClientBuilder {
             .with_encryption_settings(builder.encryption_settings)
             .with_room_key_recipient_strategy(builder.room_key_recipient_strategy)
             .with_decryption_settings(builder.decryption_settings)
-            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite);
+            .with_enable_share_history_on_invite(builder.enable_share_history_on_invite)
+            .disable_well_known_lookup(builder.disable_well_known_lookup);
 
         match builder.sliding_sync_version_builder {
             SlidingSyncVersionBuilder::None => {
