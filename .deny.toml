@@ -44,6 +44,8 @@ allow-git = [
     "https://github.com/tokio-rs/tracing.git",
     # Well, it's Ruma.
     "https://github.com/ruma/ruma",
+    # This is our fork of Ruma, needed until the fix for https://github.com/mozilla/uniffi-rs/issues/2939 is merged.
+    "https://github.com/matrix-org/ruma",
     # Vodozemac won't block us as we're doing the releases.
     "https://github.com/matrix-org/vodozemac",
     # A patch override for the bindings: https://github.com/rodrimati1992/const_panic/pull/10
