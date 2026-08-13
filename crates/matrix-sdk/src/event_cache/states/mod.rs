@@ -17,8 +17,13 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt,
+    future::Future,
     ops::{Deref, DerefMut},
-    sync::Arc,
+    sync::{
+        Arc, Mutex as StdMutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 
 use matrix_sdk_base::{
@@ -26,9 +31,10 @@ use matrix_sdk_base::{
     timer,
     tracing_timer::TracingTimer,
 };
-use ruma::{OwnedEventId, OwnedRoomId, RoomId};
+use matrix_sdk_common::timeout::timeout;
+use ruma::{OwnedEventId, OwnedRoomId, RoomId, time::Instant};
 use tokio::sync::{Mutex, RwLock, RwLockMappedWriteGuard, RwLockReadGuard, RwLockWriteGuard};
-use tracing::{info, instrument, trace, warn};
+use tracing::{error, info, instrument, trace, warn};
 
 use super::{
     CachesByRoom, EventCacheError, EventsOrigin, Result,
@@ -107,6 +113,106 @@ struct StateLockInner {
     /// Please see inline comment of [`Self::read`] to understand why it
     /// exists.
     state_lock_upgrade_mutex: Mutex<()>,
+
+    /// Bookkeeping of the live guards over this lock, used to attribute
+    /// stalled acquisitions to their holders (see
+    /// [`HolderRegistry::wait_attributed`]).
+    holders: Arc<HolderRegistry>,
+}
+
+/// Bookkeeping of the live guards over the [`StateLock`].
+///
+/// Every guard carries a [`HolderTicket`] registering who acquired it (the
+/// tracing span current at acquisition time) and when; a stalled acquisition
+/// logs the registry's snapshot, naming the holders of a deadlock or convoy.
+/// Purely diagnostic: it never changes locking behaviour.
+#[derive(Default)]
+struct HolderRegistry {
+    next_id: AtomicU64,
+    holders: StdMutex<HashMap<u64, HolderInfo>>,
+}
+
+struct HolderInfo {
+    kind: &'static str,
+    owner: &'static str,
+    since: Instant,
+}
+
+impl HolderRegistry {
+    fn register(self: &Arc<Self>, kind: &'static str) -> HolderTicket {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let owner =
+            tracing::Span::current().metadata().map(|metadata| metadata.name()).unwrap_or("?");
+
+        self.holders
+            .lock()
+            .unwrap()
+            .insert(id, HolderInfo { kind, owner, since: Instant::now() });
+
+        HolderTicket { registry: self.clone(), id }
+    }
+
+    fn snapshot(&self) -> String {
+        let holders = self.holders.lock().unwrap();
+
+        if holders.is_empty() {
+            return "none".to_owned();
+        }
+
+        let mut holders = holders
+            .values()
+            .map(|info| format!("{} held by `{}` for {:?}", info.kind, info.owner, info.since.elapsed()))
+            .collect::<Vec<_>>();
+        holders.sort();
+        holders.join("; ")
+    }
+
+    /// Await a lock acquisition, logging an error every 10 seconds it stalls,
+    /// along with a snapshot of the live guard holders.
+    ///
+    /// Deliberately never gives up: a stalled acquisition is a bug to surface
+    /// loudly, not to paper over with a timeout. The pending acquisition is
+    /// polled by reference, so its position in the lock's fair queue is
+    /// preserved across the periodic reports.
+    async fn wait_attributed<F>(&self, what: &'static str, future: F) -> F::Output
+    where
+        F: Future,
+    {
+        let mut future = std::pin::pin!(future);
+        let started = Instant::now();
+
+        loop {
+            match timeout(&mut future, Duration::from_secs(10)).await {
+                Ok(output) => {
+                    let waited = started.elapsed();
+                    if waited > Duration::from_secs(10) {
+                        info!(what, ?waited, "Stalled event cache state lock acquisition resolved");
+                    }
+                    return output;
+                }
+                Err(_elapsed) => {
+                    error!(
+                        what,
+                        waited_secs = started.elapsed().as_secs(),
+                        holders = %self.snapshot(),
+                        "Event cache state lock acquisition is stalled"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// RAII registration of a live guard in a [`HolderRegistry`].
+struct HolderTicket {
+    registry: Arc<HolderRegistry>,
+    id: u64,
+}
+
+impl Drop for HolderTicket {
+    fn drop(&mut self) {
+        self.registry.holders.lock().unwrap().remove(&self.id);
+    }
 }
 
 impl StateLock {
@@ -116,6 +222,7 @@ impl StateLock {
             inner: Arc::new(StateLockInner {
                 locked_state: RwLock::new(State { store, by_room: HashMap::new() }),
                 state_lock_upgrade_mutex: Mutex::new(()),
+                holders: Arc::new(HolderRegistry::default()),
             }),
         }
     }
@@ -129,10 +236,13 @@ impl StateLock {
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded.
-    #[instrument(skip_all)]
+    ///
+    /// Note: deliberately not `#[instrument]`ed, so that the caller's span
+    /// names the acquirer in the holder registry and in stall reports.
     pub(super) async fn read<'state>(&'state self) -> Result<StateLockReadGuard<'state, State>> {
         trace!("Acquiring the lock");
         let tracing_timer = timer!("`read` lock");
+        let holders = &self.inner.holders;
 
         // Only one call at a time to `read` is allowed.
         //
@@ -180,27 +290,44 @@ impl StateLock {
         //
         // [^1]: https://docs.rs/lock_api/0.4.14/lock_api/struct.RwLock.html#method.upgradable_read
         // [^2]: https://docs.rs/async-lock/3.4.1/async_lock/struct.RwLock.html#method.upgradable_read
-        let _state_lock_upgrade_guard = self.inner.state_lock_upgrade_mutex.lock().await;
+        let _state_lock_upgrade_guard = holders
+            .wait_attributed("upgrade mutex (read)", self.inner.state_lock_upgrade_mutex.lock())
+            .await;
+        let _upgrade_mutex_holder = holders.register("upgrade mutex (read)");
 
         // Obtain a read lock.
-        let state_guard = self.inner.locked_state.read().await;
+        let state_guard =
+            holders.wait_attributed("state (read)", self.inner.locked_state.read()).await;
+        let holder = holders.register("state (read)");
 
-        Ok(match state_guard.store.lock().await? {
+        Ok(match holders.wait_attributed("store (read)", state_guard.store.lock()).await? {
             EventCacheStoreLockState::Clean(store_guard) => {
                 trace!("Lock acquired (from clean)");
 
-                StateLockReadGuard { state: state_guard, store: store_guard, tracing_timer }
+                StateLockReadGuard {
+                    state: state_guard,
+                    store: store_guard,
+                    tracing_timer,
+                    _holder: holder,
+                }
             }
             EventCacheStoreLockState::Dirty(store_guard) => {
                 // Drop the read lock, and take a write lock to modify the state.
                 // This is safe because only one reader at a time (see
                 // `Self::state_lock_upgrade_mutex`) is allowed.
                 drop(state_guard);
+                drop(holder);
 
                 let mut guard = ReloadableStateLockWriteGuard {
-                    state: self.inner.locked_state.write().await,
+                    state: holders
+                        .wait_attributed(
+                            "state (read, dirty upgrade)",
+                            self.inner.locked_state.write(),
+                        )
+                        .await,
                     store: store_guard,
                     tracing_timer,
+                    _holder: holders.register("state (read, dirty upgrade)"),
                 };
 
                 // Reload the state, scoped to the journaled rooms when possible.
@@ -227,14 +354,19 @@ impl StateLock {
     ///
     /// If the cross-process lock over the store is dirty (see
     /// [`EventCacheStoreLockState`]), the state is reloaded automatically.
-    #[instrument(skip_all)]
+    ///
+    /// Note: deliberately not `#[instrument]`ed, so that the caller's span
+    /// names the acquirer in the holder registry and in stall reports.
     async fn write<'state>(&'state self) -> Result<ReloadableStateLockWriteGuard<'state>> {
         trace!("Acquiring lock");
         let tracing_timer = timer!("`write` lock");
+        let holders = &self.inner.holders;
 
-        let state_guard = self.inner.locked_state.write().await;
+        let state_guard =
+            holders.wait_attributed("state (write)", self.inner.locked_state.write()).await;
+        let holder = holders.register("state (write)");
 
-        Ok(match state_guard.store.lock().await? {
+        Ok(match holders.wait_attributed("store (write)", state_guard.store.lock()).await? {
             EventCacheStoreLockState::Clean(store_guard) => {
                 trace!("Lock acquired (from clean)");
 
@@ -242,6 +374,7 @@ impl StateLock {
                     state: state_guard,
                     store: store_guard,
                     tracing_timer,
+                    _holder: holder,
                 }
             }
             EventCacheStoreLockState::Dirty(store_guard) => {
@@ -249,6 +382,7 @@ impl StateLock {
                     state: state_guard,
                     store: store_guard,
                     tracing_timer,
+                    _holder: holder,
                 };
 
                 // Reload the state, scoped to the journaled rooms when possible.
@@ -278,15 +412,22 @@ impl StateLock {
         room_id: Option<&RoomId>,
     ) -> Result<()> {
         let tracing_timer = timer!("`clear_and_reload` lock");
+        let holders = &self.inner.holders;
 
-        let state_guard = self.inner.locked_state.write().await;
+        let state_guard =
+            holders.wait_attributed("state (clear_and_reload)", self.inner.locked_state.write()).await;
+        let holder = holders.register("state (clear_and_reload)");
 
-        let mut guard = match state_guard.store.lock().await? {
+        let mut guard = match holders
+            .wait_attributed("store (clear_and_reload)", state_guard.store.lock())
+            .await?
+        {
             EventCacheStoreLockState::Clean(store_guard)
             | EventCacheStoreLockState::Dirty(store_guard) => ReloadableStateLockWriteGuard {
                 state: state_guard,
                 store: store_guard,
                 tracing_timer,
+                _holder: holder,
             },
         };
 
@@ -347,6 +488,10 @@ pub struct StateLockReadGuard<'state, S> {
 
     /// The [`timer!`] value, used to compute the time the lock is live.
     tracing_timer: TracingTimer,
+
+    /// Registration of this guard in the holder registry, for stalled
+    /// acquisition reports.
+    _holder: HolderTicket,
 }
 
 impl<'state> StateLockReadGuard<'state, State> {
@@ -368,6 +513,7 @@ impl<'state> StateLockReadGuard<'state, State> {
                 .map_err(|_| EventCacheError::from(cache_state_selector))?,
             store: self.store,
             tracing_timer: self.tracing_timer,
+            _holder: self._holder,
         })
     }
 }
@@ -397,6 +543,10 @@ struct ReloadableStateLockWriteGuard<'state> {
 
     /// The [`timer!`] value, used to compute the time the lock is live.
     tracing_timer: TracingTimer,
+
+    /// Registration of this guard in the holder registry, for stalled
+    /// acquisition reports.
+    _holder: HolderTicket,
 }
 
 impl<'state> ReloadableStateLockWriteGuard<'state> {
@@ -422,6 +572,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
             ),
             store: self.store,
             _tracing_timer: Some(self.tracing_timer),
+            _holder: Some(self._holder),
         })
     }
 
@@ -437,6 +588,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
             state: self.state.downgrade(),
             store: self.store,
             tracing_timer: self.tracing_timer,
+            _holder: self._holder,
         }
     }
 
@@ -476,6 +628,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     state: StateLockWriteGuardKind::Reference(room_state),
                     store: self.store.clone(),
                     _tracing_timer: None,
+                    _holder: None,
                 };
 
                 let updates_as_vector_diffs = room_state.reload(preprocessing).await?;
@@ -497,6 +650,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     state: StateLockWriteGuardKind::Reference(thread_state),
                     store: self.store.clone(),
                     _tracing_timer: None,
+                    _holder: None,
                 };
 
                 let updates_as_vector_diffs = thread_state.reload(preprocessing).await?;
@@ -518,6 +672,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     state: StateLockWriteGuardKind::Reference(pinned_events_state),
                     store: self.store.clone(),
                     _tracing_timer: None,
+                    _holder: None,
                 };
 
                 let updates_as_vector_diffs = pinned_events_state.reload(preprocessing).await?;
@@ -533,6 +688,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                     state: StateLockWriteGuardKind::Reference(event_focused_state),
                     store: self.store.clone(),
                     _tracing_timer: None,
+                    _holder: None,
                 };
 
                 let updates_as_vector_diffs = event_focused_state.reload(preprocessing).await?;
@@ -557,6 +713,10 @@ pub struct StateLockWriteGuard<'state, S> {
 
     /// The [`timer!`] value, used to compute the time the lock is live.
     _tracing_timer: Option<TracingTimer>,
+
+    /// Registration of this guard in the holder registry, for stalled
+    /// acquisition reports.
+    _holder: Option<HolderTicket>,
 }
 
 impl<'state, S> Deref for StateLockWriteGuard<'state, S> {
