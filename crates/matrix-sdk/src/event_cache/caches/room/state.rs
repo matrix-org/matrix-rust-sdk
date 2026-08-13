@@ -650,23 +650,24 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         }
 
         // Duplicates whose current copy is already loaded after the last gap (the
-        // live tail) are replaced in place rather than removed and re-appended:
-        // re-appending visibly reorders messages the user is already looking at.
-        // This is the common case for our own just-sent events, which the send
-        // queue eagerly inserted at the tail with a fabricated timestamp and no
-        // `unsigned` data - the in-place replacement swaps in the real sync
-        // payload without moving the message.
+        // live tail) are *anchors*: they keep their position and are replaced in
+        // place with the real sync payload, and the rest of the batch is inserted
+        // around them following the batch order. The legacy remove+re-append
+        // would move an anchor - and drag the batch's older companions - past
+        // tail events the batch doesn't know about, typically our own just-sent
+        // events which the send queue eagerly inserted at the tail: a stale
+        // long-poll delivered late on a bad network then visibly and permanently
+        // reorders messages ([3, 1, 2] instead of [1, 2, 3]).
         //
-        // This is only sound when those duplicates form a *prefix* of the sync
-        // batch, i.e. sync is merely catching up on the tail we already have and
-        // everything else in the batch comes after them. When the batch orders
-        // other events *before* a duplicate (e.g. a timeline-limit increase
-        // re-delivering a superset like [new A, new B, known C]), sync's ordering
-        // is authoritative and the legacy remove+re-append applies. Similarly, a
-        // response with a new gap means our tail's ordering can't be trusted at
-        // all, so it also takes the legacy path.
-        let mut replaced_event_ids = BTreeSet::new();
-        let in_memory_duplicated_event_ids = if prev_batch_token.is_none() {
+        // This is only sound when the batch agrees with the linked chunk on the
+        // anchors' relative order; a disagreement means sync's (authoritative)
+        // ordering differs from ours, and the legacy remove+re-append
+        // re-establishes it. Similarly, a response with a new gap means our
+        // tail's ordering can't be trusted at all, so it also takes the legacy
+        // path.
+        let mut anchors = Vec::new();
+
+        if prev_batch_token.is_none() {
             let tail_chunk_ids = {
                 let mut ids = Vec::new();
                 for chunk in self.state.room_linked_chunk.chunks() {
@@ -682,57 +683,113 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             let tail_duplicates = in_memory_duplicated_event_ids
                 .iter()
                 .filter(|(_, position)| tail_chunk_ids.contains(&position.chunk_identifier()))
-                .map(|(event_id, _)| event_id.clone())
-                .collect::<BTreeSet<_>>();
+                .cloned()
+                .collect::<std::collections::BTreeMap<_, _>>();
 
-            let batch_prefix_len = events
+            // Anchors, in batch order.
+            anchors = events
                 .iter()
-                .take_while(|event| {
-                    event.event_id().is_some_and(|event_id| tail_duplicates.contains(&*event_id))
+                .filter_map(|event| {
+                    let event_id = event.event_id()?;
+                    let position = *tail_duplicates.get(event_id)?;
+                    Some((event_id.to_owned(), position))
                 })
-                .count();
+                .collect();
 
-            if !tail_duplicates.is_empty() && batch_prefix_len == tail_duplicates.len() {
-                let mut remaining = Vec::new();
-                for (event_id, position) in in_memory_duplicated_event_ids {
-                    if tail_duplicates.contains(&event_id) {
-                        let sync_copy = events
-                            .iter()
-                            .find(|event| event.event_id().as_deref() == Some(&event_id))
-                            .cloned()
-                            .expect("tail duplicates come from the sync batch");
-                        self.replace_event_at(EventLocation::Memory(position), sync_copy).await?;
-                        replaced_event_ids.insert(event_id);
-                    } else {
-                        remaining.push((event_id, position));
-                    }
-                }
-                remaining
-            } else {
-                in_memory_duplicated_event_ids
+            let chunk_order_matches = anchors.windows(2).all(|pair| {
+                let first = self.state.room_linked_chunk.event_order(pair[0].1);
+                let second = self.state.room_linked_chunk.event_order(pair[1].1);
+                first.zip(second).is_some_and(|(first, second)| first < second)
+            });
+
+            if !chunk_order_matches {
+                warn!(
+                    room_id = %self.state.room_id,
+                    "Sync batch orders known tail events differently from the linked chunk; \
+                     taking the remove+re-append path"
+                );
+                anchors.clear();
             }
+        }
+
+        if anchors.is_empty() {
+            // Legacy path: remove all the duplicated events, and append the whole
+            // batch (and the new gap, if any) at the back.
+            //
+            // We don't have to worry the removals can change the position of the
+            // existing events, because we are pushing all _new_ `events` at the
+            // back.
+            self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
+
+            self.state.room_linked_chunk.push_live_events(
+                prev_batch_token.map(|prev_token| Gap { token: prev_token }),
+                &events,
+            );
         } else {
-            in_memory_duplicated_event_ids
-        };
+            // Remove the non-anchor duplicates. They all live in the store or
+            // before the last gap, so the anchor positions stay valid.
+            let anchor_ids =
+                anchors.iter().map(|(event_id, _)| event_id.clone()).collect::<BTreeSet<_>>();
 
-        // Remove the old duplicated events.
-        //
-        // We don't have to worry the removals can change the position of the existing
-        // events, because we are pushing all _new_ `events` at the back.
-        self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids).await?;
+            let non_anchor_duplicates = in_memory_duplicated_event_ids
+                .into_iter()
+                .filter(|(event_id, _)| !anchor_ids.contains(event_id))
+                .collect::<Vec<_>>();
 
-        let pushed_events = events
-            .iter()
-            .filter(|event| {
-                event.event_id().is_none_or(|event_id| !replaced_event_ids.contains(&*event_id))
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+            self.remove_events(non_anchor_duplicates, in_store_duplicated_event_ids).await?;
 
-        self.state.room_linked_chunk.push_live_events(
-            prev_batch_token.map(|prev_token| Gap { token: prev_token }),
-            &pushed_events,
-        );
+            // Split the batch into the runs of events surrounding the anchors:
+            // run `i` is inserted at anchor `i`'s position (i.e. right before
+            // it, where the batch says it belongs). The trailing run - events
+            // after the last anchor - is appended at the back instead: its
+            // events are genuinely new, so the best guess is that they postdate
+            // whatever sits at our tail (typically our own eagerly-inserted
+            // sends, whose stream position is unknown until sync echoes them).
+            // If that guess is wrong, a later sync re-delivers the events in an
+            // order contradicting ours, the order check above fails, and the
+            // remove+re-append path restores the server's ordering.
+            let mut runs = vec![Vec::new()];
+            for event in &events {
+                if event.event_id().is_some_and(|event_id| anchor_ids.contains(event_id)) {
+                    runs.push(Vec::new());
+                } else {
+                    runs.last_mut().expect("`runs` is never empty").push(event.clone());
+                }
+            }
+            let trailing_run = runs.pop().expect("`runs` is never empty");
+
+            // Replace the anchors in place with their sync copies. This must
+            // happen before the insertions, which shift the anchor positions.
+            for (event_id, position) in &anchors {
+                let sync_copy = events
+                    .iter()
+                    .find(|event| event.event_id() == Some(event_id.as_ref()))
+                    .cloned()
+                    .expect("anchors come from the sync batch");
+                self.replace_event_at(EventLocation::Memory(*position), sync_copy).await?;
+            }
+
+            if !trailing_run.is_empty() {
+                self.state.room_linked_chunk.push_live_events(None, &trailing_run);
+            }
+
+            // Insert the anchored runs, deepest position first, so the
+            // outstanding (strictly smaller) positions stay valid.
+            for ((_, anchor_position), run) in anchors.iter().zip(runs).rev() {
+                if !run.is_empty()
+                    && let Err(err) =
+                        self.state.room_linked_chunk.insert_events_at(*anchor_position, run.clone())
+                {
+                    // Same degradation as `remove_events`/`replace_event_at` on
+                    // a stale position, but appending instead of dropping:
+                    // losing the placement is cosmetic, losing the events is
+                    // not.
+                    error!(?err, "handle_sync: stale position; appending the run instead");
+                    self.state.room_linked_chunk.push_live_events(None, &run);
+                }
+            }
+        }
 
         // Extract a new read receipt, if available.
         let new_receipt = extract_read_receipt(ephemeral_events);

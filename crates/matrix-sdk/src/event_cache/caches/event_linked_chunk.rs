@@ -169,6 +169,19 @@ impl EventLinkedChunk {
         self.chunks.replace_item_at(position, event)
     }
 
+    /// Insert events at a specified position.
+    ///
+    /// The first event takes `position`, i.e. the events are inserted before
+    /// the event currently at `position`, which is shifted after the new
+    /// ones.
+    ///
+    /// `position` must point to a valid item, otherwise the method returns an
+    /// error.
+    #[instrument(err, skip_all, fields(position, sentry = true))]
+    pub fn insert_events_at(&mut self, position: Position, events: Vec<Event>) -> Result<(), Error> {
+        self.chunks.insert_items_at(position, events)
+    }
+
     /// Search for a chunk, and return its identifier.
     pub fn chunk_identifier<'a, P>(&'a self, predicate: P) -> Option<ChunkIdentifier>
     where
