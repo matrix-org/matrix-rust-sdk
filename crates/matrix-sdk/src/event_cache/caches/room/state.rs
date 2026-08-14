@@ -258,17 +258,15 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
                         break;
                     }
 
-                    chunk = match self
-                        .store
-                        .load_previous_chunk(linked_chunk_id, raw.identifier)
-                        .await
-                    {
-                        Ok(previous_chunk) => previous_chunk,
-                        Err(err) => {
-                            warn!(%room_id, ?err, "CHUNKDUMP store walk failed");
-                            None
-                        }
-                    };
+                    chunk =
+                        match self.store.load_previous_chunk(linked_chunk_id, raw.identifier).await
+                        {
+                            Ok(previous_chunk) => previous_chunk,
+                            Err(err) => {
+                                warn!(%room_id, ?err, "CHUNKDUMP store walk failed");
+                                None
+                            }
+                        };
                 }
             }
             Err(err) => {
@@ -826,10 +824,99 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             self.remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
                 .await?;
 
+            // A gappy batch is appended after our tail, and the subsequent
+            // shrink-to-last-chunk then hides everything before the gap. When
+            // the tail ends with our own just-sent events (eagerly inserted by
+            // the send queue) that the batch doesn't know about - a stale
+            // long-poll generated before the sends completed - this files our
+            // newer sends *behind* the gap: invisible and mis-ordered until
+            // their sync echo restores them. Relocate that eager suffix
+            // instead: pull it out, append the gap and the batch, and
+            // re-append the suffix at the new tail, where it belongs causally.
+            //
+            // The suffix is identified conservatively: the maximal trailing
+            // run of our own events, absent from the batch, strictly newer
+            // (by origin_server_ts, which eager inserts carry server-assigned)
+            // than every batch event. Anything the rule doesn't confidently
+            // claim stays put and falls back to the echo-heal path.
+            let eager_suffix: Vec<(OwnedEventId, Position, Event)> = if prev_batch_token.is_some() {
+                // If any batch event lacks a timestamp, we can't order against
+                // the batch: claim nothing.
+                let max_batch_timestamp = events
+                    .iter()
+                    .map(|event| event.timestamp())
+                    .collect::<Option<Vec<_>>>()
+                    .and_then(|timestamps| timestamps.into_iter().max());
+
+                if let Some(max_batch_timestamp) = max_batch_timestamp {
+                    let batch_ids = events
+                        .iter()
+                        .filter_map(|event| event.event_id().map(ToOwned::to_owned))
+                        .collect::<BTreeSet<_>>();
+
+                    let mut suffix = Vec::new();
+                    for (position, event) in self.state.room_linked_chunk.revents() {
+                        let is_own =
+                            event.sender().is_some_and(|sender| sender == self.state.own_user_id);
+                        let is_newer = event
+                            .timestamp()
+                            .is_some_and(|timestamp| timestamp > max_batch_timestamp);
+                        let event_id = event.event_id();
+                        let in_batch =
+                            event_id.as_ref().is_some_and(|event_id| batch_ids.contains(*event_id));
+
+                        if let Some(event_id) = event_id
+                            && is_own
+                            && is_newer
+                            && !in_batch
+                        {
+                            suffix.push((event_id.to_owned(), position, event.clone()));
+                        } else {
+                            break;
+                        }
+                    }
+
+                    // `revents` walks backwards; restore chronological order.
+                    suffix.reverse();
+                    suffix
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            if !eager_suffix.is_empty() {
+                info!(
+                    room_id = %self.state.room_id,
+                    suffix = ?eager_suffix
+                        .iter()
+                        .map(|(event_id, ..)| event_id)
+                        .collect::<Vec<_>>(),
+                    "Relocating the eager tail suffix past a gappy batch"
+                );
+
+                self.remove_events(
+                    eager_suffix
+                        .iter()
+                        .map(|(event_id, position, _)| (event_id.clone(), *position))
+                        .collect(),
+                    Vec::new(),
+                )
+                .await?;
+            }
+
             self.state.room_linked_chunk.push_live_events(
                 prev_batch_token.map(|prev_token| Gap { token: prev_token }),
                 &events,
             );
+
+            if !eager_suffix.is_empty() {
+                self.state.room_linked_chunk.push_live_events(
+                    None,
+                    &eager_suffix.into_iter().map(|(.., event)| event).collect::<Vec<_>>(),
+                );
+            }
         } else {
             // Remove the non-anchor duplicates. They all live in the store or
             // before the last gap, so the anchor positions stay valid.
