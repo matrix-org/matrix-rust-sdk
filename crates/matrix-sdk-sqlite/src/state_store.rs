@@ -2578,7 +2578,10 @@ mod encrypted_tests {
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{
+        SqliteStoreConfig,
+        utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+    };
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2596,6 +2599,69 @@ mod encrypted_tests {
         Ok(SqliteStateStore::open(tmpdir_path.to_str().unwrap(), Some("default_test_password"))
             .await
             .unwrap())
+    }
+
+    /// The two passphrase methods are interchangeable in both directions.
+    #[async_test]
+    async fn test_high_entropy_passphrase_migrates_a_passphrase_store() {
+        const PASSPHRASE: &str = "a randomly generated passphrase";
+        let tmpdir_path = new_state_store_workspace();
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(PASSPHRASE));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // Migrates and caches the copy...
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(PASSPHRASE));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // ...which the next open uses.
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        // The `cipher` entry is never replaced, so this keeps working.
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(PASSPHRASE));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some("wrong"));
+        assert!(SqliteStateStore::open_with_config(&config).await.is_err());
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("wrong"));
+        assert!(SqliteStateStore::open_with_config(&config).await.is_err());
+    }
+
+    /// A store created this way stays readable by code that only knows
+    /// `passphrase`.
+    #[async_test]
+    async fn test_high_entropy_passphrase_creates_a_passphrase_compatible_store() {
+        const PASSPHRASE: &str = "a randomly generated passphrase";
+        let tmpdir_path = new_state_store_workspace();
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(PASSPHRASE));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(PASSPHRASE));
+        drop(SqliteStateStore::open_with_config(&config).await.unwrap());
+    }
+
+    /// A human-chosen passphrase would lose its brute-force protection.
+    #[async_test]
+    async fn test_only_a_high_entropy_passphrase_caches_a_copy() {
+        let tmpdir_path = new_state_store_workspace();
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("secret"));
+        assert!(!has_cached_cipher(&config).await);
+
+        let tmpdir_path = new_state_store_workspace();
+        let config = SqliteStoreConfig::new(&tmpdir_path).key(Some(&[7; 32]));
+        assert!(!has_cached_cipher(&config).await);
+
+        let tmpdir_path = new_state_store_workspace();
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some("secret"));
+        assert!(has_cached_cipher(&config).await);
+    }
+
+    async fn has_cached_cipher(config: &SqliteStoreConfig) -> bool {
+        let store = SqliteStateStore::open_with_config(config).await.unwrap();
+        let connection = store.read().await.unwrap();
+
+        connection.get_kv("cipher_fast").await.unwrap().is_some()
     }
 
     #[async_test]
