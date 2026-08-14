@@ -98,7 +98,9 @@ pub use self::{
         TimelineEventShieldStateCode, TimelineItemContent,
     },
     item::{TimelineItem, TimelineItemKind, TimelineUniqueId},
-    latest_event::{LatestEventValue, LatestEventValueLocalState},
+    latest_event::{
+        LatestEventValue, LatestEventValueLocalState, resolve_latest_event_thread_root,
+    },
     thread_list_service::{ThreadListPaginationState, ThreadListService},
     traits::RoomExt,
     virtual_item::VirtualTimelineItem,

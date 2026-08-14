@@ -1461,6 +1461,9 @@ pub enum LatestEventValue {
         is_own: bool,
         profile: ProfileDetails,
         content: TimelineItemContent,
+        /// The thread root ID, when the event lives in a thread (including
+        /// when it is an edit of an in-thread event).
+        thread_root_event_id: Option<String>,
     },
     RemoteInvite {
         /// `None` for stripped invite state, which carries no `origin_server_ts`.
@@ -1473,6 +1476,8 @@ pub enum LatestEventValue {
         sender: String,
         profile: ProfileDetails,
         content: TimelineItemContent,
+        /// The thread root ID, when the event is an in-thread reply.
+        thread_root_event_id: Option<String>,
         state: LatestEventValueLocalState,
     },
 }
@@ -1481,15 +1486,21 @@ impl From<UiLatestEventValue> for LatestEventValue {
     fn from(value: UiLatestEventValue) -> Self {
         match value {
             UiLatestEventValue::None => Self::None,
-            UiLatestEventValue::Remote { timestamp, sender, is_own, profile, content } => {
-                Self::Remote {
-                    timestamp: timestamp.into(),
-                    sender: sender.to_string(),
-                    is_own,
-                    profile: profile.into(),
-                    content: content.into(),
-                }
-            }
+            UiLatestEventValue::Remote {
+                timestamp,
+                sender,
+                is_own,
+                profile,
+                content,
+                thread_root,
+            } => Self::Remote {
+                timestamp: timestamp.into(),
+                sender: sender.to_string(),
+                is_own,
+                profile: profile.into(),
+                content: content.into(),
+                thread_root_event_id: thread_root.map(|event_id| event_id.to_string()),
+            },
             UiLatestEventValue::RemoteInvite { timestamp, inviter, inviter_profile } => {
                 Self::RemoteInvite {
                     timestamp: timestamp.map(Into::into),
@@ -1497,15 +1508,21 @@ impl From<UiLatestEventValue> for LatestEventValue {
                     inviter_profile: inviter_profile.into(),
                 }
             }
-            UiLatestEventValue::Local { timestamp, sender, profile, content, state } => {
-                Self::Local {
-                    timestamp: timestamp.into(),
-                    sender: sender.to_string(),
-                    profile: profile.into(),
-                    content: content.into(),
-                    state,
-                }
-            }
+            UiLatestEventValue::Local {
+                timestamp,
+                sender,
+                profile,
+                content,
+                thread_root,
+                state,
+            } => Self::Local {
+                timestamp: timestamp.into(),
+                sender: sender.to_string(),
+                profile: profile.into(),
+                content: content.into(),
+                thread_root_event_id: thread_root.map(|event_id| event_id.to_string()),
+                state,
+            },
         }
     }
 }

@@ -13,8 +13,12 @@
 // limitations under the License.
 
 use matrix_sdk::{Client, Room, latest_events::LocalLatestEventValue};
-use matrix_sdk_base::latest_event::LatestEventValue as BaseLatestEventValue;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedUserId};
+use matrix_sdk_base::{
+    deserialized_responses::TimelineEvent,
+    latest_event::LatestEventValue as BaseLatestEventValue,
+    serde_helpers::{extract_relation, extract_thread_root, extract_thread_root_from_content},
+};
+use ruma::{MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedUserId, events::relation::RelationType};
 use tracing::trace;
 
 use crate::timeline::{
@@ -44,6 +48,10 @@ pub enum LatestEventValue {
 
         /// The content of the remote event.
         content: TimelineItemContent,
+
+        /// The thread root ID, when the remote event lives in a thread
+        /// (including when it is an edit of an in-thread event).
+        thread_root: Option<OwnedEventId>,
     },
 
     /// The latest event represents an invite to a room.
@@ -75,9 +83,37 @@ pub enum LatestEventValue {
         /// The content of the local event.
         content: TimelineItemContent,
 
+        /// The thread root ID, when the local event is an in-thread reply.
+        thread_root: Option<OwnedEventId>,
+
         /// Whether the local event is sending, has been sent or cannot be sent.
         state: LatestEventValueLocalState,
     },
+}
+
+/// Resolve the thread root of a latest-event candidate.
+///
+/// An edit carries an `m.replace` relation, not the thread relation - that
+/// lives on the edited original - so when the candidate is an edit, look the
+/// original up in the event cache (memory or store, no network) and read the
+/// thread root off it.
+pub async fn resolve_latest_event_thread_root(
+    room: &Room,
+    event: &TimelineEvent,
+) -> Option<OwnedEventId> {
+    if let Some(thread_root) = extract_thread_root(event.raw()) {
+        return Some(thread_root);
+    }
+
+    let (relation_type, target) = extract_relation(event.raw())?;
+    if relation_type != RelationType::Replacement {
+        return None;
+    }
+
+    let (event_cache, _drop_handles) = room.event_cache().await.ok()?;
+    let original = event_cache.find_event(&target).await.ok()??;
+
+    extract_thread_root(original.raw())
 }
 
 #[derive(Debug)]
@@ -132,14 +168,20 @@ impl LatestEventValue {
                 let profile =
                     TimelineDetails::from_initial_value(load_preview_profile(room, &sender).await);
 
+                let thread_root = resolve_latest_event_thread_root(room, &timeline_event).await;
+
                 match TimelineItemContent::from_event(room, timeline_event).await {
-                    Some(content) => Self::Remote { timestamp, sender, is_own, profile, content },
+                    Some(content) => {
+                        Self::Remote { timestamp, sender, is_own, profile, content, thread_root }
+                    }
                     None => Self::None,
                 }
             }
             BaseLatestEventValue::RemoteInvite { timestamp, inviter, .. } => {
                 let inviter_profile = if let Some(inviter_id) = &inviter {
-                    TimelineDetails::from_initial_value(load_preview_profile(room, inviter_id).await)
+                    TimelineDetails::from_initial_value(
+                        load_preview_profile(room, inviter_id).await,
+                    )
                 } else {
                     TimelineDetails::Unavailable
                 };
@@ -160,12 +202,16 @@ impl LatestEventValue {
                 let profile =
                     TimelineDetails::from_initial_value(load_preview_profile(room, &sender).await);
 
+                let thread_root =
+                    extract_thread_root_from_content(serialized_content.raw().0.clone());
+
                 match TimelineAction::from_content(message_like_event_content, None, None, None) {
                     TimelineAction::AddItem { content } => Self::Local {
                         timestamp: *timestamp,
                         sender,
                         profile,
                         content,
+                        thread_root,
                         state: match value {
                             BaseLatestEventValue::LocalIsSending(_) => {
                                 LatestEventValueLocalState::IsSending
@@ -253,7 +299,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(received_sender, sender);
             assert!(is_own.not());
@@ -268,6 +314,64 @@ mod tests {
     }
 
     #[async_test]
+    async fn test_remote_thread_root_resolution() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        client.event_cache().subscribe().unwrap();
+
+        let room_id = room_id!("!r0");
+        let sender = user_id!("@mnt_io:matrix.org");
+        let thread_root = event_id!("$thread_root");
+        let reply_id = event_id!("$reply");
+        let event_factory = EventFactory::new().room(room_id).sender(sender);
+
+        // The in-thread reply is known to the event cache.
+        let room = server
+            .sync_room(
+                &client,
+                JoinedRoomBuilder::new(room_id).add_timeline_event(
+                    event_factory
+                        .text_msg("original")
+                        .in_thread(thread_root, thread_root)
+                        .event_id(reply_id)
+                        .server_ts(10),
+                ),
+            )
+            .await;
+
+        // A latest-event value that is the reply itself carries its thread root.
+        let base_value = BaseLatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            event_factory
+                .text_msg("original")
+                .in_thread(thread_root, thread_root)
+                .event_id(reply_id)
+                .server_ts(10)
+                .into_raw_sync(),
+        ));
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+        assert_matches!(value, LatestEventValue::Remote { thread_root: resolved, .. } => {
+            assert_eq!(resolved.as_deref(), Some(thread_root));
+        });
+
+        // A latest-event value that is an edit of the reply carries `m.replace`:
+        // the thread root must be resolved through the edited original.
+        let base_value = BaseLatestEventValue::Remote(RemoteLatestEventValue::from_plaintext(
+            event_factory
+                .text_msg("* edited")
+                .edit(reply_id, RoomMessageEventContent::text_plain("edited").into())
+                .event_id(event_id!("$edit"))
+                .server_ts(20)
+                .into_raw_sync(),
+        ));
+        let value =
+            LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
+        assert_matches!(value, LatestEventValue::Remote { thread_root: resolved, .. } => {
+            assert_eq!(resolved.as_deref(), Some(thread_root));
+        });
+    }
+
+    #[async_test]
     async fn test_remote_unable_to_decrypt() {
         use matrix_sdk::deserialized_responses::{
             UnableToDecryptInfo, UnableToDecryptReason, WithheldCode,
@@ -279,8 +383,8 @@ mod tests {
         let sender = user_id!("@mnt_io:matrix.org");
         let event_factory = EventFactory::new();
 
-        let base_value =
-            BaseLatestEventValue::Remote(matrix_sdk::deserialized_responses::TimelineEvent::from_utd(
+        let base_value = BaseLatestEventValue::Remote(
+            matrix_sdk::deserialized_responses::TimelineEvent::from_utd(
                 event_factory
                     .server_ts(42)
                     .sender(sender)
@@ -304,7 +408,8 @@ mod tests {
                         withheld_code: None::<WithheldCode>,
                     },
                 },
-            ));
+            ),
+        );
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
@@ -359,7 +464,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
@@ -390,7 +495,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
@@ -418,7 +523,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state } => {
+        assert_matches!(value, LatestEventValue::Local { timestamp, sender, profile, content, state, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(sender, "@example:localhost");
             assert_matches!(profile, TimelineDetails::Unavailable);
@@ -450,7 +555,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(received_sender, sender);
             assert!(is_own.not());
@@ -484,7 +589,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(received_sender, sender);
             assert!(is_own.not());
@@ -531,7 +636,7 @@ mod tests {
         let value =
             LatestEventValue::from_base_latest_event_value(base_value, &room, &client).await;
 
-        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content } => {
+        assert_matches!(value, LatestEventValue::Remote { timestamp, sender: received_sender, is_own, profile, content, .. } => {
             assert_eq!(u64::from(timestamp.get()), 42u64);
             assert_eq!(received_sender, sender);
             assert!(is_own.not());
