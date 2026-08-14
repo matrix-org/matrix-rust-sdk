@@ -21,8 +21,10 @@ use matrix_sdk_base::{
 use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
 
 use super::{
-    super::{Result, states::StateLockReadGuard},
-    room::RoomEventCacheState,
+    super::{
+        Result,
+        states::{CacheStateLock, selectors::RoomStateSelector},
+    },
     thread::ThreadEventCache,
 };
 
@@ -33,7 +35,11 @@ pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
 pub async fn aggregate_timeline_for_threads(
     timeline: &Timeline,
     existing_threads: &HashMap<OwnedEventId, ThreadEventCache>,
-    room_event_cache: StateLockReadGuard<'_, RoomEventCacheState>,
+    // Deliberately the lock, not a guard: `ThreadEventCache::find_event` below
+    // re-acquires the same shared state lock, and holding a read guard across
+    // that acquisition deadlocks as soon as a writer is queued in between (the
+    // state lock is write-preferring).
+    room_state: &CacheStateLock<RoomStateSelector>,
     redaction_rules: &RedactionRules,
 ) -> Result<HashMap<OwnedEventId, Timeline>> {
     let mut new_events_by_thread = HashMap::new();
@@ -77,9 +83,13 @@ pub async fn aggregate_timeline_for_threads(
 
                         // Not in `timeline`, okay, look for the related event in the `room` as it
                         // knows about all the events, and then extract its thread root.
-                        None => room_event_cache.find_event(&related_event_id).await?.and_then(
-                            |(_location, related_event)| extract_thread_root(related_event.raw()),
-                        ),
+                        None => {
+                            room_state.read().await?.find_event(&related_event_id).await?.and_then(
+                                |(_location, related_event)| {
+                                    extract_thread_root(related_event.raw())
+                                },
+                            )
+                        }
                     } {
                         new_events_by_thread
                             .entry(thread_root)
@@ -106,7 +116,11 @@ pub async fn aggregate_timeline_for_threads(
                 // Otherwise, this event might be a redaction that applies to a thread.
                 else if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
-                    && room_event_cache.find_event(&redaction_target).await?.is_some()
+                    // The read guard is a temporary of this chain operand, so
+                    // (edition 2024) it is dropped before the block runs:
+                    // `thread.find_event` below re-acquires the shared state
+                    // lock and must not run under this guard.
+                    && room_state.read().await?.find_event(&redaction_target).await?.is_some()
                 {
                     // The redacted event exists (in the room, because it contains _all_ the
                     // events) **but** the event has been redacted (in

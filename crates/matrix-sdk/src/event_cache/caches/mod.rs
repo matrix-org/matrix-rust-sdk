@@ -310,7 +310,7 @@ impl Caches {
             let timeline_for_threads = aggregator::aggregate_timeline_for_threads(
                 &updates.timeline,
                 threads.read().await.deref(),
-                room.state().read().await?,
+                room.state(),
                 &internals.room_version_rules.redaction,
             )
             .await?;
@@ -372,7 +372,7 @@ impl Caches {
             let timeline_for_threads = aggregator::aggregate_timeline_for_threads(
                 &updates.timeline,
                 threads.read().await.deref(),
-                room.state().read().await?,
+                room.state(),
                 &internals.room_version_rules.redaction,
             )
             .await?;
