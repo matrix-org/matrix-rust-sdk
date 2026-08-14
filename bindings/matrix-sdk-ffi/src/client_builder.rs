@@ -39,7 +39,7 @@ use matrix_sdk::{
     },
 };
 #[cfg(feature = "experimental-x509-identity-verification")]
-use matrix_sdk_base::crypto::x509::RawX509Signature;
+use matrix_sdk_base::crypto::x509::{DateTime, RawX509Signature, ValidityError};
 use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
@@ -624,6 +624,14 @@ impl ClientBuilder {
                             e.into(),
                         ))
                     })
+                }
+
+                fn validity_not_after(&self) -> Result<DateTime, ValidityError> {
+                    let Ok(validity_not_after) = self.0.validity_not_after() else {
+                        return Err(ValidityError);
+                    };
+                    DateTime::from_unix_duration(std::time::Duration::from_secs(validity_not_after))
+                        .or(Err(ValidityError))
                 }
             }
 
