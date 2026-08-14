@@ -57,7 +57,7 @@
 //! subscribes to [`RedecryptorReport`] stream.
 //!
 //! ```markdown
-//! 
+//!
 //!      .----------------------.
 //!     |                        |
 //!     |      Beeb, boop!       |
@@ -590,6 +590,16 @@ impl EventCache {
             try_join_all(all_caches.event_focused.read().await.values().map(
                 |event_focused_cache| {
                     event_focused_cache.replace_in_memory_utds(&maybe_resolved_events)
+                },
+            ))
+            .await?;
+        }
+
+        // Resolve in-memory UTDs on the specific-events caches.
+        {
+            try_join_all(all_caches.specific_events.read().await.iter().map(
+                |specific_events_cache| {
+                    specific_events_cache.replace_in_memory_utds(&maybe_resolved_events)
                 },
             ))
             .await?;

@@ -78,6 +78,7 @@ pub use self::{
             RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
             pagination::RoomPagination,
         },
+        specific_events::SpecificEventsCache,
         subscriber::Subscriber,
         thread::{ThreadEventCache, pagination::ThreadPagination},
     },
@@ -129,6 +130,16 @@ pub enum EventCacheError {
 
         /// The thread root event ID.
         event_focused_id: EventFocusedCacheKey,
+    },
+
+    /// Specific-events cache is not found.
+    #[error("Specific-events cache `{instance_id}` of room `{room_id}` is not found.")]
+    SpecificEventsNotFound {
+        /// The room ID of the specific-events cache.
+        room_id: OwnedRoomId,
+
+        /// The instance ID of the specific-events cache.
+        instance_id: u64,
     },
 
     /// A new cache was inserted at an occupied place, i.e. where an existing
@@ -435,6 +446,23 @@ impl EventCache {
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
         Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
+    }
+
+    /// Return a view over the [`EventCache`] for a caller-supplied set of
+    /// event IDs, loaded together with their aggregation-relevant relations
+    /// (reactions and edits) and kept up to date from sync.
+    pub async fn specific_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: Vec<OwnedEventId>,
+    ) -> Result<(SpecificEventsCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
+
+        Ok((caches_for_room.specific_events(event_ids).await?, drop_handles))
     }
 
     /// Return an event-focused view over the [`EventCache`].
