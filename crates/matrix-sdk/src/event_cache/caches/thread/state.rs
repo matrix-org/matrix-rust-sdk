@@ -279,6 +279,17 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
 
     /// Compute and return the [`ThreadSummary`] for this thread.
     pub async fn compute_thread_summary(&self) -> Result<Option<ThreadSummary>> {
+        // Read the thread replies from the store.
+        //
+        // Implementation note: since this is based on the `m.relates_to` field, and
+        // that field can only be present on room messages, we don't have to
+        // worry about filtering out aggregation events (like reactions/edits/etc.).
+        // Pretty neat, huh?
+        let thread_replies = self
+            .store
+            .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
+            .await?;
+
         // Find the latest event ID.
         let latest_event_id = {
             // Find the last non-edit, non-redaction, non-redacted event.
@@ -299,6 +310,27 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
                     .is_break()
                 })
                 .and_then(|(_position, event)| event.event_id().map(ToOwned::to_owned));
+
+            // The in-memory chunk may contain no suitable event at all: for instance a
+            // freshly created thread cache whose only sync'd events so far are
+            // aggregations (e.g. a reaction to a thread reply, routed here by the
+            // aggregator). Fall back to the latest suitable reply known to the store,
+            // so the summary doesn't report replies without a latest event.
+            if latest_event_id.is_none() {
+                latest_event_id = thread_replies
+                    .iter()
+                    .filter(|(event, _position)| {
+                        crate::latest_events::filter_timeline_event(
+                            event,
+                            None,
+                            &self.state.own_user_id,
+                            None,
+                        )
+                        .is_break()
+                    })
+                    .max_by_key(|(event, _position)| event.timestamp())
+                    .and_then(|(event, _position)| event.event_id().map(ToOwned::to_owned));
+            }
 
             // If there's an edit to the latest event in the thread, use the latest edit
             // event ID as the latest event ID for the thread summary.
@@ -333,20 +365,7 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
         };
 
         // Compute the thread summary.
-
-        // Read the latest number of thread replies from the store.
-        //
-        // Implementation note: since this is based on the `m.relates_to` field, and
-        // that field can only be present on room messages, we don't have to
-        // worry about filtering out aggregation events (like reactions/edits/etc.).
-        // Pretty neat, huh?
-        let num_replies = {
-            let thread_replies = self
-                .store
-                .find_event_relations(&self.room_id, &self.thread_id, Some(&[RelationType::Thread]))
-                .await?;
-            thread_replies.len().try_into().unwrap_or(u32::MAX)
-        };
+        let num_replies = thread_replies.len().try_into().unwrap_or(u32::MAX);
 
         let summary = if num_replies > 0 {
             Some(ThreadSummary { num_replies, latest_reply: latest_event_id })

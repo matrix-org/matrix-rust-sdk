@@ -1058,3 +1058,95 @@ async fn test_edits_touches_threads() {
     // The latest reply should still be our first edit, not the second one.
     assert_eq!(thread_summary.latest_reply.as_deref(), Some(first_edit));
 }
+
+#[async_test]
+async fn test_thread_summary_latest_reply_survives_aggregation_only_chunk() {
+    // A reaction to a thread reply, arriving through a limited sync, shrinks the
+    // thread linked chunk down to a single chunk containing only the reaction. The
+    // recomputed thread summary must not lose the latest reply: since no suitable
+    // event remains in memory, it must fall back to the thread replies known to
+    // the store. The same shape occurs when a fresh thread cache is created by an
+    // aggregation event alone (e.g. after an app restart).
+
+    let s = thread_subscription_test_setup().await;
+    let f = s.factory;
+
+    // Auto-subscription may fire for the mention in the second reply; allow it.
+    s.server.mock_room_put_thread_subscription().ok().mount().await;
+
+    let event_cache = s.client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let thread_root_id = s.thread_root;
+    let thread_resp2 = s.events[1].get_field::<OwnedEventId>("event_id").unwrap().unwrap();
+
+    s.server.sync_joined_room(&s.client, &s.room_id).await;
+
+    let (room_event_cache, _drop_handles) = event_cache.room(&s.room_id).await.unwrap();
+    let (thread_event_cache, _thread_drop_handles) =
+        event_cache.thread(&s.room_id, &thread_root_id).await.unwrap();
+
+    let (thread_events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+    let (_room_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Receive a thread root and two threaded replies.
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(f.text_msg("da r00t").event_id(&thread_root_id))
+                .add_timeline_event(s.events[0].clone())
+                .add_timeline_event(s.events[1].clone()),
+        )
+        .await;
+
+    let thread_events = wait_for_initial_events(thread_events, &mut thread_stream).await;
+    assert_eq!(thread_events.len(), 3);
+
+    // A reaction to the latest reply arrives via a limited, gappy sync. Both the
+    // room and the thread linked chunks are shrunk to their last chunk; the
+    // thread's only in-memory event is now the reaction.
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(
+                    f.reaction(&thread_resp2, "👍").event_id(event_id!("$reaction")),
+                )
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev_batch_token"),
+        )
+        .await;
+
+    // Sync a plain room message afterwards, as a sequencing marker: the room
+    // update task is sequential, so once this event is observable, the previous
+    // sync (including the thread summary update) has been fully processed.
+    let marker_id = event_id!("$marker");
+    s.server
+        .sync_room(
+            &s.client,
+            JoinedRoomBuilder::new(&s.room_id)
+                .add_timeline_event(f.text_msg("marker").event_id(marker_id)),
+        )
+        .await;
+
+    let mut saw_marker = false;
+    while !saw_marker {
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                room_stream.recv()
+        );
+        saw_marker = diffs.iter().any(|diff| {
+            matches!(diff, VectorDiff::Append { values } if values
+                .iter()
+                .any(|event| event.event_id() == Some(marker_id)))
+        });
+    }
+
+    // The recomputed summary must still know about the latest reply, even though
+    // the in-memory thread chunk only contains the reaction.
+    let root = room_event_cache.find_event(&thread_root_id).await.unwrap().unwrap();
+    let summary = root.thread_summary.summary().unwrap();
+    assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
+    assert_eq!(summary.num_replies, 2);
+}
