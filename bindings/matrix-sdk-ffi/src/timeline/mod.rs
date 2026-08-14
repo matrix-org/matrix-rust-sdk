@@ -549,15 +549,15 @@ impl Timeline {
     ///
     /// If the replied to event has a thread relation, it is forwarded on the
     /// reply so that clients that support threads can render the reply
-    /// inside the thread.
+    /// inside the thread. Returns a handle to abort the pending send.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         event_id: String,
-    ) -> Result<(), ClientError> {
+    ) -> Result<Arc<SendHandle>, ClientError> {
         let event_id = EventId::parse(&event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
-        self.inner.send_reply((*msg).clone(), event_id).await?;
-        Ok(())
+        let handle = self.inner.send_reply((*msg).clone(), event_id).await?;
+        Ok(Arc::new(SendHandle::new(handle)))
     }
 
     /// Edits an event from the timeline.
@@ -630,11 +630,11 @@ impl Timeline {
         );
 
         if let Some(replied_to_event_id) = replied_to_event_id {
-            self.send_reply(Arc::new(room_message_event_content), replied_to_event_id).await
+            self.send_reply(Arc::new(room_message_event_content), replied_to_event_id).await?;
         } else {
             self.send(Arc::new(room_message_event_content)).await?;
-            Ok(())
         }
+        Ok(())
     }
 
     /// Toggle a reaction on an event.
