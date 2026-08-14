@@ -2377,6 +2377,92 @@ async fn test_stale_sync_batch_does_not_reorder_the_tail() {
 }
 
 #[async_test]
+async fn test_late_echo_of_a_stranded_event_is_not_treated_as_stale() {
+    // 2026-08-14 vanished-send incident: the tail holds a just-sent event; a
+    // stale limited+gappy batch of *unknown* older events collapses the room
+    // to the batch chunk, stranding the sent event behind the new gap in the
+    // store. The event's late sync echo then arrives as a lone, fully-known
+    // batch that doesn't include the new tail - which pattern-matches the
+    // stale-batch guard. The guard must NOT ignore it: processing it is what
+    // pulls the stranded event back into the live tail. Ignoring it made the
+    // sent message invisible permanently.
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@ben:saucisse.bzh"));
+    // The stranded event must be OUR OWN message: a foreign fully-known batch
+    // is dropped earlier by `non_empty_all_duplicates`, but own-sender batches
+    // are exempted there and reach the stale-batch guard - as in the incident.
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (initial_events, mut subscriber) = room_event_cache.subscribe().await.unwrap();
+    assert!(initial_events.is_empty());
+
+    // The room's tail is [$sent]: in the incident, our own just-sent message.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("just sent").sender(&own_user_id).event_id(event_id!("$sent")),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
+    );
+
+    // A stale limited+gappy batch of unknown, older events arrives (generated
+    // before $sent existed, delivered late). It collapses the room to the
+    // batch chunk; $sent is stranded behind the gap, offloaded to the store.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("stale-token")
+                .add_timeline_event(f.text_msg("older").event_id(event_id!("$older"))),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
+    );
+
+    let (events, _) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(events.len(), 1, "the shrink collapses the room to the stale batch");
+    assert_event_id!(events[0], "$older");
+
+    // The late sync echo of the stranded event: a lone, fully-known batch
+    // that doesn't contain the current tail.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("just sent").sender(&own_user_id).event_id(event_id!("$sent")),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents { .. }) = subscriber.recv()
+    );
+
+    // The echo must restore the event to the live tail.
+    let (events, _) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert_event_id!(events[0], "$older");
+    assert_event_id!(events[1], "$sent");
+}
+
+#[async_test]
 async fn test_timeline_then_empty_timeline_then_deduplication_with_storage() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

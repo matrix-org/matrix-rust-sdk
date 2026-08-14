@@ -677,9 +677,16 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             "SYNCDUMP sync batch"
         );
 
+        // The known copies must all live in the in-memory (live tail) part of
+        // the linked chunk. A copy that only lives in the store is an event
+        // that was stranded behind a gap (e.g. a just-sent event whose chunk
+        // was offloaded when a stale gappy batch collapsed the room): its late
+        // sync echo is exactly the information that pulls it back into the
+        // live tail, and ignoring it makes the event invisible permanently
+        // (2026-08-14 vanished-send incident).
         let batch_is_stale = !events.is_empty()
-            && in_memory_duplicated_event_ids.len() + in_store_duplicated_event_ids.len()
-                == events.len()
+            && in_store_duplicated_event_ids.is_empty()
+            && in_memory_duplicated_event_ids.len() == events.len()
             && self
                 .state
                 .room_linked_chunk
