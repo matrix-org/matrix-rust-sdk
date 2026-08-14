@@ -418,14 +418,13 @@ impl Timeline {
         &self,
         content: RoomMessageEventContentWithoutRelation,
         in_reply_to: OwnedEventId,
-    ) -> Result<(), Error> {
+    ) -> Result<SendHandle, Error> {
         let reply = self
             .infer_reply(Some(in_reply_to))
             .await
             .expect("the reply will always be set because we provided a replied-to event id");
         let content = self.room().make_reply_event(content, reply).await?;
-        self.send(content.into()).await?;
-        Ok(())
+        self.send(content.into()).await
     }
 
     /// Given a message or media to send, and an optional `in_reply_to` event,
