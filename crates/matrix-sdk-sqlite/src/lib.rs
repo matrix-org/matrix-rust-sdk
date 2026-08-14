@@ -60,8 +60,11 @@ matrix_sdk_test_utils::init_tracing_for_tests!();
 pub enum Secret {
     // Cryptographic key used to open the store
     Key(Box<[u8; 32]>),
-    // Passphrase used to open the store
+    // Passphrase used to open the store, ideally human chosen
     PassPhrase(Zeroizing<String>),
+    // Randomly generated passphrase, for which the store caches a
+    // cheaply-derivable copy of its cipher and skips derivation on later opens
+    HighEntropyPassPhrase(Zeroizing<String>),
 }
 
 /// A configuration structure used for opening a store.
@@ -141,13 +144,33 @@ impl SqliteStoreConfig {
     }
 
     /// Define the passphrase if the store is encoded.
+    ///
+    /// Assumed to be possibly human-chosen, so an expensive derivation is run
+    /// over it on every open. If it is randomly generated, use
+    /// [`SqliteStoreConfig::high_entropy_passphrase`] instead.
     pub fn passphrase(mut self, passphrase: Option<&str>) -> Self {
         self.secret =
             passphrase.map(|passphrase| Secret::PassPhrase(Zeroizing::new(passphrase.to_owned())));
         self
     }
 
+    /// Define the passphrase if the store is encoded, declaring it randomly
+    /// generated rather than human-chosen.
+    ///
+    /// Do NOT use it with human-chosen passphrases as they would lose their
+    /// brute-force protection.
+    ///
+    /// interchangeable with [`SqliteStoreConfig::passphrase`] so a client with
+    /// a randomly generated passphrase migrates by calling this instead
+    pub fn high_entropy_passphrase(mut self, passphrase: Option<&str>) -> Self {
+        self.secret = passphrase
+            .map(|passphrase| Secret::HighEntropyPassPhrase(Zeroizing::new(passphrase.to_owned())));
+        self
+    }
+
     /// Define the key if the store is encoded.
+    ///
+    /// Assumed to be high entropy so no derivation is run over it.
     pub fn key(mut self, key: Option<&[u8; 32]>) -> Self {
         self.secret = key.map(|key| Secret::Key(Box::new(*key)));
         self
