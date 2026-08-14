@@ -57,7 +57,9 @@ use super::{
 };
 use crate::{
     Room,
-    paginators::{PaginationResult, Paginator, StartFromResult, thread::PaginableThread},
+    paginators::{
+        PaginationResult, PaginationTokens, Paginator, StartFromResult, thread::PaginableThread,
+    },
     room::{IncludeRelations, MessagesOptions, RelationsOptions, WeakRoom},
 };
 
@@ -108,14 +110,6 @@ pub struct EventFocusedCacheState {
     /// The linked chunk for this event-focused cache.
     chunk: EventLinkedChunk,
 
-    /// The `num_context_events` given to [`Self::start_from`].
-    ///
-    /// This is useful for [`Self::reload`] to load the same amount of events.
-    initial_num_context_events: u16,
-
-    /// The thread mode.
-    thread_mode: EventFocusThreadMode,
-
     /// A sender of timeline updates.
     pub update_sender: EventFocusedCacheUpdateSender,
 
@@ -124,68 +118,46 @@ pub struct EventFocusedCacheState {
 }
 
 impl EventFocusedCacheState {
-    /// Initialize the cache from a focused event.
+    /// Reload the event-focused cache.
     ///
-    /// This uses `/context` to fetch the event with surrounding context.
+    /// This deliberately never reaches the network: it is called from the
+    /// state lock's recovery paths, with the (global) state lock held, and a
+    /// network request must not run under that lock. A dirty store cannot
+    /// invalidate this cache anyway, as its events only live in memory.
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub async fn reload(
+        &mut self,
+        preprocessing: ReloadPreprocessing,
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        match preprocessing {
+            ReloadPreprocessing::ForgetAll => {
+                self.chunk.reset();
+                self.propagate_changes();
+
+                Ok(self.chunk.updates_as_vector_diffs())
+            }
+
+            // Keep the current in-memory snapshot.
+            ReloadPreprocessing::None => Ok(Vec::new()),
+        }
+    }
+
+    /// Install a `/context` response fetched by
+    /// [`EventFocusedCache::start_from`], replacing any existing events.
     ///
-    /// This detects if the event is part of a thread and sets up the
+    /// This detects if the focused event is part of a thread and sets up the
     /// appropriate pagination mode.
     ///
     /// Pagination tokens are stored as gaps in the linked chunk:
     /// - Backward token (start): Gap at the front of the linked chunk.
     /// - Forward token (end): Gap at the back of the linked chunk.
-    #[instrument(skip(self), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
-    async fn start_from(
+    #[instrument(skip(self, result, tokens), fields(room_id = %self.room.room_id(), event_id = %self.focused_event_id))]
+    fn install_context_response(
         &mut self,
-        num_context_events: u16,
+        result: StartFromResult,
+        tokens: PaginationTokens,
         thread_mode: EventFocusThreadMode,
-    ) -> Result<StartFromResult> {
-        self.initial_num_context_events = num_context_events;
-        self.thread_mode = thread_mode;
-
-        let result = self.reload_impl().await?;
-
-        // Empty the updates_as_vector_diffs(), since it's impossible for an observer to
-        // have subscribed to this cache yet, since this code is part of the constructor
-        // flow.
-        //
-        // If we didn't empty those, such initial updates would be duplicated, since the
-        // subscriber would get the full initial list of events as diffs and as a set of
-        // initial events.
-        let _ = self.chunk.updates_as_vector_diffs();
-
-        Ok(result)
-    }
-
-    /// Reload the event-focused cache: only the last events will be reloaded,
-    /// shrinking the in-memory size of the cache.
-    ///
-    /// Since there is no persistent storage for this cache, `preprocessing` is
-    /// ignored.
-    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub async fn reload(
-        &mut self,
-        _preprocessing: ReloadPreprocessing,
-    ) -> Result<Vec<VectorDiff<Event>>> {
-        let _ = self.reload_impl().await?;
-
-        Ok(self.chunk.updates_as_vector_diffs())
-    }
-
-    /// Replace existing events, then load and store fresh events from
-    /// `/context`.
-    async fn reload_impl(&mut self) -> Result<StartFromResult> {
-        let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
-        let num_context_events = self.initial_num_context_events;
-        let thread_mode = self.thread_mode;
-
-        trace!(num_context_events, "fetching event with context via /context");
-
-        let paginator = Paginator::new(room);
-
-        let result =
-            paginator.start_from(&self.focused_event_id, UInt::from(num_context_events)).await?;
-
+    ) -> StartFromResult {
         // Detect if the focused event is part of a thread.
         let thread_root = match thread_mode {
             EventFocusThreadMode::ForceThread => {
@@ -220,9 +192,6 @@ impl EventFocusedCacheState {
                     .and_then(|event| extract_thread_root(event.raw()))
             }
         };
-
-        // Get pagination tokens from the paginator.
-        let tokens = paginator.tokens();
 
         if let Some(root_id) = thread_root {
             trace!(thread_root = %root_id, "focused event is part of a thread, setting up thread pagination");
@@ -286,7 +255,16 @@ impl EventFocusedCacheState {
 
         self.propagate_changes();
 
-        Ok(result)
+        // Empty the updates_as_vector_diffs(), since it's impossible for an observer to
+        // have subscribed to this cache yet, since this code is part of the constructor
+        // flow.
+        //
+        // If we didn't empty those, such initial updates would be duplicated, since the
+        // subscriber would get the full initial list of events as diffs and as a set of
+        // initial events.
+        let _ = self.chunk.updates_as_vector_diffs();
+
+        result
     }
 
     /// Add initial events to the chunk, with gaps for pagination tokens.
@@ -343,34 +321,27 @@ impl EventFocusedCacheState {
         self.chunk.last_chunk_as_gap()
     }
 
-    /// Paginate backwards in this event-focused linked chunk.
-    ///
-    /// This finds the gap at the front of the linked chunk, fetches older
-    /// events, replaces the gap with the events, and inserts a new gap if
-    /// there are more events to fetch.
-    #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
-    async fn paginate_backwards(&mut self, num_events: u16) -> Result<PaginationResult> {
-        let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
-
-        // Find the gap at the front (backward pagination token).
-        let Some((gap_id, gap)) = self.first_chunk_as_gap() else {
-            // No gap at front means we've already hit the start of the timeline.
-            trace!("no front gap found, already at timeline start");
-            return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-        };
-
-        let token = gap.token;
-        trace!(?token, "paginating backwards with token from front gap");
-
-        // Fetch events based on pagination mode.
-        let (mut events, new_token) = match &self.pagination_mode {
-            EventFocusedPaginationMode::Room { .. } => {
-                Self::fetch_room_backwards(&room, num_events, &token).await?
-            }
-            EventFocusedPaginationMode::Thread { thread_root } => {
-                Self::fetch_thread_backwards(&room, num_events, &token, thread_root.clone()).await?
-            }
-        };
+    /// Install a backward-pagination response fetched by
+    /// [`EventFocusedCache::paginate_backwards`]: replace the gap with the
+    /// events, and insert a new gap if there are more events to fetch.
+    #[instrument(skip(self, events, new_token), fields(room_id = %self.room.room_id()))]
+    fn conclude_paginate_backwards(
+        &mut self,
+        gap_id: ChunkIdentifier,
+        token: String,
+        mut events: Vec<Event>,
+        new_token: Option<String>,
+    ) -> PaginationResult {
+        // The linked chunk may have changed while the request was in flight
+        // (a concurrent pagination, or a reload): only install the response if
+        // the gap we paginated from is still at the front.
+        if !matches!(
+            self.first_chunk_as_gap(),
+            Some((front_id, front_gap)) if front_id == gap_id && front_gap.token == token
+        ) {
+            trace!("the front gap disappeared during pagination, dropping the response");
+            return PaginationResult { events: Vec::new(), hit_end_of_timeline: false };
+        }
 
         // Events are in the reverse order, per the API contracts defined in the two
         // fetch methods.
@@ -396,7 +367,7 @@ impl EventFocusedCacheState {
         self.propagate_changes();
         self.notify_subscribers(EventsOrigin::Pagination);
 
-        Ok(PaginationResult { events, hit_end_of_timeline: hit_end })
+        PaginationResult { events, hit_end_of_timeline: hit_end }
     }
 
     /// Fetch events for backward room pagination (returns events and optional
@@ -455,34 +426,27 @@ impl EventFocusedCacheState {
         Ok((result.chunk, result.next_batch_token))
     }
 
-    /// Paginate forwards in this event-focused timeline.
-    ///
-    /// This finds the gap at the back of the linked chunk, fetches newer
-    /// events, replaces the gap with the events, and inserts a new gap if
-    /// there are more events to fetch.
-    #[instrument(skip(self), fields(room_id = %self.room.room_id()))]
-    async fn paginate_forwards(&mut self, num_events: u16) -> Result<PaginationResult> {
-        let room = self.room.get().ok_or(EventCacheError::ClientDropped)?;
-
-        // Find the gap at the back (forward pagination token).
-        let Some((gap_id, gap)) = self.last_chunk_as_gap() else {
-            // No gap at back means we've already hit the end of the timeline.
-            trace!("no back gap found, already at timeline end");
-            return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
-        };
-
-        let token = gap.token;
-        trace!(?token, "paginating forwards with token from back gap");
-
-        // Fetch events based on pagination mode.
-        let (events, new_token) = match &self.pagination_mode {
-            EventFocusedPaginationMode::Room { .. } => {
-                Self::fetch_room_forwards(&room, num_events, &token).await?
-            }
-            EventFocusedPaginationMode::Thread { thread_root } => {
-                Self::fetch_thread_forwards(&room, num_events, &token, thread_root.clone()).await?
-            }
-        };
+    /// Install a forward-pagination response fetched by
+    /// [`EventFocusedCache::paginate_forwards`]: replace the gap with the
+    /// events, and insert a new gap if there are more events to fetch.
+    #[instrument(skip(self, events, new_token), fields(room_id = %self.room.room_id()))]
+    fn conclude_paginate_forwards(
+        &mut self,
+        gap_id: ChunkIdentifier,
+        token: String,
+        events: Vec<Event>,
+        new_token: Option<String>,
+    ) -> PaginationResult {
+        // The linked chunk may have changed while the request was in flight
+        // (a concurrent pagination, or a reload): only install the response if
+        // the gap we paginated from is still at the back.
+        if !matches!(
+            self.last_chunk_as_gap(),
+            Some((back_id, back_gap)) if back_id == gap_id && back_gap.token == token
+        ) {
+            trace!("the back gap disappeared during pagination, dropping the response");
+            return PaginationResult { events: Vec::new(), hit_end_of_timeline: false };
+        }
 
         let hit_end = new_token.is_none();
         let new_gap = new_token.map(|t| Gap { token: t });
@@ -504,7 +468,7 @@ impl EventFocusedCacheState {
         self.propagate_changes();
         self.notify_subscribers(EventsOrigin::Pagination);
 
-        Ok(PaginationResult { events, hit_end_of_timeline: hit_end })
+        PaginationResult { events, hit_end_of_timeline: hit_end }
     }
 
     /// Fetch events for forward room pagination.
@@ -587,8 +551,6 @@ impl EventFocusedCache {
                             hide_thread_events: false,
                         },
                         chunk: EventLinkedChunk::new(),
-                        initial_num_context_events: 0, // dummy value
-                        thread_mode: EventFocusThreadMode::Automatic, // dummy value
                         update_sender: Sender::new(32),
                         linked_chunk_update_sender,
                     })
@@ -638,33 +600,127 @@ impl EventFocusedCache {
         num_context_events: u16,
         thread_mode: EventFocusThreadMode,
     ) -> Result<StartFromResult> {
-        let mut guard = self.inner.write().await?;
+        // Try to hydrate from the store, and capture the fetch inputs, under a
+        // short-lived guard: the `/context` fetch below must not run under the
+        // state lock, which is global to the whole event cache.
+        let (weak_room, focused_event_id) = {
+            let mut guard = self.inner.write().await?;
 
-        if matches!(thread_mode, EventFocusThreadMode::Automatic) {
-            match guard.try_hydrate_from_store(num_context_events, thread_mode).await {
-                Ok(Some(result)) => return Ok(result),
-                Ok(None) => {}
-                Err(err) => {
-                    // Hydration is an optimisation: never let a store problem
-                    // take down the network path.
-                    trace!("failed to hydrate the focused timeline from the store: {err}");
+            if matches!(thread_mode, EventFocusThreadMode::Automatic) {
+                match guard.try_hydrate_from_store().await {
+                    Ok(Some(result)) => return Ok(result),
+                    Ok(None) => {}
+                    Err(err) => {
+                        // Hydration is an optimisation: never let a store problem
+                        // take down the network path.
+                        trace!("failed to hydrate the focused timeline from the store: {err}");
+                    }
                 }
             }
-        }
 
-        guard.start_from(num_context_events, thread_mode).await
+            (guard.room.clone(), guard.focused_event_id.clone())
+        };
+
+        let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+
+        trace!(num_context_events, "fetching event with context via /context");
+
+        let paginator = Paginator::new(room);
+        let result =
+            paginator.start_from(&focused_event_id, UInt::from(num_context_events)).await?;
+        let tokens = paginator.tokens();
+
+        Ok(self.inner.write().await?.install_context_response(result, tokens, thread_mode))
     }
 
     /// Paginate backwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_backwards(&self, num_events: u16) -> Result<PaginationResult> {
-        self.inner.write().await?.paginate_backwards(num_events).await
+        // Capture the front gap and pagination mode under a short-lived guard:
+        // the network fetch below must not run under the state lock, which is
+        // global to the whole event cache.
+        let (gap_id, token, mode, weak_room) = {
+            let guard = self.inner.read().await?;
+
+            let Some((gap_id, gap)) = guard.first_chunk_as_gap() else {
+                // No gap at front means we've already hit the start of the timeline.
+                trace!("no front gap found, already at timeline start");
+                return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
+            };
+
+            (gap_id, gap.token, guard.pagination_mode.clone(), guard.room.clone())
+        };
+
+        let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+
+        trace!(?token, "paginating backwards with token from front gap");
+
+        // Fetch events based on pagination mode.
+        let (events, new_token) = match &mode {
+            EventFocusedPaginationMode::Room { .. } => {
+                EventFocusedCacheState::fetch_room_backwards(&room, num_events, &token).await?
+            }
+            EventFocusedPaginationMode::Thread { thread_root } => {
+                EventFocusedCacheState::fetch_thread_backwards(
+                    &room,
+                    num_events,
+                    &token,
+                    thread_root.clone(),
+                )
+                .await?
+            }
+        };
+
+        Ok(self
+            .inner
+            .write()
+            .await?
+            .conclude_paginate_backwards(gap_id, token, events, new_token))
     }
 
     /// Paginate forwards in this event-focused timeline, be it room or thread
     /// pagination depending on the mode.
     pub async fn paginate_forwards(&self, num_events: u16) -> Result<PaginationResult> {
-        self.inner.write().await?.paginate_forwards(num_events).await
+        // Capture the back gap and pagination mode under a short-lived guard:
+        // the network fetch below must not run under the state lock, which is
+        // global to the whole event cache.
+        let (gap_id, token, mode, weak_room) = {
+            let guard = self.inner.read().await?;
+
+            let Some((gap_id, gap)) = guard.last_chunk_as_gap() else {
+                // No gap at back means we've already hit the end of the timeline.
+                trace!("no back gap found, already at timeline end");
+                return Ok(PaginationResult { events: Vec::new(), hit_end_of_timeline: true });
+            };
+
+            (gap_id, gap.token, guard.pagination_mode.clone(), guard.room.clone())
+        };
+
+        let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
+
+        trace!(?token, "paginating forwards with token from back gap");
+
+        // Fetch events based on pagination mode.
+        let (events, new_token) = match &mode {
+            EventFocusedPaginationMode::Room { .. } => {
+                EventFocusedCacheState::fetch_room_forwards(&room, num_events, &token).await?
+            }
+            EventFocusedPaginationMode::Thread { thread_root } => {
+                EventFocusedCacheState::fetch_thread_forwards(
+                    &room,
+                    num_events,
+                    &token,
+                    thread_root.clone(),
+                )
+                .await?
+            }
+        };
+
+        Ok(self
+            .inner
+            .write()
+            .await?
+            .conclude_paginate_forwards(gap_id, token, events, new_token))
     }
 
     /// Get the thread root event ID if this linked chunk is in thread mode.
@@ -700,11 +756,7 @@ impl<'a> StateLockWriteGuard<'a, EventFocusedCacheState> {
     /// in the contiguous tail segment, is part of a thread (threaded focus
     /// keeps its dedicated network path), or the segment is unreasonably
     /// large.
-    async fn try_hydrate_from_store(
-        &mut self,
-        num_context_events: u16,
-        thread_mode: EventFocusThreadMode,
-    ) -> Result<Option<StartFromResult>> {
+    async fn try_hydrate_from_store(&mut self) -> Result<Option<StartFromResult>> {
         // A fully-paginated room's tail segment can reach back to the timeline
         // start; past this budget `/context`'s small window is the better deal.
         const MAX_HYDRATED_EVENTS: usize = 256;
@@ -752,13 +804,11 @@ impl<'a> StateLockWriteGuard<'a, EventFocusedCacheState> {
         );
 
         // Automatic mode with a non-threaded focused event hides thread
-        // events, mirroring the network path in `reload_impl`. The focused
-        // event survives the filter thanks to the check above.
+        // events, mirroring the network path in `install_context_response`.
+        // The focused event survives the filter thanks to the check above.
         let events: Vec<_> =
             events.into_iter().filter(|event| extract_thread_root(event.raw()).is_none()).collect();
 
-        self.state.initial_num_context_events = num_context_events;
-        self.state.thread_mode = thread_mode;
         self.state.pagination_mode = EventFocusedPaginationMode::Room { hide_thread_events: true };
 
         let has_prev = backward_token.is_some();
