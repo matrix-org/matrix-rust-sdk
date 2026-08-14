@@ -39,7 +39,7 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use super::{
     super::{
@@ -204,6 +204,77 @@ impl<'a> StateLockReadGuard<'a, RoomEventCacheState> {
     /// Return a reference to subscribers handle.
     pub fn subscribers_handle(&self) -> &SubscribersHandle {
         &self.state.subscribers_handle
+    }
+
+    /// TEMPORARY DIAGNOSTIC (dogfood, vanished-send investigation): dump the
+    /// linked chunk structure with event IDs, both in-memory and the last few
+    /// chunks from the store. Event IDs are safe to log. Strip before
+    /// upstreaming.
+    pub async fn dump_linked_chunk_structure(&self) {
+        fn describe(content: &ChunkContent<Event, Gap>) -> String {
+            match content {
+                ChunkContent::Gap(_) => "GAP".to_owned(),
+                ChunkContent::Items(events) => format!(
+                    "[{}]",
+                    events
+                        .iter()
+                        .map(|event| event
+                            .event_id()
+                            .map(|event_id| event_id.to_string())
+                            .unwrap_or_else(|| "?".to_owned()))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            }
+        }
+
+        let room_id = &self.state.room_id;
+
+        for chunk in self.state.room_linked_chunk.chunks() {
+            info!(
+                %room_id,
+                "CHUNKDUMP memory chunk {:?}: {}",
+                chunk.identifier(),
+                describe(chunk.content())
+            );
+        }
+
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        match self.store.load_last_chunk(linked_chunk_id).await {
+            Ok((mut chunk, _generator)) => {
+                let mut hops = 0;
+                while let Some(raw) = chunk {
+                    info!(
+                        %room_id,
+                        "CHUNKDUMP store chunk {:?} (prev {:?}): {}",
+                        raw.identifier,
+                        raw.previous,
+                        describe(&raw.content)
+                    );
+
+                    hops += 1;
+                    if hops >= 8 || raw.previous.is_none() {
+                        break;
+                    }
+
+                    chunk = match self
+                        .store
+                        .load_previous_chunk(linked_chunk_id, raw.identifier)
+                        .await
+                    {
+                        Ok(previous_chunk) => previous_chunk,
+                        Err(err) => {
+                            warn!(%room_id, ?err, "CHUNKDUMP store walk failed");
+                            None
+                        }
+                    };
+                }
+            }
+            Err(err) => {
+                warn!(%room_id, ?err, "CHUNKDUMP load_last_chunk failed");
+            }
+        }
     }
 
     /// See documentation of [`find_event`].
@@ -588,6 +659,24 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // Note: in-memory events are always the newest (older chunks are the
         // ones offloaded to storage), so "the batch doesn't contain the last
         // in-memory event" implies every batch event is older than our tail.
+        // TEMPORARY DIAGNOSTIC (dogfood, vanished-send investigation): log the
+        // batch content and the dedup verdicts. Strip before upstreaming.
+        info!(
+            room_id = %self.state.room_id,
+            limited = timeline.limited,
+            has_gap = prev_batch_token.is_some(),
+            batch = ?events.iter().map(|event| event.event_id()).collect::<Vec<_>>(),
+            mem_dups = ?in_memory_duplicated_event_ids
+                .iter()
+                .map(|(event_id, position)| (event_id, *position))
+                .collect::<Vec<_>>(),
+            store_dups = ?in_store_duplicated_event_ids
+                .iter()
+                .map(|(event_id, _)| event_id)
+                .collect::<Vec<_>>(),
+            "SYNCDUMP sync batch"
+        );
+
         let batch_is_stale = !events.is_empty()
             && in_memory_duplicated_event_ids.len() + in_store_duplicated_event_ids.len()
                 == events.len()
@@ -711,6 +800,14 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                 anchors.clear();
             }
         }
+
+        // TEMPORARY DIAGNOSTIC (dogfood, vanished-send investigation).
+        info!(
+            room_id = %self.state.room_id,
+            anchors = ?anchors.iter().map(|(event_id, _)| event_id).collect::<Vec<_>>(),
+            path = if anchors.is_empty() { "remove+append" } else { "anchored" },
+            "SYNCDUMP path"
+        );
 
         if anchors.is_empty() {
             // Legacy path: remove all the duplicated events, and append the whole

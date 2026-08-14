@@ -137,6 +137,10 @@ impl RoomEventCache {
         let events =
             state.room_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
 
+        // TEMPORARY DIAGNOSTIC (dogfood, vanished-send investigation): opening
+        // a room photographs its persisted chunk structure.
+        state.dump_linked_chunk_structure().await;
+
         let subscribers_handle = state.subscribers_handle();
 
         let subscriber = Subscriber::new(

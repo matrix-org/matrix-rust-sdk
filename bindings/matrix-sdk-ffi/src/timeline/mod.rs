@@ -307,6 +307,12 @@ impl Timeline {
     pub async fn add_listener(&self, listener: Box<dyn TimelineListener>) -> Arc<TaskHandle> {
         let (timeline_items, timeline_stream) = self.inner.subscribe().await;
 
+        // Dogfood diagnostics: identify which room, and which timeline
+        // instance, the forwarded diffs below belong to - two live instances
+        // on the same room are indistinguishable otherwise.
+        let room_id = self.inner.room().room_id().to_owned();
+        let instance = std::ptr::from_ref(&self.inner) as usize;
+
         // It's important that the initial items are passed *before* we forward the
         // stream updates, with a guaranteed ordering. Otherwise, it could
         // be that the listener be called before the initial items have been
@@ -326,6 +332,8 @@ impl Timeline {
                 // diff batches cross the FFI, so a rageshake can tell a rust-side
                 // gap from a Swift-side application failure.
                 tracing::info!(
+                    %room_id,
+                    instance,
                     kinds = ?diffs.iter().map(diff_kind).collect::<Vec<_>>(),
                     "timeline listener: forwarding diffs"
                 );
