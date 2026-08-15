@@ -639,12 +639,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         }
 
         // `remove_events_by_position` is responsible of sorting positions.
-        self.state
-            .thread_linked_chunk
-            .remove_events_by_position(
-                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
-            )
-            .expect("failed to remove an event");
+        if let Err(error) = self.state.thread_linked_chunk.remove_events_by_position(
+            in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+        ) {
+            error!("failed to remove duplicated events: {error}");
+        }
 
         self.state.propagate_changes(&self.store).await
     }

@@ -33,7 +33,7 @@ use ruma::{
     room_version_rules::RoomVersionRules,
 };
 use tokio::sync::broadcast::{Receiver, Sender};
-use tracing::{debug, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
@@ -194,12 +194,11 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         }
 
         // `remove_events_by_position` is responsible of sorting positions.
-        self.state
-            .chunk
-            .remove_events_by_position(
-                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
-            )
-            .expect("failed to remove an event");
+        if let Err(error) = self.state.chunk.remove_events_by_position(
+            in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+        ) {
+            error!("failed to remove duplicated events: {error}");
+        }
 
         self.propagate_changes().await
     }

@@ -461,12 +461,14 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         }
 
         // `remove_events_by_position` is responsible of sorting positions.
-        self.state
-            .room_linked_chunk
-            .remove_events_by_position(
-                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
-            )
-            .expect("failed to remove an event");
+        //
+        // Positions come from the store, whose copy of a chunk can hold more items
+        // than the in-memory one, so an index may be out of range.
+        if let Err(error) = self.state.room_linked_chunk.remove_events_by_position(
+            in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+        ) {
+            error!("failed to remove duplicated events: {error}");
+        }
 
         self.propagate_changes().await
     }
