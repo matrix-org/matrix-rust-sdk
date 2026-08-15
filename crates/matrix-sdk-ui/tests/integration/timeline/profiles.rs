@@ -15,6 +15,7 @@
 use std::sync::Arc;
 
 use assert_matches::assert_matches;
+use assert_matches2::assert_let;
 use matrix_sdk::test_utils::mocks::MatrixMockServer;
 use matrix_sdk_common::executor::spawn;
 use matrix_sdk_test::{
@@ -22,7 +23,7 @@ use matrix_sdk_test::{
     event_factory::{EventFactory, PreviousMembership},
 };
 use matrix_sdk_ui::timeline::{RoomExt, TimelineDetails};
-use ruma::events::room::member::MembershipState;
+use ruma::{event_id, events::room::member::MembershipState};
 
 #[async_test]
 async fn test_user_profile_after_being_banned() {
@@ -308,4 +309,62 @@ async fn test_update_sender_profiles() {
         timeline_items[3].as_event().unwrap().sender_profile(),
         TimelineDetails::Ready(_)
     );
+}
+
+#[async_test]
+async fn test_reply_preview_sender_profile_updates_when_members_load() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let f = EventFactory::new().room(&DEFAULT_TEST_ROOM_ID);
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let room = server.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    let timeline = Arc::new(room.timeline().await.unwrap());
+
+    let target_id = event_id!("$carols_message");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(&DEFAULT_TEST_ROOM_ID)
+                // Carol, whose member event we haven't seen, sends a message.
+                .add_timeline_event(f.text_msg("hi").sender(&CAROL).event_id(target_id))
+                // Bob replies to it.
+                .add_timeline_event(f.text_msg("hi back").reply_to(target_id).sender(&BOB)),
+        )
+        .await;
+
+    let timeline_items = timeline.items().await;
+    assert_eq!(timeline_items.len(), 3);
+
+    // The reply preview snapshot Carol's profile while it was unavailable.
+    let reply_item = timeline_items[2].as_event().unwrap();
+    let in_reply_to = reply_item.content().as_msglike().unwrap().in_reply_to.clone().unwrap();
+    assert_let!(TimelineDetails::Ready(embedded) = &in_reply_to.event);
+    assert_eq!(embedded.sender, *CAROL);
+    assert_matches!(embedded.sender_profile, TimelineDetails::Unavailable);
+
+    server
+        .mock_get_members()
+        .ok(vec![
+            f.member(&CAROL).display_name("Carol").membership(MembershipState::Join).into_raw(),
+            f.member(&BOB).display_name("Bob").membership(MembershipState::Join).into_raw(),
+        ])
+        .mount()
+        .await;
+
+    timeline.fetch_members().await;
+
+    // The reply preview's embedded profile is refreshed along with the
+    // top-level sender profile.
+    let timeline_items = timeline.items().await;
+    let reply_item = timeline_items[2].as_event().unwrap();
+    assert_let!(TimelineDetails::Ready(profile) = reply_item.sender_profile());
+    assert_eq!(profile.display_name.as_deref(), Some("Bob"));
+
+    let in_reply_to = reply_item.content().as_msglike().unwrap().in_reply_to.clone().unwrap();
+    assert_let!(TimelineDetails::Ready(embedded) = &in_reply_to.event);
+    assert_let!(TimelineDetails::Ready(profile) = &embedded.sender_profile);
+    assert_eq!(profile.display_name.as_deref(), Some("Carol"));
 }

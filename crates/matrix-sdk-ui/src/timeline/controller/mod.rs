@@ -956,9 +956,13 @@ impl<P: RoomDataProvider> TimelineController<P> {
             // tells the duplicated-echoes diagnosis apart from a plainly
             // vanished item (the former means the remote copy landed and
             // consumed or bypassed the local echo before this update).
-            let remote_item_exists = new_event_id
-                .is_some_and(|eid| rfind_event_item(&txn.items, |it| it.event_id() == Some(eid)).is_some());
-            warn!(?new_event_id, remote_item_exists, "Timeline item not found, can't update send state");
+            let remote_item_exists = new_event_id.is_some_and(|eid| {
+                rfind_event_item(&txn.items, |it| it.event_id() == Some(eid)).is_some()
+            });
+            warn!(
+                ?new_event_id,
+                remote_item_exists, "Timeline item not found, can't update send state"
+            );
             return;
         };
 
@@ -1131,30 +1135,38 @@ impl<P: RoomDataProvider> TimelineController<P> {
             let event_id = event_item.event_id().map(debug);
             let transaction_id = event_item.transaction_id().map(debug);
 
+            let mut updated_item = None;
+
             if event_item.sender_profile().is_ready() {
                 trace!(event_id, transaction_id, "Profile already set");
-                continue;
-            }
-
-            match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
-                Some(profile) => {
-                    trace!(event_id, transaction_id, "Adding profile");
-                    let updated_item =
-                        event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                    let new_item = entry.with_kind(updated_item);
-                    ObservableItemsEntry::replace(&mut entry, new_item);
-                }
-                None => {
-                    if !event_item.sender_profile().is_unavailable() {
-                        trace!(event_id, transaction_id, "Marking profile unavailable");
-                        let updated_item =
-                            event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        let new_item = entry.with_kind(updated_item);
-                        ObservableItemsEntry::replace(&mut entry, new_item);
-                    } else {
-                        debug!(event_id, transaction_id, "Profile already marked unavailable");
+            } else {
+                match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
+                    Some(profile) => {
+                        trace!(event_id, transaction_id, "Adding profile");
+                        updated_item =
+                            Some(event_item.with_sender_profile(TimelineDetails::Ready(profile)));
+                    }
+                    None => {
+                        if !event_item.sender_profile().is_unavailable() {
+                            trace!(event_id, transaction_id, "Marking profile unavailable");
+                            updated_item =
+                                Some(event_item.with_sender_profile(TimelineDetails::Unavailable));
+                        } else {
+                            debug!(event_id, transaction_id, "Profile already marked unavailable");
+                        }
                     }
                 }
+            }
+
+            let base = updated_item.as_ref().unwrap_or(event_item);
+            if let Some(item) = self.updated_reply_sender_profile(base, None).await {
+                trace!(event_id, transaction_id, "Updating reply preview sender profile");
+                updated_item = Some(item);
+            }
+
+            if let Some(updated_item) = updated_item {
+                let new_item = entry.with_kind(updated_item);
+                ObservableItemsEntry::replace(&mut entry, new_item);
             }
         }
 
@@ -1169,41 +1181,110 @@ impl<P: RoomDataProvider> TimelineController<P> {
         let mut entries = state.items.entries();
         while let Some(mut entry) = entries.next() {
             let Some(event_item) = entry.as_event() else { continue };
-            if !sender_ids.contains(event_item.sender()) {
-                continue;
-            }
 
             let event_id = event_item.event_id().map(debug);
             let transaction_id = event_item.transaction_id().map(debug);
 
-            match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
-                Some(profile) => {
-                    if matches!(event_item.sender_profile(), TimelineDetails::Ready(old_profile) if *old_profile == profile)
-                    {
-                        debug!(event_id, transaction_id, "Profile already up-to-date");
-                    } else {
-                        trace!(event_id, transaction_id, "Updating profile");
-                        let updated_item =
-                            event_item.with_sender_profile(TimelineDetails::Ready(profile));
-                        let new_item = entry.with_kind(updated_item);
-                        ObservableItemsEntry::replace(&mut entry, new_item);
+            let mut updated_item = None;
+
+            if sender_ids.contains(event_item.sender()) {
+                match self.room_data_provider.profile_from_user_id(event_item.sender()).await {
+                    Some(profile) => {
+                        if matches!(event_item.sender_profile(), TimelineDetails::Ready(old_profile) if *old_profile == profile)
+                        {
+                            debug!(event_id, transaction_id, "Profile already up-to-date");
+                        } else {
+                            trace!(event_id, transaction_id, "Updating profile");
+                            updated_item = Some(
+                                event_item.with_sender_profile(TimelineDetails::Ready(profile)),
+                            );
+                        }
+                    }
+                    None => {
+                        if !event_item.sender_profile().is_unavailable() {
+                            trace!(event_id, transaction_id, "Marking profile unavailable");
+                            updated_item =
+                                Some(event_item.with_sender_profile(TimelineDetails::Unavailable));
+                        } else {
+                            debug!(event_id, transaction_id, "Profile already marked unavailable");
+                        }
                     }
                 }
-                None => {
-                    if !event_item.sender_profile().is_unavailable() {
-                        trace!(event_id, transaction_id, "Marking profile unavailable");
-                        let updated_item =
-                            event_item.with_sender_profile(TimelineDetails::Unavailable);
-                        let new_item = entry.with_kind(updated_item);
-                        ObservableItemsEntry::replace(&mut entry, new_item);
-                    } else {
-                        debug!(event_id, transaction_id, "Profile already marked unavailable");
-                    }
-                }
+            }
+
+            let base = updated_item.as_ref().unwrap_or(event_item);
+            if let Some(item) = self.updated_reply_sender_profile(base, Some(sender_ids)).await {
+                trace!(event_id, transaction_id, "Updating reply preview sender profile");
+                updated_item = Some(item);
+            }
+
+            if let Some(updated_item) = updated_item {
+                let new_item = entry.with_kind(updated_item);
+                ObservableItemsEntry::replace(&mut entry, new_item);
             }
         }
 
         trace!("Done forcing update of sender profiles");
+    }
+
+    /// Compute an updated copy of `item` if the sender profile embedded in its
+    /// reply preview should change, given the member data currently available.
+    ///
+    /// The embedded profile is a snapshot taken when the reply item was built,
+    /// possibly before the sender's member event was known; the profile sweeps
+    /// above refresh it alongside the top-level sender profiles, which would
+    /// otherwise leave reply previews showing raw user IDs forever.
+    ///
+    /// With `force_senders`, ready profiles of the given senders are refreshed
+    /// too; otherwise only non-ready profiles are looked up.
+    async fn updated_reply_sender_profile(
+        &self,
+        item: &EventTimelineItem,
+        force_senders: Option<&BTreeSet<&UserId>>,
+    ) -> Option<EventTimelineItem> {
+        let msglike = item.content().as_msglike()?;
+        let in_reply_to = msglike.in_reply_to.as_ref()?;
+        let TimelineDetails::Ready(embedded) = &in_reply_to.event else {
+            return None;
+        };
+
+        match force_senders {
+            Some(senders) => {
+                if !senders.contains(&*embedded.sender) {
+                    return None;
+                }
+            }
+            None => {
+                if embedded.sender_profile.is_ready() {
+                    return None;
+                }
+            }
+        }
+
+        let new_profile = match self.room_data_provider.profile_from_user_id(&embedded.sender).await
+        {
+            Some(profile) => {
+                if matches!(&embedded.sender_profile, TimelineDetails::Ready(old) if *old == profile)
+                {
+                    return None;
+                }
+                TimelineDetails::Ready(profile)
+            }
+            None => {
+                if embedded.sender_profile.is_unavailable() {
+                    return None;
+                }
+                TimelineDetails::Unavailable
+            }
+        };
+
+        let mut embedded = embedded.clone();
+        embedded.sender_profile = new_profile;
+        let in_reply_to = InReplyToDetails {
+            event_id: in_reply_to.event_id.clone(),
+            event: TimelineDetails::Ready(embedded),
+        };
+        Some(item.with_content(TimelineItemContent::MsgLike(msglike.with_in_reply_to(in_reply_to))))
     }
 
     #[cfg(test)]
@@ -1473,17 +1554,19 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
         for event_id in targets {
             // Loaded outside the state lock: this can hit the network.
-            let Ok(event) =
-                RoomDataProvider::load_event(&self.room_data_provider, &event_id).await
+            let Ok(event) = RoomDataProvider::load_event(&self.room_data_provider, &event_id).await
             else {
                 continue;
             };
 
             let mut state = self.state.write().await;
 
-            let Ok(Some(embedded)) =
-                EmbeddedEvent::try_from_timeline_event(event, &self.room_data_provider, &state.meta)
-                    .await
+            let Ok(Some(embedded)) = EmbeddedEvent::try_from_timeline_event(
+                event,
+                &self.room_data_provider,
+                &state.meta,
+            )
+            .await
             else {
                 continue;
             };
