@@ -126,8 +126,11 @@ pub async fn update_any_room(
     )
     .await?;
 
-    // This will be used for both invited and knocked rooms.
-    if let Some(raw_state_events) = raw_invite_state_events {
+    // This will be used for both invited and knocked rooms. Skipped when the
+    // stale-invite guard in `membership` kept the room's local state (update
+    // kind `None` despite `invite_state` being present): the stripped state is
+    // stale too, and dispatching it would re-raise the invite notification.
+    if let (Some(raw_state_events), Some(_)) = (raw_invite_state_events, &maybe_room_update_kind) {
         state_events::stripped::dispatch_invite_or_knock(
             context,
             raw_state_events,
@@ -241,6 +244,28 @@ fn membership(
     //
     // Let's find out.
     if let Some(state_events) = invite_state_events {
+        // The response may have been generated before a local membership
+        // action (accepting the invite via `/join`, declining it via
+        // `/leave`) completed, in which case it still describes this room
+        // with `invite_state`. Honouring it would regress the locally
+        // updated membership until the action's echo arrives, making the
+        // invite reappear in the room list. Keep the current state
+        // untouched; the echo, processed through `required_state` or
+        // `timeline`, clears the marker and settles the membership.
+        if let Some(room) = store.room(room_id) {
+            let room_info = room.clone_info();
+            if room_info.membership_from_local_action
+                && !matches!(room_info.state(), RoomState::Invited | RoomState::Knocked)
+            {
+                tracing::debug!(
+                    ?room_id,
+                    state = ?room_info.state(),
+                    "Ignoring stale invite_state for a room whose membership was just changed locally"
+                );
+                return (room, room_info, None);
+            }
+        }
+
         // We need to find the membership event since it could be for either an invited
         // or knocked room.
         let own_membership = state_events.iter_mut().find_map(|raw_event| {
@@ -266,6 +291,7 @@ fn membership(
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_knocked();
+                room_info.clear_membership_from_local_action();
 
                 let knock_state = assign!(KnockState::default(), { events: raw_events });
                 let knocked_room = assign!(KnockedRoom::default(), { knock_state: knock_state });
@@ -279,6 +305,7 @@ fn membership(
                 let mut room_info = room.clone_info();
                 // Override the room state if the room already exists.
                 room_info.mark_as_invited();
+                room_info.clear_membership_from_local_action();
 
                 let invited_room = InvitedRoom::from(InviteState::from(raw_events));
 
@@ -297,6 +324,11 @@ fn membership(
         // request), then we can find this out from the events in required_state by
         // calling handle_own_room_membership.
         room_info.mark_as_joined();
+
+        // The sync delivered the room outside `invite_state`: this is the
+        // authoritative echo of any local membership action, so the stale-invite
+        // guard above is no longer needed.
+        room_info.clear_membership_from_local_action();
 
         // We don't need to do this in a v2 sync, because the membership of a room can
         // be figured out by whether the room is in the `join`, `leave` etc. property.

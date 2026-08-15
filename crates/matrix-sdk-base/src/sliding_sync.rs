@@ -417,6 +417,144 @@ mod tests {
         assert!(sync_resp.rooms.invited.contains_key(room_id));
     }
 
+    /// An `invite_state` block as a real server sends it: a full stripped
+    /// member event, `sender` included. The shared `invite_state_for` helper
+    /// omits `sender`, which some paths (member loading, display-name
+    /// computation) cannot deserialize.
+    fn full_invite_state_for(
+        inviter: &UserId,
+        invitee: &UserId,
+    ) -> Vec<Raw<AnyStrippedStateEvent>> {
+        let raw: Raw<AnyStrippedStateEvent> = Raw::from_json_string(
+            serde_json::json!({
+                "type": "m.room.member",
+                "state_key": invitee,
+                "sender": inviter,
+                "content": RoomMemberEventContent::new(MembershipState::Invite),
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        vec![raw]
+    }
+
+    #[async_test]
+    async fn test_stale_invite_state_does_not_regress_a_locally_joined_room() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!invite:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+        let inviter = user_id!("@inviter:e.uk");
+
+        // Receive an invite.
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(full_invite_state_for(inviter, &user_id));
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
+
+        // Accept it: `/join` succeeded, the sync echo hasn't arrived yet.
+        client.room_joined(room_id, None).await.unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+        // A long-poll generated before the join still delivers the invite.
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(full_invite_state_for(inviter, &user_id));
+        let response = response_with_room(room_id, room);
+        let sync_resp = client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .unwrap();
+
+        // The room must stay joined and not resurface as an invite.
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+        assert!(!sync_resp.rooms.invited.contains_key(room_id));
+
+        // The join echo arrives and confirms the membership.
+        let mut room = http::response::Room::new();
+        set_room_joined(&mut room, &user_id);
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Joined);
+
+        // A later, genuine invite (e.g. after being removed and re-invited) is
+        // honoured again: the guard only covers the local action's echo window.
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(full_invite_state_for(inviter, &user_id));
+        let response = response_with_room(room_id, room);
+        let sync_resp = client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
+        assert!(sync_resp.rooms.invited.contains_key(room_id));
+    }
+
+    #[async_test]
+    async fn test_stale_invite_state_does_not_resurrect_a_locally_declined_invite() {
+        let client = logged_in_base_client(None).await;
+        let room_id = room_id!("!declined:e.uk");
+        let user_id = client.session_meta().unwrap().user_id.to_owned();
+        let inviter = user_id!("@inviter:e.uk");
+
+        // Receive an invite.
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(full_invite_state_for(inviter, &user_id));
+        let response = response_with_room(room_id, room);
+        client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Invited);
+
+        // Decline it: `/leave` succeeded, the sync echo hasn't arrived yet.
+        client.room_left(room_id).await.unwrap();
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+
+        // A long-poll generated before the leave still delivers the invite.
+        let mut room = http::response::Room::new();
+        room.invite_state = Some(full_invite_state_for(inviter, &user_id));
+        let response = response_with_room(room_id, room);
+        let sync_resp = client
+            .process_sliding_sync(
+                &response,
+                &RequestedRequiredStates::default(),
+                &client.state_store_lock().lock().await,
+            )
+            .await
+            .unwrap();
+
+        // The declined invite must not come back.
+        assert_eq!(client.get_room(room_id).unwrap().state(), RoomState::Left);
+        assert!(!sync_resp.rooms.invited.contains_key(room_id));
+    }
+
     #[async_test]
     async fn test_notification_count_set() {
         let client = logged_in_base_client(None).await;

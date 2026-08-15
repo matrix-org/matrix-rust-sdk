@@ -576,6 +576,7 @@ impl BaseClient {
 
             room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
                 info.mark_as_joined();
+                info.mark_membership_from_local_action();
                 info.mark_state_partially_synced();
                 info.mark_members_missing(); // the own member event changed
                 (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)
@@ -608,6 +609,7 @@ impl BaseClient {
 
             room.update_and_save_room_info_with_store_guard(&store_guard, |mut info| {
                 info.mark_as_left();
+                info.mark_membership_from_local_action();
                 info.mark_state_partially_synced();
                 info.mark_members_missing(); // the own member event changed
                 (info, RoomInfoNotableUpdateReasons::MEMBERSHIP)

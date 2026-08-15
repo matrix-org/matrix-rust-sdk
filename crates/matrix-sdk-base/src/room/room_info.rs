@@ -621,6 +621,18 @@ pub struct RoomInfo {
     #[serde(skip)]
     pub(crate) warned_about_unknown_room_version_rules: Arc<AtomicBool>,
 
+    /// Whether the current membership state was set by a local action (a
+    /// successful `/join` or `/leave` request) and has not yet been confirmed
+    /// by a sync response.
+    ///
+    /// While this is set, a sync response that still describes this room as an
+    /// invite (a long-poll generated before the local action completed) must
+    /// not downgrade the membership. In-memory only: the stale window lasts
+    /// seconds, and persisting the marker could suppress a genuine re-invite
+    /// after a restart.
+    #[serde(skip)]
+    pub(crate) membership_from_local_action: bool,
+
     /// Cached display name, useful for sync access.
     ///
     /// Filled by calling [`Room::compute_display_name`]. It's automatically
@@ -669,10 +681,24 @@ impl RoomInfo {
             read_receipts: Default::default(),
             base_info: Box::new(BaseRoomInfo::new()),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
+            membership_from_local_action: false,
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
         }
+    }
+
+    /// Mark the current membership state as set by a local action, not yet
+    /// confirmed by a sync response (see
+    /// [`RoomInfo::membership_from_local_action`]).
+    pub fn mark_membership_from_local_action(&mut self) {
+        self.membership_from_local_action = true;
+    }
+
+    /// Clear the local-action membership marker: a sync response delivered an
+    /// authoritative membership for this room.
+    pub fn clear_membership_from_local_action(&mut self) {
+        self.membership_from_local_action = false;
     }
 
     /// Mark this Room as joined.
@@ -1562,6 +1588,7 @@ mod tests {
             ),
             read_receipts: Default::default(),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
+            membership_from_local_action: false,
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: Some(42.into()),

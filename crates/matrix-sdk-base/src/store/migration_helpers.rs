@@ -113,6 +113,7 @@ impl RoomInfoV1 {
             read_receipts: Default::default(),
             base_info: base_info.migrate(create),
             warned_about_unknown_room_version_rules: Arc::new(false.into()),
+            membership_from_local_action: false,
             cached_display_name: None,
             cached_user_defined_notification_mode: None,
             recency_stamp: None,
