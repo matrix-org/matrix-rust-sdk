@@ -41,7 +41,7 @@ pub use self::{
     memory_store::MemoryStore,
     traits::{
         DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore,
-        MEDIA_MSGTYPES,
+        MEDIA_MSGTYPES, StoredEventRef,
     },
 };
 

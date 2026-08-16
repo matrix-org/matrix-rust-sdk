@@ -2202,6 +2202,24 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // No types, no events.
         assert!(self.find_events_by_message_types(room_id, &[]).await.unwrap().is_empty());
 
+        // The index-only variant locates the same events, and the references
+        // load them (only the ones still stored: an unknown reference is
+        // skipped).
+        let mut refs = self.find_event_refs_by_message_types(room_id, &["m.image"]).await.unwrap();
+        refs.sort_by_key(|(_, position)| (position.chunk_identifier().index(), position.index()));
+        assert_eq!(refs.len(), 2);
+        assert_eq!(refs[0].1, Position::new(CId::new(0), 0));
+        assert_eq!(refs[1].1, Position::new(CId::new(1), 1));
+        let mut all_refs = refs.iter().map(|(event_ref, _)| event_ref.clone()).collect::<Vec<_>>();
+        all_refs.push(b"unknown".to_vec());
+        let loaded = self.load_events_by_refs(room_id, &all_refs).await.unwrap();
+        assert_eq!(loaded.len(), 2);
+        let loaded_a = loaded.iter().find(|(event_ref, _)| *event_ref == refs[0].0).unwrap();
+        assert_eq!(loaded_a.1.event_id(), image_a.event_id());
+        let loaded_b = loaded.iter().find(|(event_ref, _)| *event_ref == refs[1].0).unwrap();
+        assert_eq!(loaded_b.1.event_id(), image_b.event_id());
+        assert!(self.find_event_refs_by_message_types(room_id, &[]).await.unwrap().is_empty());
+
         // The text message is found by its own type.
         let found = self.find_events_by_message_types(room_id, &["m.text"]).await.unwrap();
         assert_eq!(found.len(), 1);

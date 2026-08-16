@@ -31,6 +31,12 @@ use ruma::{
 use super::EventCacheStoreError;
 use crate::event_cache::{Event, Gap};
 
+/// An opaque, store-specific reference to a stored event (e.g. its hashed
+/// id), handed out by
+/// [`EventCacheStore::find_event_refs_by_message_types`] and resolved by
+/// [`EventCacheStore::load_events_by_refs`].
+pub type StoredEventRef = Vec<u8>;
+
 /// The `msgtype`s of the room messages carrying media contents.
 pub const MEDIA_MSGTYPES: &[&str] =
     &["m.image", "m.video", "m.audio", "m.file", "dm.filament.gallery"];
@@ -259,6 +265,47 @@ pub trait EventCacheStore: AsyncTraitDeps {
             .collect())
     }
 
+    /// Locate the events of this room's linked chunk which are room messages
+    /// with one of the given `msgtype`s: their position in the linked chunk,
+    /// and a reference to load them later with
+    /// [`Self::load_events_by_refs`], without loading (nor decoding) any of
+    /// them now. Same scope as [`Self::find_events_by_message_types`].
+    ///
+    /// The default implementation loads them all; stores are expected to
+    /// override it with an index-only query.
+    async fn find_event_refs_by_message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: &[&str],
+    ) -> Result<Vec<(StoredEventRef, Position)>, Self::Error> {
+        Ok(self
+            .find_events_by_message_types(room_id, msgtypes)
+            .await?
+            .into_iter()
+            .filter_map(|(event, position)| {
+                event.event_id().map(|event_id| (event_id.as_bytes().to_vec(), position))
+            })
+            .collect())
+    }
+
+    /// Load the events referenced by [`Self::find_event_refs_by_message_types`]
+    /// (the ones still stored; in no particular order).
+    async fn load_events_by_refs(
+        &self,
+        room_id: &RoomId,
+        refs: &[StoredEventRef],
+    ) -> Result<Vec<(StoredEventRef, Event)>, Self::Error> {
+        let mut events = Vec::with_capacity(refs.len());
+        for event_ref in refs {
+            let Ok(event_id) = str::from_utf8(event_ref).map(EventId::parse) else { continue };
+            let Ok(event_id) = event_id else { continue };
+            if let Some(event) = self.find_event(room_id, &event_id).await? {
+                events.push((event_ref.clone(), event));
+            }
+        }
+        Ok(events)
+    }
+
     /// The `mxc://` URIs referenced by the stored media messages (images,
     /// videos, audios, files, galleries) of each given room, thumbnails
     /// included: the media contents attributable to the rooms. Rooms without
@@ -476,6 +523,22 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         msgtypes: &[&str],
     ) -> Result<Vec<(Event, Position)>, Self::Error> {
         self.0.find_events_by_message_types(room_id, msgtypes).await.map_err(Into::into)
+    }
+
+    async fn find_event_refs_by_message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: &[&str],
+    ) -> Result<Vec<(StoredEventRef, Position)>, Self::Error> {
+        self.0.find_event_refs_by_message_types(room_id, msgtypes).await.map_err(Into::into)
+    }
+
+    async fn load_events_by_refs(
+        &self,
+        room_id: &RoomId,
+        refs: &[StoredEventRef],
+    ) -> Result<Vec<(StoredEventRef, Event)>, Self::Error> {
+        self.0.load_events_by_refs(room_id, refs).await.map_err(Into::into)
     }
 
     async fn media_uris_by_room(

@@ -33,7 +33,7 @@ use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{
         Event, Gap,
-        store::{EventCacheStore, MEDIA_MSGTYPES, extract_event_relation},
+        store::{EventCacheStore, MEDIA_MSGTYPES, StoredEventRef, extract_event_relation},
     },
     linked_chunk::{
         ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
@@ -797,6 +797,48 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     }
 
     Ok(())
+}
+
+impl SqliteEventCacheStore {
+    /// Fill in the `msgtype` of the room message rows predating the column
+    /// (NULL), across all rooms, decoding them once; a no-op once done. See
+    /// [`Self::find_events_by_message_types`] for the per-room variant.
+    async fn backfill_legacy_msgtypes(&self) -> Result<()> {
+        let hashed_message_type = self.encryption.encode_key(keys::EVENTS, ROOM_MESSAGE_EVENT_TYPE);
+        let encryption = self.encryption.clone();
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| -> Result<()> {
+                let legacy: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = txn
+                    .prepare(
+                        "SELECT room_id, event_id, content FROM events \
+                         WHERE event_type = ? AND msgtype IS NULL",
+                    )?
+                    .query((&hashed_message_type,))?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                    .collect::<rusqlite::Result<_>>()?;
+                if legacy.is_empty() {
+                    return Ok(());
+                }
+
+                let _timer = timer!("backfilling the msgtype of legacy rows");
+                debug!(num_rows = legacy.len(), "Backfilling the `msgtype` of legacy rows");
+                let mut statement = txn
+                    .prepare("UPDATE events SET msgtype = ? WHERE event_id = ? AND room_id = ?")?;
+                for (room_id, event_id, content) in legacy {
+                    let msgtype =
+                        encryption.decode_event(&content)?.kind.msgtype().unwrap_or_default();
+                    statement.execute((
+                        encryption.encode_key(keys::EVENTS, msgtype),
+                        event_id,
+                        room_id,
+                    ))?;
+                }
+                Ok(())
+            })
+            .await
+    }
 }
 
 #[async_trait]
@@ -2132,13 +2174,107 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(found)
     }
 
+    async fn find_event_refs_by_message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: &[&str],
+    ) -> Result<Vec<(StoredEventRef, Position)>, Self::Error> {
+        let _timer = timer!("method");
+
+        if msgtypes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Rows predating the `msgtype` column can't be told apart by type
+        // without decoding: fill the index in first (a no-op once done).
+        self.backfill_legacy_msgtypes().await?;
+
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
+        let hashed_msgtypes = msgtypes
+            .iter()
+            .map(|msgtype| self.encryption.encode_key(keys::EVENTS, msgtype))
+            .collect::<Vec<_>>();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let query = format!(
+                    "SELECT events.event_id, event_chunks.chunk_id, event_chunks.position \
+                     FROM events \
+                     INNER JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ? \
+                     WHERE events.room_id = ? AND events.msgtype IN ({})",
+                    repeat_vars(hashed_msgtypes.len())
+                );
+                let parameters = params_from_iter(
+                    [
+                        hashed_linked_chunk_id.to_sql().expect("a key converts to a SQLite value"),
+                        hashed_room_id.to_sql().expect("a key converts to a SQLite value"),
+                    ]
+                    .into_iter()
+                    .chain(hashed_msgtypes.iter().map(|key| key.to_sql().expect("a key converts to a SQLite value"))),
+                );
+
+                txn.prepare(&query)?
+                    .query_map(parameters, |row| {
+                        Ok((
+                            row.get::<_, Vec<u8>>(0)?,
+                            Position::new(ChunkIdentifier::new(row.get::<_, u64>(1)?), row.get::<_, usize>(2)?),
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(Into::into)
+            })
+            .await
+    }
+
+    async fn load_events_by_refs(
+        &self,
+        room_id: &RoomId,
+        refs: &[StoredEventRef],
+    ) -> Result<Vec<(StoredEventRef, Event)>, Self::Error> {
+        let _timer = timer!("method");
+
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let encryption = self.encryption.clone();
+        let refs = refs.to_vec();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut events = Vec::with_capacity(refs.len());
+                // Below SQLite's default parameter limit.
+                for chunk in refs.chunks(500) {
+                    let query = format!(
+                        "SELECT event_id, content FROM events WHERE room_id = ? AND event_id IN ({})",
+                        repeat_vars(chunk.len())
+                    );
+                    let parameters = params_from_iter(
+                        once(hashed_room_id.to_sql().expect("a key converts to a SQLite value"))
+                            .chain(chunk.iter().map(|event_ref| event_ref.to_sql().expect("bytes convert to a SQLite value"))),
+                    );
+                    let rows = txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| {
+                            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
+                        })?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    for (event_ref, content) in rows {
+                        events.push((event_ref, encryption.decode_event(&content)?));
+                    }
+                }
+                Ok(events)
+            })
+            .await
+    }
+
     async fn media_uris_by_room(
         &self,
         room_ids: &[OwnedRoomId],
     ) -> Result<Vec<(OwnedRoomId, Vec<ruma::OwnedMxcUri>)>, Self::Error> {
         let _timer = timer!("method");
 
-        let hashed_message_type = self.encryption.encode_key(keys::EVENTS, ROOM_MESSAGE_EVENT_TYPE);
         let hashed_media_msgtypes = MEDIA_MSGTYPES
             .iter()
             .map(|msgtype| self.encryption.encode_key(keys::EVENTS, msgtype))
@@ -2149,33 +2285,10 @@ impl EventCacheStore for SqliteEventCacheStore {
         // `event_media` table: indexed once, across all rooms (this is the only
         // place a media message is decoded for its URIs; fresh rows are indexed
         // on write). Both queries are index-only no-ops once done.
+        self.backfill_legacy_msgtypes().await?;
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<()> {
-                let legacy: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = txn
-                    .prepare(
-                        "SELECT room_id, event_id, content FROM events \
-                         WHERE event_type = ? AND msgtype IS NULL",
-                    )?
-                    .query((&hashed_message_type,))?
-                    .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
-                    .collect::<rusqlite::Result<_>>()?;
-                if !legacy.is_empty() {
-                    debug!(num_rows = legacy.len(), "Backfilling the `msgtype` of legacy rows");
-                    let mut statement = txn.prepare(
-                        "UPDATE events SET msgtype = ? WHERE event_id = ? AND room_id = ?",
-                    )?;
-                    for (room_id, event_id, content) in legacy {
-                        let msgtype =
-                            encryption.decode_event(&content)?.kind.msgtype().unwrap_or_default();
-                        statement.execute((
-                            encryption.encode_key(keys::EVENTS, msgtype),
-                            event_id,
-                            room_id,
-                        ))?;
-                    }
-                }
-
                 let query = format!(
                     "SELECT room_id, event_id, content FROM events WHERE media_indexed = 0 \
                      AND msgtype IN ({})",

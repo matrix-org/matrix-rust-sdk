@@ -19,9 +19,10 @@
 //! Unlike a filtered live timeline, which mirrors the room's in-memory linked
 //! chunk and thus has to walk the whole cached history through memory to find
 //! the few events it renders, this view is a *projection of the persisted*
-//! linked chunk: it is seeded from the store's `msgtype` index in one query
-//! (see `EventCacheStore::find_events_by_message_types`), and then kept up to
-//! date by the linked chunk updates that reach the store (see
+//! linked chunk: it is seeded from the store's `msgtype` index in one
+//! index-only query (see `EventCacheStore::find_event_refs_by_message_types`;
+//! the events themselves are loaded page by page, as they are exposed), and
+//! then kept up to date by the linked chunk updates that reach the store (see
 //! `LinkedChunkUpdateFanout`), whichever code path produced them: sync,
 //! back-pagination, gap resolution, redecryption, redaction, clear.
 //!
@@ -33,11 +34,14 @@
 //! media grid learns that there may be media hidden behind a gap at its
 //! newest end).
 
-use std::{fmt, sync::Arc};
+use std::{fmt, ops::Range, sync::Arc};
 
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
-    event_cache::{Event, Gap},
+    event_cache::{
+        Event, Gap,
+        store::{EventCacheStoreLockGuard, StoredEventRef},
+    },
     linked_chunk::{ChunkIdentifier, OrderTracker, OwnedLinkedChunkId, Position, Update},
     task_monitor::BackgroundTaskHandle,
 };
@@ -106,18 +110,31 @@ struct Inner {
     _update_task: std::sync::Mutex<Option<BackgroundTaskHandle>>,
 }
 
-/// One item of the projection: a matching event, or a gap of the room's
-/// linked chunk, both located by their (chunk, index) position.
+/// One item of the projection: a matching event (loaded, or still in the
+/// store, held back), or a gap of the room's linked chunk, all located by
+/// their (chunk, index) position.
 #[derive(Clone, Debug)]
 enum Entry {
-    Event { position: Position, event: Event },
-    Gap { chunk_id: ChunkIdentifier, token: String },
+    Event {
+        position: Position,
+        event: Event,
+    },
+    /// A matching event known from the store's index only: loaded when it
+    /// comes into the exposed window. Never exposed as such.
+    Pending {
+        position: Position,
+        event_ref: StoredEventRef,
+    },
+    Gap {
+        chunk_id: ChunkIdentifier,
+        token: String,
+    },
 }
 
 impl Entry {
     fn position(&self) -> Position {
         match self {
-            Entry::Event { position, .. } => *position,
+            Entry::Event { position, .. } | Entry::Pending { position, .. } => *position,
             // A gap chunk holds no item; index 0 orders it against any
             // item of the surrounding chunks.
             Entry::Gap { chunk_id, .. } => Position::new(*chunk_id, 0),
@@ -128,11 +145,9 @@ impl Entry {
         self.position().chunk_identifier()
     }
 
-    fn event_id(&self) -> Option<OwnedEventId> {
-        match self {
-            Entry::Event { event, .. } => event.event_id().map(ToOwned::to_owned),
-            Entry::Gap { .. } => None,
-        }
+    /// Whether the entry is an event (loaded or not), as opposed to a gap.
+    fn is_event(&self) -> bool {
+        !matches!(self, Entry::Gap { .. })
     }
 }
 
@@ -168,7 +183,8 @@ impl State {
             .iter()
             .filter_map(|entry| match entry {
                 Entry::Event { event, .. } => Some(event.clone()),
-                Entry::Gap { .. } => None,
+                // Exposed entries are always loaded.
+                Entry::Pending { .. } | Entry::Gap { .. } => None,
             })
             .collect()
     }
@@ -194,11 +210,14 @@ impl State {
             .filter_map(|(index, entry)| match entry {
                 Entry::Gap { token, .. } => Some(TimelineGap {
                     prev_token: token.clone(),
-                    following_event_id: exposed[index + 1..]
-                        .iter()
-                        .find_map(|following| following.event_id()),
+                    following_event_id: exposed[index + 1..].iter().find_map(|following| {
+                        match following {
+                            Entry::Event { event, .. } => event.event_id().map(ToOwned::to_owned),
+                            Entry::Pending { .. } | Entry::Gap { .. } => None,
+                        }
+                    }),
                 }),
-                Entry::Event { .. } => None,
+                Entry::Event { .. } | Entry::Pending { .. } => None,
             })
             .collect()
     }
@@ -342,7 +361,7 @@ impl State {
 
                 // The items after it in the same chunk shift down.
                 for entry in &mut self.entries {
-                    if let Entry::Event { position, .. } = entry
+                    if let Entry::Event { position, .. } | Entry::Pending { position, .. } = entry
                         && position.chunk_identifier() == at.chunk_identifier()
                         && position.index() > at.index()
                     {
@@ -354,7 +373,7 @@ impl State {
             Update::DetachLastItems { at } => {
                 self.retain(
                     |entry| {
-                        !(matches!(entry, Entry::Event { .. })
+                        !(entry.is_event()
                             && entry.chunk_id() == at.chunk_identifier()
                             && entry.position().index() >= at.index())
                     },
@@ -396,16 +415,16 @@ impl MessageTypesEventCache {
         let room_id = room_event_cache.room_id().to_owned();
         let msgtypes_refs = msgtypes.iter().map(String::as_str).collect::<Vec<_>>();
 
-        // The store may have to backfill its `msgtype` index the first time a
-        // room is queried (rows predating the index): do that outside of the
-        // room's state lock, held below, so it doesn't stall the room's sync
-        // handling meanwhile. The result is discarded: it's re-queried below,
+        // The store may have to backfill its `msgtype` index the first time
+        // (rows predating the index): do that outside of the room's state
+        // lock, held below, so it doesn't stall the room's sync handling
+        // meanwhile. The result is discarded: it's re-queried below,
         // index-only this time, consistently with the update subscription.
         {
             let room_state = room_event_cache.state().read().await?;
             let store = room_state.store.clone();
             drop(room_state);
-            store.find_events_by_message_types(&room_id, &msgtypes_refs).await?;
+            store.find_event_refs_by_message_types(&room_id, &msgtypes_refs).await?;
         }
 
         // Seed under the room's state read lock: linked chunk updates are
@@ -420,8 +439,8 @@ impl MessageTypesEventCache {
             let metadata =
                 room_state.store.load_all_chunks_metadata(linked_chunk_id.as_ref()).await?;
             let gaps = room_state.store.load_all_gaps(linked_chunk_id.as_ref()).await?;
-            let events =
-                room_state.store.find_events_by_message_types(&room_id, &msgtypes_refs).await?;
+            let event_refs =
+                room_state.store.find_event_refs_by_message_types(&room_id, &msgtypes_refs).await?;
 
             let metadata = order_chunk_metadata(metadata);
             let order = OrderTracker::from_metadata(metadata);
@@ -431,37 +450,47 @@ impl MessageTypesEventCache {
             let mut entries = gaps
                 .into_iter()
                 .map(|(chunk_id, gap)| Entry::Gap { chunk_id, token: gap.token })
-                .chain(events.into_iter().map(|(event, position)| Entry::Event { position, event }))
+                .chain(
+                    event_refs
+                        .into_iter()
+                        .map(|(event_ref, position)| Entry::Pending { position, event_ref }),
+                )
                 .filter_map(|entry| state.key(&entry).map(|key| (key, entry)))
                 .collect::<Vec<_>>();
             entries.sort_by_key(|(key, _)| *key);
             state.entries = entries.into_iter().map(|(_, entry)| entry).collect();
 
             // Expose the initial page: around the given event, or the newest.
-            let around = around_event.as_ref().and_then(|event_id| {
-                let index = state.entries.iter().position(|entry| {
-                    entry.event_id().as_deref() == Some(event_id)
-                });
-                if index.is_none() {
+            let mut around = None;
+            if let Some(event_id) = &around_event {
+                let position = room_state
+                    .store
+                    .filter_duplicated_events(linked_chunk_id.as_ref(), vec![event_id.clone()])
+                    .await?
+                    .into_iter()
+                    .next()
+                    .map(|(_, position)| position);
+                around = position.and_then(|position| state.find(position));
+                if around.is_none() {
                     warn!(%event_id, "The event to expose around isn't in the view; exposing the newest page");
                 }
-                index
-            });
+            }
 
-            let mut discarded_diffs = Vec::new();
             match around {
                 Some(index) => {
                     state.exposed_from = index;
                     state.exposed_to = index;
-                    state.expose_backwards(INITIAL_PAGE_SIZE / 2, &mut discarded_diffs);
-                    state.expose_forwards(INITIAL_PAGE_SIZE / 2, &mut discarded_diffs);
+                    state.expose_backwards(INITIAL_PAGE_SIZE / 2);
+                    state.expose_forwards(INITIAL_PAGE_SIZE / 2);
                 }
                 None => {
                     state.exposed_from = state.entries.len();
                     state.exposed_to = state.entries.len();
-                    state.expose_backwards(INITIAL_PAGE_SIZE, &mut discarded_diffs);
+                    state.expose_backwards(INITIAL_PAGE_SIZE);
                 }
             }
+            let exposed = state.exposed_from..state.exposed_to;
+            state.load_pending_from(&room_state.store, &room_id, exposed).await?;
 
             (state, updates)
         };
@@ -535,7 +564,16 @@ impl MessageTypesEventCache {
         let mut state = self.inner.state.write().await;
 
         let mut diffs = Vec::new();
-        state.expose_backwards(num_events, &mut diffs);
+        let range = state.expose_backwards(num_events);
+        state.load_pending(&self.inner.room_event_cache, range.clone()).await?;
+        // The exposed range may have shrunk by what wasn't in the store any more.
+        for entry in &state.entries[range.start..range.end.min(state.exposed_to)] {
+            if let Entry::Event { event, .. } = entry {
+                diffs.push(VectorDiff::Insert { index: 0, value: event.clone() });
+            }
+        }
+        // Inserted at 0 one by one, newest first, they end up oldest first.
+        diffs.reverse();
         let hit_start = state.exposed_from == 0;
 
         if !diffs.is_empty() {
@@ -558,7 +596,13 @@ impl MessageTypesEventCache {
         let mut state = self.inner.state.write().await;
 
         let mut diffs = Vec::new();
-        state.expose_forwards(num_events, &mut diffs);
+        let range = state.expose_forwards(num_events);
+        state.load_pending(&self.inner.room_event_cache, range.clone()).await?;
+        for entry in &state.entries[range.start..range.end.min(state.exposed_to)] {
+            if let Entry::Event { event, .. } = entry {
+                diffs.push(VectorDiff::PushBack { value: event.clone() });
+            }
+        }
         let hit_end = state.exposed_to == state.entries.len();
 
         if !diffs.is_empty() {
@@ -589,17 +633,19 @@ impl MessageTypesEventCache {
 }
 
 impl State {
-    /// Expose up to `num_events` more events from the held-back prefix; when
-    /// no held-back event remains, expose the rest (gaps) too.
-    fn expose_backwards(&mut self, num_events: usize, diffs: &mut Vec<VectorDiff<Event>>) {
+    /// Widen the exposed window by up to `num_events` more events from the
+    /// held-back prefix; when no held-back event remains, take in the rest
+    /// (gaps) too. Returns the newly exposed range, whose pending entries
+    /// must be loaded (see [`Self::load_pending`]) before being sent out.
+    fn expose_backwards(&mut self, num_events: usize) -> Range<usize> {
+        let end = self.exposed_from;
         let mut exposed = 0;
 
         while self.exposed_from > 0 && exposed < num_events {
             self.exposed_from -= 1;
 
-            if let Entry::Event { event, .. } = &self.entries[self.exposed_from] {
+            if self.entries[self.exposed_from].is_event() {
                 exposed += 1;
-                diffs.push(VectorDiff::Insert { index: 0, value: event.clone() });
             }
         }
 
@@ -608,17 +654,21 @@ impl State {
         {
             self.exposed_from = 0;
         }
+
+        self.exposed_from..end
     }
 
-    /// Expose up to `num_events` more events from the held-back suffix; when
-    /// no held-back event remains, expose the rest (gaps) too.
-    fn expose_forwards(&mut self, num_events: usize, diffs: &mut Vec<VectorDiff<Event>>) {
+    /// Widen the exposed window by up to `num_events` more events from the
+    /// held-back suffix; when no held-back event remains, take in the rest
+    /// (gaps) too. Returns the newly exposed range, see
+    /// [`Self::expose_backwards`].
+    fn expose_forwards(&mut self, num_events: usize) -> Range<usize> {
+        let start = self.exposed_to;
         let mut exposed = 0;
 
         while self.exposed_to < self.entries.len() && exposed < num_events {
-            if let Entry::Event { event, .. } = &self.entries[self.exposed_to] {
+            if self.entries[self.exposed_to].is_event() {
                 exposed += 1;
-                diffs.push(VectorDiff::PushBack { value: event.clone() });
             }
 
             self.exposed_to += 1;
@@ -628,6 +678,63 @@ impl State {
         if self.entries[self.exposed_to..].iter().all(|entry| matches!(entry, Entry::Gap { .. })) {
             self.exposed_to = self.entries.len();
         }
+
+        start..self.exposed_to
+    }
+
+    /// Load the pending entries of the given (exposed) range from the store,
+    /// in one query. Entries the store doesn't have any more (removed
+    /// meanwhile) are dropped from the view.
+    async fn load_pending(
+        &mut self,
+        room_event_cache: &RoomEventCache,
+        range: Range<usize>,
+    ) -> Result<()> {
+        let room_state = room_event_cache.state().read().await?;
+        let store = room_state.store.clone();
+        drop(room_state);
+        self.load_pending_from(&store, room_event_cache.room_id(), range).await
+    }
+
+    async fn load_pending_from(
+        &mut self,
+        store: &EventCacheStoreLockGuard,
+        room_id: &RoomId,
+        range: Range<usize>,
+    ) -> Result<()> {
+        let refs = self.entries[range.clone()]
+            .iter()
+            .filter_map(|entry| match entry {
+                Entry::Pending { event_ref, .. } => Some(event_ref.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if refs.is_empty() {
+            return Ok(());
+        }
+
+        let mut events = store
+            .load_events_by_refs(room_id, &refs)
+            .await?
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+
+        // Walk from the end so removals keep the earlier indices valid.
+        for index in range.rev() {
+            let Entry::Pending { position, event_ref } = &self.entries[index] else { continue };
+            match events.remove(event_ref) {
+                Some(event) => {
+                    self.entries[index] = Entry::Event { position: *position, event };
+                }
+                None => {
+                    trace!(?position, "A pending event is gone from the store; dropping it");
+                    let mut discarded_diffs = Vec::new();
+                    self.remove(index, &mut discarded_diffs);
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
