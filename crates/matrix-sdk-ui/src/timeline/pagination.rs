@@ -20,7 +20,9 @@ use matrix_sdk::event_cache::{PaginationStatus, RoomEventCache};
 use tracing::instrument;
 
 use super::Error;
-use crate::timeline::{PaginationError::NotSupported, controller::TimelineFocusKind};
+use crate::timeline::{
+    PaginationError::NotSupported, controller::TimelineFocusKind, traits::RoomDataProvider as _,
+};
 
 impl super::Timeline {
     /// Add more events to the start of the timeline.
@@ -100,6 +102,25 @@ impl super::Timeline {
         // Gaps are then resolved on demand with [`Timeline::resolve_gap`].
         let storage_only = self.controller.settings.storage_only_pagination;
 
+        // Storage loads are cheap and whole-chunk: for a filtered timeline
+        // (e.g. media only), a chunk often yields no item at all, and having
+        // the client come back for every chunk makes loading crawl. Keep
+        // walking until a loaded chunk holds at least one event that passes
+        // the timeline's filter, within a budget. (Checked on the loaded
+        // events rather than on the items: the timeline applies the diffs
+        // asynchronously.)
+        const MAX_STORAGE_CHUNKS_PER_CALL: usize = 32;
+        let mut storage_chunks = 0;
+        let rules = self.controller.room_data_provider.room_version_rules();
+        let passes_filter = |events: &[matrix_sdk::deserialized_responses::TimelineEvent]| {
+            events.iter().any(|event| {
+                event
+                    .raw()
+                    .deserialize()
+                    .is_ok_and(|event| (self.controller.settings.event_filter)(&event, &rules))
+            })
+        };
+
         loop {
             let result = if storage_only {
                 event_cache_pagination.run_backwards_once_from_storage(batch_size).await
@@ -120,6 +141,17 @@ impl super::Timeline {
                     }
 
                     if !outcome.events.is_empty() {
+                        if storage_only {
+                            storage_chunks += 1;
+                            if storage_chunks < MAX_STORAGE_CHUNKS_PER_CALL
+                                && !passes_filter(&outcome.events)
+                            {
+                                // Everything in this chunk is filtered out of
+                                // this timeline: keep walking.
+                                continue;
+                            }
+                        }
+
                         return Ok(false);
                     }
 

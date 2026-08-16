@@ -226,3 +226,49 @@ async fn test_timeline_start_is_not_inserted_over_a_leading_gap() {
 
     assert!(stream.next().now_or_never().is_none());
 }
+
+#[async_test]
+async fn test_gap_with_no_rendered_follower_is_shown_at_the_newest_end() {
+    // A filtered timeline, keeping only messages whose body contains "keep".
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            storage_only_pagination: true,
+            event_filter: std::sync::Arc::new(|event, _| {
+                use ruma::events::{AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent};
+                match event {
+                    AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(msg)) => {
+                        matches!(msg.as_original().map(|ev| AnyMessageLikeEventContent::RoomMessage(ev.content.clone())), Some(AnyMessageLikeEventContent::RoomMessage(content)) if content.body().contains("keep"))
+                    }
+                    _ => false,
+                }
+            }),
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.text_msg("keep A").sender(*ALICE).event_id(event_id!("$a"))).await;
+    let _ = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let _ = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+
+    // B is filtered out: known to the timeline, but has no item.
+    timeline.handle_live_event(f.text_msg("drop B").sender(*ALICE).event_id(event_id!("$b"))).await;
+    assert!(stream.next().now_or_never().is_none());
+
+    // A gap before B: nothing after it is rendered, so it shows at the newest
+    // end (there may be items in the gap): [date-divider, A, gap].
+    timeline.controller.handle_timeline_gaps(vec![gap("g1", event_id!("$b"))]).await;
+    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value } => value);
+    assert!(item.is_gap());
+    assert!(stream.next().now_or_never().is_none());
+
+    // A rendered event after the gap re-anchors it: [date-divider, A, gap, C].
+    timeline.handle_live_event(f.text_msg("keep C").sender(*ALICE).event_id(event_id!("$c"))).await;
+    while stream.next().now_or_never().flatten().is_some() {}
+
+    let items = timeline.controller.items().await;
+    assert!(items[2].is_gap(), "{items:?}");
+    assert_eq!(items[3].as_event().unwrap().event_id().unwrap(), event_id!("$c"));
+}

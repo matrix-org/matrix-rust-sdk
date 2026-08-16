@@ -1174,11 +1174,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     /// reported by the event cache ([`TimelineMetadata::timeline_gaps`]).
     ///
     /// Each gap is (re-)inserted immediately before its anchor: the timeline
-    /// item of the first event following the gap that has one. Gaps that
-    /// can't be anchored (trailing gaps, or gaps whose followers are all
-    /// filtered out of this timeline) aren't rendered, and gaps sharing an
-    /// anchor are collapsed down to their newest member so that adjacent
-    /// gaps show as a single item.
+    /// item of the first event following the gap that has one; if none of
+    /// the followers is rendered in this timeline (typically a filtered
+    /// timeline whose newest items predate the gap), the gap is shown at the
+    /// newest end. Gaps whose following event isn't known to the timeline yet
+    /// aren't rendered, and gaps sharing an anchor are collapsed down to
+    /// their newest member so that adjacent gaps show as a single item.
     ///
     /// This runs at the end of every state transaction. Since a transaction's
     /// diffs are applied atomically by subscribers, removing and re-inserting
@@ -1192,8 +1193,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // Compute the desired placements: for each anchorable gap, the index
         // of its anchor item, i.e. the timeline item of the first event
         // at-or-after the gap's following event that has one (the following
-        // event itself may be filtered out of this timeline). Gaps whose
-        // followers are all unknown or filtered out aren't rendered.
+        // event itself may be filtered out of this timeline), or the end of
+        // the items if none of them is rendered. Gaps whose following event
+        // is unknown aren't rendered.
         //
         // Note: these indices are in the *current* coordinates, i.e. with the
         // currently rendered gap items still in place.
@@ -1208,7 +1210,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     .items
                     .all_remote_events()
                     .range(event_index..)
-                    .find_map(|event_meta| event_meta.timeline_item_index)?;
+                    .find_map(|event_meta| event_meta.timeline_item_index)
+                    // Nothing after the gap is rendered in this timeline
+                    // (e.g. a filtered timeline whose newest items predate
+                    // the gap): the gap's contents would land after every
+                    // rendered item, so show it at the newest end.
+                    .unwrap_or_else(|| self.items.len());
                 Some((gap, anchor_item_index))
             })
             .collect::<Vec<_>>();
@@ -1295,16 +1302,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 continue;
             };
 
-            let Some(anchor_item_index) = self
+            let anchor_item_index = self
                 .items
                 .all_remote_events()
                 .range(event_index..)
                 .find_map(|event_meta| event_meta.timeline_item_index)
-            else {
-                // Nothing after the gap is rendered in this timeline; there's
-                // no sensible place to show it.
-                continue;
-            };
+                // See above: nothing rendered after the gap, show it at the
+                // newest end.
+                .unwrap_or_else(|| self.items.len());
 
             let item = existing_items.remove(&gap.prev_token).unwrap_or_else(|| {
                 self.meta.new_timeline_item(VirtualTimelineItem::Gap { prev_token: gap.prev_token })
