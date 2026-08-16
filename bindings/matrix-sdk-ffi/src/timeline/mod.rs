@@ -393,6 +393,26 @@ impl Timeline {
         Ok(self.inner.paginate_forwards(num_events).await?)
     }
 
+    /// Resolve the timeline gap identified by the given prev-batch token (as
+    /// carried by a [`VirtualTimelineItem::Gap`] item), fetching up to
+    /// `num_events` of the missing events from the server.
+    ///
+    /// The fetched events replace the gap item in place; if the gap was only
+    /// partially resolved, a gap item with a new token remains. Concurrent
+    /// resolutions of the same gap are deduplicated, so it's fine to call
+    /// this whenever a gap item is visible, repeatedly.
+    ///
+    /// Only supported on live timelines.
+    ///
+    /// Returns whether a resolution actually ran.
+    pub async fn resolve_gap(
+        &self,
+        prev_token: String,
+        num_events: u16,
+    ) -> Result<bool, ClientError> {
+        Ok(self.inner.resolve_gap(prev_token, num_events).await?)
+    }
+
     pub async fn send_read_receipt(
         &self,
         receipt_type: ReceiptType,
@@ -979,6 +999,9 @@ impl TimelineItem {
             VItem::DateDivider(ts) => Some(VirtualTimelineItem::DateDivider { ts: (*ts).into() }),
             VItem::ReadMarker => Some(VirtualTimelineItem::ReadMarker),
             VItem::TimelineStart => Some(VirtualTimelineItem::TimelineStart),
+            VItem::Gap { prev_token } => {
+                Some(VirtualTimelineItem::Gap { prev_token: prev_token.clone() })
+            }
         }
     }
 
@@ -1294,6 +1317,17 @@ pub enum VirtualTimelineItem {
 
     /// The timeline start, that is, the *oldest* event in time for that room.
     TimelineStart,
+
+    /// A gap in the timeline: a range of events we know nothing about,
+    /// between the items surrounding this virtual item.
+    ///
+    /// Typically rendered as a small loading indicator; resolve it (e.g. when
+    /// it becomes visible) with [`Timeline::resolve_gap`].
+    Gap {
+        /// The previous-batch token identifying this gap, to pass to
+        /// [`Timeline::resolve_gap`].
+        prev_token: String,
+    },
 }
 
 /// A [`TimelineItem`](super::TimelineItem) that doesn't correspond to an event.
@@ -1474,7 +1508,8 @@ pub enum LatestEventValue {
         thread_root_event_id: Option<String>,
     },
     RemoteInvite {
-        /// `None` for stripped invite state, which carries no `origin_server_ts`.
+        /// `None` for stripped invite state, which carries no
+        /// `origin_server_ts`.
         timestamp: Option<Timestamp>,
         inviter: Option<String>,
         inviter_profile: ProfileDetails,

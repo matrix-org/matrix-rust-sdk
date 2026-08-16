@@ -232,4 +232,16 @@ pub struct TimelineConfiguration {
     /// Whether this timeline instance should report UTDs through the client's
     /// delegate.
     pub report_utds: bool,
+
+    /// Should live back-paginations be served from the storage only?
+    ///
+    /// When enabled, a live back-pagination never reaches the network: gaps
+    /// encountered while walking the storage are rendered as
+    /// [`VirtualTimelineItem::Gap`] items (so all the cached content is
+    /// reachable even offline), and are resolved on demand with
+    /// [`Timeline::resolve_gap`], typically when a gap item becomes visible.
+    ///
+    /// When disabled, a live back-pagination resolves gaps over the network by
+    /// itself, and no gap items are rendered.
+    pub storage_only_pagination: bool,
 }

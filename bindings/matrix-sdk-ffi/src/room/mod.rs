@@ -293,6 +293,10 @@ impl Room {
             .with_date_divider_mode(configuration.date_divider_mode.into())
             .track_read_marker_and_receipts(configuration.track_read_receipts);
 
+        if configuration.storage_only_pagination {
+            builder = builder.with_storage_only_pagination();
+        }
+
         match configuration.filter {
             TimelineFilter::All => {
                 // #nofilter.

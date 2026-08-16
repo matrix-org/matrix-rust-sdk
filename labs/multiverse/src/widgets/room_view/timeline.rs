@@ -164,6 +164,7 @@ fn format_timeline_item(item: &Arc<TimelineItem>, is_thread: bool) -> Option<Lis
             VirtualTimelineItem::DateDivider(unix_ts) => format!("Date: {unix_ts:?}").into(),
             VirtualTimelineItem::ReadMarker => "Read marker".to_owned().into(),
             VirtualTimelineItem::TimelineStart => "🥳 Timeline start! 🥳".to_owned().into(),
+            VirtualTimelineItem::Gap { .. } => "——— Gap ———".to_owned().into(),
         },
     };
 
