@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     fmt::Debug,
     path::PathBuf,
     sync::{Arc, OnceLock},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use anyhow::{Context as _, anyhow};
@@ -78,7 +78,8 @@ use matrix_sdk_ui::{
 use mime::Mime;
 use oauth2::Scope;
 use ruma::{
-    OwnedDeviceId, OwnedMxcUri, OwnedServerName, RoomAliasId, RoomOrAliasId, ServerName,
+    OwnedDeviceId, OwnedMxcUri, OwnedRoomId, OwnedServerName, RoomAliasId, RoomOrAliasId,
+    ServerName,
     api::{
         FeatureFlag,
         client::{
@@ -559,6 +560,84 @@ impl Client {
     /// Returns the sizes of the existing stores, if known.
     pub async fn get_store_sizes(&self) -> Result<StoreSizes, ClientError> {
         Ok(self.inner.get_store_sizes().await?.into())
+    }
+
+    /// Measure how much storage each cache uses, overall and per known room
+    /// (rooms sorted by their total usage, largest first; rooms without any
+    /// cached data are omitted).
+    ///
+    /// Sizes are the stored payloads' sizes, an approximation of the space
+    /// taken on disk (see [`Self::get_store_sizes`] for the files' sizes).
+    pub async fn storage_usage(&self) -> Result<StorageUsageReport, ClientError> {
+        let report = self.inner.storage_usage().await?;
+
+        let mut room_ids: BTreeSet<&OwnedRoomId> = BTreeSet::new();
+        for usage in [&report.room_keys, &report.room_state, &report.events, &report.media] {
+            room_ids.extend(usage.per_room.keys());
+        }
+
+        let mut rooms: Vec<RoomStorageUsage> = room_ids
+            .into_iter()
+            .map(|room_id| {
+                let bytes = |usage: &matrix_sdk::StorageUsage| {
+                    usage.per_room.get(room_id).copied().unwrap_or(0)
+                };
+                RoomStorageUsage {
+                    room_id: room_id.to_string(),
+                    display_name: self
+                        .inner
+                        .get_room(room_id)
+                        .and_then(|room| room.cached_display_name())
+                        .map(|name| name.to_string()),
+                    room_keys_bytes: bytes(&report.room_keys),
+                    room_state_bytes: bytes(&report.room_state),
+                    events_bytes: bytes(&report.events),
+                    media_bytes: bytes(&report.media),
+                }
+            })
+            .collect();
+        rooms.sort_by_key(|room| std::cmp::Reverse(room.total_bytes()));
+
+        Ok(StorageUsageReport {
+            room_keys_bytes: report.room_keys.total_bytes,
+            room_state_bytes: report.room_state.total_bytes,
+            events_bytes: report.events.total_bytes,
+            media_bytes: report.media.total_bytes,
+            rooms,
+        })
+    }
+
+    /// Delete the room keys (megolm sessions) of the given rooms, or of all
+    /// rooms when `None`.
+    ///
+    /// Encrypted history can't be read again without a key backup to fetch
+    /// the keys from; the keys are downloaded again from the backup on
+    /// demand.
+    pub async fn clear_room_keys(&self, room_ids: Option<Vec<String>>) -> Result<(), ClientError> {
+        let room_ids = parse_room_ids(room_ids)?;
+        Ok(self.inner.clear_room_keys(room_ids.as_deref()).await?)
+    }
+
+    /// Clear the given rooms' cached data: their events (the event cache) and
+    /// their members, profiles, receipts (the bulk of their state, fetched
+    /// again lazily). The rooms stay known. To clear the whole state store,
+    /// use [`Self::clear_caches`] instead, and restart the client.
+    pub async fn clear_room_caches(&self, room_ids: Vec<String>) -> Result<(), ClientError> {
+        let room_ids = parse_room_ids(Some(room_ids))?.unwrap_or_default();
+        Ok(self.inner.clear_room_caches(&room_ids).await?)
+    }
+
+    /// Delete the cached media of the given rooms (the contents referenced by
+    /// their stored media messages), or all the cached media when `None`;
+    /// only those not accessed for the given duration, when given.
+    pub async fn clear_media_cache(
+        &self,
+        room_ids: Option<Vec<String>>,
+        not_accessed_for: Option<Duration>,
+    ) -> Result<(), ClientError> {
+        let room_ids = parse_room_ids(room_ids)?;
+        let last_accessed_before = not_accessed_for.map(|duration| SystemTime::now() - duration);
+        Ok(self.inner.clear_media_cache(room_ids.as_deref(), last_accessed_before).await?)
     }
 
     /// Information about login options for the client's homeserver.
@@ -3495,6 +3574,53 @@ impl From<matrix_sdk::StoreSizes> for StoreSizes {
             media_store: value.media_store.map(|v| v as u64),
         }
     }
+}
+
+/// How much storage each cache uses, overall and per room. See
+/// [`Client::storage_usage`].
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct StorageUsageReport {
+    /// The room keys (megolm sessions) of the crypto store.
+    pub room_keys_bytes: u64,
+    /// The room data of the state store (room infos, state events, members,
+    /// profiles, receipts, display names, room account data).
+    pub room_state_bytes: u64,
+    /// The events of the event cache store.
+    pub events_bytes: u64,
+    /// The media contents of the media store.
+    pub media_bytes: u64,
+    /// The rooms with cached data, largest total first.
+    pub rooms: Vec<RoomStorageUsage>,
+}
+
+/// One room's share of each cache.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct RoomStorageUsage {
+    pub room_id: String,
+    /// The room's cached display name, if known.
+    pub display_name: Option<String>,
+    pub room_keys_bytes: u64,
+    pub room_state_bytes: u64,
+    pub events_bytes: u64,
+    /// The media referenced by the room's stored media messages.
+    pub media_bytes: u64,
+}
+
+impl RoomStorageUsage {
+    fn total_bytes(&self) -> u64 {
+        self.room_keys_bytes + self.room_state_bytes + self.events_bytes + self.media_bytes
+    }
+}
+
+fn parse_room_ids(room_ids: Option<Vec<String>>) -> Result<Option<Vec<OwnedRoomId>>, ClientError> {
+    room_ids
+        .map(|room_ids| {
+            room_ids
+                .into_iter()
+                .map(|room_id| RoomId::parse(room_id).map_err(ClientError::from_err))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
 }
 
 #[derive(uniffi::Object)]
