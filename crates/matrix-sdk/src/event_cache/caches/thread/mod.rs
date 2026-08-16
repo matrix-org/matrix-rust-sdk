@@ -196,6 +196,30 @@ impl ThreadEventCache {
         &self.inner.state
     }
 
+    /// Remove all events sent by any of the given users from this thread's
+    /// linked chunk (in-memory and persisted). See
+    /// [`EventCacheInner::remove_events_by_senders`].
+    ///
+    /// [`EventCacheInner::remove_events_by_senders`]: super::super::EventCacheInner
+    pub(crate) async fn remove_events_by_senders(
+        &self,
+        senders: &std::collections::BTreeSet<ruma::OwnedUserId>,
+    ) -> Result<()> {
+        let mut state = self.inner.state.write().await?;
+        state.remove_events_by_senders(senders).await?;
+
+        let diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            state.update_sender.send(
+                TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
+                // The room-level filtering emits the generic update.
+                None,
+            );
+        }
+
+        Ok(())
+    }
+
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     ops::ControlFlow,
     sync::{Arc, Weak},
 };
@@ -23,7 +23,7 @@ use matrix_sdk_base::{
     linked_chunk::OwnedLinkedChunkId, serde_helpers::extract_thread_root_from_content,
     sync::RoomUpdates,
 };
-use ruma::{OwnedEventId, OwnedTransactionId, RoomId};
+use ruma::{OwnedEventId, OwnedTransactionId, OwnedUserId, RoomId, UserId};
 use tokio::{
     select,
     sync::{
@@ -106,11 +106,33 @@ pub(super) async fn ignore_user_list_update_task(
     span.follows_from(Span::current());
 
     async move {
-        while ignore_user_list_stream.next().await.is_some() {
+        let mut previous_list = ignore_user_list_stream.get();
+
+        while let Some(new_list) = ignore_user_list_stream.next().await {
             info!("Received an ignore user list change");
 
-            if let Err(err) = inner.clear_all_rooms().await {
-                error!("when clearing room storage after ignore user list change: {err}");
+            let newly_ignored: BTreeSet<OwnedUserId> = new_list
+                .iter()
+                .filter(|user| !previous_list.contains(user))
+                .filter_map(|user| UserId::parse(user).ok())
+                .collect();
+            let has_unignored = previous_list.iter().any(|user| !new_list.contains(user));
+            previous_list = new_list;
+
+            if has_unignored {
+                // An unignored user's events were filtered out of the cache when they
+                // got ignored, and withheld from syncs by the server since; the only
+                // way to resurrect them is to refetch everything.
+                if let Err(err) = inner.clear_all_rooms().await {
+                    error!("when clearing room storage after an unignore: {err}");
+                }
+            } else if !newly_ignored.is_empty() {
+                // Ignoring only hides content: filter the ignored users' events out
+                // of the existing cache, rather than wiping the cache and refetching
+                // everything (the server stops delivering their events from now on).
+                if let Err(err) = inner.remove_events_by_senders(&newly_ignored).await {
+                    error!("when filtering ignored users out of the event cache: {err}");
+                }
             }
         }
 

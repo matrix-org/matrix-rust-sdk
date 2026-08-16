@@ -178,7 +178,56 @@ async fn test_ignored_unignored() {
         })
         .await;
 
-    // We do receive a clear.
+    // Ignoring only filters the ignored user's events out of the cache; it
+    // must NOT clear everything (the cache is an index that only an explicit
+    // clear may empty). We receive the removal of dexter's event and the new
+    // message; they may be batched into a single update or split over two,
+    // depending on how the filtering task interleaves with the next sync.
+    {
+        let mut seen_diffs = Vec::new();
+        while seen_diffs.len() < 2 {
+            assert_let_timeout!(
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs, ..
+                })) = room_stream.recv()
+            );
+            seen_diffs.extend(diffs);
+        }
+
+        assert_eq!(seen_diffs.len(), 2, "{seen_diffs:?}");
+        assert_let!(VectorDiff::Remove { index: 0 } = &seen_diffs[0]);
+        assert_let!(VectorDiff::Append { values: events } = &seen_diffs[1]);
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "i don't like this dexter");
+    }
+
+    // Ivan's events survived the filtering.
+    {
+        let events = room_event_cache.events().await.unwrap();
+        assert_eq!(events.len(), 2);
+        assert_event_matches_msg(&events[0], "hoy!");
+        assert_event_matches_msg(&events[1], "i don't like this dexter");
+    }
+
+    // The other room (no event from dexter) is untouched.
+    {
+        let room = client.get_room(other_room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+        let events = room_event_cache.events().await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "demat!");
+    }
+
+    // `dexter` is unignored: their events were filtered out of the cache (and
+    // withheld from syncs since), so the only way to resurrect them is a full
+    // refetch: everything is cleared.
+    server
+        .mock_sync()
+        .ok_and_run(&client, |sync_builder| {
+            sync_builder.add_global_account_data(f.ignored_user_list(Vec::<ruma::OwnedUserId>::new()));
+        })
+        .await;
+
     {
         assert_let_timeout!(
             Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
@@ -186,27 +235,6 @@ async fn test_ignored_unignored() {
         );
         assert_eq!(diffs.len(), 1);
         assert_let!(VectorDiff::Clear = &diffs[0]);
-    }
-
-    // We do receive the new event.
-    {
-        assert_let_timeout!(
-            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
-                room_stream.recv()
-        );
-        assert_eq!(diffs.len(), 1);
-
-        assert_let!(VectorDiff::Append { values: events } = &diffs[0]);
-        assert_eq!(events.len(), 1);
-        assert_event_matches_msg(&events[0], "i don't like this dexter");
-    }
-
-    // The other room has been cleared too.
-    {
-        let room = client.get_room(other_room_id).unwrap();
-        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
-        let events = room_event_cache.events().await.unwrap();
-        assert!(events.is_empty());
     }
 
     // That's all, folks!

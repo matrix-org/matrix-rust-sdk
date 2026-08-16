@@ -123,7 +123,7 @@ async fn test_thread_contains_its_root_event() {
 }
 
 #[async_test]
-async fn test_ignored_user_empties_threads() {
+async fn test_ignored_user_is_filtered_out_of_threads() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
 
@@ -180,11 +180,19 @@ async fn test_ignored_user_empties_threads() {
         })
         .await;
 
-    // We do receive a clear.
+    // Ignoring filters dexter's event out of the thread; it must NOT clear
+    // everything.
     {
         assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
         assert_eq!(diffs.len(), 1);
-        assert_let!(VectorDiff::Clear = &diffs[0]);
+        assert_let!(VectorDiff::Remove { index: 0 } = &diffs[0]);
+    }
+
+    // Ivan's reply survived the filtering.
+    {
+        let (events, _) = thread_event_cache.subscribe().await.unwrap();
+        assert_eq!(events.len(), 1);
+        assert_event_matches_msg(&events[0], "hoy!");
     }
 
     // Receiving new events still works.

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeSet;
+
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
@@ -23,7 +25,7 @@ use matrix_sdk_base::{
     serde_helpers::extract_redaction_target,
     sync::Timeline,
 };
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::{executor::spawn, linked_chunk::ChunkContent};
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
@@ -665,6 +667,55 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             .expect("failed to remove an event");
 
         self.state.propagate_changes(&self.store).await
+    }
+
+    /// Remove all events sent by any of the given users, from both the
+    /// in-memory thread linked chunk and the full persisted one.
+    ///
+    /// Used when a user gets ignored: their events are filtered out of the
+    /// existing cache rather than wiping and refetching everything.
+    pub async fn remove_events_by_senders(
+        &mut self,
+        senders: &BTreeSet<OwnedUserId>,
+    ) -> Result<()> {
+        let sender_of = |event: &Event| event.raw().get_field::<OwnedUserId>("sender").ok().flatten();
+
+        // In-memory matches; removing those propagates to the store too.
+        let mut in_memory = Vec::new();
+        let mut in_memory_ids = BTreeSet::new();
+
+        for (position, event) in self.state.thread_linked_chunk.events() {
+            if sender_of(event).is_some_and(|sender| senders.contains(&sender))
+                && let Some(event_id) = event.event_id()
+            {
+                in_memory_ids.insert(event_id.to_owned());
+                in_memory.push((event_id.to_owned(), position));
+            }
+        }
+
+        // Store matches outside the loaded part of the linked chunk.
+        let linked_chunk_id =
+            OwnedLinkedChunkId::Thread(self.state.room_id.clone(), self.state.thread_id.clone());
+        let mut in_store = Vec::new();
+
+        for chunk in self.store.load_all_chunks(linked_chunk_id.as_ref()).await? {
+            let ChunkContent::Items(events) = chunk.content else { continue };
+
+            for (index, event) in events.into_iter().enumerate() {
+                if sender_of(&event).is_some_and(|sender| senders.contains(&sender))
+                    && let Some(event_id) = event.event_id()
+                    && !in_memory_ids.contains(event_id)
+                {
+                    in_store.push((event_id.to_owned(), Position::new(chunk.identifier, index)));
+                }
+            }
+        }
+
+        if in_memory.is_empty() && in_store.is_empty() {
+            return Ok(());
+        }
+
+        self.remove_events(in_memory, in_store).await
     }
 
     /// Automatically shrink the thread if there are no more subscribers, as

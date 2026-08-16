@@ -694,6 +694,53 @@ impl EventCacheInner {
         Ok(())
     }
 
+    /// Remove all events sent by any of the given users from every known
+    /// room's linked chunk (in-memory and persisted).
+    ///
+    /// Used when users get ignored: this filters their events out of the
+    /// existing cache instead of wiping everything, keeping the cache as
+    /// persistent as possible.
+    async fn remove_events_by_senders(
+        &self,
+        senders: &std::collections::BTreeSet<ruma::OwnedUserId>,
+    ) -> Result<()> {
+        let Some(client) = self.client.get() else {
+            return Ok(());
+        };
+
+        for room in client.rooms() {
+            let room_id = room.room_id();
+
+            let caches = match self.all_caches_for_room(room_id).await {
+                Ok(caches) => caches,
+                Err(err) => {
+                    error!(%room_id, "unable to get the room cache to filter ignored users: {err}");
+                    continue;
+                }
+            };
+
+            {
+                let mut state = caches.room().state().write().await?;
+                if let Err(err) = state.remove_events_by_senders(senders).await {
+                    error!(%room_id, "unable to filter ignored users out of the room: {err}");
+                }
+            }
+
+            // Filter the instantiated thread caches too. Persisted thread
+            // chunks that have never been instantiated in this session can't
+            // be enumerated yet (the store's threads table is write-only for
+            // now); they'll still be filtered by the UI until then.
+            let threads = caches.threads.read().await.values().cloned().collect::<Vec<_>>();
+            for thread in threads {
+                if let Err(err) = thread.remove_events_by_senders(senders).await {
+                    error!(%room_id, "unable to filter ignored users out of a thread: {err}");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Clears all the rooms' data.
     async fn clear_all_rooms(&self) -> Result<()> {
         // Okay, here's where things get delicate.
