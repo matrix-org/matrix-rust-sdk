@@ -16,9 +16,12 @@ use std::collections::{HashMap, HashSet};
 
 use eyeball_im::VectorDiff;
 use itertools::Itertools as _;
-use matrix_sdk::deserialized_responses::{
-    ThreadSummary as SdkThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
-    UnsignedEventLocation,
+use matrix_sdk::{
+    deserialized_responses::{
+        ThreadSummary as SdkThreadSummary, ThreadSummaryStatus, TimelineEvent, TimelineEventKind,
+        UnsignedEventLocation,
+    },
+    event_cache::TimelineGap,
 };
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId, UserId,
@@ -1146,7 +1149,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     /// Each gap is (re-)inserted immediately before its anchor: the timeline
     /// item of the first event following the gap that has one. Gaps that
     /// can't be anchored (trailing gaps, or gaps whose followers are all
-    /// filtered out of this timeline) aren't rendered.
+    /// filtered out of this timeline) aren't rendered, and gaps sharing an
+    /// anchor are collapsed down to their newest member so that adjacent
+    /// gaps show as a single item.
     ///
     /// This runs at the end of every state transaction. Since a transaction's
     /// diffs are applied atomically by subscribers, removing and re-inserting
@@ -1177,9 +1182,27 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                     .all_remote_events()
                     .range(event_index..)
                     .find_map(|event_meta| event_meta.timeline_item_index)?;
-                Some((gap.prev_token, anchor_item_index))
+                Some((gap, anchor_item_index))
             })
             .collect::<Vec<_>>();
+
+        // Gaps sharing an anchor would render as adjacent items with nothing
+        // between them; collapse each such run down to its newest member.
+        // Resolving that one either closes it, or lands events between the
+        // gaps, at which point the survivors anchor to those and get rendered
+        // in turn. Runs are consecutive in `desired`, since gaps arrive in
+        // timeline order and anchors are monotonic.
+        let desired = {
+            let mut collapsed: Vec<(TimelineGap, usize)> = Vec::with_capacity(desired.len());
+            for entry in desired {
+                if collapsed.last().is_some_and(|(_, anchor)| *anchor == entry.1) {
+                    *collapsed.last_mut().unwrap() = entry;
+                } else {
+                    collapsed.push(entry);
+                }
+            }
+            collapsed
+        };
 
         // Fast path: everything is already in place, i.e. for each anchor,
         // the items immediately preceding it are exactly its gaps, in order,
@@ -1194,7 +1217,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             && desired
                 .iter()
                 .rev()
-                .scan(HashMap::<usize, usize>::new(), |offsets, (token, anchor)| {
+                .scan(HashMap::<usize, usize>::new(), |offsets, (gap, anchor)| {
                     // The n-th gap (from the end) anchored to `anchor` must
                     // live at `anchor - 1 - n`.
                     let nth = offsets.entry(*anchor).or_insert(0);
@@ -1205,7 +1228,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                         self.items
                             .get(index)
                             .and_then(|item| item.as_gap())
-                            .is_some_and(|rendered| rendered == token)
+                            .is_some_and(|rendered| rendered == gap.prev_token)
                     }))
                 })
                 .all(|in_place| in_place);
@@ -1235,7 +1258,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         // (Re-)insert the desired gaps, in timeline order.
         let mut has_gap_items = false;
 
-        for gap in self.meta.timeline_gaps.clone() {
+        for (gap, _) in desired {
             // The anchor is the timeline item of the first event at-or-after
             // the gap's following event that has one (the following event
             // itself may be filtered out of this timeline).

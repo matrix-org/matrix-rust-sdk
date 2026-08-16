@@ -99,6 +99,55 @@ async fn test_gap_item_moves_and_keeps_its_identity_when_reanchored() {
 }
 
 #[async_test]
+async fn test_adjacent_gaps_collapse_to_the_newest_one() {
+    let timeline = gappy_timeline().await;
+    let mut stream = timeline.subscribe().await;
+
+    let f = &timeline.factory;
+    timeline.handle_live_event(f.text_msg("A").sender(*ALICE).event_id(event_id!("$a"))).await;
+    timeline.handle_live_event(f.text_msg("B").sender(*ALICE).event_id(event_id!("$b"))).await;
+
+    // Timeline: [date-divider, A, B].
+    let _ = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let _ = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    let _ = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    // Two gaps with nothing rendered between them: both anchor before B.
+    // Only the newest one is rendered.
+    timeline
+        .controller
+        .handle_timeline_gaps(vec![gap("g1", event_id!("$b")), gap("g2", event_id!("$b"))])
+        .await;
+
+    // Timeline: [date-divider, A, gap(g2), B].
+    let item = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value } => value);
+    assert_let!(VirtualTimelineItem::Gap { prev_token } = item.as_virtual().unwrap());
+    assert_eq!(prev_token, "g2");
+
+    assert!(stream.next().now_or_never().is_none());
+
+    // Resolving g2 lands an event between the gaps: g1 now has its own
+    // anchor and gets rendered in its place.
+    timeline.handle_live_event(f.text_msg("M").sender(*ALICE).event_id(event_id!("$m"))).await;
+    let _ = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    timeline.controller.handle_timeline_gaps(vec![gap("g1", event_id!("$m"))]).await;
+
+    // The g2 item goes away, and g1 is anchored before M, wherever the
+    // timeline placed it.
+    let mut saw_g1 = false;
+    while let Some(Some(diff)) = stream.next().now_or_never() {
+        if let VectorDiff::Insert { value, .. } = &diff
+            && let Some(VirtualTimelineItem::Gap { prev_token }) = value.as_virtual()
+        {
+            assert_eq!(prev_token, "g1");
+            saw_g1 = true;
+        }
+    }
+    assert!(saw_g1, "g1 should be rendered once it has its own anchor");
+}
+
+#[async_test]
 async fn test_gap_item_is_removed_when_no_longer_reported() {
     let timeline = gappy_timeline().await;
     let mut stream = timeline.subscribe().await;
