@@ -32,13 +32,14 @@ use ruma::{
     events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::broadcast::Receiver;
 use tracing::{debug, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::{
+    room::LinkedChunkUpdateFanout,
     super::{
         EventCacheError, EventsOrigin, Result,
         deduplicator::{DeduplicationOutcome, filter_duplicate_events},
@@ -50,7 +51,6 @@ use super::{
     },
     EventLocation, TimelineVectorDiffs,
     event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
-    room::RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{Room, client::WeakClient, config::RequestConfig, room::WeakRoom};
 
@@ -79,7 +79,7 @@ pub struct PinnedEventsCacheState {
     /// during a sync or a back-pagination.
     ///
     /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateFanout,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -455,7 +455,7 @@ impl PinnedEventsCache {
         weak_room: &WeakRoom,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateFanout,
         state: &StateLock,
     ) -> Result<Self> {
         let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;

@@ -21,13 +21,13 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
 use ruma::{EventId, RoomId, events::relation::RelationType, serde::Raw};
-use tokio::sync::broadcast::Sender;
 use tracing::trace;
 
 use super::{
     EventCacheError, Result,
     caches::{
-        EventLocation, event_linked_chunk::EventLinkedChunk, room::RoomEventCacheLinkedChunkUpdate,
+        EventLocation, event_linked_chunk::EventLinkedChunk,
+        room::{LinkedChunkUpdateFanout, RoomEventCacheLinkedChunkUpdate},
     },
 };
 
@@ -163,7 +163,7 @@ pub(super) async fn load_linked_chunk_metadata(
 pub(super) async fn send_updates_to_store(
     store: &EventCacheStoreLockGuard,
     linked_chunk_id: OwnedLinkedChunkId,
-    linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: &LinkedChunkUpdateFanout,
     mut updates: Vec<Update<Event, Gap>>,
 ) -> Result<()> {
     if updates.is_empty() {

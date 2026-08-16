@@ -29,11 +29,11 @@ use ruma::{
     events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::super::redecryptor::ResolvedUtd;
+use super::super::room::LinkedChunkUpdateFanout;
 use super::{
     super::{
         super::{
@@ -47,7 +47,6 @@ use super::{
         },
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
-        room::RoomEventCacheLinkedChunkUpdate,
         subscriber::SubscribersHandle,
     },
     ThreadEventCacheUpdateSender,
@@ -80,7 +79,7 @@ pub struct ThreadEventCacheState {
     /// during a sync or a back-pagination.
     ///
     /// See also [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateFanout,
 
     /// Have we ever waited for a previous-batch-token to come from sync, in
     /// the context of pagination? We do this at most once per room/thread (?),
@@ -110,7 +109,7 @@ impl ThreadEventCacheState {
         room_version_rules: RoomVersionRules,
         store_guard: EventCacheStoreLockGuard,
         update_sender: ThreadEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateFanout,
     ) -> Result<Self> {
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 

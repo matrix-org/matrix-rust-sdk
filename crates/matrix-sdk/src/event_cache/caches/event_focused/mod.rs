@@ -45,6 +45,7 @@ use tracing::{instrument, trace};
 #[cfg(feature = "e2e-encryption")]
 use super::super::redecryptor::ResolvedUtd;
 use super::{
+    room::LinkedChunkUpdateFanout,
     super::{
         EventCacheError, EventsOrigin, Result, RoomEventCacheLinkedChunkUpdate,
         states::{
@@ -114,7 +115,7 @@ pub struct EventFocusedCacheState {
     pub update_sender: EventFocusedCacheUpdateSender,
 
     /// A sender for globally observable linked chunk updates.
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateFanout,
 }
 
 impl EventFocusedCacheState {
@@ -538,7 +539,7 @@ impl EventFocusedCache {
         room: WeakRoom,
         key: EventFocusedCacheKey,
         state: &StateLock,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateFanout,
     ) -> Result<Self> {
         let cache_state = state
             .try_insert_once_with(

@@ -40,6 +40,7 @@ use tokio::sync::{Notify, mpsc};
 use tracing::{instrument, trace, warn};
 
 use self::pagination::RoomPagination;
+pub(crate) use self::updates::LinkedChunkUpdateFanout;
 pub use self::{
     state::RoomEventCacheState,
     updates::{

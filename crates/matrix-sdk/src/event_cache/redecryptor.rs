@@ -155,7 +155,8 @@ use tracing::{info, instrument, trace, warn};
 use super::RoomEventCache;
 use super::{
     EventCache, EventCacheError, EventCacheInner, EventsOrigin, RoomEventCacheGenericUpdate,
-    RoomEventCacheUpdate, TimelineVectorDiffs, caches::room::RoomEventCacheLinkedChunkUpdate,
+    RoomEventCacheUpdate, TimelineVectorDiffs,
+    caches::room::{LinkedChunkUpdateFanout, RoomEventCacheLinkedChunkUpdate},
 };
 use crate::{Client, Result, Room, encryption::backups::BackupState, room::PushContext};
 
@@ -861,9 +862,9 @@ impl Redecryptor {
         client: &Client,
         cache: Weak<EventCacheInner>,
         receiver: UnboundedReceiver<DecryptionRetryRequest>,
-        linked_chunk_update_sender: &Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: &LinkedChunkUpdateFanout,
     ) -> Self {
-        let linked_chunk_stream = BroadcastStream::new(linked_chunk_update_sender.subscribe());
+        let linked_chunk_stream = UnboundedReceiverStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
 
         let task = client
@@ -906,9 +907,7 @@ impl Redecryptor {
     async fn redecryption_loop(
         cache: &Weak<EventCacheInner>,
         decryption_request_stream: &mut Pin<&mut impl Stream<Item = DecryptionRetryRequest>>,
-        events_stream: &mut Pin<
-            &mut impl Stream<Item = Result<RoomEventCacheLinkedChunkUpdate, BroadcastStreamRecvError>>,
-        >,
+        events_stream: &mut Pin<&mut impl Stream<Item = RoomEventCacheLinkedChunkUpdate>>,
         backup_state_stream: &mut Pin<
             &mut impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
         >,
@@ -1025,28 +1024,21 @@ impl Redecryptor {
                 // Events that the event cache handled. If the event cache received any UTDs, let's
                 // attempt to redecrypt them in case the room key was received before the event
                 // cache was able to return them using `get_utds()`.
-                Some(event_updates) = events_stream.next() => {
-                    match event_updates {
-                        Ok(updates) => {
-                            let Some(cache) = upgrade_event_cache(cache) else {
-                                break false;
-                            };
+                Some(updates) = events_stream.next() => {
+                    // The linked chunk updates arrive over a lossless queue,
+                    // so there is no lag case to report here anymore.
+                    let Some(cache) = upgrade_event_cache(cache) else {
+                        break false;
+                    };
 
-                            let linked_chunk_id = updates.linked_chunk_id.to_owned();
+                    let linked_chunk_id = updates.linked_chunk_id.to_owned();
 
-                            let _ = cache.retry_decryption_for_event_cache_updates(updates).await.inspect_err(|e|
-                                warn!(
-                                    %linked_chunk_id,
-                                    "Unable to handle UTDs from event cache updates {e:?}",
-                                )
-                            );
-                        }
-                        Err(_) => {
-                            if send_report_and_retry_memory_events(cache, RedecryptorReport::Lagging).await.is_err() {
-                                break false;
-                            }
-                        }
-                    }
+                    let _ = cache.retry_decryption_for_event_cache_updates(updates).await.inspect_err(|e|
+                        warn!(
+                            %linked_chunk_id,
+                            "Unable to handle UTDs from event cache updates {e:?}",
+                        )
+                    );
                 }
                 Some(backup_state_update) = backup_state_stream.next() => {
                     match backup_state_update {
@@ -1087,7 +1079,7 @@ impl Redecryptor {
     async fn listen_for_room_keys_task(
         cache: Weak<EventCacheInner>,
         decryption_request_stream: UnboundedReceiverStream<DecryptionRetryRequest>,
-        events_stream: BroadcastStream<RoomEventCacheLinkedChunkUpdate>,
+        events_stream: UnboundedReceiverStream<RoomEventCacheLinkedChunkUpdate>,
         backup_state_stream: impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
     ) {
         // We pin the decryption request stream here since that one doesn't need to be

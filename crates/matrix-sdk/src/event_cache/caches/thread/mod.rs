@@ -42,7 +42,7 @@ use super::{
         states::{CacheStateLock, StateLock, selectors::ThreadStateSelector},
     },
     EventsOrigin, TimelineVectorDiffs,
-    room::{RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate},
+    room::{LinkedChunkUpdateFanout, RoomEventCacheGenericUpdate},
     subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
@@ -100,7 +100,7 @@ impl ThreadEventCache {
         state: &StateLock,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         generic_update_sender: Sender<RoomEventCacheGenericUpdate>,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateFanout,
     ) -> Result<Self> {
         let update_sender = ThreadEventCacheUpdateSender::new(generic_update_sender.clone());
 

@@ -23,7 +23,10 @@ use ruma::{
     OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, events::AnySyncEphemeralRoomEvent,
     serde::Raw,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{
+    broadcast::{Receiver, Sender},
+    mpsc::{UnboundedReceiver, UnboundedSender},
+};
 
 use super::super::{super::EventsOrigin, TimelineVectorDiffs};
 
@@ -149,6 +152,40 @@ impl RoomEventCacheLinkedChunkUpdate {
     }
 }
 
+/// A lossless multi-consumer channel of
+/// [`RoomEventCacheLinkedChunkUpdate`]s: like a broadcast channel, but backed
+/// by an unbounded queue per subscriber, so a slow consumer lags in delivery
+/// instead of losing updates.
+///
+/// The linked chunk updates feed the search index, thread subscriptions and
+/// re-decryption; with a broadcast channel, all of those silently missed
+/// updates whenever they fell more than the channel capacity behind (e.g.
+/// during a busy catch-up), leaving permanent holes in the search index.
+#[derive(Clone, Debug)]
+pub(crate) struct LinkedChunkUpdateFanout {
+    subscribers:
+        std::sync::Arc<std::sync::Mutex<Vec<UnboundedSender<RoomEventCacheLinkedChunkUpdate>>>>,
+}
+
+impl LinkedChunkUpdateFanout {
+    /// Create a new, subscriber-less fanout.
+    pub fn new() -> Self {
+        Self { subscribers: Default::default() }
+    }
+
+    /// Deliver an update to every live subscriber.
+    pub fn send(&self, update: RoomEventCacheLinkedChunkUpdate) {
+        self.subscribers.lock().unwrap().retain(|tx| tx.send(update.clone()).is_ok());
+    }
+
+    /// Subscribe to all updates sent from now on.
+    pub fn subscribe(&self) -> UnboundedReceiver<RoomEventCacheLinkedChunkUpdate> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.subscribers.lock().unwrap().push(tx);
+        rx
+    }
+}
+
 /// A small type to send updates in all channels.
 #[derive(Clone)]
 pub struct RoomEventCacheUpdateSender {
@@ -184,5 +221,54 @@ impl RoomEventCacheUpdateSender {
     /// Create a new [`Receiver`] of [`RoomEventCacheUpdate`].
     pub(super) fn new_room_receiver(&self) -> Receiver<RoomEventCacheUpdate> {
         self.room_sender.subscribe()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use matrix_sdk_common::linked_chunk::{ChunkIdentifier, OwnedLinkedChunkId, Update};
+    use ruma::room_id;
+
+    use super::{LinkedChunkUpdateFanout, RoomEventCacheLinkedChunkUpdate};
+
+    fn dummy_update() -> RoomEventCacheLinkedChunkUpdate {
+        RoomEventCacheLinkedChunkUpdate {
+            linked_chunk_id: OwnedLinkedChunkId::Room(room_id!("!room:example.org").to_owned()),
+            updates: vec![Update::NewItemsChunk {
+                previous: None,
+                new: ChunkIdentifier::new(0),
+                next: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_fanout_delivers_everything_to_slow_subscribers() {
+        let fanout = LinkedChunkUpdateFanout::new();
+
+        // Updates sent before subscribing are not delivered.
+        fanout.send(dummy_update());
+
+        let mut rx = fanout.subscribe();
+
+        // A subscriber that doesn't consume anything for a while still gets
+        // every update, in order: this is the property the broadcast channel
+        // lacked (it dropped the oldest updates beyond its capacity).
+        const NUM_UPDATES: usize = 4096;
+        for _ in 0..NUM_UPDATES {
+            fanout.send(dummy_update());
+        }
+
+        let mut received = 0;
+        while let Ok(_up) = rx.try_recv() {
+            received += 1;
+        }
+        assert_eq!(received, NUM_UPDATES);
+
+        // A dropped subscriber is pruned on the next send rather than
+        // accumulating queued updates forever.
+        drop(rx);
+        fanout.send(dummy_update());
+        assert_eq!(fanout.subscribers.lock().unwrap().len(), 0);
     }
 }

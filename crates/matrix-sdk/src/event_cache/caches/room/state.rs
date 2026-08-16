@@ -38,9 +38,9 @@ use ruma::{
     room_version_rules::RoomVersionRules,
     serde::Raw,
 };
-use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, info, instrument, trace, warn};
 
+use super::LinkedChunkUpdateFanout;
 use super::{
     super::{
         super::{
@@ -59,7 +59,7 @@ use super::{
         read_receipts::compute_unread_counts,
         subscriber::SubscribersHandle,
     },
-    RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
+    RoomEventCacheUpdateSender, sort_positions_descending,
     updates::TimelineGap,
 };
 use crate::room::WeakRoom;
@@ -91,7 +91,7 @@ pub struct RoomEventCacheState {
 
     /// A clone of
     /// [`super::super::EventCacheInner::linked_chunk_update_sender`].
-    pub(super) linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    pub(super) linked_chunk_update_sender: LinkedChunkUpdateFanout,
 
     /// The rules for the version of this room.
     room_version_rules: RoomVersionRules,
@@ -134,7 +134,7 @@ impl RoomEventCacheState {
         room_version_rules: RoomVersionRules,
         enabled_thread_support: bool,
         update_sender: RoomEventCacheUpdateSender,
-        linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: LinkedChunkUpdateFanout,
         store_guard: EventCacheStoreLockGuard,
         pagination_status: SharedObservable<SharedPaginationStatus>,
         back_pagination_queue: Option<BackPaginationQueue>,

@@ -77,7 +77,7 @@ pub(super) struct Caches {
 struct CachesInternals {
     state: states::StateLock,
     auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
-    linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: room::LinkedChunkUpdateFanout,
     room_version_rules: RoomVersionRules,
 }
 
@@ -87,7 +87,7 @@ impl Caches {
         weak_client: &WeakClient,
         room_id: &RoomId,
         generic_update_sender: Sender<room::RoomEventCacheGenericUpdate>,
-        linked_chunk_update_sender: Sender<room::RoomEventCacheLinkedChunkUpdate>,
+        linked_chunk_update_sender: room::LinkedChunkUpdateFanout,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         state: &states::StateLock,
         back_pagination_queue: Option<BackPaginationQueue>,
