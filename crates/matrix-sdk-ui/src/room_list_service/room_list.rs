@@ -30,7 +30,7 @@ use tokio::{
     select,
     sync::broadcast::{self, error::RecvError},
 };
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use super::{Error, State, filters::BoxedFilterFn, ordering};
 
@@ -175,6 +175,10 @@ impl RoomList {
                     (values, stream).dynamic_head_with_initial_value(page_size, limit_stream.clone());
 
                 // Clearing the stream before chaining with the real stream.
+                // Logged: a dogfood wedge (2026-08-16) showed the home list
+                // emptying then going silent with no death log firing; this
+                // names how many rooms the (re)built chain started with.
+                info!(num_rooms = values.len(), page_size, "Dynamic room list entries chain (re)built");
                 yield vec![VectorDiff::Reset { values }];
 
                 pin_mut!(stream);
