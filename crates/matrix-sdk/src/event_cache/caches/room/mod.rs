@@ -44,7 +44,7 @@ pub use self::{
     state::RoomEventCacheState,
     updates::{
         RoomEventCacheGenericUpdate, RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdate,
-        RoomEventCacheUpdateSender,
+        RoomEventCacheUpdateSender, TimelineGap,
     },
 };
 use super::{
@@ -159,6 +159,16 @@ impl RoomEventCache {
     /// queries in the current room.
     pub fn pagination(&self) -> RoomPagination {
         RoomPagination::new(self.inner.clone())
+    }
+
+    /// Return the current set of gaps in the loaded part of the room's
+    /// timeline, in timeline order (oldest first).
+    ///
+    /// This is the same snapshot that is pushed to observers via
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`]; use this to get the
+    /// initial state when subscribing.
+    pub async fn timeline_gaps(&self) -> Result<Vec<TimelineGap>> {
+        Ok(self.inner.state.read().await?.timeline_gaps())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -541,6 +551,10 @@ impl RoomEventCacheInner {
         let (stored_prev_batch_token, timeline_event_diffs) =
             state.handle_sync(timeline, &ephemeral_events).await?;
 
+        // A limited sync may have inserted a new gap (or deduplication may
+        // have removed one); compute the update while we still hold the state.
+        let timeline_gaps = state.take_timeline_gaps_update();
+
         drop(state);
 
         // Now that all events have been added, we can trigger the
@@ -562,6 +576,10 @@ impl RoomEventCacheInner {
                     origin: EventsOrigin::Sync,
                 }),
             );
+        }
+
+        if let Some(gaps) = timeline_gaps {
+            self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
         }
 
         if !ephemeral_events.is_empty() {
@@ -889,7 +907,7 @@ mod timed_tests {
     use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
     use matrix_sdk_test::{ALICE, BOB, async_test, event_factory::EventFactory};
     use ruma::{
-        EventId, event_id,
+        EventId, RoomId, event_id,
         events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent},
         room_id,
         serde::Raw,
@@ -3193,5 +3211,197 @@ mod timed_tests {
             .await
             .unwrap()
             .is_some()
+    }
+
+    /// Prefill a memory store with `[$1] [gap "cheddar"] [$2]`, and return a
+    /// client using it.
+    async fn client_with_gappy_store(room_id: &RoomId, f: &EventFactory) -> crate::Client {
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let ev1 = f.text_msg("hello").sender(*ALICE).event_id(event_id!("$1")).into_event();
+        let ev2 = f.text_msg("world").sender(*BOB).event_id(event_id!("$2")).into_event();
+
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![ev1],
+                    },
+                    Update::NewGapChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                        gap: Gap { token: "cheddar".to_owned() },
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(1)),
+                        new: ChunkIdentifier::new(2),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(2), 0),
+                        items: vec![ev2],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                        .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await
+    }
+
+    #[async_test]
+    async fn test_timeline_gaps_snapshot() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id);
+
+        let client = client_with_gappy_store(room_id, &f).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // Initially, only the last chunk is loaded: no gap is in memory.
+        assert!(room_event_cache.timeline_gaps().await.unwrap().is_empty());
+
+        // Load everything from the storage.
+        let outcome =
+            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+        assert!(outcome.reached_start);
+
+        // The gap is now loaded, anchored to the first event after it.
+        let gaps = room_event_cache.timeline_gaps().await.unwrap();
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].prev_token, "cheddar");
+        assert_eq!(gaps[0].following_event_id, event_id!("$2"));
+    }
+
+    #[async_test]
+    async fn test_storage_only_pagination_walks_past_gap() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id);
+
+        // Note: no network mock is mounted at all; a network hit would fail
+        // the pagination and thus the test.
+        let client = client_with_gappy_store(room_id, &f).await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        let (initial_events, mut stream) = room_event_cache.subscribe().await.unwrap();
+        assert_eq!(initial_events.len(), 1);
+
+        // First storage pagination: loads the gap chunk, walks past it, and
+        // loads `$1`.
+        let outcome =
+            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+        assert_eq!(outcome.events.len(), 1);
+        assert_eq!(outcome.events[0].event_id().as_deref(), Some(event_id!("$1")));
+        assert!(outcome.reached_start);
+
+        // The gap has been surfaced to observers…
+        assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }) = stream.recv());
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].prev_token, "cheddar");
+        assert_eq!(gaps[0].following_event_id, event_id!("$2"));
+
+        // …followed by the loaded events.
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                stream.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+            assert_eq!(event.event_id().as_deref(), Some(event_id!("$1")));
+        });
+
+        assert!(stream.recv().now_or_never().is_none());
+    }
+
+    #[async_test]
+    async fn test_storage_only_pagination_stops_at_leading_gap() {
+        let room_id = room_id!("!galette:saucisse.bzh");
+        let f = EventFactory::new().room(room_id);
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+
+        let ev1 = f.text_msg("hello").sender(*ALICE).event_id(event_id!("$1")).into_event();
+
+        // The linked chunk starts with a gap: `[gap "brie"] [$1]`.
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewGapChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                        gap: Gap { token: "brie".to_owned() },
+                    },
+                    Update::NewItemsChunk {
+                        previous: Some(ChunkIdentifier::new(0)),
+                        new: ChunkIdentifier::new(1),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(1), 0),
+                        items: vec![ev1],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let client = MockClientBuilder::new(None)
+            .on_builder(|builder| {
+                builder.store_config(
+                    StoreConfig::new(CrossProcessLockConfig::multi_process("hodor"))
+                        .event_cache_store(event_cache_store),
+                )
+            })
+            .build()
+            .await;
+
+        let event_cache = client.event_cache();
+        event_cache.subscribe().unwrap();
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let room = client.get_room(room_id).unwrap();
+        let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+        // The storage pagination stops when the chunk is fully loaded, even
+        // though it starts with a gap: the gap needs a manual resolution, and
+        // paginating further would have no effect.
+        let outcome =
+            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+        assert!(outcome.reached_start);
+
+        // The leading gap is reported, anchored to `$1`.
+        let gaps = room_event_cache.timeline_gaps().await.unwrap();
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].prev_token, "brie");
+        assert_eq!(gaps[0].following_event_id, event_id!("$1"));
     }
 }

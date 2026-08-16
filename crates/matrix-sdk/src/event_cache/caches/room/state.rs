@@ -60,6 +60,7 @@ use super::{
         subscriber::SubscribersHandle,
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
+    updates::TimelineGap,
 };
 use crate::room::WeakRoom;
 
@@ -106,6 +107,12 @@ pub struct RoomEventCacheState {
 
     /// A handle to the shared back-pagination queue.
     back_pagination_queue: Option<BackPaginationQueue>,
+
+    /// The last timeline-gaps snapshot sent to observers, used to avoid
+    /// re-sending identical
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`][super::RoomEventCacheUpdate::UpdateTimelineGaps]
+    /// updates.
+    last_sent_timeline_gaps: Vec<TimelineGap>,
 }
 
 impl RoomEventCacheState {
@@ -191,12 +198,74 @@ impl RoomEventCacheState {
             waited_for_initial_prev_token: false,
             subscribers_handle: Default::default(),
             back_pagination_queue,
+            last_sent_timeline_gaps: Vec::new(),
         })
     }
 
     /// Return a read-only reference to the underlying room linked chunk.
     pub fn room_linked_chunk(&self) -> &EventLinkedChunk {
         &self.room_linked_chunk
+    }
+
+    /// Compute the current set of timeline gaps from the in-memory linked
+    /// chunk, in timeline order (oldest first).
+    ///
+    /// Each gap is anchored to the first event following it in the linked
+    /// chunk, if any.
+    pub fn timeline_gaps(&self) -> Vec<TimelineGap> {
+        let mut gaps = Vec::new();
+
+        // Tokens of the gaps that haven't found their anchor yet; they get
+        // the first event ID encountered after them. Trailing gaps (no event
+        // after them at all) are dropped: there's nothing to anchor them to.
+        let mut pending_tokens: Vec<String> = Vec::new();
+
+        for chunk in self.room_linked_chunk.chunks() {
+            match chunk.content() {
+                ChunkContent::Gap(gap) => {
+                    pending_tokens.push(gap.token.clone());
+                }
+
+                ChunkContent::Items(events) => {
+                    if pending_tokens.is_empty() {
+                        continue;
+                    }
+
+                    if let Some(event_id) = events.iter().find_map(|event| event.event_id()) {
+                        gaps.extend(pending_tokens.drain(..).map(|prev_token| TimelineGap {
+                            prev_token,
+                            following_event_id: event_id.to_owned(),
+                        }));
+                    }
+                }
+            }
+        }
+
+        gaps
+    }
+
+    /// Whether the last timeline-gaps snapshot handed out by
+    /// [`Self::take_timeline_gaps_update`] was non-empty, i.e. whether
+    /// observers currently believe there are gaps.
+    pub fn has_announced_timeline_gaps(&self) -> bool {
+        !self.last_sent_timeline_gaps.is_empty()
+    }
+
+    /// Return the current timeline-gaps snapshot if it differs from the last
+    /// one handed out by this method, and remember it as the last one.
+    ///
+    /// Mutation sites use this to decide whether to send a
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`][super::RoomEventCacheUpdate::UpdateTimelineGaps]
+    /// update.
+    pub fn take_timeline_gaps_update(&mut self) -> Option<Vec<TimelineGap>> {
+        let gaps = self.timeline_gaps();
+
+        if gaps == self.last_sent_timeline_gaps {
+            return None;
+        }
+
+        self.last_sent_timeline_gaps = gaps.clone();
+        Some(gaps)
     }
 }
 
@@ -362,6 +431,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         &mut self.state.waited_for_initial_prev_token
     }
 
+    /// See documentation of [`RoomEventCacheState::take_timeline_gaps_update`].
+    pub fn take_timeline_gaps_update(&mut self) -> Option<Vec<TimelineGap>> {
+        self.state.take_timeline_gaps_update()
+    }
+
     /// See documentation of [`find_event`].
     pub async fn find_event(
         &self,
@@ -401,6 +475,15 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         }
 
         self.shrink_to_last_reloaded_chunk().await?;
+
+        // The reload may have changed the set of in-memory gaps; let observers
+        // know. (The caller sends the event diffs computed below afterwards;
+        // gap reconciliation on the receiving side is order-agnostic.)
+        if let Some(gaps) = self.state.take_timeline_gaps_update() {
+            self.state
+                .update_sender
+                .send(super::RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
+        }
 
         Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())
     }
@@ -507,6 +590,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // `&mut`, ensuring an exclusive access to the state, ensuring no other
             // subscribers can be created.
             self.shrink_to_last_reloaded_chunk().await?;
+
+            // No subscribers, so no `UpdateTimelineGaps` update to send; still
+            // refresh the change-detection cache so the next real update
+            // compares against the post-shrink state.
+            let _ = self.state.take_timeline_gaps_update();
 
             Ok(Some(self.state.room_linked_chunk.updates_as_vector_diffs()))
         } else {

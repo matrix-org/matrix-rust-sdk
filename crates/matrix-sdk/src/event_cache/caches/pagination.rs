@@ -30,6 +30,29 @@ use tracing::{debug, instrument, trace, warn};
 
 use super::super::Result;
 
+/// How a pagination is allowed to fetch more events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in super::super) enum PaginationMode {
+    /// Load events from the storage; when a gap must be resolved to make
+    /// progress, reach the network.
+    ///
+    /// This is the historical behaviour.
+    StorageThenNetwork,
+
+    /// Load events from the storage only, walking *past* any gap encountered
+    /// (in memory or loaded from the storage) without resolving it.
+    ///
+    /// Gaps are surfaced to observers via
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`][crate::event_cache::RoomEventCacheUpdate::UpdateTimelineGaps],
+    /// and are resolved on demand with
+    /// [`RoomEventCache::resolve_gap`][crate::event_cache::RoomEventCache::resolve_gap].
+    ///
+    /// One exception: an empty room that has never seen any event still
+    /// bootstraps over the network (there is no cached content to show in
+    /// that case, so there is nothing to protect from the network round-trip).
+    StorageOnly,
+}
+
 /// Type to run paginations.
 #[derive(Clone, Debug)]
 pub(in super::super) struct Pagination<C: SendOutsideWasm + 'static> {
@@ -61,11 +84,12 @@ where
     pub async fn run_backwards_until(
         &self,
         num_requested_events: u16,
+        mode: PaginationMode,
     ) -> Result<BackPaginationOutcome> {
         let mut events = Vec::new();
 
         loop {
-            if let Some(outcome) = self.run_backwards_impl(num_requested_events).await? {
+            if let Some(outcome) = self.run_backwards_impl(num_requested_events, mode).await? {
                 events.extend(outcome.events);
 
                 if outcome.reached_start || events.len() >= num_requested_events as usize {
@@ -90,9 +114,13 @@ where
     /// This automatically takes care of waiting for a pagination token from
     /// sync, if we haven't done that before.
     #[instrument(skip(self))]
-    pub async fn run_backwards_once(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
+    pub async fn run_backwards_once(
+        &self,
+        batch_size: u16,
+        mode: PaginationMode,
+    ) -> Result<BackPaginationOutcome> {
         loop {
-            if let Some(outcome) = self.run_backwards_impl(batch_size).await? {
+            if let Some(outcome) = self.run_backwards_impl(batch_size, mode).await? {
                 return Ok(outcome);
             }
 
@@ -112,6 +140,7 @@ where
     fn run_backwards_impl(
         &self,
         batch_size: u16,
+        mode: PaginationMode,
     ) -> impl Future<Output = Result<Option<BackPaginationOutcome>>> {
         // There is at least one gap that must be resolved; reach the network.
         // First, ensure there's no other ongoing back-pagination.
@@ -152,7 +181,7 @@ where
         let this = self.clone();
 
         let fut: Pin<Box<dyn SharedPaginationFuture>> = Box::pin(async move {
-            match this.paginate_backwards_impl(batch_size).await? {
+            match this.paginate_backwards_impl(batch_size, mode).await? {
                 Some(outcome) => {
                     // Back-pagination's over and successful, don't reset the status to the previous
                     // value.
@@ -207,17 +236,25 @@ where
     async fn paginate_backwards_impl(
         &self,
         batch_size: u16,
+        mode: PaginationMode,
     ) -> Result<Option<BackPaginationOutcome>> {
         // A linked chunk might not be entirely loaded (if it's been lazy-loaded). Try
         // to load from disk/storage first, then from network if disk/storage indicated
         // there's no previous events chunk to load.
 
         loop {
-            match self.cache.load_more_events_backwards().await? {
+            match self.cache.load_more_events_backwards(mode).await? {
                 LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token,
                     waited_for_initial_prev_token,
                 } => {
+                    if mode == PaginationMode::StorageOnly && prev_token.is_some() {
+                        // A gap chunk has been loaded into memory; it's been surfaced to
+                        // observers as an `UpdateTimelineGaps` update, and will be resolved on
+                        // demand. Keep walking the storage past it.
+                        continue;
+                    }
+
                     if prev_token.is_none() && !waited_for_initial_prev_token {
                         // We didn't reload a pagination token, and we haven't waited for one; wait
                         // and start over.
@@ -344,6 +381,7 @@ pub(in super::super) trait PaginatedCache {
 
     fn load_more_events_backwards(
         &self,
+        mode: PaginationMode,
     ) -> impl Future<Output = Result<LoadMoreEventsBackwardsOutcome>> + SendOutsideWasm;
 
     fn mark_has_waited_for_initial_prev_token(

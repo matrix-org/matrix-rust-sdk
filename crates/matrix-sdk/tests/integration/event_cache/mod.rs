@@ -343,8 +343,8 @@ async fn test_backpaginate_empty_gap_reattaches_to_stored_events() {
     let room_id = room_id!("!omelette:fromage.fr");
     let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
 
-    // 1. A normal (non-limited) sync: one event of history lands in the store,
-    //    with no gap.
+    // 1. A normal (non-limited) sync: one event of history lands in the store, with
+    //    no gap.
     let room = server
         .sync_room(
             &client,
@@ -357,9 +357,9 @@ async fn test_backpaginate_empty_gap_reattaches_to_stored_events() {
     let (events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
     wait_for_initial_events(events, &mut room_stream).await;
 
-    // 2. A *limited* sync adds a newer event and a prev-batch token. This
-    //    inserts a gap before "$3" and shrinks the in-memory view to the latest
-    //    chunk; "$1" remains in the store, behind the gap.
+    // 2. A *limited* sync adds a newer event and a prev-batch token. This inserts a
+    //    gap before "$3" and shrinks the in-memory view to the latest chunk; "$1"
+    //    remains in the store, behind the gap.
     server
         .sync_room(
             &client,
@@ -370,14 +370,14 @@ async fn test_backpaginate_empty_gap_reattaches_to_stored_events() {
         )
         .await;
 
-    // 3. The gap's `/messages` returns an EMPTY chunk whose new prev-batch token
-    //    is the SAME one we queried - a non-advancing dead end (exactly what the
+    // 3. The gap's `/messages` returns an EMPTY chunk whose new prev-batch token is
+    //    the SAME one we queried - a non-advancing dead end (exactly what the
     //    server did in the stranded-history bug). Allow it to be called at most
-    //    ONCE: with the fix we drop the gap on this empty response and reattach
-    //    to the store, so a second network call would be a bug. (Without the
-    //    fix, the gap is re-parked with the same token and the next
-    //    back-pagination hits `/messages` again - `mock_once` is exhausted, so
-    //    the request fails and this test fails, as intended.)
+    //    ONCE: with the fix we drop the gap on this empty response and reattach to
+    //    the store, so a second network call would be a bug. (Without the fix, the
+    //    gap is re-parked with the same token and the next back-pagination hits
+    //    `/messages` again - `mock_once` is exhausted, so the request fails and
+    //    this test fails, as intended.)
     server
         .mock_room_messages()
         .match_from("pb_gap")
@@ -2254,9 +2254,9 @@ async fn test_deduplication() {
     // What should we see?
     // - On `updates_stream`: the 2 events duplicated with the loaded chunk #1 sit
     //   in the tail (after the last gap), so they are replaced in place instead of
-    //   being removed and re-appended (re-appending would visibly reorder
-    //   messages the user already sees); the 2 in-store duplicates and the 2
-    //   unique events are appended at the back,
+    //   being removed and re-appended (re-appending would visibly reorder messages
+    //   the user already sees); the 2 in-store duplicates and the 2 unique events
+    //   are appended at the back,
     // - On the store, 2 events must be removed from chunk #0
     //
     // First off, let's check `updates_stream`.
@@ -2864,6 +2864,11 @@ async fn test_sync_while_back_paginate() {
     assert_event_matches_msg(&values[1], "sync2");
     assert_event_matches_msg(&values[2], "sync3");
 
+    // The sync inserted a gap before its events; it's announced to observers.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }) = subscriber.recv());
+    assert_eq!(gaps.len(), 1);
+    assert_eq!(gaps[0].prev_token, "token-before-sync-from-sync");
+
     // Back pagination should succeed, and we haven't reached the start.
     let outcome = back_pagination_handle.await.unwrap();
     assert!(outcome.reached_start.not());
@@ -2878,6 +2883,12 @@ async fn test_sync_while_back_paginate() {
     assert_let!(VectorDiff::Insert { index: 0, value: _ } = &diffs[0]);
     assert_let!(VectorDiff::Insert { index: 1, value: _ } = &diffs[1]);
     assert_let!(VectorDiff::Insert { index: 2, value: _ } = &diffs[2]);
+
+    // The back-pagination resolved the announced gap and parked a new one in
+    // its place; observers are kept in sync.
+    assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }) = subscriber.recv());
+    assert_eq!(gaps.len(), 1);
+    assert_eq!(gaps[0].prev_token, "token-before-messages");
 
     assert!(subscriber.is_empty());
 }
@@ -3426,4 +3437,62 @@ async fn test_order_tracker_is_reset_when_cross_process_is_dirty() {
     let events = room_event_cache_a.events().await.unwrap();
 
     assert!(events.iter().any(|ev| ev.event_id() == Some(event_id_4)));
+}
+
+/// Receive updates from the stream until an `UpdateTimelineGaps` arrives,
+/// skipping event diffs; panics on timeout.
+async fn next_gaps_update(
+    room_stream: &mut broadcast::Receiver<RoomEventCacheUpdate>,
+) -> Vec<matrix_sdk::event_cache::TimelineGap> {
+    loop {
+        assert_let_timeout!(Ok(update) = room_stream.recv());
+        match update {
+            RoomEventCacheUpdate::UpdateTimelineGaps { gaps } => return gaps,
+            _ => continue,
+        }
+    }
+}
+
+#[async_test]
+async fn test_limited_sync_gap_surfaces_on_storage_pagination() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // A limited sync carrying a prev-batch token records a gap before its
+    // events.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("heyo").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("prev_batch".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { .. })) =
+            room_stream.recv()
+    );
+
+    // A storage pagination walks up to the gap without reaching the network
+    // (nothing is mocked: a network hit would error out), and reports it,
+    // anchored to the first event after it.
+    let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+    assert!(outcome.reached_start);
+
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.len(), 1);
+    assert_eq!(gaps[0].prev_token, "prev_batch");
+    assert_eq!(gaps[0].following_event_id, event_id!("$1"));
 }

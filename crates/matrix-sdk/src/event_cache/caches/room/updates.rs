@@ -51,12 +51,45 @@ pub enum RoomEventCacheUpdate {
     /// The room has received updates for the timeline as _diffs_.
     UpdateTimelineEvents(TimelineVectorDiffs),
 
+    /// The set of gaps in the loaded part of the room's timeline has changed.
+    ///
+    /// This is a full snapshot, not a diff: it replaces any previously
+    /// received set. Consumers (i.e. the timeline) are expected to reconcile
+    /// their gap markers against it: insert markers for new gaps, remove
+    /// markers for gaps that are no longer present (because they've been
+    /// resolved, or unloaded from memory).
+    UpdateTimelineGaps {
+        /// All the gaps currently present in the in-memory linked chunk, in
+        /// timeline order (oldest first).
+        gaps: Vec<TimelineGap>,
+    },
+
     /// The room has received new ephemeral events.
     AddEphemeralEvents {
         /// XXX: this is temporary, until read receipts are handled in the event
         /// cache
         events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     },
+}
+
+/// A gap in the loaded part of a room's timeline, as exposed to timeline
+/// consumers.
+///
+/// A gap materializes a range of events we know nothing about: it can be
+/// resolved (i.e. filled with events) with
+/// [`RoomEventCache::resolve_gap`][super::RoomEventCache::resolve_gap].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimelineGap {
+    /// The previous-batch token identifying this gap; to be used as the `end`
+    /// parameter of the back-pagination request that resolves it.
+    pub prev_token: String,
+
+    /// The ID of the first event following this gap in the linked chunk,
+    /// used to anchor the gap in the timeline.
+    ///
+    /// Trailing gaps (with no known event after them) are not reported: there
+    /// is nothing to anchor them to, and nothing to separate them from.
+    pub following_event_id: OwnedEventId,
 }
 
 /// Represents a timeline update of a room. It hides the details of

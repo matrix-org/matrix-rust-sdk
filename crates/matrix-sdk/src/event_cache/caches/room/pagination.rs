@@ -45,6 +45,7 @@ use super::{
         TimelineVectorDiffs,
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
+            PaginationMode,
         },
     },
     RoomEventCacheInner, RoomEventCacheUpdate,
@@ -130,7 +131,7 @@ impl RoomPagination {
         &self,
         num_requested_events: u16,
     ) -> Result<BackPaginationOutcome> {
-        self.0.run_backwards_until(num_requested_events).await
+        self.0.run_backwards_until(num_requested_events, PaginationMode::StorageThenNetwork).await
     }
 
     /// Run a single back-pagination for the requested number of events.
@@ -138,7 +139,31 @@ impl RoomPagination {
     /// This automatically takes care of waiting for a pagination token from
     /// sync, if we haven't done that before.
     pub async fn run_backwards_once(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
-        self.0.run_backwards_once(batch_size).await
+        self.0.run_backwards_once(batch_size, PaginationMode::StorageThenNetwork).await
+    }
+
+    /// Run a single back-pagination from the storage only.
+    ///
+    /// Contrary to [`Self::run_backwards_once`], this never reaches the
+    /// network to resolve a gap: gaps encountered while walking the storage
+    /// are loaded into memory, surfaced to observers via
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`], and skipped over, so all
+    /// the cached content is reachable even offline. Gaps are resolved on
+    /// demand with [`RoomEventCache::resolve_gap`].
+    ///
+    /// The only exception is an empty room that has never seen any event: it
+    /// still bootstraps over the network (there's no cached content to show).
+    ///
+    /// `batch_size` only applies to that network bootstrap; storage loads
+    /// whole chunks at a time.
+    ///
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`]: super::RoomEventCacheUpdate::UpdateTimelineGaps
+    /// [`RoomEventCache::resolve_gap`]: super::RoomEventCache::resolve_gap
+    pub async fn run_backwards_once_from_storage(
+        &self,
+        batch_size: u16,
+    ) -> Result<BackPaginationOutcome> {
+        self.0.run_backwards_once(batch_size, PaginationMode::StorageOnly).await
     }
 
     /// Returns a subscriber to the pagination status.
@@ -150,7 +175,7 @@ impl RoomPagination {
     pub(super) async fn load_more_events_backwards(
         &self,
     ) -> Result<LoadMoreEventsBackwardsOutcome> {
-        self.0.cache.load_more_events_backwards().await
+        self.0.cache.load_more_events_backwards(PaginationMode::StorageThenNetwork).await
     }
 }
 
@@ -159,12 +184,20 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         &self.shared_pagination_status
     }
 
-    async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {
+    async fn load_more_events_backwards(
+        &self,
+        mode: PaginationMode,
+    ) -> Result<LoadMoreEventsBackwardsOutcome> {
         let mut state = self.state.write().await?;
 
         // If any in-memory chunk is a gap, don't load more events, and let the caller
         // resolve the gap.
-        if let Some(prev_token) = state.room_linked_chunk().rgap().map(|gap| gap.token) {
+        //
+        // In storage-only mode, gaps aren't resolved by paginations: keep loading
+        // previous chunks from the storage past them instead.
+        if mode == PaginationMode::StorageThenNetwork
+            && let Some(prev_token) = state.room_linked_chunk().rgap().map(|gap| gap.token)
+        {
             return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                 prev_token: Some(prev_token),
                 waited_for_initial_prev_token: state.waited_for_initial_prev_token(),
@@ -173,7 +206,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
         let prev_first_chunk = state.room_linked_chunk().first_chunk();
 
-        // The first chunk is not a gap, we can load its previous chunk.
+        // Load the first chunk's previous chunk.
         let linked_chunk_id = LinkedChunkId::Room(&state.state.room_id);
         let new_first_chunk = match state
             .store
@@ -186,6 +219,17 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             }
 
             Ok(None) => {
+                // The linked chunk is now fully loaded.
+                //
+                // If the first chunk is a gap, consider we've reached the start of the
+                // timeline as far as the storage is concerned: the gap still needs a
+                // manual resolution to make further progress (storage-only mode only;
+                // in the historical mode, the `rgap` early-return above fires first).
+                if state.room_linked_chunk().first_chunk_as_gap().is_some() {
+                    trace!("chunk is fully loaded with a leading gap: reached_start=true");
+                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                }
+
                 // If we never received events for this room, this means we've never received a
                 // sync for that room, because every room must have *at least* a room creation
                 // event. Otherwise, we have reached the start of the timeline.
@@ -249,6 +293,21 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
         // However, we want to get updates as `VectorDiff`s.
         let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+
+        // The loaded chunk may have changed the set of in-memory gaps (either
+        // it's a gap itself, or it's an events chunk that becomes the anchor
+        // of a previously trailing gap). Let observers know.
+        //
+        // Only in storage-only mode: the historical mode resolves the gap it
+        // just loaded right away over the network, so announcing it would
+        // only flash a transient gap at observers. (The change-detection in
+        // `take_timeline_gaps_update` is sequenced, so an unannounced
+        // load-and-resolve cycle correctly results in no update at all.)
+        if mode == PaginationMode::StorageOnly
+            && let Some(gaps) = state.take_timeline_gaps_update()
+        {
+            self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
+        }
 
         Ok(match chunk_content {
             ChunkContent::Gap(gap) => {
@@ -462,6 +521,19 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                     origin: EventsOrigin::Pagination,
                 }),
             );
+        }
+
+        // The resolved gap has been removed (and possibly replaced with a new
+        // one carrying the next prev-batch token): let observers know — but
+        // only if they've been told about gaps before. A purely legacy
+        // pagination flow (which loads gaps only to resolve them right away,
+        // and may park a new one for its own next run) shouldn't start
+        // announcing gaps on its own; if observers believe there are no gaps,
+        // leave it that way, the next sync or storage pagination reconciles.
+        if state.has_announced_timeline_gaps()
+            && let Some(gaps) = state.take_timeline_gaps_update()
+        {
+            self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
         }
 
         Ok(Some(BackPaginationOutcome { events, reached_start }))

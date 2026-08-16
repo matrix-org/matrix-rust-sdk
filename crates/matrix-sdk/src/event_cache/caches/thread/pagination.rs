@@ -31,7 +31,7 @@ use super::{
         },
         pagination::{
             BackPaginationOutcome, LoadMoreEventsBackwardsOutcome, PaginatedCache, Pagination,
-            SharedPaginationStatus,
+            PaginationMode, SharedPaginationStatus,
         },
         room::RoomEventCacheGenericUpdate,
     },
@@ -81,7 +81,7 @@ impl ThreadPagination {
         &self,
         num_requested_events: u16,
     ) -> Result<BackPaginationOutcome> {
-        self.0.run_backwards_until(num_requested_events).await
+        self.0.run_backwards_until(num_requested_events, PaginationMode::StorageThenNetwork).await
     }
 
     /// Run a single back-pagination for the requested number of events.
@@ -89,7 +89,7 @@ impl ThreadPagination {
     /// This automatically takes care of waiting for a pagination token from
     /// sync, if we haven't done that before.
     pub async fn run_backwards_once(&self, batch_size: u16) -> Result<BackPaginationOutcome> {
-        self.0.run_backwards_once(batch_size).await
+        self.0.run_backwards_once(batch_size, PaginationMode::StorageThenNetwork).await
     }
 }
 
@@ -98,7 +98,13 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         &self.dummy_pagination_status
     }
 
-    async fn load_more_events_backwards(&self) -> Result<LoadMoreEventsBackwardsOutcome> {
+    async fn load_more_events_backwards(
+        &self,
+        _mode: PaginationMode,
+    ) -> Result<LoadMoreEventsBackwardsOutcome> {
+        // Note: threads don't support the storage-only mode (they'd never make
+        // progress past a gap); the mode is ignored and gaps are always
+        // resolved over the network.
         let mut state = self.cache.state.write().await?;
 
         // If any in-memory chunk is a gap, don't load more events, and let the caller

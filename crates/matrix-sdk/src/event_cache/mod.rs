@@ -76,7 +76,7 @@ pub use self::{
         pagination::{BackPaginationOutcome, PaginationStatus},
         pinned_events::PinnedEventsCache,
         room::{
-            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
+            RoomEventCache, RoomEventCacheGenericUpdate, RoomEventCacheUpdate, TimelineGap,
             pagination::RoomPagination,
         },
         subscriber::Subscriber,
