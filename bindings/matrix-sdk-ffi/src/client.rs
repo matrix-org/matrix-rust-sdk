@@ -577,23 +577,29 @@ impl Client {
         let client = self.inner.clone();
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             let result = client
-                .storage_usage_by_room(|room_id, usage| {
-                    let room = client.get_room(&room_id);
-                    listener.on_room_usage(RoomStorageUsage {
-                        room_id: room_id.to_string(),
-                        display_name: room
-                            .as_ref()
-                            .and_then(|room| room.cached_display_name())
-                            .map(|name| name.to_string()),
-                        last_activity_ts: room
-                            .as_ref()
-                            .and_then(|room| room.recency_stamp())
-                            .map(u64::from),
-                        room_keys_bytes: usage.room_keys_bytes,
-                        room_state_bytes: usage.room_state_bytes,
-                        events_bytes: usage.events_bytes,
-                        media_bytes: usage.media_bytes,
-                    });
+                .storage_usage_by_room(|rooms| {
+                    let rooms = rooms
+                        .into_iter()
+                        .map(|(room_id, usage)| {
+                            let room = client.get_room(&room_id);
+                            RoomStorageUsage {
+                                room_id: room_id.to_string(),
+                                display_name: room
+                                    .as_ref()
+                                    .and_then(|room| room.cached_display_name())
+                                    .map(|name| name.to_string()),
+                                last_activity_ts: room
+                                    .as_ref()
+                                    .and_then(|room| room.recency_stamp())
+                                    .map(u64::from),
+                                room_keys_bytes: usage.room_keys_bytes,
+                                room_state_bytes: usage.room_state_bytes,
+                                events_bytes: usage.events_bytes,
+                                media_bytes: usage.media_bytes,
+                            }
+                        })
+                        .collect();
+                    listener.on_rooms_usage(rooms);
                 })
                 .await;
             if let Err(error) = result {
@@ -3641,7 +3647,8 @@ pub struct StorageUsageReport {
 /// Receives the rooms' storage usage from [`Client::storage_usage_by_room`].
 #[matrix_sdk_ffi_macros::export(callback_interface)]
 pub trait StorageUsageListener: SyncOutsideWasm + SendOutsideWasm {
-    fn on_room_usage(&self, room: RoomStorageUsage);
+    /// A batch of rooms, each replacing the room's previous numbers if any.
+    fn on_rooms_usage(&self, rooms: Vec<RoomStorageUsage>);
     fn on_finished(&self);
 }
 

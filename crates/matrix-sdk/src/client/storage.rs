@@ -63,16 +63,16 @@ impl RoomStorageUsage {
 }
 
 impl Client {
-    /// Walk the known rooms' storage usage, calling `on_room` for each room
-    /// with any cached data, as soon as its numbers are known: first with the
+    /// Walk the known rooms' storage usage, calling `on_rooms` with the rooms
+    /// with any cached data as soon as their numbers are known: first with the
     /// keys, state and events shares (from the stores' per-room counters,
-    /// cheap), biggest rooms first; then again with the media share for the
-    /// rooms that have media (attributed through the event cache's media URI
+    /// cheap), biggest rooms first; then again with the rooms that have media,
+    /// media share included (attributed through the event cache's media URI
     /// index and one media size map), so that a UI can fill in progressively.
     #[instrument(skip_all)]
     pub async fn storage_usage_by_room(
         &self,
-        mut on_room: impl FnMut(OwnedRoomId, RoomStorageUsage),
+        mut on_rooms: impl FnMut(Vec<(OwnedRoomId, RoomStorageUsage)>),
     ) -> Result<()> {
         let room_ids: Vec<OwnedRoomId> =
             self.rooms().iter().map(|room| room.room_id().to_owned()).collect();
@@ -102,32 +102,25 @@ impl Client {
             .collect();
         usages.sort_by_key(|(_, usage)| std::cmp::Reverse(usage.total()));
 
-        for (room_id, usage) in &usages {
-            on_room(room_id.clone(), *usage);
-        }
+        on_rooms(usages.clone());
 
-        // Media: the URIs of every room with events (indexed, cheap), then one
-        // size map for all of them.
-        let mut room_media = Vec::new();
-        {
-            let store = self.locked_event_cache_store().await?;
-            for (room_id, usage) in &usages {
-                if usage.events_bytes > 0 {
-                    let uris = store.room_media_uris(room_id).await?;
-                    if !uris.is_empty() {
-                        room_media.push((room_id.clone(), uris));
-                    }
-                }
-            }
-        }
+        // Media: the URIs of every room with events (indexed, one query), then
+        // one size map for all of them.
+        let with_events: Vec<OwnedRoomId> = usages
+            .iter()
+            .filter(|(_, usage)| usage.events_bytes > 0)
+            .map(|(room_id, _)| room_id.clone())
+            .collect();
+        let room_media =
+            self.locked_event_cache_store().await?.media_uris_by_room(&with_events).await?;
         if !room_media.is_empty() {
             let media = self.media_store().lock().await?.storage_usage(&room_media).await?;
-            for (room_id, mut usage) in usages {
-                if let Some(media_bytes) = media.per_room.get(&room_id).copied() {
+            for (room_id, usage) in &mut usages {
+                if let Some(media_bytes) = media.per_room.get(room_id).copied() {
                     usage.media_bytes = media_bytes;
-                    on_room(room_id, usage);
                 }
             }
+            on_rooms(usages.into_iter().filter(|(_, usage)| usage.media_bytes > 0).collect());
         }
 
         Ok(())
@@ -145,17 +138,7 @@ impl Client {
 
         let (events, room_media) = {
             let store = self.locked_event_cache_store().await?;
-            let events = store.storage_usage(&room_ids).await?;
-
-            let mut room_media = Vec::with_capacity(room_ids.len());
-            for room_id in &room_ids {
-                let uris = store.room_media_uris(room_id).await?;
-                if !uris.is_empty() {
-                    room_media.push((room_id.clone(), uris));
-                }
-            }
-
-            (events, room_media)
+            (store.storage_usage(&room_ids).await?, store.media_uris_by_room(&room_ids).await?)
         };
 
         let media = self.media_store().lock().await?.storage_usage(&room_media).await?;
@@ -228,10 +211,12 @@ impl Client {
         let uris = match room_ids {
             Some(room_ids) => {
                 let store = self.locked_event_cache_store().await?;
-                let mut uris: Vec<OwnedMxcUri> = Vec::new();
-                for room_id in room_ids {
-                    uris.extend(store.room_media_uris(room_id).await?);
-                }
+                let uris: Vec<OwnedMxcUri> = store
+                    .media_uris_by_room(room_ids)
+                    .await?
+                    .into_iter()
+                    .flat_map(|(_, uris)| uris)
+                    .collect();
                 Some(uris)
             }
             None => None,

@@ -435,7 +435,7 @@ struct EncodedEvent {
     /// [`SqliteEventCacheStore::find_events_by_message_types`].
     msgtype: Option<Key>,
     /// The `mxc://` URIs of a media message, encoded as values, see
-    /// [`SqliteEventCacheStore::room_media_uris`].
+    /// [`SqliteEventCacheStore::media_uris_by_room`].
     media_uris: Vec<Vec<u8>>,
 }
 
@@ -2132,57 +2132,64 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(found)
     }
 
-    async fn room_media_uris(
+    async fn media_uris_by_room(
         &self,
-        room_id: &RoomId,
-    ) -> Result<Vec<ruma::OwnedMxcUri>, Self::Error> {
+        room_ids: &[OwnedRoomId],
+    ) -> Result<Vec<(OwnedRoomId, Vec<ruma::OwnedMxcUri>)>, Self::Error> {
         let _timer = timer!("method");
 
-        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let hashed_message_type = self.encryption.encode_key(keys::EVENTS, ROOM_MESSAGE_EVENT_TYPE);
-
-        // Rows predating the `msgtype` column can't be told apart by type
-        // without decoding: the `msgtype` backfill takes care of them first.
-        let has_legacy_rows: bool = self
-            .read()
-            .await?
-            .query_row(
-                "SELECT EXISTS (SELECT 1 FROM events WHERE room_id = ? AND event_type = ? \
-                 AND msgtype IS NULL)",
-                (hashed_room_id.clone(), hashed_message_type),
-                |row| row.get(0),
-            )
-            .await?;
-        if has_legacy_rows {
-            self.find_events_by_message_types(room_id, MEDIA_MSGTYPES).await?;
-        }
-
-        // Rows predating the `event_media` table: index them once (this is the
-        // only place a media message is decoded for its URIs; fresh rows are
-        // indexed on write).
         let hashed_media_msgtypes = MEDIA_MSGTYPES
             .iter()
             .map(|msgtype| self.encryption.encode_key(keys::EVENTS, msgtype))
             .collect::<Vec<_>>();
         let encryption = self.encryption.clone();
-        let backfill_room_id = hashed_room_id.clone();
+
+        // Rows predating the `msgtype` column, then rows predating the
+        // `event_media` table: indexed once, across all rooms (this is the only
+        // place a media message is decoded for its URIs; fresh rows are indexed
+        // on write). Both queries are index-only no-ops once done.
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<()> {
-                let placeholders = repeat_vars(hashed_media_msgtypes.len());
-                let query = format!(
-                    "SELECT event_id, content FROM events WHERE room_id = ? AND media_indexed = 0 \
-                     AND msgtype IN ({placeholders})"
-                );
-                let rows: Vec<(Vec<u8>, Vec<u8>)> = txn
-                    .prepare(&query)?
-                    .query(params_from_iter(
-                        once(&backfill_room_id).chain(hashed_media_msgtypes.iter()),
-                    ))?
-                    .mapped(|row| Ok((row.get(0)?, row.get(1)?)))
+                let legacy: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = txn
+                    .prepare(
+                        "SELECT room_id, event_id, content FROM events \
+                         WHERE event_type = ? AND msgtype IS NULL",
+                    )?
+                    .query((&hashed_message_type,))?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
                     .collect::<rusqlite::Result<_>>()?;
+                if !legacy.is_empty() {
+                    debug!(num_rows = legacy.len(), "Backfilling the `msgtype` of legacy rows");
+                    let mut statement = txn.prepare(
+                        "UPDATE events SET msgtype = ? WHERE event_id = ? AND room_id = ?",
+                    )?;
+                    for (room_id, event_id, content) in legacy {
+                        let msgtype =
+                            encryption.decode_event(&content)?.kind.msgtype().unwrap_or_default();
+                        statement.execute((
+                            encryption.encode_key(keys::EVENTS, msgtype),
+                            event_id,
+                            room_id,
+                        ))?;
+                    }
+                }
 
-                for (event_id, content) in rows {
+                let query = format!(
+                    "SELECT room_id, event_id, content FROM events WHERE media_indexed = 0 \
+                     AND msgtype IN ({})",
+                    repeat_vars(hashed_media_msgtypes.len())
+                );
+                let unindexed: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = txn
+                    .prepare(&query)?
+                    .query(params_from_iter(hashed_media_msgtypes.iter()))?
+                    .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                    .collect::<rusqlite::Result<_>>()?;
+                if !unindexed.is_empty() {
+                    debug!(num_rows = unindexed.len(), "Indexing the media URIs of legacy rows");
+                }
+                for (room_id, event_id, content) in unindexed {
                     let media_uris = match encryption.decode_event(&content) {
                         Ok(event) => media_uris_of(&event)
                             .into_iter()
@@ -2193,31 +2200,39 @@ impl EventCacheStore for SqliteEventCacheStore {
                             Vec::new()
                         }
                     };
-                    txn.insert_event_media(&backfill_room_id, &event_id, &media_uris)?;
+                    txn.insert_event_media(&room_id, &event_id, &media_uris)?;
                 }
                 Ok(())
             })
             .await?;
 
-        let encoded_uris: Vec<Vec<u8>> = self
+        // One read of the whole index, mapped back through the known rooms.
+        let rows: Vec<(Vec<u8>, Vec<u8>)> = self
             .read()
             .await?
-            .prepare("SELECT uri FROM event_media WHERE room_id = ?", move |mut stmt| {
-                stmt.query((&hashed_room_id,))?.mapped(|row| row.get(0)).collect()
+            .prepare("SELECT room_id, uri FROM event_media", move |mut stmt| {
+                stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
             })
             .await?;
+        let mut by_hashed_room: HashMap<Vec<u8>, Vec<ruma::OwnedMxcUri>> = HashMap::new();
+        for (hashed_room_id, encoded_uri) in rows {
+            let decoded = self.encryption.decode_value(&encoded_uri)?;
+            by_hashed_room
+                .entry(hashed_room_id)
+                .or_default()
+                .push(ruma::OwnedMxcUri::from(str::from_utf8(&decoded)?));
+        }
 
-        let mut uris = encoded_uris
+        Ok(room_ids
             .iter()
-            .map(|encoded| {
-                let decoded = self.encryption.decode_value(encoded)?;
-                Ok(ruma::OwnedMxcUri::from(str::from_utf8(&decoded)?))
+            .filter_map(|room_id| {
+                let key = self.encryption.encode_room_id(keys::EVENTS, room_id);
+                let mut uris = by_hashed_room.remove(&*key)?;
+                uris.sort_unstable();
+                uris.dedup();
+                Some((room_id.clone(), uris))
             })
-            .collect::<Result<Vec<_>>>()?;
-        uris.sort_unstable();
-        uris.dedup();
-
-        Ok(uris)
+            .collect())
     }
 
     async fn storage_usage(
@@ -2845,7 +2860,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_storage_usage_and_room_media_uris() {
+    async fn test_storage_usage_and_media_uris_by_room() {
         use matrix_sdk_base::linked_chunk::Position;
         use matrix_sdk_test::{ALICE, event_factory::EventFactory};
         use ruma::{owned_mxc_uri, room_id};
@@ -2894,8 +2909,11 @@ mod tests {
         assert_eq!(usage.per_room.values().sum::<u64>(), usage.total_bytes);
 
         // The image's URI is attributed to room A; room B has no media.
-        assert_eq!(store.room_media_uris(room_a).await.unwrap(), [owned_mxc_uri!("mxc://x/a")]);
-        assert!(store.room_media_uris(room_b).await.unwrap().is_empty());
+        assert_eq!(
+            store.media_uris_by_room(&[room_a.to_owned()]).await.unwrap(),
+            [(room_a.to_owned(), vec![owned_mxc_uri!("mxc://x/a")])]
+        );
+        assert!(store.media_uris_by_room(&[room_b.to_owned()]).await.unwrap().is_empty());
 
         // The URIs were indexed on write: no row awaits indexing.
         let count = |store: SqliteEventCacheStore, sql: &'static str| async move {
@@ -2924,7 +2942,10 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(store.room_media_uris(room_a).await.unwrap(), [owned_mxc_uri!("mxc://x/a")]);
+        assert_eq!(
+            store.media_uris_by_room(&[room_a.to_owned()]).await.unwrap(),
+            [(room_a.to_owned(), vec![owned_mxc_uri!("mxc://x/a")])]
+        );
         assert_eq!(count(store.clone(), "SELECT COUNT(*) FROM event_media").await, 1);
         // Only the media messages need (re)indexing.
         assert_eq!(
@@ -2988,7 +3009,7 @@ mod tests {
         // Removing the room's events removes the media index rows too, and
         // brings its counter to zero.
         store.clear_all_events(Some(room_a)).await.unwrap();
-        assert!(store.room_media_uris(room_a).await.unwrap().is_empty());
+        assert!(store.media_uris_by_room(&[room_a.to_owned()]).await.unwrap().is_empty());
         assert_eq!(count(store.clone(), "SELECT COUNT(*) FROM event_media").await, 0);
         let cleared = store.storage_usage(&[room_a.to_owned(), room_b.to_owned()]).await.unwrap();
         assert_eq!(cleared.per_room.get(room_a).copied().unwrap_or(0), 0, "{cleared:?}");

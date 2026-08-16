@@ -259,25 +259,35 @@ pub trait EventCacheStore: AsyncTraitDeps {
             .collect())
     }
 
-    /// The `mxc://` URIs referenced by the room's stored media messages
-    /// (images, videos, audios, files, galleries), thumbnails included: the
-    /// media contents attributable to the room.
+    /// The `mxc://` URIs referenced by the stored media messages (images,
+    /// videos, audios, files, galleries) of each given room, thumbnails
+    /// included: the media contents attributable to the rooms. Rooms without
+    /// any are left out.
     ///
     /// The default implementation walks the media messages' content for
-    /// `mxc://` strings.
-    async fn room_media_uris(&self, room_id: &RoomId) -> Result<Vec<OwnedMxcUri>, Self::Error> {
-        let events = self.find_events_by_message_types(room_id, MEDIA_MSGTYPES).await?;
+    /// `mxc://` strings, room by room.
+    async fn media_uris_by_room(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<Vec<(OwnedRoomId, Vec<OwnedMxcUri>)>, Self::Error> {
+        let mut by_room = Vec::new();
+        for room_id in room_ids {
+            let events = self.find_events_by_message_types(room_id, MEDIA_MSGTYPES).await?;
 
-        let mut uris = Vec::new();
-        for (event, _) in events {
-            if let Ok(Some(content)) = event.raw().get_field::<serde_json::Value>("content") {
-                collect_mxc_uris(&content, &mut uris);
+            let mut uris = Vec::new();
+            for (event, _) in events {
+                if let Ok(Some(content)) = event.raw().get_field::<serde_json::Value>("content") {
+                    collect_mxc_uris(&content, &mut uris);
+                }
+            }
+            uris.sort_unstable();
+            uris.dedup();
+
+            if !uris.is_empty() {
+                by_room.push((room_id.clone(), uris));
             }
         }
-        uris.sort_unstable();
-        uris.dedup();
-
-        Ok(uris)
+        Ok(by_room)
     }
 
     /// The storage used by the events, overall and per given room.
@@ -468,8 +478,11 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         self.0.find_events_by_message_types(room_id, msgtypes).await.map_err(Into::into)
     }
 
-    async fn room_media_uris(&self, room_id: &RoomId) -> Result<Vec<OwnedMxcUri>, Self::Error> {
-        self.0.room_media_uris(room_id).await.map_err(Into::into)
+    async fn media_uris_by_room(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<Vec<(OwnedRoomId, Vec<OwnedMxcUri>)>, Self::Error> {
+        self.0.media_uris_by_room(room_ids).await.map_err(Into::into)
     }
 
     async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
