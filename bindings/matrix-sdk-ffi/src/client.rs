@@ -582,13 +582,17 @@ impl Client {
                 let bytes = |usage: &matrix_sdk::StorageUsage| {
                     usage.per_room.get(room_id).copied().unwrap_or(0)
                 };
+                let room = self.inner.get_room(room_id);
                 RoomStorageUsage {
                     room_id: room_id.to_string(),
-                    display_name: self
-                        .inner
-                        .get_room(room_id)
+                    display_name: room
+                        .as_ref()
                         .and_then(|room| room.cached_display_name())
                         .map(|name| name.to_string()),
+                    last_activity_ts: room
+                        .as_ref()
+                        .and_then(|room| room.recency_stamp())
+                        .map(u64::from),
                     room_keys_bytes: bytes(&report.room_keys),
                     room_state_bytes: bytes(&report.room_state),
                     events_bytes: bytes(&report.events),
@@ -3599,6 +3603,9 @@ pub struct RoomStorageUsage {
     pub room_id: String,
     /// The room's cached display name, if known.
     pub display_name: Option<String>,
+    /// When the room was last active (its recency stamp, in milliseconds since
+    /// the Unix epoch), if known.
+    pub last_activity_ts: Option<u64>,
     pub room_keys_bytes: u64,
     pub room_state_bytes: u64,
     pub events_bytes: u64,
