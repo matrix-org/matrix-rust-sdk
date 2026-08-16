@@ -418,7 +418,7 @@ impl MessageTypesEventCache {
                 .chain(events.into_iter().map(|(event, position)| Entry::Event { position, event }))
                 .filter_map(|entry| state.key(&entry).map(|key| (key, entry)))
                 .collect::<Vec<_>>();
-            entries.sort_by(|(a, _), (b, _)| a.cmp(b));
+            entries.sort_by_key(|(key, _)| *key);
             state.entries = entries.into_iter().map(|(_, entry)| entry).collect();
 
             // Expose the newest page.

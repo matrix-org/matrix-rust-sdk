@@ -2590,7 +2590,7 @@ mod tests {
         // The legacy rows are found by decoding them…
         let found = store.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].0.event_id().as_deref(), image.event_id().as_deref());
+        assert_eq!(found[0].0.event_id(), image.event_id());
 
         // … and backfilled on the way, so the next query is index-only.
         assert_eq!(count_unknown(store.clone()).await, 0);

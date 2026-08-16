@@ -298,7 +298,7 @@ async fn test_sync_appends_matching_events_and_trailing_gaps() {
     );
     assert_eq!(diffs.len(), 1);
     assert_matches!(&diffs[0], VectorDiff::Insert { index: 3, value } => {
-        assert_eq!(value.event_id().as_deref(), Some(event_id!("$img4")));
+        assert_eq!(value.event_id(), Some(event_id!("$img4")));
     });
     assert_eq!(gaps.len(), 2);
 
@@ -364,7 +364,7 @@ async fn test_resolving_a_gap_inserts_the_matching_events_in_place() {
         assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, gaps, .. }) = updates.recv());
         if let Some(diff) = diffs.first() {
             assert_matches!(diff, VectorDiff::Insert { index: 1, value } => {
-                assert_eq!(value.event_id().as_deref(), Some(event_id!("$img1b")));
+                assert_eq!(value.event_id(), Some(event_id!("$img1b")));
             });
             assert_eq!(gaps.len(), 1);
             assert_eq!(gaps[0].prev_token, "g2");

@@ -2205,7 +2205,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         // The text message is found by its own type.
         let found = self.find_events_by_message_types(room_id, &["m.text"]).await.unwrap();
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].0.event_id().as_deref(), text.event_id().as_deref());
+        assert_eq!(found[0].0.event_id(), text.event_id());
         assert_eq!(found[0].1, Position::new(CId::new(0), 1));
 
         // Once redacted, a message loses its `msgtype` and isn't found any more.
@@ -2222,7 +2222,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
 
         let found = self.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].0.event_id().as_deref(), image_a.event_id().as_deref());
+        assert_eq!(found[0].0.event_id(), image_a.event_id());
     }
 
     async fn test_load_all_gaps(&self) {
