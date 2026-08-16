@@ -326,6 +326,24 @@ impl SyncTaskSupervisor {
                         .is_none_or(|at| at.elapsed() > Duration::from_secs(10))
                 {
                     info!("sync session expired; restarting silently");
+
+                    // Both sync services have been stopped and awaited above, and
+                    // may have queued their own termination reports on the way
+                    // out. Drain those now, so the next iteration doesn't mistake
+                    // a stale report for a termination of the restarted syncs.
+                    // (Same caveat as `offline_check`: a concurrent user stop
+                    // sends a `Supervisor` report, which must be kept.)
+                    let mut pending_stop = false;
+                    while let Ok(stale) = receiver.try_recv() {
+                        if matches!(stale.origin, TerminationOrigin::Supervisor) {
+                            pending_stop = true;
+                        }
+                    }
+                    if pending_stop {
+                        state.set(State::Idle);
+                        break;
+                    }
+
                     last_silent_expiry_restart = Some(Instant::now());
                     continue;
                 }
