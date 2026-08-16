@@ -1485,6 +1485,63 @@ async fn test_resolving_the_last_leading_gap_inserts_the_timeline_start() {
 }
 
 #[async_test]
+async fn test_storage_pagination_status_settles_to_idle_with_a_leading_gap() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // A limited sync records a gap before its event: `[gap "pb1"] [$1]`.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("heyo").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("pb1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let timeline = room.timeline_builder().with_storage_only_pagination().build().await.unwrap();
+    let (_items, mut timeline_stream) = timeline.subscribe().await;
+    let (initial, mut status) = timeline.live_back_pagination_status().await.unwrap();
+    assert_eq!(initial, PaginationStatus::Idle { hit_timeline_start: false });
+
+    // Storage pagination walks up to the leading gap: the status must go
+    // Paginating then settle back to Idle (start hit, as far as the storage
+    // is concerned), otherwise clients show an eternal pagination spinner and
+    // never ask for another storage walk.
+    assert!(timeline.paginate_backwards(20).await.unwrap());
+    // (The observable may coalesce the intermediate `Paginating`.)
+    loop {
+        assert_let_timeout!(Some(update) = status.next());
+        if update == (PaginationStatus::Idle { hit_timeline_start: true }) {
+            break;
+        }
+        assert_eq!(update, PaginationStatus::Paginating);
+    }
+
+    // The gap item is rendered.
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert!(timeline_updates.iter().any(|update| matches!(update, VectorDiff::Insert { value, .. } if value.is_gap())), "{timeline_updates:?}");
+
+    // Offline: resolving the gap fails. That must not disturb the status.
+    server
+        .mock_room_messages()
+        .match_from("pb1")
+        .respond_with(ResponseTemplate::new(500))
+        .mount()
+        .await;
+    assert!(timeline.resolve_gap("pb1".to_owned(), 20).await.is_err());
+
+    // Paginating again is a no-op that still settles.
+    assert!(timeline.paginate_backwards(20).await.unwrap());
+    assert_pending!(status);
+}
+
+#[async_test]
 async fn test_resolving_a_gap_never_shows_the_gap_below_the_resolved_events() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let server = MatrixMockServer::new().await;
