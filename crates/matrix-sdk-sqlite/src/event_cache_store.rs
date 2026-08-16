@@ -84,6 +84,10 @@ const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 /// The event type of room messages, the only events with a `msgtype`.
 const ROOM_MESSAGE_EVENT_TYPE: &str = "m.room.message";
 
+/// The kv key set once the `room_event_sizes` counters were filled from the
+/// rows predating them.
+const ROOM_EVENT_SIZES_READY_KEY: &str = "room_event_sizes_ready";
+
 /// The `mxc://` URIs found anywhere in a media message's content (file,
 /// thumbnail, gallery items).
 fn media_uris_of(event: &TimelineEvent) -> Vec<ruma::OwnedMxcUri> {
@@ -341,7 +345,9 @@ impl SqliteEventCacheStore {
         // support must be enabled on a per-connection basis. Execute it every
         // time we try to get a connection, since we can't guarantee a previous
         // connection did enable it before.
-        connection.execute_batch("PRAGMA foreign_keys = ON;").await?;
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA recursive_triggers = ON;")
+            .await?;
 
         Ok(connection)
     }
@@ -361,7 +367,9 @@ impl SqliteEventCacheStore {
         // support must be enabled on a per-connection basis. Execute it every
         // time we try to get a connection, since we can't guarantee a previous
         // connection did enable it before.
-        connection.execute_batch("PRAGMA foreign_keys = ON;").await?;
+        connection
+            .execute_batch("PRAGMA foreign_keys = ON; PRAGMA recursive_triggers = ON;")
+            .await?;
 
         Ok(connection)
     }
@@ -571,7 +579,7 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
 /// Run migrations for the given version of the database.
 async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
     // Always enable foreign keys for the current connection.
-    conn.execute_batch("PRAGMA foreign_keys = ON;").await?;
+    conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA recursive_triggers = ON;").await?;
 
     if version < 1 {
         debug!("Creating database");
@@ -773,6 +781,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/019_event_media.sql"))?;
             txn.set_db_version(19)
+        })
+        .await?;
+    }
+
+    if version < 20 {
+        debug!("Upgrading database to version 20");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/020_room_event_sizes.sql"
+            ))?;
+            txn.set_db_version(20)
         })
         .await?;
     }
@@ -2207,19 +2226,38 @@ impl EventCacheStore for SqliteEventCacheStore {
     ) -> Result<matrix_sdk_common::storage_usage::StorageUsage, Self::Error> {
         let _timer = timer!("method");
 
-        // The events' payloads per (encoded) room id. The chunk bookkeeping
-        // tables are small next to it.
+        // The events' payloads per (encoded) room id, from the trigger-maintained
+        // counters (the events table itself is far too big to scan). The
+        // counters are filled once from the rows predating them; that first
+        // fill is the one and only scan.
+        let ready = self.read().await?.get_kv(ROOM_EVENT_SIZES_READY_KEY).await?.is_some();
+        if !ready {
+            let _timer = timer!("filling the room event sizes");
+            self.write()
+                .await?
+                .with_transaction(|txn| -> Result<()> {
+                    txn.execute("DELETE FROM room_event_sizes", ())?;
+                    txn.execute(
+                        "INSERT INTO room_event_sizes (room_id, bytes) \
+                         SELECT room_id, SUM(LENGTH(room_id) + LENGTH(event_id) + \
+                         LENGTH(event_type) + COALESCE(LENGTH(session_id), 0) + LENGTH(content) + \
+                         COALESCE(LENGTH(relates_to), 0) + COALESCE(LENGTH(rel_type), 0) + \
+                         COALESCE(LENGTH(msgtype), 0)) \
+                         FROM events GROUP BY room_id",
+                        (),
+                    )?;
+                    txn.set_kv(ROOM_EVENT_SIZES_READY_KEY, b"1")?;
+                    Ok(())
+                })
+                .await?;
+        }
+
         let sizes: HashMap<Vec<u8>, u64> = self
             .read()
             .await?
-            .prepare(
-                "SELECT room_id, SUM(LENGTH(room_id) + LENGTH(event_id) + LENGTH(event_type) + \
-                 COALESCE(LENGTH(session_id), 0) + LENGTH(content) + \
-                 COALESCE(LENGTH(relates_to), 0) + COALESCE(LENGTH(rel_type), 0) + \
-                 COALESCE(LENGTH(msgtype), 0)) \
-                 FROM events GROUP BY room_id",
-                |mut stmt| stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect(),
-            )
+            .prepare("SELECT room_id, bytes FROM room_event_sizes WHERE bytes > 0", |mut stmt| {
+                stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
+            })
             .await?;
 
         Ok(matrix_sdk_common::storage_usage::StorageUsage {
@@ -2894,10 +2932,67 @@ mod tests {
             3
         );
 
-        // Removing the room's events removes the media index rows too.
+        // The sizes come from trigger-maintained counters: replacing the same
+        // events (an OR REPLACE) doesn't double count, and a second measurement
+        // (counters only, no scan) agrees.
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_a),
+                vec![Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 3),
+                    items: vec![fa.text_msg("more text to make room a bigger").into_event()],
+                }],
+            )
+            .await
+            .unwrap();
+        let again = store.storage_usage(&[room_a.to_owned(), room_b.to_owned()]).await.unwrap();
+        assert!(again.per_room[room_a] > usage.per_room[room_a], "{again:?} vs {usage:?}");
+        // Re-inserting an existing event (OR REPLACE) leaves the counter as is.
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_a),
+                vec![Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 4),
+                    items: vec![
+                        fa.image("a.png".to_owned(), owned_mxc_uri!("mxc://x/a"))
+                            .event_id(event_id!("$dup"))
+                            .into_event(),
+                    ],
+                }],
+            )
+            .await
+            .unwrap();
+        let with_dup = store.storage_usage(&[room_a.to_owned()]).await.unwrap();
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_a),
+                vec![Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 5),
+                    items: vec![
+                        fa.image("a.png".to_owned(), owned_mxc_uri!("mxc://x/a"))
+                            .event_id(event_id!("$dup"))
+                            .into_event(),
+                    ],
+                }],
+            )
+            .await
+            .unwrap();
+        let replaced = store.storage_usage(&[room_a.to_owned()]).await.unwrap();
+        assert_eq!(
+            replaced.per_room[room_a], with_dup.per_room[room_a],
+            "{replaced:?} vs {with_dup:?}"
+        );
+        assert_eq!(again.per_room[room_b], usage.per_room[room_b]);
+        assert_eq!(again.per_room.values().sum::<u64>(), again.total_bytes);
+
+        // Removing the room's events removes the media index rows too, and
+        // brings its counter to zero.
         store.clear_all_events(Some(room_a)).await.unwrap();
         assert!(store.room_media_uris(room_a).await.unwrap().is_empty());
         assert_eq!(count(store.clone(), "SELECT COUNT(*) FROM event_media").await, 0);
+        let cleared = store.storage_usage(&[room_a.to_owned(), room_b.to_owned()]).await.unwrap();
+        assert_eq!(cleared.per_room.get(room_a).copied().unwrap_or(0), 0, "{cleared:?}");
+        assert_eq!(cleared.per_room[room_b], usage.per_room[room_b]);
     }
 
     #[async_test]

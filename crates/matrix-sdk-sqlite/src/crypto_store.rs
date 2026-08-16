@@ -1787,6 +1787,8 @@ impl CryptoStore for SqliteCryptoStore {
         &self,
         room_ids: &[OwnedRoomId],
     ) -> Result<matrix_sdk_common::storage_usage::StorageUsage> {
+        let _timer = timer!("method");
+
         let sizes: HashMap<Vec<u8>, u64> =
             self.read().await?.inbound_group_sessions_sizes().await?.into_iter().collect();
 

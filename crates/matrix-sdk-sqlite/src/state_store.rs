@@ -2205,6 +2205,8 @@ impl StateStore for SqliteStateStore {
         &self,
         room_ids: &[OwnedRoomId],
     ) -> Result<matrix_sdk_common::storage_usage::StorageUsage> {
+        let _timer = timer!("method");
+
         // (table, key salt, size expression): the room id is hashed per table.
         const TABLES: &[(&str, &str, &str)] = &[
             ("room_info", keys::ROOM_INFO, "LENGTH(room_id) + LENGTH(data)"),
