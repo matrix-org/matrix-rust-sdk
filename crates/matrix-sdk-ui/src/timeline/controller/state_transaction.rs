@@ -1083,9 +1083,9 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 if entry.is_remote_event()
                     || entry.as_virtual().is_some_and(|vitem| match vitem {
                         VirtualTimelineItem::DateDivider(_) => false,
-                        VirtualTimelineItem::ReadMarker | VirtualTimelineItem::TimelineStart => {
-                            true
-                        }
+                        VirtualTimelineItem::ReadMarker
+                        | VirtualTimelineItem::TimelineStart
+                        | VirtualTimelineItem::Gap { .. } => true,
                     })
                 {
                     ObservableItemsTransactionEntry::remove(entry);
@@ -1140,7 +1140,142 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         self.meta.update_read_marker(&mut self.items);
     }
 
-    pub(super) fn commit(self) {
+    /// Reconcile the gap virtual items against the latest set of gaps
+    /// reported by the event cache ([`TimelineMetadata::timeline_gaps`]).
+    ///
+    /// Each gap is (re-)inserted immediately before its anchor: the timeline
+    /// item of the first event following the gap that has one. Gaps that
+    /// can't be anchored (trailing gaps, or gaps whose followers are all
+    /// filtered out of this timeline) aren't rendered.
+    ///
+    /// This runs at the end of every state transaction. Since a transaction's
+    /// diffs are applied atomically by subscribers, removing and re-inserting
+    /// an unchanged gap item (which keeps its identity) is invisible to them.
+    fn reconcile_gap_items(&mut self) {
+        // Fast path: no gaps wanted, and none rendered.
+        if self.meta.timeline_gaps.is_empty() && !self.meta.has_gap_items {
+            return;
+        }
+
+        // Compute the desired placements: for each anchorable gap, the index
+        // of its anchor item, i.e. the timeline item of the first event
+        // at-or-after the gap's following event that has one (the following
+        // event itself may be filtered out of this timeline). Gaps whose
+        // followers are all unknown or filtered out aren't rendered.
+        //
+        // Note: these indices are in the *current* coordinates, i.e. with the
+        // currently rendered gap items still in place.
+        let desired = self
+            .meta
+            .timeline_gaps
+            .clone()
+            .into_iter()
+            .filter_map(|gap| {
+                let event_index = self.items.position_by_event_id(&gap.following_event_id)?;
+                let anchor_item_index = self
+                    .items
+                    .all_remote_events()
+                    .range(event_index..)
+                    .find_map(|event_meta| event_meta.timeline_item_index)?;
+                Some((gap.prev_token, anchor_item_index))
+            })
+            .collect::<Vec<_>>();
+
+        // Fast path: everything is already in place, i.e. for each anchor,
+        // the items immediately preceding it are exactly its gaps, in order,
+        // and no other gap item exists. In that case, don't touch the items
+        // at all: this runs on every transaction, and no-op remove/re-insert
+        // pairs would spam the subscribers.
+        let rendered_gap_count = (0..self.items.len())
+            .filter(|i| self.items.get(*i).is_some_and(|it| it.is_gap()))
+            .count();
+
+        let all_in_place = rendered_gap_count == desired.len()
+            && desired
+                .iter()
+                .rev()
+                .scan(HashMap::<usize, usize>::new(), |offsets, (token, anchor)| {
+                    // The n-th gap (from the end) anchored to `anchor` must
+                    // live at `anchor - 1 - n`.
+                    let nth = offsets.entry(*anchor).or_insert(0);
+                    let expected_index = anchor.checked_sub(1 + *nth);
+                    *nth += 1;
+
+                    Some(expected_index.is_some_and(|index| {
+                        self.items
+                            .get(index)
+                            .and_then(|item| item.as_gap())
+                            .is_some_and(|rendered| rendered == token)
+                    }))
+                })
+                .all(|in_place| in_place);
+
+        if all_in_place {
+            self.meta.has_gap_items = rendered_gap_count > 0;
+            return;
+        }
+
+        // Remove all existing gap items, remembering them by token so they
+        // keep their identity when re-inserted below.
+        let mut existing_items = HashMap::new();
+
+        for timeline_item_index in (0..self.items.len()).rev() {
+            let Some(token) = self
+                .items
+                .get(timeline_item_index)
+                .and_then(|item| item.as_gap())
+                .map(ToOwned::to_owned)
+            else {
+                continue;
+            };
+
+            existing_items.insert(token, self.items.remove(timeline_item_index));
+        }
+
+        // (Re-)insert the desired gaps, in timeline order.
+        let mut has_gap_items = false;
+
+        for gap in self.meta.timeline_gaps.clone() {
+            // The anchor is the timeline item of the first event at-or-after
+            // the gap's following event that has one (the following event
+            // itself may be filtered out of this timeline).
+            let Some(event_index) = self.items.position_by_event_id(&gap.following_event_id) else {
+                // The timeline doesn't know about the event (yet); a later
+                // transaction will reconcile again.
+                continue;
+            };
+
+            let Some(anchor_item_index) = self
+                .items
+                .all_remote_events()
+                .range(event_index..)
+                .find_map(|event_meta| event_meta.timeline_item_index)
+            else {
+                // Nothing after the gap is rendered in this timeline; there's
+                // no sensible place to show it.
+                continue;
+            };
+
+            let item = existing_items.remove(&gap.prev_token).unwrap_or_else(|| {
+                self.meta.new_timeline_item(VirtualTimelineItem::Gap { prev_token: gap.prev_token })
+            });
+
+            self.items.insert(anchor_item_index, item, None);
+            has_gap_items = true;
+        }
+
+        // Any leftover in `existing_items` is a gap that's no longer wanted;
+        // it's already been removed from the items above.
+
+        self.meta.has_gap_items = has_gap_items;
+    }
+
+    pub(super) fn commit(mut self) {
+        // Bring the rendered gap items in line with the event cache's latest
+        // gap report, now that all the item mutations of this transaction are
+        // done.
+        self.reconcile_gap_items();
+
         // Update the `subscriber_skip_count` value.
         let previous_number_of_items = self.number_of_items_when_transaction_started;
         let next_number_of_items = self.items.len();

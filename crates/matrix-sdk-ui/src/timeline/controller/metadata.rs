@@ -18,7 +18,7 @@ use std::{
 };
 
 use imbl::Vector;
-use matrix_sdk::deserialized_responses::EncryptionInfo;
+use matrix_sdk::{deserialized_responses::EncryptionInfo, event_cache::TimelineGap};
 use ruma::{
     EventId, OwnedEventId, OwnedUserId, UserId,
     events::{
@@ -145,6 +145,17 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// change. It is cached to be attached dynamically to the latest
     /// RtcNotification event inserted in the timeline.
     pub(crate) active_call: Option<ActiveCallInfo>,
+
+    /// The latest set of gaps reported by the event cache (via
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`]), which the timeline items
+    /// are reconciled against at the end of every state transaction.
+    ///
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`]: matrix_sdk::event_cache::RoomEventCacheUpdate::UpdateTimelineGaps
+    pub(super) timeline_gaps: Vec<TimelineGap>,
+
+    /// Whether any gap virtual item is currently part of the timeline items;
+    /// maintained by the gap reconciliation, as a fast-path check.
+    pub(super) has_gap_items: bool,
 }
 
 impl TimelineMetadata {
@@ -172,6 +183,8 @@ impl TimelineMetadata {
             is_room_encrypted,
             active_rtc_notification_event_id: None,
             active_call: None,
+            timeline_gaps: Vec::new(),
+            has_gap_items: false,
         }
     }
 
@@ -189,6 +202,11 @@ impl TimelineMetadata {
         // before attempting to update it for each new timeline item.
         self.has_up_to_date_read_marker_item = true;
         self.read_receipts.clear();
+        // Note: `timeline_gaps` is deliberately not cleared: it mirrors the
+        // event cache's latest gap report (which change-detects and won't
+        // re-send an identical set), not this timeline's content. The items
+        // are gone though, so reset the rendered-items flag.
+        self.has_gap_items = false;
     }
 
     /// Get the relative positions of two events in the timeline.

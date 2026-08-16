@@ -199,6 +199,22 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
 ) {
     trace!("Spawned the event subscriber task.");
 
+    // Get the initial set of gaps: some may already be loaded in memory (e.g.
+    // a gap inserted by a limited sync before this timeline was opened).
+    // Subsequent changes arrive as `UpdateTimelineGaps` updates.
+    if matches!(timeline_focus, TimelineFocus::Live { .. }) {
+        match room_event_cache.timeline_gaps().await {
+            Ok(gaps) => {
+                if !gaps.is_empty() {
+                    timeline_controller.handle_timeline_gaps(gaps).await;
+                }
+            }
+            Err(err) => {
+                warn!(?err, "Failed to fetch the initial timeline gaps");
+            }
+        }
+    }
+
     loop {
         trace!("Waiting for an event.");
 
@@ -255,6 +271,14 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
 
                 if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
                     timeline_controller.retry_event_decryption(None).await;
+                }
+            }
+
+            RoomEventCacheUpdate::UpdateTimelineGaps { gaps } => {
+                trace!("Received a new set of timeline gaps");
+
+                if matches!(timeline_focus, TimelineFocus::Live { .. }) {
+                    timeline_controller.handle_timeline_gaps(gaps).await;
                 }
             }
 

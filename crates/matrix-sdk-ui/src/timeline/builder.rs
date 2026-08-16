@@ -101,6 +101,24 @@ impl TimelineBuilder {
         self
     }
 
+    /// Serve live back-paginations from the storage only.
+    ///
+    /// When enabled, a live back-pagination never reaches the network: gaps
+    /// encountered while walking the storage are rendered as
+    /// [`VirtualTimelineItem::Gap`] items (so all the cached content is
+    /// reachable even offline), and are resolved on demand with
+    /// [`Timeline::resolve_gap`](super::Timeline::resolve_gap), typically when
+    /// a gap item becomes visible.
+    ///
+    /// When disabled (the default), a live back-pagination resolves gaps over
+    /// the network by itself, and no gap items are rendered.
+    ///
+    /// [`VirtualTimelineItem::Gap`]: super::VirtualTimelineItem::Gap
+    pub fn with_storage_only_pagination(mut self) -> Self {
+        self.settings.storage_only_pagination = true;
+        self
+    }
+
     /// Choose whether to enable tracking of the fully-read marker and the read
     /// receipts and on which event types.
     pub fn track_read_marker_and_receipts(mut self, tracking: TimelineReadReceiptTracking) -> Self {

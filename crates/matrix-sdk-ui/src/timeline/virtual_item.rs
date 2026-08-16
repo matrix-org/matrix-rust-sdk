@@ -30,4 +30,16 @@ pub enum VirtualTimelineItem {
     /// The timeline start, that is, an indication that we've seen all the
     /// events for that timeline.
     TimelineStart,
+
+    /// A gap in the timeline: a range of events we know nothing about, between
+    /// the items surrounding this virtual item.
+    ///
+    /// Consumers typically render this as a small loading indicator, and ask
+    /// for the gap to be resolved (e.g. when it becomes visible) with
+    /// [`Timeline::resolve_gap`](super::Timeline::resolve_gap).
+    Gap {
+        /// The previous-batch token identifying this gap, to pass to
+        /// [`Timeline::resolve_gap`](super::Timeline::resolve_gap).
+        prev_token: String,
+    },
 }

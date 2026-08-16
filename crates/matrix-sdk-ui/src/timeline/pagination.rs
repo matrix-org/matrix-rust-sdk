@@ -93,8 +93,20 @@ impl super::Timeline {
         event_cache_pagination: &RoomPagination,
         batch_size: u16,
     ) -> Result<bool, Error> {
+        // In storage-only mode, gaps encountered while walking the storage
+        // are surfaced as gap timeline items instead of being resolved over
+        // the network, so all the cached content is reachable even offline.
+        // Gaps are then resolved on demand with [`Timeline::resolve_gap`].
+        let storage_only = self.controller.settings.storage_only_pagination;
+
         loop {
-            match event_cache_pagination.run_backwards_once(batch_size).await {
+            let result = if storage_only {
+                event_cache_pagination.run_backwards_once_from_storage(batch_size).await
+            } else {
+                event_cache_pagination.run_backwards_once(batch_size).await
+            };
+
+            match result {
                 Ok(outcome) => {
                     if outcome.reached_start {
                         self.controller.insert_timeline_start_if_missing().await;
@@ -112,6 +124,33 @@ impl super::Timeline {
                 // Propagate errors as such.
                 Err(err) => return Err(err.into()),
             }
+        }
+    }
+
+    /// Resolve the timeline gap identified by the given prev-batch token (as
+    /// carried by a [`VirtualTimelineItem::Gap`] item), fetching up to
+    /// `batch_size` of the missing events with a single request to the server.
+    ///
+    /// The fetched events replace the gap item in place; if the gap was only
+    /// partially resolved, a gap item with a new token remains, and can be
+    /// resolved in turn.
+    ///
+    /// Concurrent resolutions of the same gap are deduplicated: only the
+    /// first runs, the others return `false` immediately. So it's fine to
+    /// call this whenever a gap item is visible, repeatedly.
+    ///
+    /// Only supported on live timelines.
+    ///
+    /// [`VirtualTimelineItem::Gap`]: crate::timeline::VirtualTimelineItem::Gap
+    pub async fn resolve_gap(&self, prev_token: String, batch_size: u16) -> Result<bool, Error> {
+        match self.controller.focus() {
+            TimelineFocusKind::Live { event_cache, .. } => {
+                Ok(event_cache.resolve_gap(prev_token, batch_size).await.map_err(Error::from)?)
+            }
+
+            TimelineFocusKind::Event { .. }
+            | TimelineFocusKind::Thread { .. }
+            | TimelineFocusKind::PinnedEvents { .. } => Err(Error::PaginationError(NotSupported)),
         }
     }
 

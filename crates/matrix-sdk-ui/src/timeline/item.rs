@@ -119,6 +119,17 @@ impl TimelineItem {
     pub fn is_timeline_start(&self) -> bool {
         matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart))
     }
+
+    /// Check whether this item is a (virtual) timeline gap item.
+    pub fn is_gap(&self) -> bool {
+        matches!(self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::Gap { .. }))
+    }
+
+    /// If this item is a (virtual) timeline gap item, return its prev-batch
+    /// token.
+    pub fn as_gap(&self) -> Option<&str> {
+        as_variant!(&self.kind, TimelineItemKind::Virtual(VirtualTimelineItem::Gap { prev_token }) => prev_token.as_str())
+    }
 }
 
 impl Deref for TimelineItem {

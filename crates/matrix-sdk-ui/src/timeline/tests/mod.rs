@@ -63,6 +63,7 @@ mod echo;
 mod edit;
 mod encryption;
 mod event_filter;
+mod gaps;
 mod invalid;
 mod live_location;
 mod polls;

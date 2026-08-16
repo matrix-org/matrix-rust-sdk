@@ -247,6 +247,18 @@ pub(super) struct TimelineSettings {
 
     /// Should the timeline items be grouped by day or month?
     pub(super) date_divider_mode: DateDividerMode,
+
+    /// Should live back-paginations be served from the storage only?
+    ///
+    /// When enabled, a live back-pagination never reaches the network: gaps
+    /// encountered while walking the storage are rendered as
+    /// [`VirtualTimelineItem::Gap`] items (so all the cached content is
+    /// reachable even offline), and are resolved on demand with
+    /// [`Timeline::resolve_gap`](crate::Timeline::resolve_gap).
+    ///
+    /// When disabled (the default), a live back-pagination resolves gaps over
+    /// the network by itself, and no gap items are rendered.
+    pub(super) storage_only_pagination: bool,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -266,6 +278,7 @@ impl Default for TimelineSettings {
             event_filter: Arc::new(default_event_filter),
             add_failed_to_parse: true,
             date_divider_mode: DateDividerMode::Daily,
+            storage_only_pagination: false,
         }
     }
 }
@@ -1515,6 +1528,27 @@ impl<P: RoomDataProvider> TimelineController<P> {
         txn.items.push_timeline_start_if_missing(
             txn.meta.new_timeline_item(VirtualTimelineItem::TimelineStart),
         );
+        txn.commit();
+    }
+
+    /// Take note of the latest set of gaps reported by the event cache, and
+    /// reconcile the timeline's gap items against it.
+    ///
+    /// Does nothing unless this timeline uses storage-only pagination: with
+    /// network-backed pagination, gaps are resolved under the hood and never
+    /// rendered.
+    pub(super) async fn handle_timeline_gaps(
+        &self,
+        gaps: Vec<matrix_sdk::event_cache::TimelineGap>,
+    ) {
+        if !self.settings.storage_only_pagination {
+            return;
+        }
+
+        let mut state = self.state.write().await;
+        let mut txn = state.transaction();
+        txn.meta.timeline_gaps = gaps;
+        // The reconciliation itself runs as part of the commit.
         txn.commit();
     }
 

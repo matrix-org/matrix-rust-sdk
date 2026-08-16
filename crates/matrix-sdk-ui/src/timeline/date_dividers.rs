@@ -154,7 +154,8 @@ impl DateDividerAdjuster {
                 }
 
                 TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker)
-                | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart) => {
+                | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart)
+                | TimelineItemKind::Virtual(VirtualTimelineItem::Gap { .. }) => {
                     // Nothing to do.
                 }
             }
@@ -251,7 +252,8 @@ impl DateDividerAdjuster {
             }
 
             TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker)
-            | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart) => {
+            | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart)
+            | TimelineItemKind::Virtual(VirtualTimelineItem::Gap { .. }) => {
                 // Nothing to do.
             }
         }
@@ -317,7 +319,8 @@ impl DateDividerAdjuster {
             }
 
             TimelineItemKind::Virtual(VirtualTimelineItem::ReadMarker)
-            | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart) => {
+            | TimelineItemKind::Virtual(VirtualTimelineItem::TimelineStart)
+            | TimelineItemKind::Virtual(VirtualTimelineItem::Gap { .. }) => {
                 // Nothing to do.
             }
         }

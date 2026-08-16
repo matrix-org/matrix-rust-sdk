@@ -432,6 +432,28 @@ impl<'observable_items> ObservableItemsTransaction<'observable_items> {
             return;
         }
 
+        // Don't insert the timeline start while a gap item leads the remotes
+        // region: having exhausted the *storage* with a leading unresolved gap
+        // doesn't prove we've seen the actual start of the room. Once the gap
+        // is resolved, a later pagination will insert the timeline start.
+        let leading_gap = self
+            .iter_remotes_region()
+            .find_map(|(_, item)| {
+                if item.is_gap() {
+                    Some(true)
+                } else if item.is_remote_event() {
+                    Some(false)
+                } else {
+                    // Skip other virtual items (date dividers, read marker).
+                    None
+                }
+            })
+            .unwrap_or(false);
+
+        if leading_gap {
+            return;
+        }
+
         self.push_front(timeline_item, None);
     }
 
