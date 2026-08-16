@@ -77,6 +77,10 @@ mod keys {
 /// The filename used for the SQLITE database file used by the state store.
 pub const DATABASE_NAME: &str = "matrix-sdk-state.sqlite3";
 
+/// The kv key set once the `room_data_sizes` counters were filled from the
+/// rows predating them.
+const ROOM_DATA_SIZES_READY_KEY: &str = "room_data_sizes_ready";
+
 /// An SQLite-based state store.
 #[derive(Clone)]
 pub struct SqliteStateStore {
@@ -552,6 +556,21 @@ impl SqliteStateStore {
             return Ok(());
         }
 
+        if from < 18 {
+            debug!("Upgrading database to version 18");
+            conn.with_transaction(move |txn| {
+                txn.execute_batch(include_str!(
+                    "../migrations/state_store/016_room_data_sizes.sql"
+                ))?;
+                txn.set_db_version(18)
+            })
+            .await?;
+        }
+
+        if to == Some(18) {
+            return Ok(());
+        }
+
         Ok(())
     }
 
@@ -632,7 +651,12 @@ impl SqliteStateStore {
             let conns = guard.as_ref().ok_or(Error::StoreClosed)?;
             conns.write_connection.clone()
         };
-        Ok(write_conn.lock_owned().await)
+        let conn = write_conn.lock_owned().await;
+        // The `room_data_sizes` counters rely on delete triggers firing for the
+        // rows an `INSERT OR REPLACE` replaces, which needs recursive triggers
+        // (a per-connection setting).
+        conn.execute_batch("PRAGMA recursive_triggers = ON;").await?;
+        Ok(conn)
     }
 
     fn remove_maybe_stripped_room_data(
@@ -2208,6 +2232,9 @@ impl StateStore for SqliteStateStore {
         let _timer = timer!("method");
 
         // (table, key salt, size expression): the room id is hashed per table.
+        // The sizes come from the trigger-maintained `room_data_sizes` counters
+        // (the tables are too big to scan), filled once from the rows predating
+        // them.
         const TABLES: &[(&str, &str, &str)] = &[
             ("room_info", keys::ROOM_INFO, "LENGTH(room_id) + LENGTH(data)"),
             (
@@ -2235,22 +2262,52 @@ impl StateStore for SqliteStateStore {
             ),
         ];
 
-        let conn = self.read().await?;
-        let mut usage = matrix_sdk_common::storage_usage::StorageUsage::default();
-
-        for (table, salt, size) in TABLES {
-            let sizes: HashMap<Vec<u8>, u64> = conn
-                .prepare(
-                    format!("SELECT room_id, SUM({size}) FROM {table} GROUP BY room_id"),
-                    |mut stmt| {
-                        stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
-                    },
-                )
+        let ready = self.read().await?.get_kv(ROOM_DATA_SIZES_READY_KEY).await?.is_some();
+        if !ready {
+            let _timer = timer!("filling the room data sizes");
+            self.write()
+                .await?
+                .with_transaction(|txn| -> Result<()> {
+                    txn.execute("DELETE FROM room_data_sizes", ())?;
+                    for (table, _, size) in TABLES {
+                        txn.execute(
+                            &format!(
+                                "INSERT INTO room_data_sizes (table_name, room_id, bytes) \
+                                 SELECT '{table}', room_id, SUM({size}) FROM {table} GROUP BY room_id"
+                            ),
+                            (),
+                        )?;
+                    }
+                    txn.set_kv(ROOM_DATA_SIZES_READY_KEY, b"1")?;
+                    Ok(())
+                })
                 .await?;
+        }
 
-            usage.total_bytes += sizes.values().sum::<u64>();
+        let rows: Vec<(String, Vec<u8>, u64)> = self
+            .read()
+            .await?
+            .prepare(
+                "SELECT table_name, room_id, bytes FROM room_data_sizes WHERE bytes > 0",
+                |mut stmt| {
+                    stmt.query(())?
+                        .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+                        .collect()
+                },
+            )
+            .await?;
+
+        let mut usage = matrix_sdk_common::storage_usage::StorageUsage::default();
+        let mut sizes: HashMap<(&str, Vec<u8>), u64> = HashMap::new();
+        for (table, room_id, bytes) in rows {
+            usage.total_bytes += bytes;
+            if let Some((table, _, _)) = TABLES.iter().find(|(name, _, _)| *name == table) {
+                sizes.insert((table, room_id), bytes);
+            }
+        }
+        for (table, salt, _) in TABLES {
             for room_id in room_ids {
-                if let Some(size) = sizes.get(&*self.encode_key(salt, room_id)) {
+                if let Some(size) = sizes.get(&(*table, self.encode_key(salt, room_id).to_vec())) {
                     *usage.per_room.entry(room_id.clone()).or_default() += size;
                 }
             }
@@ -2857,6 +2914,15 @@ mod tests {
         assert_eq!(usage.per_room.len(), 2, "{usage:?}");
         assert!(usage.per_room[room_a] > usage.per_room[room_b], "{usage:?}");
         assert_eq!(usage.per_room.values().sum::<u64>(), usage.total_bytes);
+
+        // Saving the same data again (OR REPLACE under the hood) doesn't change
+        // the counters.
+        store.save_changes(&changes).await.unwrap();
+        let resaved = store
+            .storage_usage(&[room_a.to_owned(), room_b.to_owned(), room_c.to_owned()])
+            .await
+            .unwrap();
+        assert_eq!(resaved, usage);
 
         // Removing room A's members keeps its room info, and room B's members.
         store.remove_room_members(room_a).await.unwrap();
