@@ -35,7 +35,7 @@ use matrix_sdk_test::{
 };
 use ruma::{
     EventId, OwnedEventId, RoomId, event_id, events::room::message::RoomMessageEventContent,
-    owned_mxc_uri, room_id,
+    owned_event_id, owned_mxc_uri, room_id,
 };
 
 use super::{MessageTypesCacheUpdate, MessageTypesEventCache};
@@ -156,7 +156,7 @@ async fn room_caches(
     client.base_client().get_or_create_room(room_id, RoomState::Joined);
 
     let (room_event_cache, _) = event_cache.room(room_id).await.unwrap();
-    let (view, _) = event_cache.message_types(room_id, vec![IMAGE.to_owned()]).await.unwrap();
+    let (view, _) = event_cache.message_types(room_id, vec![IMAGE.to_owned()], None).await.unwrap();
 
     (room_event_cache, view)
 }
@@ -267,6 +267,128 @@ async fn test_paginate_backwards_exposes_older_pages() {
     // Nothing more to expose: no update.
     assert!(view.paginate_backwards(1).await.unwrap());
     assert!(updates.recv().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_around_event_exposes_a_window_paged_both_ways() {
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().room(room_id);
+
+    // 100 images in one chunk; a window around $img40.
+    let store = Arc::new(MemoryStore::new());
+    let images = (0..100)
+        .map(|i| image(&f, &EventId::parse(format!("$img{i}")).unwrap()))
+        .collect::<Vec<_>>();
+    store
+        .handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: ChunkIdentifier::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(ChunkIdentifier::new(0), 0),
+                    items: images.clone(),
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_store(&server, store).await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    client.base_client().get_or_create_room(room_id, RoomState::Joined);
+    let (view, _) = event_cache
+        .message_types(room_id, vec![IMAGE.to_owned()], Some(owned_event_id!("$img40")))
+        .await
+        .unwrap();
+
+    let (events, _, mut updates) = view.subscribe().await;
+
+    // Half a page on either side of the event, which is included.
+    assert_eq!(ids(&events), ids(&images[15..65]));
+    assert!(!view.hit_start().await);
+    assert!(!view.hit_end().await);
+
+    // Forwards: 10 newer ones, pushed at the back, in order.
+    assert!(!view.paginate_forwards(10).await.unwrap());
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert_eq!(diffs.len(), 10);
+    for (diff, expected) in diffs.iter().zip(&images[65..75]) {
+        assert_matches!(diff, VectorDiff::PushBack { value } => {
+            assert_eq!(value.event_id(), expected.event_id());
+        });
+    }
+
+    // Backwards still works, from the window's older edge.
+    assert!(!view.paginate_backwards(5).await.unwrap());
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert_eq!(diffs.len(), 5);
+    let (events, _) = view.events_and_gaps().await;
+    assert_eq!(ids(&events), ids(&images[10..75]));
+
+    // A synced image lands beyond the window: held back, not exposed.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(image_builder(&f, event_id!("$new1"))),
+        )
+        .await;
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert!(diffs.is_empty());
+
+    // Reaching the end exposes it, and the window follows the end from then
+    // on: the next synced image is exposed right away.
+    assert!(view.paginate_forwards(100).await.unwrap());
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert_eq!(diffs.len(), 26);
+    assert!(view.hit_end().await);
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(image_builder(&f, event_id!("$new2"))),
+        )
+        .await;
+    assert_let_timeout!(
+        Ok(MessageTypesCacheUpdate { diffs, origin: EventsOrigin::Sync, .. }) = updates.recv()
+    );
+    assert_eq!(diffs.len(), 1);
+    assert_matches!(&diffs[0], VectorDiff::Insert { index: 91, value } => {
+        assert_eq!(value.event_id(), Some(event_id!("$new2")));
+    });
+
+    // Nothing newer to expose: no update.
+    assert!(view.paginate_forwards(1).await.unwrap());
+    assert!(updates.recv().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_around_an_unknown_event_falls_back_to_the_newest_page() {
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().room(room_id);
+
+    let store = Arc::new(MemoryStore::new());
+    prefill_store(&store, room_id, &f).await;
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_store(&server, store).await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+    client.base_client().get_or_create_room(room_id, RoomState::Joined);
+    let (view, _) = event_cache
+        .message_types(room_id, vec![IMAGE.to_owned()], Some(owned_event_id!("$txt1")))
+        .await
+        .unwrap();
+
+    let (events, _, _) = view.subscribe().await;
+    assert_eq!(ids(&events), [event_id!("$img1"), event_id!("$img2"), event_id!("$img3")]);
+    assert!(view.hit_start().await);
+    assert!(view.hit_end().await);
 }
 
 #[async_test]

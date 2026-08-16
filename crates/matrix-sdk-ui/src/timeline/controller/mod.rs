@@ -467,9 +467,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 event_cache: event_cache.pinned_events(room_id).await?.0,
             },
 
-            TimelineFocus::MessageTypes { msgtypes } => TimelineFocusKind::MessageTypes {
-                event_cache: event_cache.message_types(room_id, msgtypes.clone()).await?.0,
-            },
+            TimelineFocus::MessageTypes { msgtypes, around_event } => {
+                TimelineFocusKind::MessageTypes {
+                    event_cache: event_cache
+                        .message_types(room_id, msgtypes.clone(), around_event.clone())
+                        .await?
+                        .0,
+                }
+            }
         };
 
         let focus = Arc::new(focus);

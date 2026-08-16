@@ -148,6 +148,10 @@ pub enum TimelineFocus {
     /// Storage-only pagination is implied. Local echoes aren't shown.
     MessageTypes {
         types: Vec<RoomMessageEventMessageType>,
+        /// The event to show a first page around, instead of the newest page
+        /// (e.g. the media tapped in a chat, to swipe from). Both directions
+        /// paginate from there.
+        around_event_id: Option<String>,
     },
 }
 
@@ -179,11 +183,19 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                 Ok(Self::Thread { root_event_id: parsed_root_event_id })
             }
             TimelineFocus::PinnedEvents => Ok(Self::PinnedEvents),
-            TimelineFocus::MessageTypes { types } => Ok(Self::MessageTypes {
+            TimelineFocus::MessageTypes { types, around_event_id } => Ok(Self::MessageTypes {
                 msgtypes: types
                     .iter()
                     .filter_map(|message_type| message_type.msgtype().map(ToOwned::to_owned))
                     .collect(),
+                around_event: around_event_id
+                    .map(|event_id| {
+                        EventId::parse(&event_id).map_err(|err| FocusEventError::InvalidEventId {
+                            event_id: event_id.clone(),
+                            err: err.to_string(),
+                        })
+                    })
+                    .transpose()?,
             }),
         }
     }

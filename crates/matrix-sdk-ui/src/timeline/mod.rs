@@ -155,16 +155,20 @@ pub enum TimelineFocus {
     /// doesn't require walking its whole history.
     ///
     /// Such a timeline gets its events oldest-first in pages
-    /// ([`Timeline::paginate_backwards`] exposes older ones, from the store,
-    /// never from the network), renders the room's gaps as
-    /// [`VirtualTimelineItem::Gap`] items (to be resolved with
-    /// [`Timeline::resolve_gap`]), doesn't show local echoes, and receives
-    /// live updates: new matching messages, redactions, redecryptions.
+    /// ([`Timeline::paginate_backwards`] exposes older ones,
+    /// [`Timeline::paginate_forwards`] newer ones, from the store, never from
+    /// the network), renders the room's gaps as [`VirtualTimelineItem::Gap`]
+    /// items (to be resolved with [`Timeline::resolve_gap`]), doesn't show
+    /// local echoes, and receives live updates once its window reaches the
+    /// newest event: new matching messages, redactions, redecryptions.
     ///
     /// [`VirtualTimelineItem::Gap`]: crate::timeline::VirtualTimelineItem::Gap
     MessageTypes {
         /// The `msgtype`s to show.
         msgtypes: Vec<String>,
+        /// The event to expose a first page around, instead of the newest
+        /// page (e.g. the media tapped in a chat, to swipe from).
+        around_event: Option<OwnedEventId>,
     },
 }
 
@@ -214,7 +218,9 @@ impl TimelineFocus {
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
             TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
             TimelineFocus::PinnedEvents => "pinned-events".to_owned(),
-            TimelineFocus::MessageTypes { msgtypes } => format!("msgtypes:{}", msgtypes.join(",")),
+            TimelineFocus::MessageTypes { msgtypes, .. } => {
+                format!("msgtypes:{}", msgtypes.join(","))
+            }
         }
     }
 }

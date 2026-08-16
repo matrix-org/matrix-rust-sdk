@@ -25,11 +25,13 @@
 //! `LinkedChunkUpdateFanout`), whichever code path produced them: sync,
 //! back-pagination, gap resolution, redecryption, redaction, clear.
 //!
-//! The view exposes its events newest-first in pages (see
-//! [`MessageTypesEventCache::paginate_backwards`]), and reports the room's
-//! gaps as [`TimelineGap`]s anchored to the next matching event, or with no
-//! anchor when no matching event follows (which is how a media grid learns
-//! that there may be media hidden behind a gap at its newest end).
+//! The view exposes a window of its events: the newest page by default (see
+//! [`MessageTypesEventCache::paginate_backwards`]), or a page around a given
+//! event (see [`MessageTypesEventCache::paginate_forwards`] then), and
+//! reports the room's gaps as [`TimelineGap`]s anchored to the next matching
+//! event, or with no anchor when no matching event follows (which is how a
+//! media grid learns that there may be media hidden behind a gap at its
+//! newest end).
 
 use std::{fmt, sync::Arc};
 
@@ -143,10 +145,15 @@ struct State {
     /// All the entries, in timeline order (oldest first).
     entries: Vec<Entry>,
 
-    /// The entries at `exposed_from..` are exposed to subscribers; the ones
-    /// before are held back until
-    /// [`MessageTypesEventCache::paginate_backwards`] exposes them.
+    /// The entries at `exposed_from..exposed_to` are exposed to subscribers;
+    /// the ones before are held back until
+    /// [`MessageTypesEventCache::paginate_backwards`] exposes them, the ones
+    /// after until [`MessageTypesEventCache::paginate_forwards`] does.
+    ///
+    /// A window reaching the end of the entries follows it: newly appended
+    /// entries are exposed right away.
     exposed_from: usize,
+    exposed_to: usize,
 }
 
 impl State {
@@ -157,7 +164,7 @@ impl State {
 
     /// The exposed events, oldest first.
     fn exposed_events(&self) -> Vec<Event> {
-        self.entries[self.exposed_from..]
+        self.entries[self.exposed_from..self.exposed_to]
             .iter()
             .filter_map(|entry| match entry {
                 Entry::Event { event, .. } => Some(event.clone()),
@@ -179,7 +186,7 @@ impl State {
     /// The gaps to render: every exposed gap, anchored to the first exposed
     /// event after it (if any).
     fn timeline_gaps(&self) -> Vec<TimelineGap> {
-        let exposed = &self.entries[self.exposed_from..];
+        let exposed = &self.entries[self.exposed_from..self.exposed_to];
 
         exposed
             .iter()
@@ -198,9 +205,9 @@ impl State {
 
     /// Insert an entry at its place in the timeline order.
     ///
-    /// Entries landing among the exposed ones are exposed right away, and
-    /// their diff is pushed to `diffs`; entries landing before them are held
-    /// back.
+    /// Entries landing among the exposed ones (or right after them, when the
+    /// window follows the end) are exposed right away, and their diff is
+    /// pushed to `diffs`; the other entries are held back.
     fn insert(&mut self, entry: Entry, diffs: &mut Vec<VectorDiff<Event>>) {
         let Some(key) = self.key(&entry) else {
             // The chunk isn't part of the linked chunk (any more).
@@ -214,15 +221,17 @@ impl State {
             .entries
             .partition_point(|other| self.key(other).is_some_and(|other_key| other_key < key));
 
-        if index >= self.exposed_from {
+        if index < self.exposed_from {
+            self.exposed_from += 1;
+            self.exposed_to += 1;
+        } else if index < self.exposed_to || self.exposed_to == self.entries.len() {
             if let Entry::Event { event, .. } = &entry {
                 diffs.push(VectorDiff::Insert {
                     index: self.event_index(index),
                     value: event.clone(),
                 });
             }
-        } else {
-            self.exposed_from += 1;
+            self.exposed_to += 1;
         }
 
         self.entries.insert(index, entry);
@@ -230,12 +239,14 @@ impl State {
 
     /// Remove the entry at `index`.
     fn remove(&mut self, index: usize, diffs: &mut Vec<VectorDiff<Event>>) -> Entry {
-        if index >= self.exposed_from {
+        if index < self.exposed_from {
+            self.exposed_from -= 1;
+            self.exposed_to -= 1;
+        } else if index < self.exposed_to {
             if let Entry::Event { .. } = &self.entries[index] {
                 diffs.push(VectorDiff::Remove { index: self.event_index(index) });
             }
-        } else {
-            self.exposed_from -= 1;
+            self.exposed_to -= 1;
         }
 
         self.entries.remove(index)
@@ -304,7 +315,7 @@ impl State {
                     (Some(index), true) => {
                         // Same place, new content (e.g. updated encryption
                         // info, or an edit applied).
-                        if index >= self.exposed_from {
+                        if (self.exposed_from..self.exposed_to).contains(&index) {
                             diffs.push(VectorDiff::Set {
                                 index: self.event_index(index),
                                 value: item.clone(),
@@ -352,7 +363,7 @@ impl State {
             }
 
             Update::Clear => {
-                if self.entries[self.exposed_from..]
+                if self.entries[self.exposed_from..self.exposed_to]
                     .iter()
                     .any(|entry| matches!(entry, Entry::Event { .. }))
                 {
@@ -360,6 +371,7 @@ impl State {
                 }
                 self.entries.clear();
                 self.exposed_from = 0;
+                self.exposed_to = 0;
             }
         }
     }
@@ -370,12 +382,16 @@ impl MessageTypesEventCache {
     /// of the given `msgtype`s.
     ///
     /// The view is seeded from the store, and kept up to date from there on.
+    /// It initially exposes the newest page of events, or a page around
+    /// `around_event` when given (falling back to the newest page if that
+    /// event isn't one of the matching events the store knows).
     #[instrument(skip(client, room_event_cache, linked_chunk_update_sender), fields(room_id = %room_event_cache.room_id()))]
     pub(in super::super) async fn new(
         client: &Client,
         room_event_cache: RoomEventCache,
         linked_chunk_update_sender: &LinkedChunkUpdateFanout,
         msgtypes: Vec<String>,
+        around_event: Option<OwnedEventId>,
     ) -> Result<Self> {
         let room_id = room_event_cache.room_id().to_owned();
         let msgtypes_refs = msgtypes.iter().map(String::as_str).collect::<Vec<_>>();
@@ -410,7 +426,7 @@ impl MessageTypesEventCache {
             let metadata = order_chunk_metadata(metadata);
             let order = OrderTracker::from_metadata(metadata);
 
-            let mut state = State { order, entries: Vec::new(), exposed_from: 0 };
+            let mut state = State { order, entries: Vec::new(), exposed_from: 0, exposed_to: 0 };
 
             let mut entries = gaps
                 .into_iter()
@@ -421,9 +437,31 @@ impl MessageTypesEventCache {
             entries.sort_by_key(|(key, _)| *key);
             state.entries = entries.into_iter().map(|(_, entry)| entry).collect();
 
-            // Expose the newest page.
-            state.exposed_from = state.entries.len();
-            state.expose_backwards(INITIAL_PAGE_SIZE, &mut Vec::new());
+            // Expose the initial page: around the given event, or the newest.
+            let around = around_event.as_ref().and_then(|event_id| {
+                let index = state.entries.iter().position(|entry| {
+                    entry.event_id().as_deref() == Some(event_id)
+                });
+                if index.is_none() {
+                    warn!(%event_id, "The event to expose around isn't in the view; exposing the newest page");
+                }
+                index
+            });
+
+            let mut discarded_diffs = Vec::new();
+            match around {
+                Some(index) => {
+                    state.exposed_from = index;
+                    state.exposed_to = index;
+                    state.expose_backwards(INITIAL_PAGE_SIZE / 2, &mut discarded_diffs);
+                    state.expose_forwards(INITIAL_PAGE_SIZE / 2, &mut discarded_diffs);
+                }
+                None => {
+                    state.exposed_from = state.entries.len();
+                    state.exposed_to = state.entries.len();
+                    state.expose_backwards(INITIAL_PAGE_SIZE, &mut discarded_diffs);
+                }
+            }
 
             (state, updates)
         };
@@ -431,6 +469,7 @@ impl MessageTypesEventCache {
         debug!(
             num_entries = state.entries.len(),
             exposed_from = state.exposed_from,
+            exposed_to = state.exposed_to,
             "Seeded the message-type filtered view"
         );
 
@@ -473,6 +512,14 @@ impl MessageTypesEventCache {
         self.inner.state.read().await.exposed_from == 0
     }
 
+    /// Whether the exposed window reaches the newest event the store knows
+    /// (there is nothing newer to expose with [`Self::paginate_forwards`],
+    /// and newly synced events are exposed as they come).
+    pub async fn hit_end(&self) -> bool {
+        let state = self.inner.state.read().await;
+        state.exposed_to == state.entries.len()
+    }
+
     /// The exposed events (oldest first) and the gaps to render.
     pub async fn events_and_gaps(&self) -> (Vec<Event>, Vec<TimelineGap>) {
         let state = self.inner.state.read().await;
@@ -500,6 +547,29 @@ impl MessageTypesEventCache {
         }
 
         Ok(hit_start)
+    }
+
+    /// Expose up to `num_events` more (newer) events, sent to subscribers as
+    /// an update.
+    ///
+    /// Returns whether the exposed window reaches the newest event the store
+    /// knows now (see [`Self::hit_end`]).
+    pub async fn paginate_forwards(&self, num_events: usize) -> Result<bool> {
+        let mut state = self.inner.state.write().await;
+
+        let mut diffs = Vec::new();
+        state.expose_forwards(num_events, &mut diffs);
+        let hit_end = state.exposed_to == state.entries.len();
+
+        if !diffs.is_empty() {
+            let _ = self.inner.update_sender.send(MessageTypesCacheUpdate {
+                diffs,
+                origin: EventsOrigin::Cache,
+                gaps: state.timeline_gaps(),
+            });
+        }
+
+        Ok(hit_end)
     }
 
     /// Resolve one of the room's gaps, fetching up to `batch_size` of the
@@ -537,6 +607,26 @@ impl State {
         if self.entries[..self.exposed_from].iter().all(|entry| matches!(entry, Entry::Gap { .. }))
         {
             self.exposed_from = 0;
+        }
+    }
+
+    /// Expose up to `num_events` more events from the held-back suffix; when
+    /// no held-back event remains, expose the rest (gaps) too.
+    fn expose_forwards(&mut self, num_events: usize, diffs: &mut Vec<VectorDiff<Event>>) {
+        let mut exposed = 0;
+
+        while self.exposed_to < self.entries.len() && exposed < num_events {
+            if let Entry::Event { event, .. } = &self.entries[self.exposed_to] {
+                exposed += 1;
+                diffs.push(VectorDiff::PushBack { value: event.clone() });
+            }
+
+            self.exposed_to += 1;
+        }
+
+        // Only gaps left after: expose them along, there is nothing to page.
+        if self.entries[self.exposed_to..].iter().all(|entry| matches!(entry, Entry::Gap { .. })) {
+            self.exposed_to = self.entries.len();
         }
     }
 }

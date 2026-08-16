@@ -85,9 +85,13 @@ impl super::Timeline {
                 Ok(event_cache.paginate_forwards(num_events).await?.hit_end_of_timeline)
             }
 
-            TimelineFocusKind::Thread { .. }
-            | TimelineFocusKind::PinnedEvents { .. }
-            | TimelineFocusKind::MessageTypes { .. } => Err(Error::PaginationError(NotSupported)),
+            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => {
+                Err(Error::PaginationError(NotSupported))
+            }
+
+            TimelineFocusKind::MessageTypes { event_cache } => {
+                Ok(event_cache.paginate_forwards(num_events.into()).await?)
+            }
         }
     }
 

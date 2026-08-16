@@ -84,7 +84,10 @@ async fn test_message_types_focus_shows_indexed_media_with_gaps() {
     // network.
     let timeline = room
         .timeline_builder()
-        .with_focus(TimelineFocus::MessageTypes { msgtypes: vec!["m.image".to_owned()] })
+        .with_focus(TimelineFocus::MessageTypes {
+            msgtypes: vec!["m.image".to_owned()],
+            around_event: None,
+        })
         .build()
         .await
         .unwrap();
@@ -171,4 +174,71 @@ async fn test_message_types_focus_shows_indexed_media_with_gaps() {
         "{items:?}"
     );
     assert_pending!(timeline_stream);
+}
+
+#[async_test]
+async fn test_message_types_focus_around_an_event_pages_both_ways() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // 60 images synced in one go.
+    let mut room_builder = JoinedRoomBuilder::new(room_id);
+    for i in 0..60 {
+        let event_id = EventId::parse(format!("$img{i}")).unwrap();
+        room_builder = room_builder.add_timeline_event(
+            f.image(format!("{event_id}.png"), owned_mxc_uri!("mxc://example.org/img"))
+                .event_id(&event_id),
+        );
+    }
+    let room = server.sync_room(&client, room_builder).await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::MessageTypes {
+            msgtypes: vec!["m.image".to_owned()],
+            around_event: Some(event_id!("$img30").to_owned()),
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    // Half a page either side of the event, no timeline start (there's more
+    // before), the date divider on top.
+    let event_ids = |items: &eyeball_im::Vector<std::sync::Arc<TimelineItem>>| {
+        items
+            .iter()
+            .filter_map(|item| item.as_event()?.event_id().map(ToOwned::to_owned))
+            .collect::<Vec<_>>()
+    };
+    assert!(items[0].is_date_divider());
+    assert_eq!(items.len(), 51);
+    assert_eq!(event_ids(&items).first().map(|id| id.as_str()), Some("$img5"));
+    assert_eq!(event_ids(&items).last().map(|id| id.as_str()), Some("$img54"));
+
+    // Forwards to the end.
+    assert!(timeline.paginate_forwards(10).await.unwrap());
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    for update in timeline_updates {
+        update.apply(&mut items);
+    }
+    assert_eq!(event_ids(&items).last().map(|id| id.as_str()), Some("$img59"));
+
+    // Backwards to the start: the timeline start shows up.
+    assert!(timeline.paginate_backwards(10).await.unwrap());
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+        }
+        if items[0].is_timeline_start() {
+            break;
+        }
+    }
+    assert_eq!(event_ids(&items).len(), 60);
 }

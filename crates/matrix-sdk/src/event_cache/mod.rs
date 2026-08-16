@@ -499,11 +499,15 @@ impl EventCache {
     /// room messages of the given `msgtype`s (e.g. `m.image`, `m.video` for a
     /// media gallery), served from the store's index, with the room's gaps.
     ///
+    /// The view initially exposes the newest page of events, or a page
+    /// around `around_event` when given.
+    ///
     /// See [`MessageTypesEventCache`].
     pub async fn message_types(
         &self,
         room_id: &RoomId,
         msgtypes: Vec<String>,
+        around_event: Option<OwnedEventId>,
     ) -> Result<(MessageTypesEventCache, Arc<EventCacheDropHandles>)> {
         let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
             return Err(EventCacheError::NotSubscribedYet);
@@ -520,6 +524,7 @@ impl EventCache {
             room_event_cache,
             &self.inner.linked_chunk_update_sender,
             msgtypes,
+            around_event,
         )
         .await?;
 
