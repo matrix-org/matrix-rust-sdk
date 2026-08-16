@@ -213,11 +213,17 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         })
         .await;
 
+    // Ignoring filters the ignored user's events out of the cache in place:
+    // only Bob's event goes away, the rest of the timeline is untouched.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 1);
+    assert_eq!(timeline_updates.len(), 1, "{timeline_updates:?}");
+    assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[0]);
 
-    // The timeline has been emptied.
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+    let items = timeline.items().await;
+    assert_eq!(items.len(), 3);
+    assert!(items[0].is_date_divider());
+    assert_eq!(items[1].as_event().unwrap().event_id(), Some(first_event_id));
+    assert_eq!(items[2].as_event().unwrap().event_id(), Some(third_event_id));
 
     let fourth_event_id = event_id!("$YTQwYl2pl4");
     let fifth_event_id = event_id!("$YTQwYl2pl5");
@@ -235,22 +241,38 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         .await;
 
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 4);
+    assert_eq!(timeline_updates.len(), 4, "{timeline_updates:?}");
 
-    // Timeline receives events as before.
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    // Timeline receives events as before (the third event gets re-grouped
+    // with its new successor).
+    assert_let!(VectorDiff::Set { index: 2, value } = &timeline_updates[0]);
+    assert_eq!(value.as_event().unwrap().event_id(), Some(third_event_id));
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[1]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
 
-    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
+    assert_let!(VectorDiff::Set { index: 3, value } = &timeline_updates[2]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
 
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[3]);
     assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
 
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
-    assert!(value.is_date_divider());
-
     assert_pending!(timeline_stream);
+
+    // Un-ignoring can't resurrect what was filtered out: that one resets the
+    // timeline for good.
+    server
+        .mock_sync()
+        .ok_and_run(&client, |builder| {
+            builder.add_global_account_data(
+                ev_factory.ignored_user_list(Vec::<ruma::OwnedUserId>::new()),
+            );
+        })
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1, "{timeline_updates:?}");
+    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
 }
 
 #[async_test]

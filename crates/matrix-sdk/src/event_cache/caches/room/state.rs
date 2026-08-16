@@ -40,11 +40,10 @@ use ruma::{
 };
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use super::LinkedChunkUpdateFanout;
 use super::{
     super::{
         super::{
-            EventCacheError,
+            EventCacheError, EventsOrigin,
             back_pagination_queue::BackPaginationQueue,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::{
@@ -53,12 +52,13 @@ use super::{
             },
             states::{ReloadPreprocessing, StateLockReadGuard, StateLockWriteGuard},
         },
-        EventLocation,
+        EventLocation, TimelineVectorDiffs,
         event_linked_chunk::EventLinkedChunk,
         pagination::SharedPaginationStatus,
         read_receipts::compute_unread_counts,
         subscriber::SubscribersHandle,
     },
+    LinkedChunkUpdateFanout, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
     RoomEventCacheUpdateSender, sort_positions_descending,
     updates::TimelineGap,
 };
@@ -676,7 +676,8 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         &mut self,
         senders: &BTreeSet<OwnedUserId>,
     ) -> Result<(), EventCacheError> {
-        let sender_of = |event: &Event| event.raw().get_field::<OwnedUserId>("sender").ok().flatten();
+        let sender_of =
+            |event: &Event| event.raw().get_field::<OwnedUserId>("sender").ok().flatten();
 
         // In-memory matches; removing those propagates to the store too.
         let mut in_memory = Vec::new();
@@ -712,7 +713,34 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             return Ok(());
         }
 
-        self.remove_events(in_memory, in_store).await
+        self.remove_events(in_memory, in_store).await?;
+
+        // `remove_events` leaves the resulting diffs for the caller to emit
+        // (its callers usually batch them with more changes); we're the
+        // caller here, so emit them now, otherwise observers would only see
+        // the removals with the next sync's diffs.
+        let diffs = self.room_linked_chunk_mut().updates_as_vector_diffs();
+        if !diffs.is_empty() {
+            self.state.update_sender.send(
+                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                    diffs,
+                    origin: EventsOrigin::Cache,
+                }),
+                Some(RoomEventCacheGenericUpdate {
+                    room_id: self.state.room_id.clone(),
+                    origin: EventsOrigin::Cache,
+                }),
+            );
+        }
+
+        // Removals may have re-anchored gaps.
+        if self.state.has_announced_timeline_gaps()
+            && let Some(gaps) = self.state.take_timeline_gaps_update()
+        {
+            self.state.update_sender.send(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
+        }
+
+        Ok(())
     }
 
     async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
