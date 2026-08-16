@@ -19,7 +19,7 @@ use std::{
     fmt::{self, Debug},
     future::{Future, ready},
     pin::Pin,
-    sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock, Weak},
+    sync::{Arc, Mutex as StdMutex, OnceLock, RwLock as StdRwLock, Weak},
     time::Duration,
 };
 
@@ -365,6 +365,13 @@ pub(crate) struct ClientInner {
     /// sync response.
     pub(crate) room_updates_sender: broadcast::Sender<RoomUpdates>,
 
+    /// A lossless queue of the same [`RoomUpdates`], reserved for the event
+    /// cache: unlike the broadcast channel above, a slow consumer lags in
+    /// delivery rather than losing updates, so the event cache never has to
+    /// wipe its storage over a missed broadcast.
+    pub(crate) event_cache_room_updates_tx:
+        OnceLock<tokio::sync::mpsc::UnboundedSender<RoomUpdates>>,
+
     /// The sequence number stamped on the last [`RoomUpdates`] broadcast over
     /// [`ClientInner::room_updates_sender`] (see [`RoomUpdates::seq`]).
     pub(crate) room_updates_seq: std::sync::atomic::AtomicU64,
@@ -503,6 +510,7 @@ impl ClientInner {
             // A single `RoomUpdates` is sent once per sync, so we assume that 32 is sufficient
             // ballast for all observers to catch up.
             room_updates_sender: broadcast::Sender::new(32),
+            event_cache_room_updates_tx: Default::default(),
             room_updates_seq: Default::default(),
             respect_login_well_known,
             sync_beat: event_listener::Event::new(),
@@ -1416,6 +1424,23 @@ impl Client {
     /// a sync response.
     pub fn subscribe_to_all_room_updates(&self) -> broadcast::Receiver<RoomUpdates> {
         self.inner.room_updates_sender.subscribe()
+    }
+
+    /// The event cache's lossless [`RoomUpdates`] queue.
+    ///
+    /// Unlike [`Self::subscribe_to_all_room_updates`], this queue never drops
+    /// updates when the consumer falls behind, so the event cache is
+    /// guaranteed to observe every sync response. Reserved for the event
+    /// cache, and callable only once.
+    pub(crate) fn event_cache_room_updates_queue(
+        &self,
+    ) -> tokio::sync::mpsc::UnboundedReceiver<RoomUpdates> {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        self.inner
+            .event_cache_room_updates_tx
+            .set(tx)
+            .expect("the event cache subscribes to room updates only once");
+        rx
     }
 
     /// The sequence number stamped on the most recently broadcast

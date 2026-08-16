@@ -3465,12 +3465,15 @@ mod tests {
              corresponding room updates"
         );
 
-        // Emulate the sync flow broadcasting the corresponding room updates;
-        // once the event cache has durably processed them, the write may
-        // proceed.
+        // Emulate the sync flow delivering the corresponding room updates to
+        // the event cache (over its lossless queue, as `handle_sync_response`
+        // does); once the event cache has durably processed them, the write
+        // may proceed.
         client
             .inner
-            .room_updates_sender
+            .event_cache_room_updates_tx
+            .get()
+            .expect("the event cache is subscribed")
             .send(RoomUpdates { seq: target_seq, ..Default::default() })
             .unwrap();
 

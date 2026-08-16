@@ -28,7 +28,7 @@ use tokio::{
     select,
     sync::{
         OwnedRwLockReadGuard,
-        broadcast::{Receiver, Sender, error::RecvError},
+        broadcast::{Sender, error::RecvError},
         mpsc,
     },
 };
@@ -36,7 +36,7 @@ use tracing::{Instrument as _, Span, debug, error, info, info_span, instrument, 
 
 use super::{
     AutoShrinkMessage, Caches, CachesByRoom, EventCacheError, EventCacheInner,
-    RoomEventCacheLinkedChunkUpdate,
+    LinkedChunkUpdateFanout, RoomEventCacheLinkedChunkUpdate,
 };
 use crate::{
     client::WeakClient,
@@ -44,15 +44,21 @@ use crate::{
 };
 
 /// Listen to [`RoomUpdates`] to update the Event Cache.
+///
+/// The feed is the lossless queue from
+/// [`Client::event_cache_room_updates_queue`]: falling behind means updates
+/// queue up, not that they're dropped, so there is no lag-recovery path (the
+/// previous broadcast-based version had to wipe the whole event cache storage
+/// whenever it missed a broadcast).
 #[instrument(skip_all)]
 pub(super) async fn room_updates_task(
     inner: Arc<EventCacheInner>,
-    mut room_updates_feed: Receiver<RoomUpdates>,
+    mut room_updates_feed: mpsc::UnboundedReceiver<RoomUpdates>,
 ) {
     trace!("Spawning the listen task");
     loop {
         match room_updates_feed.recv().await {
-            Ok(updates) => {
+            Some(updates) => {
                 trace!("Receiving `RoomUpdates`");
 
                 let seq = updates.seq;
@@ -80,17 +86,7 @@ pub(super) async fn room_updates_task(
                 inner.processed_room_updates_seq.send_replace(seq);
             }
 
-            Err(RecvError::Lagged(num_skipped)) => {
-                // Forget everything we know; we could have missed events, and we have
-                // no way to reconcile at the moment!
-                // TODO: implement Smart Matching™,
-                warn!(num_skipped, "Lagged behind room updates, clearing all rooms");
-                if let Err(err) = inner.clear_all_rooms().await {
-                    error!("when clearing storage after lag in listen_task: {err}");
-                }
-            }
-
-            Err(RecvError::Closed) => {
+            None => {
                 // The sender has shut down, exit.
                 info!("Closing the event cache global listen task because receiver closed");
                 break;
@@ -232,7 +228,7 @@ pub(super) async fn auto_shrink_linked_chunk_task(
 #[instrument(skip_all)]
 pub(super) async fn thread_subscriber_task(
     client: WeakClient,
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateFanout,
     thread_subscriber_sender: Sender<()>,
 ) {
     let mut send_q_rx = if let Some(client) = client.get() {
@@ -287,17 +283,14 @@ pub(super) async fn thread_subscriber_task(
 
             res = linked_chunk_rx.recv() => {
                 match res {
-                    Ok(up) => {
+                    Some(up) => {
                         if !handle_thread_subscriber_linked_chunk_update(&client, &thread_subscriber_sender, up).await {
                             break;
                         }
                     }
-                    Err(RecvError::Closed) => {
+                    None => {
                         debug!("Linked chunk update channel has been closed, exiting thread subscriber task");
                         break;
-                    }
-                    Err(RecvError::Lagged(num_skipped)) => {
-                        warn!(num_skipped, "Lagged behind linked chunk updates");
                     }
                 }
             }
@@ -499,13 +492,13 @@ async fn handle_thread_subscriber_linked_chunk_update(
 #[instrument(skip_all)]
 pub(super) async fn search_indexing_task(
     client: WeakClient,
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateFanout,
 ) {
     let mut linked_chunk_update_receiver = linked_chunk_update_sender.subscribe();
 
     loop {
         match linked_chunk_update_receiver.recv().await {
-            Ok(room_ec_lc_update) => {
+            Some(room_ec_lc_update) => {
                 let OwnedLinkedChunkId::Room(room_id) = room_ec_lc_update.linked_chunk_id.clone()
                 else {
                     trace!("Received non-room updates, ignoring.");
@@ -550,14 +543,11 @@ pub(super) async fn search_indexing_task(
                     error!("Failed to handle events for indexing: {err}")
                 }
             }
-            Err(RecvError::Closed) => {
+            None => {
                 debug!(
                     "Linked chunk update channel has been closed, exiting thread subscriber task"
                 );
                 break;
-            }
-            Err(RecvError::Lagged(num_skipped)) => {
-                warn!(num_skipped, "Lagged behind linked chunk updates");
             }
         }
     }

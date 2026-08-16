@@ -198,6 +198,12 @@ impl Client {
         let mut room_updates = rooms.clone();
         room_updates.seq =
             self.inner.room_updates_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        // The event cache gets the same updates over its lossless queue, so a
+        // slow event cache lags in delivery instead of missing broadcasts (and
+        // having to wipe its storage to recover).
+        if let Some(event_cache_queue) = self.inner.event_cache_room_updates_tx.get() {
+            let _ = event_cache_queue.send(room_updates.clone());
+        }
         let _ = self.inner.room_updates_sender.send(room_updates);
 
         for (room_id, room_info) in &rooms.joined {

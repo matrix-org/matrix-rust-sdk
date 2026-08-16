@@ -84,7 +84,11 @@ pub use self::{
     },
 };
 use self::{
-    caches::{Caches, room::RoomEventCacheLinkedChunkUpdate, subscriber::AutoShrinkMessage},
+    caches::{
+        Caches,
+        room::{LinkedChunkUpdateFanout, RoomEventCacheLinkedChunkUpdate},
+        subscriber::AutoShrinkMessage,
+    },
     states::StateLock,
 };
 
@@ -248,7 +252,7 @@ impl EventCache {
         enable_automatic_back_pagination: bool,
     ) -> Self {
         let (generic_update_sender, _) = channel(128);
-        let (linked_chunk_update_sender, _) = channel(128);
+        let linked_chunk_update_sender = LinkedChunkUpdateFanout::new();
 
         let weak_client = WeakClient::from_inner(client);
 
@@ -308,10 +312,12 @@ impl EventCache {
         let _ = self.inner.drop_handles.get_or_init(|| {
             let task_monitor = client.task_monitor();
 
-            // Spawn the task that will listen to all the room updates at once.
+            // Spawn the task that will listen to all the room updates at once,
+            // over the lossless queue: a slow event cache must never miss
+            // updates (missing one used to require wiping the whole storage).
             let listen_updates_task = task_monitor.spawn_infinite_task("event_cache::room_updates_task", tasks::room_updates_task(
                 self.inner.clone(),
-                client.subscribe_to_all_room_updates(),
+                client.event_cache_room_updates_queue(),
             )).abort_on_drop();
 
             let ignore_user_list_update_task = task_monitor.spawn_infinite_task("event_cache::ignore_user_list_update_task", tasks::ignore_user_list_update_task(
@@ -634,7 +640,7 @@ struct EventCacheInner {
     /// This can be used by observers to look for new events.
     ///
     /// See doc comment of [`RoomEventCacheLinkedChunkUpdate`].
-    linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+    linked_chunk_update_sender: LinkedChunkUpdateFanout,
 
     /// A test helper receiver that will be emitted every time the thread
     /// subscriber task subscribed to a new thread.
