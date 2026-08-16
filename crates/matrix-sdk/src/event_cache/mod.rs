@@ -569,6 +569,15 @@ impl EventCache {
         self.inner.clear_all_rooms().await
     }
 
+    /// Cleanly clear one room's event cache, in memory and in the store.
+    ///
+    /// This will notify any live observers that the room has been cleared.
+    pub async fn clear_room(&self, room_id: &RoomId) -> Result<()> {
+        // See `clear_all_rooms` for why the exclusive access to all the caches.
+        let caches_for_all_rooms = self.inner.by_room.write().await;
+        self.inner.state.clear_and_reload(&caches_for_all_rooms, Some(room_id)).await
+    }
+
     /// Subscribe to room _generic_ updates.
     ///
     /// If one wants to listen what has changed in a specific room for example,

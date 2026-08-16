@@ -15,6 +15,7 @@
 //! An SQLite-based backend for the [`MediaStore`].
 
 use std::{
+    collections::HashMap,
     fmt,
     path::{Path, PathBuf},
     sync::Arc,
@@ -34,7 +35,7 @@ use matrix_sdk_base::{
     timer,
 };
 use matrix_sdk_store_encryption::StoreCipher;
-use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, time::SystemTime};
+use ruma::{MilliSecondsSinceUnixEpoch, MxcUri, OwnedMxcUri, OwnedRoomId, time::SystemTime};
 use rusqlite::{OptionalExtension, params_from_iter};
 use tokio::{
     fs,
@@ -473,6 +474,80 @@ impl MediaStore for SqliteMediaStore {
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.get_db_size().await
     }
+
+    async fn storage_usage(
+        &self,
+        room_media: &[(OwnedRoomId, Vec<OwnedMxcUri>)],
+    ) -> Result<matrix_sdk_common::storage_usage::StorageUsage> {
+        let _timer = timer!("method");
+
+        // Sizes per (encoded) URI, all formats together.
+        let sizes: HashMap<Vec<u8>, u64> = self
+            .read()
+            .await?
+            .prepare(
+                "SELECT uri, SUM(LENGTH(uri) + LENGTH(format) + LENGTH(data)) FROM media \
+                 GROUP BY uri",
+                |mut stmt| stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect(),
+            )
+            .await?;
+
+        Ok(matrix_sdk_common::storage_usage::StorageUsage {
+            total_bytes: sizes.values().sum(),
+            per_room: room_media
+                .iter()
+                .map(|(room_id, uris)| {
+                    let size = uris
+                        .iter()
+                        .filter_map(|uri| sizes.get(&*self.encode_key(keys::MEDIA, uri)))
+                        .sum::<u64>();
+                    (room_id.clone(), size)
+                })
+                .filter(|(_, size)| *size > 0)
+                .collect(),
+        })
+    }
+
+    async fn remove_media_contents(
+        &self,
+        uris: Option<&[OwnedMxcUri]>,
+        last_accessed_before: Option<SystemTime>,
+    ) -> Result<()> {
+        let _timer = timer!("method");
+
+        let keys = uris.map(|uris| {
+            uris.iter().map(|uri| self.encode_key(keys::MEDIA, uri)).collect::<Vec<_>>()
+        });
+        let before = last_accessed_before.map(time_to_timestamp);
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| -> Result<()> {
+                match (keys, before) {
+                    (None, None) => {
+                        txn.execute("DELETE FROM media", ())?;
+                    }
+                    (None, Some(before)) => {
+                        txn.execute("DELETE FROM media WHERE last_access < ?", (before,))?;
+                    }
+                    (Some(keys), None) => {
+                        for key in keys {
+                            txn.execute("DELETE FROM media WHERE uri = ?", (key,))?;
+                        }
+                    }
+                    (Some(keys), Some(before)) => {
+                        for key in keys {
+                            txn.execute(
+                                "DELETE FROM media WHERE uri = ? AND last_access < ?",
+                                (key, before),
+                            )?;
+                        }
+                    }
+                }
+                Ok(())
+            })
+            .await
+    }
 }
 
 #[cfg_attr(target_family = "wasm", async_trait(?Send))]
@@ -869,6 +944,85 @@ mod tests {
         assert_eq!(contents.len(), 2, "media cache contents length is wrong");
         assert_eq!(contents[0], content, "file is not last access");
         assert_eq!(contents[1], thumbnail_content, "thumbnail is not second-to-last access");
+    }
+
+    #[async_test]
+    async fn test_storage_usage_and_filtered_removal() {
+        use ruma::{room_id, time::SystemTime};
+
+        let media_store = get_media_store().await.expect("creating media cache failed");
+        let request = |uri: &ruma::MxcUri| MediaRequestParameters {
+            source: MediaSource::Plain(uri.to_owned()),
+            format: MediaFormat::File,
+        };
+        let uri_a = mxc_uri!("mxc://localhost/a");
+        let uri_b = mxc_uri!("mxc://localhost/b");
+        let uri_c = mxc_uri!("mxc://localhost/c");
+
+        for (uri, size) in [(uri_a, 100), (uri_b, 200), (uri_c, 300)] {
+            media_store
+                .add_media_content(&request(uri), vec![0; size], IgnoreMediaRetentionPolicy::No)
+                .await
+                .unwrap();
+        }
+
+        // Also a thumbnail of `a`, counted with `a`.
+        media_store
+            .add_media_content(
+                &MediaRequestParameters {
+                    source: MediaSource::Plain(uri_a.to_owned()),
+                    format: MediaFormat::Thumbnail(MediaThumbnailSettings::with_method(
+                        Method::Crop,
+                        uint!(10),
+                        uint!(10),
+                    )),
+                },
+                vec![0; 10],
+                IgnoreMediaRetentionPolicy::No,
+            )
+            .await
+            .unwrap();
+
+        let room_1 = room_id!("!1:localhost");
+        let room_2 = room_id!("!2:localhost");
+        let room_media = [
+            (room_1.to_owned(), vec![uri_a.to_owned(), uri_b.to_owned()]),
+            (room_2.to_owned(), vec![uri_c.to_owned()]),
+            (
+                room_id!("!3:localhost").to_owned(),
+                vec![mxc_uri!("mxc://localhost/nope").to_owned()],
+            ),
+        ];
+
+        let usage = media_store.storage_usage(&room_media).await.unwrap();
+        // The keys and formats add a bit on top of the data.
+        assert!(usage.total_bytes >= 610, "{usage:?}");
+        assert_eq!(usage.per_room.len(), 2, "{usage:?}");
+        assert!(usage.per_room[room_1] > usage.per_room[room_2], "{usage:?}");
+        assert_eq!(usage.per_room.values().sum::<u64>(), usage.total_bytes);
+
+        // Nothing accessed before the epoch: nothing removed.
+        media_store
+            .remove_media_contents(None, Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1)))
+            .await
+            .unwrap();
+        assert_eq!(media_store.storage_usage(&room_media).await.unwrap().per_room.len(), 2);
+
+        // Room 1's media, accessed before now: gone (both formats of `a`).
+        media_store
+            .remove_media_contents(
+                Some(&[uri_a.to_owned(), uri_b.to_owned()]),
+                Some(SystemTime::now() + Duration::from_secs(60)),
+            )
+            .await
+            .unwrap();
+        let usage = media_store.storage_usage(&room_media).await.unwrap();
+        assert_eq!(usage.per_room.keys().collect::<Vec<_>>(), [room_2]);
+        assert!(media_store.get_media_content(&request(uri_a)).await.unwrap().is_none());
+
+        // Everything.
+        media_store.remove_media_contents(None, None).await.unwrap();
+        assert_eq!(media_store.storage_usage(&room_media).await.unwrap().total_bytes, 0);
     }
 }
 

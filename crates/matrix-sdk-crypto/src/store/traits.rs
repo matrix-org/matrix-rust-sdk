@@ -15,9 +15,12 @@
 use std::{collections::HashMap, fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::{AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration};
+use matrix_sdk_common::{
+    AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration, storage_usage::StorageUsage,
+};
 use ruma::{
-    DeviceId, OwnedDeviceId, RoomId, TransactionId, UserId, events::secret::request::SecretName,
+    DeviceId, OwnedDeviceId, OwnedRoomId, RoomId, TransactionId, UserId,
+    events::secret::request::SecretName,
 };
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
@@ -374,6 +377,32 @@ pub trait CryptoStore: AsyncTraitDeps {
     /// room from the key backup in advance of building a room key bundle.
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error>;
 
+    /// The storage used by the inbound group sessions (room keys), overall
+    /// and per given room.
+    ///
+    /// Stores that can't measure themselves report no usage.
+    async fn room_keys_storage_usage(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<StorageUsage, Self::Error> {
+        let _ = room_ids;
+        Ok(StorageUsage::default())
+    }
+
+    /// Delete the inbound group sessions (room keys) of the given rooms, or of
+    /// all rooms, along with the markers recording that a room's keys were
+    /// fully downloaded from the backup, so that they can be downloaded again.
+    ///
+    /// Encrypted history can't be read again without a backup to fetch the
+    /// keys from. Stores that don't support this do nothing.
+    async fn remove_inbound_group_sessions(
+        &self,
+        room_ids: Option<&[OwnedRoomId]>,
+    ) -> Result<(), Self::Error> {
+        let _ = room_ids;
+        Ok(())
+    }
+
     /// Get arbitrary data from the store
     ///
     /// # Arguments
@@ -658,6 +687,20 @@ impl<T: CryptoStore> CryptoStore for EraseCryptoStoreError<T> {
 
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool, Self::Error> {
         self.0.has_downloaded_all_room_keys(room_id).await.map_err(Into::into)
+    }
+
+    async fn room_keys_storage_usage(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<StorageUsage, Self::Error> {
+        self.0.room_keys_storage_usage(room_ids).await.map_err(Into::into)
+    }
+
+    async fn remove_inbound_group_sessions(
+        &self,
+        room_ids: Option<&[OwnedRoomId]>,
+    ) -> Result<(), Self::Error> {
+        self.0.remove_inbound_group_sessions(room_ids).await.map_err(Into::into)
     }
 
     async fn get_pending_key_bundle_details_for_room(

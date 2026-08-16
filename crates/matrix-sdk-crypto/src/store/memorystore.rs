@@ -806,6 +806,48 @@ impl CryptoStore for MemoryStore {
         Ok(guard.contains(room_id))
     }
 
+    async fn room_keys_storage_usage(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<matrix_sdk_common::storage_usage::StorageUsage> {
+        let sessions = self.inbound_group_sessions.read();
+        let size_of = |room_id: &RoomId| -> u64 {
+            sessions
+                .get(room_id)
+                .map(|pickles| pickles.values().map(|pickle| pickle.len() as u64).sum())
+                .unwrap_or(0)
+        };
+        Ok(matrix_sdk_common::storage_usage::StorageUsage {
+            total_bytes: sessions.keys().map(|room_id| size_of(room_id)).sum(),
+            per_room: room_ids
+                .iter()
+                .map(|room_id| (room_id.clone(), size_of(room_id)))
+                .filter(|(_, size)| *size > 0)
+                .collect(),
+        })
+    }
+
+    async fn remove_inbound_group_sessions(&self, room_ids: Option<&[OwnedRoomId]>) -> Result<()> {
+        let mut sessions = self.inbound_group_sessions.write();
+        let mut backed_up = self.inbound_group_sessions_backed_up_to.write();
+        let mut fully_downloaded = self.room_key_backups_fully_downloaded.write();
+        match room_ids {
+            Some(room_ids) => {
+                for room_id in room_ids {
+                    sessions.remove(room_id);
+                    backed_up.remove(room_id);
+                    fully_downloaded.remove(room_id);
+                }
+            }
+            None => {
+                sessions.clear();
+                backed_up.clear();
+                fully_downloaded.clear();
+            }
+        }
+        Ok(())
+    }
+
     async fn get_custom_value(&self, key: &str) -> Result<Option<Vec<u8>>> {
         Ok(self.custom_values.read().get(key).cloned())
     }

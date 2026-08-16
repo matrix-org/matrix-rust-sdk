@@ -22,11 +22,43 @@ use matrix_sdk_common::{
         ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
         Position, RawChunk, Update,
     },
+    storage_usage::StorageUsage,
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
+use ruma::{
+    EventId, OwnedEventId, OwnedMxcUri, OwnedRoomId, RoomId, events::relation::RelationType,
+};
 
 use super::EventCacheStoreError;
 use crate::event_cache::{Event, Gap};
+
+/// The `msgtype`s of the room messages carrying media contents.
+pub const MEDIA_MSGTYPES: &[&str] =
+    &["m.image", "m.video", "m.audio", "m.file", "dm.filament.gallery"];
+
+/// Collect every `mxc://` string found in a JSON value, recursively.
+fn collect_mxc_uris(value: &serde_json::Value, uris: &mut Vec<OwnedMxcUri>) {
+    match value {
+        serde_json::Value::String(string) => {
+            if string.starts_with("mxc://") {
+                let uri = OwnedMxcUri::from(string.as_str());
+                if uri.is_valid() {
+                    uris.push(uri);
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                collect_mxc_uris(value, uris);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for value in map.values() {
+                collect_mxc_uris(value, uris);
+            }
+        }
+        _ => {}
+    }
+}
 
 /// A default capacity for linked chunks, when manipulating in conjunction with
 /// an `EventCacheStore` implementation.
@@ -227,6 +259,35 @@ pub trait EventCacheStore: AsyncTraitDeps {
             .collect())
     }
 
+    /// The `mxc://` URIs referenced by the room's stored media messages
+    /// (images, videos, audios, files, galleries), thumbnails included: the
+    /// media contents attributable to the room.
+    ///
+    /// The default implementation walks the media messages' content for
+    /// `mxc://` strings.
+    async fn room_media_uris(&self, room_id: &RoomId) -> Result<Vec<OwnedMxcUri>, Self::Error> {
+        let events = self.find_events_by_message_types(room_id, MEDIA_MSGTYPES).await?;
+
+        let mut uris = Vec::new();
+        for (event, _) in events {
+            if let Ok(Some(content)) = event.raw().get_field::<serde_json::Value>("content") {
+                collect_mxc_uris(&content, &mut uris);
+            }
+        }
+        uris.sort_unstable();
+        uris.dedup();
+
+        Ok(uris)
+    }
+
+    /// The storage used by the events, overall and per given room.
+    ///
+    /// Stores that can't measure themselves report no usage.
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        let _ = room_ids;
+        Ok(StorageUsage::default())
+    }
+
     /// Load all the gap chunks of the given linked chunk, with their
     /// identifier.
     ///
@@ -405,6 +466,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         msgtypes: &[&str],
     ) -> Result<Vec<(Event, Position)>, Self::Error> {
         self.0.find_events_by_message_types(room_id, msgtypes).await.map_err(Into::into)
+    }
+
+    async fn room_media_uris(&self, room_id: &RoomId) -> Result<Vec<OwnedMxcUri>, Self::Error> {
+        self.0.room_media_uris(room_id).await.map_err(Into::into)
+    }
+
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        self.0.storage_usage(room_ids).await.map_err(Into::into)
     }
 
     async fn load_all_gaps(

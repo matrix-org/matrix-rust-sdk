@@ -2028,6 +2028,39 @@ impl EventCacheStore for SqliteEventCacheStore {
         Ok(found)
     }
 
+    async fn storage_usage(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<matrix_sdk_common::storage_usage::StorageUsage, Self::Error> {
+        let _timer = timer!("method");
+
+        // The events' payloads per (encoded) room id. The chunk bookkeeping
+        // tables are small next to it.
+        let sizes: HashMap<Vec<u8>, u64> = self
+            .read()
+            .await?
+            .prepare(
+                "SELECT room_id, SUM(LENGTH(room_id) + LENGTH(event_id) + LENGTH(event_type) + \
+                 COALESCE(LENGTH(session_id), 0) + LENGTH(content) + \
+                 COALESCE(LENGTH(relates_to), 0) + COALESCE(LENGTH(rel_type), 0) + \
+                 COALESCE(LENGTH(msgtype), 0)) \
+                 FROM events GROUP BY room_id",
+                |mut stmt| stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect(),
+            )
+            .await?;
+
+        Ok(matrix_sdk_common::storage_usage::StorageUsage {
+            total_bytes: sizes.values().sum(),
+            per_room: room_ids
+                .iter()
+                .filter_map(|room_id| {
+                    let key = self.encryption.encode_room_id(keys::EVENTS, room_id);
+                    sizes.get(&*key).map(|size| (room_id.clone(), *size))
+                })
+                .collect(),
+        })
+    }
+
     #[instrument(skip(self))]
     async fn load_all_gaps(
         &self,
@@ -2597,6 +2630,60 @@ mod tests {
 
         let found = store.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
         assert_eq!(found.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_storage_usage_and_room_media_uris() {
+        use matrix_sdk_base::linked_chunk::Position;
+        use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+        use ruma::{owned_mxc_uri, room_id};
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_a = room_id!("!a:localhost");
+        let room_b = room_id!("!b:localhost");
+        let room_c = room_id!("!c:localhost");
+
+        let fa = EventFactory::new().sender(*ALICE).room(room_a);
+        let fb = EventFactory::new().sender(*ALICE).room(room_b);
+        let events_a = vec![
+            fa.image("a.png".to_owned(), owned_mxc_uri!("mxc://x/a")).into_event(),
+            fa.text_msg("hello there").into_event(),
+            fa.text_msg("more text to make room a bigger").into_event(),
+        ];
+        let events_b = vec![fb.text_msg("hi").into_event()];
+
+        for (room_id, events) in [(room_a, events_a), (room_b, events_b)] {
+            store
+                .handle_linked_chunk_updates(
+                    LinkedChunkId::Room(room_id),
+                    vec![
+                        Update::NewItemsChunk {
+                            previous: None,
+                            new: ChunkIdentifier::new(0),
+                            next: None,
+                        },
+                        Update::PushItems {
+                            at: Position::new(ChunkIdentifier::new(0), 0),
+                            items: events,
+                        },
+                    ],
+                )
+                .await
+                .unwrap();
+        }
+
+        let usage = store
+            .storage_usage(&[room_a.to_owned(), room_b.to_owned(), room_c.to_owned()])
+            .await
+            .unwrap();
+        assert_eq!(usage.per_room.len(), 2, "{usage:?}");
+        assert!(usage.per_room[room_a] > usage.per_room[room_b], "{usage:?}");
+        assert_eq!(usage.per_room.values().sum::<u64>(), usage.total_bytes);
+
+        // The image's URI is attributed to room A; room B has no media.
+        assert_eq!(store.room_media_uris(room_a).await.unwrap(), [owned_mxc_uri!("mxc://x/a")]);
+        assert!(store.room_media_uris(room_b).await.unwrap().is_empty());
     }
 
     #[async_test]

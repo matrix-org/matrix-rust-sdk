@@ -227,6 +227,45 @@ impl MediaStore for MemoryMediaStore {
         Ok(None)
     }
 
+    async fn storage_usage(
+        &self,
+        room_media: &[(ruma::OwnedRoomId, Vec<OwnedMxcUri>)],
+    ) -> Result<matrix_sdk_common::storage_usage::StorageUsage, Self::Error> {
+        let inner = self.inner.read().unwrap();
+        let size_of = |uri: &MxcUri| -> u64 {
+            inner
+                .media
+                .iter()
+                .filter(|content| content.uri == uri)
+                .map(|c| c.data.len() as u64)
+                .sum()
+        };
+        Ok(matrix_sdk_common::storage_usage::StorageUsage {
+            total_bytes: inner.media.iter().map(|content| content.data.len() as u64).sum(),
+            per_room: room_media
+                .iter()
+                .map(|(room_id, uris)| (room_id.clone(), uris.iter().map(|uri| size_of(uri)).sum()))
+                .filter(|(_, size)| *size > 0)
+                .collect(),
+        })
+    }
+
+    async fn remove_media_contents(
+        &self,
+        uris: Option<&[OwnedMxcUri]>,
+        last_accessed_before: Option<SystemTime>,
+    ) -> Result<(), Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+
+        inner.media.retain(|content| {
+            let matches = uris.is_none_or(|uris| uris.contains(&content.uri))
+                && last_accessed_before.is_none_or(|before| content.last_access < before);
+            !matches
+        });
+
+        Ok(())
+    }
+
     async fn close(&self) -> Result<(), Self::Error> {
         Ok(())
     }

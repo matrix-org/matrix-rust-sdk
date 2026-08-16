@@ -23,7 +23,7 @@ use std::{
 use as_variant::as_variant;
 use async_trait::async_trait;
 use growable_bloom_filter::GrowableBloom;
-use matrix_sdk_common::{AsyncTraitDeps, ttl::TtlValue};
+use matrix_sdk_common::{AsyncTraitDeps, storage_usage::StorageUsage, ttl::TtlValue};
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedMxcUri, OwnedRoomId,
     OwnedTransactionId, OwnedUserId, RoomId, TransactionId, UserId,
@@ -258,10 +258,7 @@ pub trait StateStore: AsyncTraitDeps {
     /// ([`Self::get_room_infos_page`]) can make the rooms a room list shows
     /// first available first. Backends that can't order by recency cheaply
     /// return an empty list.
-    async fn get_room_infos_by_recency(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<RoomInfo>, Self::Error> {
+    async fn get_room_infos_by_recency(&self, limit: usize) -> Result<Vec<RoomInfo>, Self::Error> {
         let _ = limit;
         Ok(Vec::new())
     }
@@ -414,6 +411,27 @@ pub trait StateStore: AsyncTraitDeps {
     ///
     /// * `room_id` - The `RoomId` of the room to delete.
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error>;
+
+    /// The storage used by the room data (room info, state events, members,
+    /// profiles, receipts, display names, room account data), overall and
+    /// per given room.
+    ///
+    /// Stores that can't measure themselves report no usage.
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        let _ = room_ids;
+        Ok(StorageUsage::default())
+    }
+
+    /// Remove a room's members (their member events included), profiles,
+    /// display names and receipts: the bulk of a room's data, which the
+    /// client can fetch again lazily. The room info and the other state
+    /// events are kept.
+    ///
+    /// Stores that don't support this do nothing.
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        let _ = room_id;
+        Ok(())
+    }
 
     /// Save a request to be sent by a send queue later (e.g. sending an event).
     ///
@@ -728,10 +746,7 @@ impl<T: StateStore> StateStore for &T {
         (*self).get_room_infos_page_cursors(limit).await
     }
 
-    async fn get_room_infos_by_recency(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<RoomInfo>, Self::Error> {
+    async fn get_room_infos_by_recency(&self, limit: usize) -> Result<Vec<RoomInfo>, Self::Error> {
         (*self).get_room_infos_by_recency(limit).await
     }
 
@@ -804,6 +819,14 @@ impl<T: StateStore> StateStore for &T {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         (*self).remove_room(room_id).await
+    }
+
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        (*self).storage_usage(room_ids).await
+    }
+
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        (*self).remove_room_members(room_id).await
     }
 
     async fn save_send_queue_request(
@@ -1069,10 +1092,7 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
         self.deref().get_room_infos_page_cursors(limit).await
     }
 
-    async fn get_room_infos_by_recency(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<RoomInfo>, Self::Error> {
+    async fn get_room_infos_by_recency(&self, limit: usize) -> Result<Vec<RoomInfo>, Self::Error> {
         self.deref().get_room_infos_by_recency(limit).await
     }
 
@@ -1145,6 +1165,14 @@ impl<T: StateStore + ?Sized> StateStore for Arc<T> {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         self.deref().remove_room(room_id).await
+    }
+
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        self.deref().storage_usage(room_ids).await
+    }
+
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        self.deref().remove_room_members(room_id).await
     }
 
     async fn save_send_queue_request(
@@ -1420,10 +1448,7 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
         self.0.get_room_infos_page_cursors(limit).await.map_err(Into::into)
     }
 
-    async fn get_room_infos_by_recency(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<RoomInfo>, Self::Error> {
+    async fn get_room_infos_by_recency(&self, limit: usize) -> Result<Vec<RoomInfo>, Self::Error> {
         self.0.get_room_infos_by_recency(limit).await.map_err(Into::into)
     }
 
@@ -1502,6 +1527,14 @@ impl<T: StateStore> StateStore for EraseStateStoreError<T> {
 
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         self.0.remove_room(room_id).await.map_err(Into::into)
+    }
+
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        self.0.storage_usage(room_ids).await.map_err(Into::into)
+    }
+
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        self.0.remove_room_members(room_id).await.map_err(Into::into)
     }
 
     async fn save_send_queue_request(
@@ -1845,10 +1878,7 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
         self.store.get_room_infos_page_cursors(limit).await
     }
 
-    async fn get_room_infos_by_recency(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<RoomInfo>, Self::Error> {
+    async fn get_room_infos_by_recency(&self, limit: usize) -> Result<Vec<RoomInfo>, Self::Error> {
         self.store.get_room_infos_by_recency(limit).await
     }
 
@@ -1922,6 +1952,15 @@ impl<T: StateStore> StateStore for SaveLockedStateStore<T> {
     async fn remove_room(&self, room_id: &RoomId) -> Result<(), Self::Error> {
         let _guard = self.lock.lock().await;
         self.store.remove_room(room_id).await
+    }
+
+    async fn storage_usage(&self, room_ids: &[OwnedRoomId]) -> Result<StorageUsage, Self::Error> {
+        self.store.storage_usage(room_ids).await
+    }
+
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<(), Self::Error> {
+        let _guard = self.lock.lock().await;
+        self.store.remove_room_members(room_id).await
     }
 
     async fn save_send_queue_request(

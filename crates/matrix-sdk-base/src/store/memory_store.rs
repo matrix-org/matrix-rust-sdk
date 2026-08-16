@@ -842,6 +842,25 @@ impl StateStore for MemoryStore {
         Ok(())
     }
 
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<()> {
+        let mut inner = self.inner.write().unwrap();
+
+        if let Some(state) = inner.room_state.get_mut(room_id) {
+            state.remove(&StateEventType::RoomMember);
+        }
+        if let Some(state) = inner.stripped_room_state.get_mut(room_id) {
+            state.remove(&StateEventType::RoomMember);
+        }
+        inner.profiles.remove(room_id);
+        inner.display_names.remove(room_id);
+        inner.members.remove(room_id);
+        inner.stripped_members.remove(room_id);
+        inner.room_user_receipts.remove(room_id);
+        inner.room_event_receipts.remove(room_id);
+
+        Ok(())
+    }
+
     async fn save_send_queue_request(
         &self,
         room_id: &RoomId,

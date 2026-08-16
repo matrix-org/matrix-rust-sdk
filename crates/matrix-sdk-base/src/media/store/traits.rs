@@ -17,8 +17,10 @@
 use std::{fmt, sync::Arc};
 
 use async_trait::async_trait;
-use matrix_sdk_common::{AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration};
-use ruma::{MxcUri, time::SystemTime};
+use matrix_sdk_common::{
+    AsyncTraitDeps, cross_process_lock::CrossProcessLockGeneration, storage_usage::StorageUsage,
+};
+use ruma::{MxcUri, OwnedMxcUri, OwnedRoomId, time::SystemTime};
 
 #[cfg(doc)]
 use crate::media::store::MediaService;
@@ -187,6 +189,33 @@ pub trait MediaStore: AsyncTraitDeps {
 
     /// Returns the size of the store in bytes, if known.
     async fn get_size(&self) -> Result<Option<usize>, Self::Error>;
+
+    /// The storage used by the media contents, overall and per given room,
+    /// a room's media being the contents (all formats) of the given URIs.
+    ///
+    /// Stores that can't measure themselves report no usage.
+    async fn storage_usage(
+        &self,
+        room_media: &[(OwnedRoomId, Vec<OwnedMxcUri>)],
+    ) -> Result<StorageUsage, Self::Error> {
+        let _ = room_media;
+        Ok(StorageUsage::default())
+    }
+
+    /// Remove the media contents matching the given filters, whatever the
+    /// retention policy says: the contents of the given URIs (all of them
+    /// when `None`), last accessed before the given time (whenever when
+    /// `None`).
+    ///
+    /// Stores that don't support this do nothing.
+    async fn remove_media_contents(
+        &self,
+        uris: Option<&[OwnedMxcUri]>,
+        last_accessed_before: Option<SystemTime>,
+    ) -> Result<(), Self::Error> {
+        let _ = (uris, last_accessed_before);
+        Ok(())
+    }
 }
 
 /// An abstract trait that can be used to implement different store backends
@@ -418,6 +447,21 @@ impl<T: MediaStore> MediaStore for EraseMediaStoreError<T> {
 
     async fn get_size(&self) -> Result<Option<usize>, Self::Error> {
         self.0.get_size().await.map_err(Into::into)
+    }
+
+    async fn storage_usage(
+        &self,
+        room_media: &[(OwnedRoomId, Vec<OwnedMxcUri>)],
+    ) -> Result<StorageUsage, Self::Error> {
+        self.0.storage_usage(room_media).await.map_err(Into::into)
+    }
+
+    async fn remove_media_contents(
+        &self,
+        uris: Option<&[OwnedMxcUri]>,
+        last_accessed_before: Option<SystemTime>,
+    ) -> Result<(), Self::Error> {
+        self.0.remove_media_contents(uris, last_accessed_before).await.map_err(Into::into)
     }
 }
 

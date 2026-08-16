@@ -130,9 +130,13 @@ mod builder;
 pub(crate) mod caches;
 pub(crate) mod futures;
 pub(crate) mod homeserver_capabilities;
+pub mod storage;
 pub(crate) mod thread_subscriptions;
 
-pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
+pub use self::{
+    builder::{ClientBuildError, ClientBuilder, sanitize_server_name},
+    storage::{StorageUsage, StorageUsageReport},
+};
 #[cfg(feature = "experimental-search")]
 use crate::search_index::SearchIndex;
 

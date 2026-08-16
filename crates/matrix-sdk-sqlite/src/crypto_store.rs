@@ -23,6 +23,7 @@ use std::{
 use async_trait::async_trait;
 use deadpool::managed::PoolConfig;
 use matrix_sdk_base::cross_process_lock::CrossProcessLockGeneration;
+use matrix_sdk_common::timer;
 use matrix_sdk_crypto::{
     Account, DeviceData, GossipRequest, GossippedSecret, SecretInfo, TrackedUser, UserIdentityData,
     olm::{
@@ -40,15 +41,14 @@ use matrix_sdk_crypto::{
 };
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
-    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, RoomId, TransactionId, UserId,
-    events::secret::request::SecretName,
+    DeviceId, MilliSecondsSinceUnixEpoch, OwnedDeviceId, OwnedRoomId, RoomId, TransactionId,
+    UserId, events::secret::request::SecretName,
 };
 use rusqlite::{OptionalExtension, named_params, params_from_iter};
 use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use matrix_sdk_common::timer;
 use tracing::{debug, instrument, warn};
 use vodozemac::Curve25519PublicKey;
 use zeroize::Zeroizing;
@@ -1108,6 +1108,18 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
             )
             .await?)
     }
+
+    /// The size of the inbound group sessions' payloads, per (encoded) room
+    /// id.
+    async fn inbound_group_sessions_sizes(&self) -> Result<Vec<(Vec<u8>, u64)>> {
+        Ok(self
+            .prepare(
+                "SELECT room_id, SUM(LENGTH(session_id) + LENGTH(room_id) + LENGTH(data)) \
+                 FROM inbound_group_session GROUP BY room_id",
+                |mut stmt| stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect(),
+            )
+            .await?)
+    }
 }
 
 #[async_trait]
@@ -1769,6 +1781,64 @@ impl CryptoStore for SqliteCryptoStore {
     async fn has_downloaded_all_room_keys(&self, room_id: &RoomId) -> Result<bool> {
         let room_id = self.encode_key("room_key_backups_fully_downloaded", room_id);
         self.read().await?.has_downloaded_all_room_keys(room_id).await
+    }
+
+    async fn room_keys_storage_usage(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<matrix_sdk_common::storage_usage::StorageUsage> {
+        let sizes: HashMap<Vec<u8>, u64> =
+            self.read().await?.inbound_group_sessions_sizes().await?.into_iter().collect();
+
+        Ok(matrix_sdk_common::storage_usage::StorageUsage {
+            total_bytes: sizes.values().sum(),
+            per_room: room_ids
+                .iter()
+                .filter_map(|room_id| {
+                    let key = self.encode_key("inbound_group_session", room_id.as_bytes());
+                    sizes.get(&*key).map(|size| (room_id.clone(), *size))
+                })
+                .collect(),
+        })
+    }
+
+    async fn remove_inbound_group_sessions(&self, room_ids: Option<&[OwnedRoomId]>) -> Result<()> {
+        let keys = room_ids.map(|room_ids| {
+            room_ids
+                .iter()
+                .map(|room_id| {
+                    (
+                        self.encode_key("inbound_group_session", room_id.as_bytes()),
+                        self.encode_key("room_key_backups_fully_downloaded", room_id),
+                    )
+                })
+                .collect::<Vec<_>>()
+        });
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| -> Result<()> {
+                match keys {
+                    Some(keys) => {
+                        for (session_room_id, downloaded_room_id) in keys {
+                            txn.execute(
+                                "DELETE FROM inbound_group_session WHERE room_id = ?",
+                                (session_room_id,),
+                            )?;
+                            txn.execute(
+                                "DELETE FROM room_key_backups_fully_downloaded WHERE room_id = ?",
+                                (downloaded_room_id,),
+                            )?;
+                        }
+                    }
+                    None => {
+                        txn.execute("DELETE FROM inbound_group_session", ())?;
+                        txn.execute("DELETE FROM room_key_backups_fully_downloaded", ())?;
+                    }
+                }
+                Ok(())
+            })
+            .await
     }
 
     async fn get_pending_key_bundle_details_for_room(
@@ -2552,6 +2622,60 @@ mod tests {
 
     cryptostore_integration_tests!();
     cryptostore_integration_tests_time!();
+
+    #[async_test]
+    async fn test_room_keys_storage_usage_and_removal() {
+        use matrix_sdk_crypto::{olm::Account, store::types::Changes};
+
+        let store = get_store("room_keys_storage_usage", None, true).await;
+        let account = Account::with_device_id(user_id!("@alice:localhost"), device_id!("ALICE"));
+
+        let room_a = room_id!("!a:localhost");
+        let room_b = room_id!("!b:localhost");
+        let room_c = room_id!("!c:localhost");
+
+        let mut sessions = Vec::new();
+        for room_id in [room_a, room_a, room_b] {
+            let (_, inbound) = account.create_group_session_pair_with_defaults(room_id).await;
+            sessions.push(inbound);
+        }
+        store
+            .save_changes(Changes {
+                inbound_group_sessions: sessions,
+                room_key_backups_fully_downloaded: [room_a.to_owned(), room_b.to_owned()].into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // Two rooms with keys, one without.
+        let usage = store
+            .room_keys_storage_usage(&[room_a.to_owned(), room_b.to_owned(), room_c.to_owned()])
+            .await
+            .unwrap();
+        assert!(usage.total_bytes > 0);
+        assert_eq!(usage.per_room.len(), 2);
+        assert!(usage.per_room[room_a] > usage.per_room[room_b], "{usage:?}");
+        assert_eq!(usage.per_room.values().sum::<u64>(), usage.total_bytes);
+
+        // Removing one room's keys leaves the other's, and forgets that the
+        // room's keys were fully downloaded.
+        store.remove_inbound_group_sessions(Some(&[room_a.to_owned()])).await.unwrap();
+        assert!(store.get_inbound_group_sessions_by_room_id(room_a).await.unwrap().is_empty());
+        assert_eq!(store.get_inbound_group_sessions_by_room_id(room_b).await.unwrap().len(), 1);
+        assert!(!store.has_downloaded_all_room_keys(room_a).await.unwrap());
+        assert!(store.has_downloaded_all_room_keys(room_b).await.unwrap());
+
+        let usage = store.room_keys_storage_usage(&[room_a.to_owned()]).await.unwrap();
+        assert!(usage.per_room.is_empty());
+        assert!(usage.total_bytes > 0);
+
+        // Removing all.
+        store.remove_inbound_group_sessions(None).await.unwrap();
+        assert!(store.get_inbound_group_sessions().await.unwrap().is_empty());
+        assert!(!store.has_downloaded_all_room_keys(room_b).await.unwrap());
+        assert_eq!(store.room_keys_storage_usage(&[]).await.unwrap().total_bytes, 0);
+    }
 }
 
 #[cfg(test)]

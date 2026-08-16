@@ -37,6 +37,7 @@ pub mod locks;
 pub mod ring_buffer;
 pub mod serde_helpers;
 pub mod sleep;
+pub mod storage_usage;
 pub mod stream;
 pub mod task_monitor;
 pub mod timeout;

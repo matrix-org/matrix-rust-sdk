@@ -20,6 +20,7 @@ use matrix_sdk_base::{
         StoredThreadSubscription, ThreadSubscriptionStatus, migration_helpers::RoomInfoV1,
     },
 };
+use matrix_sdk_common::timer;
 use matrix_sdk_store_encryption::StoreCipher;
 use ruma::{
     CanonicalJsonObject, EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId,
@@ -44,7 +45,6 @@ use tokio::{
     fs,
     sync::{Mutex, OwnedMutexGuard},
 };
-use matrix_sdk_common::timer;
 use tracing::{debug, instrument, warn};
 
 use crate::{
@@ -524,9 +524,10 @@ impl SqliteStateStore {
                 // the first load. A room that fails to deserialize keeps the
                 // default of 0 rather than failing the migration: the column
                 // is only an ordering hint.
-                for row in txn
-                    .prepare("SELECT room_id, data FROM room_info")?
-                    .query_map((), |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)))?
+                for row in
+                    txn.prepare("SELECT room_id, data FROM room_info")?.query_map((), |row| {
+                        Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
+                    })?
                 {
                     let (room_id, data) = row?;
 
@@ -1038,9 +1039,7 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         Ok(self
             .prepare(
                 "SELECT data FROM room_info ORDER BY recency DESC, rowid DESC LIMIT ?",
-                move |mut stmt| {
-                    stmt.query((limit,))?.mapped(|row| row.get(0)).collect()
-                },
+                move |mut stmt| stmt.query((limit,))?.mapped(|row| row.get(0)).collect(),
             )
             .await?)
     }
@@ -1935,14 +1934,14 @@ impl StateStore for SqliteStateStore {
         cursor: Option<u64>,
         limit: usize,
     ) -> Result<(Vec<RoomInfo>, Option<u64>)> {
-        let rows =
-            self.read().await?.get_room_infos_page(cursor.unwrap_or(0) as i64, limit as i64).await?;
+        let rows = self
+            .read()
+            .await?
+            .get_room_infos_page(cursor.unwrap_or(0) as i64, limit as i64)
+            .await?;
 
-        let next_cursor = if rows.len() == limit {
-            rows.last().map(|(rowid, _)| *rowid as u64)
-        } else {
-            None
-        };
+        let next_cursor =
+            if rows.len() == limit { rows.last().map(|(rowid, _)| *rowid as u64) } else { None };
 
         let room_infos = rows
             .into_iter()
@@ -1968,8 +1967,10 @@ impl StateStore for SqliteStateStore {
 
         // The cursor of each page is the last rowid of the page before it, so
         // the cursors are the last rowid of every page except the final one.
-        let mut cursors =
-            rowids.chunks(limit.max(1)).map(|page| *page.last().unwrap() as u64).collect::<Vec<_>>();
+        let mut cursors = rowids
+            .chunks(limit.max(1))
+            .map(|page| *page.last().unwrap() as u64)
+            .collect::<Vec<_>>();
         cursors.pop();
 
         Ok(cursors)
@@ -2198,6 +2199,88 @@ impl StateStore for SqliteStateStore {
         .await?;
 
         conn.vacuum().await
+    }
+
+    async fn storage_usage(
+        &self,
+        room_ids: &[OwnedRoomId],
+    ) -> Result<matrix_sdk_common::storage_usage::StorageUsage> {
+        // (table, key salt, size expression): the room id is hashed per table.
+        const TABLES: &[(&str, &str, &str)] = &[
+            ("room_info", keys::ROOM_INFO, "LENGTH(room_id) + LENGTH(data)"),
+            (
+                "state_event",
+                keys::STATE_EVENT,
+                "LENGTH(room_id) + LENGTH(event_type) + LENGTH(state_key) + LENGTH(data)",
+            ),
+            (
+                "member",
+                keys::MEMBER,
+                "LENGTH(room_id) + LENGTH(user_id) + LENGTH(membership) + LENGTH(data)",
+            ),
+            ("profile", keys::PROFILE, "LENGTH(room_id) + LENGTH(user_id) + LENGTH(data)"),
+            (
+                "receipt",
+                keys::RECEIPT,
+                "LENGTH(room_id) + LENGTH(user_id) + LENGTH(receipt_type) + LENGTH(thread) + \
+                 LENGTH(event_id) + LENGTH(data)",
+            ),
+            ("display_name", keys::DISPLAY_NAME, "LENGTH(room_id) + LENGTH(name) + LENGTH(data)"),
+            (
+                "room_account_data",
+                keys::ROOM_ACCOUNT_DATA,
+                "LENGTH(room_id) + LENGTH(event_type) + LENGTH(data)",
+            ),
+        ];
+
+        let conn = self.read().await?;
+        let mut usage = matrix_sdk_common::storage_usage::StorageUsage::default();
+
+        for (table, salt, size) in TABLES {
+            let sizes: HashMap<Vec<u8>, u64> = conn
+                .prepare(
+                    format!("SELECT room_id, SUM({size}) FROM {table} GROUP BY room_id"),
+                    |mut stmt| {
+                        stmt.query(())?.mapped(|row| Ok((row.get(0)?, row.get(1)?))).collect()
+                    },
+                )
+                .await?;
+
+            usage.total_bytes += sizes.values().sum::<u64>();
+            for room_id in room_ids {
+                if let Some(size) = sizes.get(&*self.encode_key(salt, room_id)) {
+                    *usage.per_room.entry(room_id.clone()).or_default() += size;
+                }
+            }
+        }
+
+        Ok(usage)
+    }
+
+    async fn remove_room_members(&self, room_id: &RoomId) -> Result<()> {
+        let member_room_id = self.encode_key(keys::MEMBER, room_id);
+        let profile_room_id = self.encode_key(keys::PROFILE, room_id);
+        let receipt_room_id = self.encode_key(keys::RECEIPT, room_id);
+        let display_name_room_id = self.encode_key(keys::DISPLAY_NAME, room_id);
+        // The member events themselves (the bulk) live with the state events.
+        let state_event_room_id = self.encode_key(keys::STATE_EVENT, room_id);
+        let member_event_type =
+            self.encode_key(keys::STATE_EVENT, StateEventType::RoomMember.to_string());
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| -> Result<()> {
+                txn.execute(
+                    "DELETE FROM state_event WHERE room_id = ? AND event_type = ?",
+                    (&state_event_room_id, &member_event_type),
+                )?;
+                txn.remove_room_members(&member_room_id, None)?;
+                txn.remove_room_profiles(&profile_room_id)?;
+                txn.remove_room_receipts(&receipt_room_id)?;
+                txn.remove_room_display_names(&display_name_room_id)?;
+                Ok(())
+            })
+            .await
     }
 
     async fn save_send_queue_request(
@@ -2716,6 +2799,80 @@ mod tests {
     }
 
     statestore_integration_tests!();
+
+    #[matrix_sdk_test::async_test]
+    async fn test_storage_usage_and_remove_room_members() {
+        use matrix_sdk_base::{RoomInfo, RoomMemberships, RoomState, StateChanges};
+        use ruma::{
+            events::{
+                StateEventType,
+                room::member::{MembershipState, RoomMemberEventContent},
+            },
+            room_id,
+            serde::Raw,
+            user_id,
+        };
+        use serde_json::json;
+
+        let store = get_store().await.unwrap();
+
+        let room_a = room_id!("!a:localhost");
+        let room_b = room_id!("!b:localhost");
+        let room_c = room_id!("!c:localhost");
+
+        let mut changes = StateChanges::default();
+        for (room_id, users) in [(room_a, ["@u1", "@u2", "@u3"].as_slice()), (room_b, &["@u1"])] {
+            changes.add_room(RoomInfo::new(room_id, RoomState::Joined));
+            for user in users {
+                let user_id = ruma::UserId::parse(format!("{user}:localhost")).unwrap();
+                let raw: Raw<ruma::events::room::member::SyncRoomMemberEvent> = Raw::new(&json!({
+                    "type": "m.room.member",
+                    "content": RoomMemberEventContent::new(MembershipState::Join),
+                    "event_id": format!("$ev_{}_{}", room_id.as_str().trim_start_matches('!').split(':').next().unwrap(), user.trim_start_matches('@')),
+                    "origin_server_ts": 198,
+                    "sender": user_id,
+                    "state_key": user_id,
+                }))
+                .unwrap()
+                .cast_unchecked();
+                let profile = raw.deserialize().unwrap().into();
+                changes
+                    .state
+                    .entry(room_id.to_owned())
+                    .or_default()
+                    .entry(StateEventType::RoomMember)
+                    .or_default()
+                    .insert(user_id.to_string(), raw.cast());
+                changes.profiles.entry(room_id.to_owned()).or_default().insert(user_id, profile);
+            }
+        }
+        store.save_changes(&changes).await.unwrap();
+
+        let usage = store
+            .storage_usage(&[room_a.to_owned(), room_b.to_owned(), room_c.to_owned()])
+            .await
+            .unwrap();
+        assert_eq!(usage.per_room.len(), 2, "{usage:?}");
+        assert!(usage.per_room[room_a] > usage.per_room[room_b], "{usage:?}");
+        assert_eq!(usage.per_room.values().sum::<u64>(), usage.total_bytes);
+
+        // Removing room A's members keeps its room info, and room B's members.
+        store.remove_room_members(room_a).await.unwrap();
+        assert!(store.get_user_ids(room_a, RoomMemberships::empty()).await.unwrap().is_empty());
+        assert!(store.get_profile(room_a, user_id!("@u1:localhost")).await.unwrap().is_none());
+        assert_eq!(store.get_user_ids(room_b, RoomMemberships::empty()).await.unwrap().len(), 1);
+        assert!(
+            store
+                .get_room_infos(&Default::default())
+                .await
+                .unwrap()
+                .iter()
+                .any(|info| info.room_id() == room_a)
+        );
+
+        let smaller = store.storage_usage(&[room_a.to_owned()]).await.unwrap();
+        assert!(smaller.per_room[room_a] < usage.per_room[room_a], "{smaller:?} vs {usage:?}");
+    }
 }
 
 #[cfg(test)]
