@@ -34,9 +34,11 @@ use matrix_sdk_test::{ALICE, DEFAULT_TEST_ROOM_ID, event_factory::EventFactory};
 use ruma::{
     EventId, RoomId, event_id,
     events::{
-        AnyMessageLikeEvent, AnyTimelineEvent, relation::RelationType,
-        room::message::RoomMessageEventContentWithoutRelation,
+        AnyMessageLikeEvent, AnyTimelineEvent,
+        relation::RelationType,
+        room::message::{RedactedRoomMessageEventContent, RoomMessageEventContentWithoutRelation},
     },
+    owned_mxc_uri,
     push::Action,
     room_id,
 };
@@ -232,6 +234,13 @@ pub trait EventCacheStoreIntegrationTests {
 
     /// Test that saving an event works as expected.
     async fn test_save_event(&self);
+
+    /// Test that finding the room messages of some `msgtype`s, with their
+    /// positions, works as expected.
+    async fn test_find_events_by_message_types(&self);
+
+    /// Test that loading all the gaps of a linked chunk works as expected.
+    async fn test_load_all_gaps(&self);
 
     /// Test that saving an existing event updates it's contents in both room
     /// and thread linked chunks.
@@ -2099,6 +2108,191 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         });
     }
 
+    async fn test_find_events_by_message_types(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+        let another_room_id = room_id!("!r1:matrix.org");
+
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let image = |name: &str| {
+            f.image(name.to_owned(), owned_mxc_uri!("mxc://example.org/img")).into_event()
+        };
+
+        let image_a = image("a.png");
+        let text = f.text_msg("hello").into_event();
+        let image_b = image("b.png");
+        let gallery = f
+            .gallery(
+                "gallery".to_owned(),
+                "c.png".to_owned(),
+                owned_mxc_uri!("mxc://example.org/c"),
+            )
+            .into_event();
+        // A UTD: its `msgtype` is unknown, so it must never be returned.
+        let utd = make_encrypted_test_event(room_id, "session_1");
+        // A message in another room.
+        let other_room_image = EventFactory::new()
+            .room(another_room_id)
+            .sender(*ALICE)
+            .image("z.png".to_owned(), owned_mxc_uri!("mxc://example.org/z"))
+            .into_event();
+
+        // Chunk 1 is linked before chunk 0: positions must come from the
+        // chunk identifiers, not from insertion order.
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![image_a.clone(), text.clone(), utd.clone()],
+                },
+                Update::NewItemsChunk { previous: None, new: CId::new(1), next: Some(CId::new(0)) },
+                Update::PushItems {
+                    at: Position::new(CId::new(1), 0),
+                    items: vec![gallery.clone(), image_b.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(another_room_id),
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![other_room_image.clone()],
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // An out-of-band image (no position): not returned either.
+        self.save_event(room_id, image("oob.png")).await.unwrap();
+
+        let mut found = self
+            .find_events_by_message_types(room_id, &["m.image", "m.video"])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(event, position)| (event.event_id().unwrap().to_owned(), position))
+            .collect::<Vec<_>>();
+        found.sort_by_key(|(event_id, _)| event_id.clone());
+
+        let mut expected = vec![
+            (image_a.event_id().unwrap().to_owned(), Position::new(CId::new(0), 0)),
+            (image_b.event_id().unwrap().to_owned(), Position::new(CId::new(1), 1)),
+        ];
+        expected.sort_by_key(|(event_id, _)| event_id.clone());
+
+        assert_eq!(found, expected);
+
+        // Querying again yields the same (exercises any index backfill).
+        assert_eq!(
+            self.find_events_by_message_types(room_id, &["m.image", "m.video"])
+                .await
+                .unwrap()
+                .len(),
+            2
+        );
+
+        // No types, no events.
+        assert!(self.find_events_by_message_types(room_id, &[]).await.unwrap().is_empty());
+
+        // The text message is found by its own type.
+        let found = self.find_events_by_message_types(room_id, &["m.text"]).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0.event_id().as_deref(), text.event_id().as_deref());
+        assert_eq!(found[0].1, Position::new(CId::new(0), 1));
+
+        // Once redacted, a message loses its `msgtype` and isn't found any more.
+        let redacted_image_b = f
+            .redacted(*ALICE, RedactedRoomMessageEventContent::new())
+            .event_id(image_b.event_id().unwrap())
+            .into_event();
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![Update::ReplaceItem { at: Position::new(CId::new(1), 1), item: redacted_image_b }],
+        )
+        .await
+        .unwrap();
+
+        let found = self.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0.event_id().as_deref(), image_a.event_id().as_deref());
+    }
+
+    async fn test_load_all_gaps(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let linked_chunk_id = LinkedChunkId::Room(room_id);
+
+        assert!(self.load_all_gaps(linked_chunk_id).await.unwrap().is_empty());
+
+        self.handle_linked_chunk_updates(
+            linked_chunk_id,
+            vec![
+                Update::NewItemsChunk { previous: None, new: CId::new(0), next: None },
+                Update::PushItems {
+                    at: Position::new(CId::new(0), 0),
+                    items: vec![make_test_event(room_id, "hello")],
+                },
+                Update::NewGapChunk {
+                    previous: Some(CId::new(0)),
+                    new: CId::new(1),
+                    next: None,
+                    gap: Gap { token: "raclette".to_owned() },
+                },
+                Update::NewGapChunk {
+                    previous: None,
+                    new: CId::new(2),
+                    next: Some(CId::new(0)),
+                    gap: Gap { token: "fondue".to_owned() },
+                },
+            ],
+        )
+        .await
+        .unwrap();
+
+        // Gaps of another linked chunk are not returned.
+        self.handle_linked_chunk_updates(
+            LinkedChunkId::Room(room_id!("!r1:matrix.org")),
+            vec![Update::NewGapChunk {
+                previous: None,
+                new: CId::new(0),
+                next: None,
+                gap: Gap { token: "tartiflette".to_owned() },
+            }],
+        )
+        .await
+        .unwrap();
+
+        let mut gaps = self
+            .load_all_gaps(linked_chunk_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|(chunk_id, gap)| (chunk_id, gap.token))
+            .collect::<Vec<_>>();
+        gaps.sort();
+
+        assert_eq!(
+            gaps,
+            vec![(CId::new(1), "raclette".to_owned()), (CId::new(2), "fondue".to_owned())]
+        );
+
+        // A resolved gap disappears.
+        self.handle_linked_chunk_updates(linked_chunk_id, vec![Update::RemoveChunk(CId::new(2))])
+            .await
+            .unwrap();
+
+        let gaps = self.load_all_gaps(linked_chunk_id).await.unwrap();
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].0, CId::new(1));
+    }
+
     async fn test_save_event(&self) {
         let room_id = room_id!("!r0:matrix.org");
         let another_room_id = room_id!("!r1:matrix.org");
@@ -2571,6 +2765,20 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_get_room_events_with_event_in_room_and_thread().await;
+            }
+
+            #[async_test]
+            async fn test_find_events_by_message_types() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_find_events_by_message_types().await;
+            }
+
+            #[async_test]
+            async fn test_load_all_gaps() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_load_all_gaps().await;
             }
 
             #[async_test]

@@ -1020,6 +1020,25 @@ impl TimelineEventKind {
     pub fn event_type(&self) -> Option<String> {
         self.raw().get_field("type").ok().flatten()
     }
+
+    /// Parse the `msgtype` of this event's content, if it has one (i.e. it is
+    /// an `m.room.message`-shaped event).
+    ///
+    /// Returns `None` for events without a `msgtype` (including
+    /// undecrypted events, whose content is the encrypted payload), or if
+    /// the content failed to be deserialized.
+    pub fn msgtype(&self) -> Option<String> {
+        #[derive(serde::Deserialize)]
+        struct Content {
+            msgtype: Option<String>,
+        }
+
+        self.raw()
+            .get_field::<Content>("content")
+            .ok()
+            .flatten()
+            .and_then(|content| content.msgtype)
+    }
 }
 
 #[cfg(not(tarpaulin_include))]

@@ -19,8 +19,8 @@ use matrix_sdk_common::{
     AsyncTraitDeps,
     cross_process_lock::CrossProcessLockGeneration,
     linked_chunk::{
-        ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
-        RawChunk, Update,
+        ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
+        Position, RawChunk, Update,
     },
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
@@ -187,6 +187,68 @@ pub trait EventCacheStore: AsyncTraitDeps {
         session_id: Option<&str>,
     ) -> Result<Vec<Event>, Self::Error>;
 
+    /// Get all the events of this room's linked chunk which are room messages
+    /// with one of the given `msgtype`s, along with their position in the
+    /// linked chunk.
+    ///
+    /// Only events stored in the room's linked chunk are returned (not those
+    /// saved "out-of-band" with [`Self::save_event`], nor those of thread or
+    /// other linked chunks), since the position is what makes them
+    /// orderable. Undecrypted events are never returned: their `msgtype`
+    /// isn't known.
+    ///
+    /// The events are returned in no particular order.
+    ///
+    /// The default implementation walks the whole linked chunk; stores are
+    /// expected to override it with an indexed query.
+    async fn find_events_by_message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: &[&str],
+    ) -> Result<Vec<(Event, Position)>, Self::Error> {
+        let chunks = self.load_all_chunks(LinkedChunkId::Room(room_id)).await?;
+
+        Ok(chunks
+            .into_iter()
+            .flat_map(|chunk| {
+                let chunk_id = chunk.identifier;
+                let events = match chunk.content {
+                    ChunkContent::Items(events) => events,
+                    ChunkContent::Gap(_) => Vec::new(),
+                };
+                events
+                    .into_iter()
+                    .enumerate()
+                    .map(move |(index, event)| (event, Position::new(chunk_id, index)))
+            })
+            .filter(|(event, _)| {
+                event.kind.msgtype().is_some_and(|msgtype| msgtypes.contains(&msgtype.as_str()))
+            })
+            .collect())
+    }
+
+    /// Load all the gap chunks of the given linked chunk, with their
+    /// identifier.
+    ///
+    /// The gaps are returned in no particular order.
+    ///
+    /// The default implementation walks the whole linked chunk; stores are
+    /// expected to override it with a direct query.
+    async fn load_all_gaps(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<(ChunkIdentifier, Gap)>, Self::Error> {
+        let chunks = self.load_all_chunks(linked_chunk_id).await?;
+
+        Ok(chunks
+            .into_iter()
+            .filter_map(|chunk| match chunk.content {
+                ChunkContent::Gap(gap) => Some((chunk.identifier, gap)),
+                ChunkContent::Items(_) => None,
+            })
+            .collect())
+    }
+
     /// Save an event, that might or might not be part of an existing linked
     /// chunk.
     ///
@@ -335,6 +397,21 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         session_id: Option<&str>,
     ) -> Result<Vec<Event>, Self::Error> {
         self.0.get_room_events(room_id, event_type, session_id).await.map_err(Into::into)
+    }
+
+    async fn find_events_by_message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: &[&str],
+    ) -> Result<Vec<(Event, Position)>, Self::Error> {
+        self.0.find_events_by_message_types(room_id, msgtypes).await.map_err(Into::into)
+    }
+
+    async fn load_all_gaps(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<(ChunkIdentifier, Gap)>, Self::Error> {
+        self.0.load_all_gaps(linked_chunk_id).await.map_err(Into::into)
     }
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {

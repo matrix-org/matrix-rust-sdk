@@ -18,7 +18,7 @@ use eyeball_im::VectorDiff;
 
 use super::{
     Position,
-    updates::{ReaderToken, Update, UpdatesInner},
+    updates::{ObservableUpdates, ReaderToken, Update, UpdatesInner},
 };
 use crate::linked_chunk::{ChunkMetadata, UpdateToVectorDiff};
 
@@ -97,6 +97,38 @@ where
         }
 
         Self { updates, token, mapper: UpdateToVectorDiff::from_metadata(all_chunks_metadata) }
+    }
+
+    /// Create a standalone [`OrderTracker`] from the full metadata of a
+    /// linked chunk, not attached to any in-memory linked chunk.
+    ///
+    /// Such a tracker is fed exclusively through [`Self::map_updates`], with
+    /// the (persisted) updates of the linked chunk it mirrors; it never has
+    /// pending updates to flush.
+    pub fn from_metadata(all_chunks_metadata: Vec<ChunkMetadata>) -> Self {
+        let mut updates = ObservableUpdates::new();
+        let token = updates.new_reader_token();
+
+        Self::new(updates.inner, token, all_chunks_metadata)
+    }
+
+    /// Given a position, returns the ordering of its chunk among all the
+    /// chunks of the linked chunk, along with the position's index within
+    /// that chunk.
+    ///
+    /// Unlike [`Self::ordering`], this works for gap chunks too (index 0),
+    /// and doesn't check that the index is within the chunk's bounds, so it
+    /// can order an item against a gap, or a not-yet-pushed item.
+    ///
+    /// Same precondition as [`Self::ordering`].
+    pub fn chunk_ordering(&self, pos: Position) -> Option<(usize, usize)> {
+        debug_assert!(self.updates.read().unwrap().is_reader_up_to_date(self.token));
+
+        self.mapper
+            .chunks
+            .iter()
+            .position(|(chunk_id, _)| *chunk_id == pos.chunk_identifier())
+            .map(|chunk_ordinal| (chunk_ordinal, pos.index()))
     }
 
     /// Force flushing of the updates manually.

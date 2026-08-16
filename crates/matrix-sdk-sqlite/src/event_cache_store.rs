@@ -81,6 +81,9 @@ const CHUNK_TYPE_EVENT_TYPE_STRING: &str = "E";
 /// database.
 const CHUNK_TYPE_GAP_TYPE_STRING: &str = "G";
 
+/// The event type of room messages, the only events with a `msgtype`.
+const ROOM_MESSAGE_EVENT_TYPE: &str = "m.room.message";
+
 /// Type to support (de)encryption of keys and values for the
 /// [`SqliteEventCacheStore`].
 ///
@@ -90,7 +93,7 @@ struct Encryption {
 }
 
 impl Encryption {
-    fn encode_event(&self, event: &TimelineEvent) -> Result<EncodedEvent> {
+    fn encode_event(&self, event: &TimelineEvent, event_type: &str) -> Result<EncodedEvent> {
         let serialized = serde_json::to_vec(event)?;
 
         // Extract the relationship info here.
@@ -105,7 +108,22 @@ impl Encryption {
             rel_type,
             relates_to: relates_to
                 .map(|relates_to| self.encode_event_id(keys::EVENTS, &relates_to)),
+            msgtype: self.encode_msgtype(event, event_type),
         })
+    }
+
+    /// Encode the `msgtype` of a room message as a _key_.
+    ///
+    /// Room messages without a `msgtype` (e.g. redacted ones) get the key of
+    /// the empty string, so that they are distinguishable from the rows
+    /// predating the `msgtype` column (NULL), which still need decoding.
+    /// Non-message events get `None`.
+    fn encode_msgtype(&self, event: &TimelineEvent, event_type: &str) -> Option<Key> {
+        if event_type == ROOM_MESSAGE_EVENT_TYPE {
+            Some(self.encode_key(keys::EVENTS, event.kind.msgtype().unwrap_or_default()))
+        } else {
+            None
+        }
     }
 
     fn decode_event(&self, raw_encoded_event: &[u8]) -> Result<Event> {
@@ -361,6 +379,9 @@ struct EncodedEvent {
     content: Vec<u8>,
     rel_type: Option<String>,
     relates_to: Option<Key>,
+    /// The hashed `msgtype` of a room message, see
+    /// [`SqliteEventCacheStore::find_events_by_message_types`].
+    msgtype: Option<Key>,
 }
 
 trait TransactionExtForLinkedChunks {
@@ -662,6 +683,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 18 {
+        debug!("Upgrading database to version 18");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/018_events_msgtype.sql"
+            ))?;
+            txn.set_db_version(18)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -861,7 +893,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // deduplicated and moved to another position; or because it was inserted
                         // outside the context of a linked chunk (e.g. pinned event).
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, msgtype) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -898,8 +930,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                             // Table `events`.
                             {
                                 let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
-                                let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
-                                let encoded_event = encryption.encode_event(&event)?;
+                                let hashed_event_type = encryption.encode_key(keys::EVENTS, &event_type);
+                                let encoded_event = encryption.encode_event(&event, &event_type)?;
 
                                 content_statement.execute((
                                     &hashed_room_id,
@@ -908,7 +940,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    encoded_event.msgtype,
                                 ))?;
                             }
                         }
@@ -941,11 +974,11 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // Table `events`.
                         {
                             let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
-                            let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
-                            let encoded_event = encryption.encode_event(&event)?;
+                            let hashed_event_type = encryption.encode_key(keys::EVENTS, &event_type);
+                            let encoded_event = encryption.encode_event(&event, &event_type)?;
 
                             txn.execute(
-                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, msgtype) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
                                     &hashed_room_id,
                                     &hashed_event_id,
@@ -953,7 +986,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    encoded_event.msgtype,
                                 ),
                             )?;
                         }
@@ -1859,6 +1893,172 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    #[instrument(skip(self))]
+    async fn find_events_by_message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: &[&str],
+    ) -> Result<Vec<(Event, Position)>, Self::Error> {
+        let _timer = timer!("method");
+
+        if msgtypes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let encryption = self.encryption.clone();
+        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Room(room_id));
+        let hashed_message_event_type =
+            self.encryption.encode_key(keys::EVENTS, ROOM_MESSAGE_EVENT_TYPE);
+        let hashed_msgtypes = msgtypes
+            .iter()
+            .map(|msgtype| self.encryption.encode_key(keys::EVENTS, msgtype))
+            .collect::<Vec<_>>();
+        let msgtypes = msgtypes.iter().map(|msgtype| msgtype.to_string()).collect::<Vec<_>>();
+
+        // Rows whose `msgtype` predates the column (NULL) that turned out to be
+        // room messages: decoded on the way, and backfilled below so that the
+        // next query for this room is index-only.
+        let (mut found, backfill) = self
+            .read()
+            .await?
+            .with_transaction({
+                let encryption = encryption.clone();
+                let hashed_room_id = hashed_room_id.clone();
+                let hashed_linked_chunk_id = hashed_linked_chunk_id.clone();
+
+                move |txn| -> Result<_> {
+                    let position = |chunk_id: Option<u64>, index: Option<usize>| {
+                        chunk_id.zip(index).map(|(chunk_id, index)| {
+                            Position::new(ChunkIdentifier::new(chunk_id), index)
+                        })
+                    };
+
+                    // 1. Indexed rows.
+                    let query = format!(
+                        "SELECT events.content, event_chunks.chunk_id, event_chunks.position \
+                        FROM events \
+                        LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ? \
+                        WHERE events.room_id = ? AND events.msgtype IN ({})",
+                        repeat_vars(hashed_msgtypes.len())
+                    );
+
+                    let parameters = params_from_iter(
+                        [
+                            hashed_linked_chunk_id.to_sql().expect("a key converts to a SQLite value"),
+                            hashed_room_id.to_sql().expect("a key converts to a SQLite value"),
+                        ]
+                        .into_iter()
+                        .chain(hashed_msgtypes.iter().map(|key| key.to_sql().expect("a key converts to a SQLite value"))),
+                    );
+
+                    let mut found = Vec::new();
+
+                    for row in txn.prepare(&query)?.query_map(parameters, |row| {
+                        Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Option<u64>>(1)?, row.get::<_, Option<usize>>(2)?))
+                    })? {
+                        let (content, chunk_id, index) = row?;
+                        if let Some(position) = position(chunk_id, index) {
+                            found.push((encryption.decode_event(&content)?, position));
+                        }
+                    }
+
+                    // 2. Legacy rows: room messages with an unknown `msgtype`.
+                    let mut backfill = Vec::new();
+
+                    for row in txn
+                        .prepare(
+                            "SELECT events.event_id, events.content, event_chunks.chunk_id, event_chunks.position \
+                            FROM events \
+                            LEFT JOIN event_chunks ON events.event_id = event_chunks.event_id AND event_chunks.linked_chunk_id = ? \
+                            WHERE events.room_id = ? AND events.event_type = ? AND events.msgtype IS NULL",
+                        )?
+                        .query_map((&hashed_linked_chunk_id, &hashed_room_id, &hashed_message_event_type), |row| {
+                            Ok((
+                                row.get::<_, Vec<u8>>(0)?,
+                                row.get::<_, Vec<u8>>(1)?,
+                                row.get::<_, Option<u64>>(2)?,
+                                row.get::<_, Option<usize>>(3)?,
+                            ))
+                        })?
+                    {
+                        let (hashed_event_id, content, chunk_id, index) = row?;
+                        let event = encryption.decode_event(&content)?;
+                        let msgtype = event.kind.msgtype().unwrap_or_default();
+
+                        if let Some(position) = position(chunk_id, index)
+                            && msgtypes.contains(&msgtype)
+                        {
+                            found.push((event, position));
+                        }
+
+                        backfill.push((hashed_event_id, encryption.encode_key(keys::EVENTS, msgtype)));
+                    }
+
+                    Ok((found, backfill))
+                }
+            })
+            .await?;
+
+        if !backfill.is_empty() {
+            debug!(
+                num_rows = backfill.len(),
+                "Backfilling the `msgtype` of legacy room message rows"
+            );
+
+            self.write()
+                .await?
+                .with_transaction(move |txn| -> Result<_> {
+                    let mut statement = txn.prepare(
+                        "UPDATE events SET msgtype = ? WHERE event_id = ? AND room_id = ?",
+                    )?;
+
+                    for (hashed_event_id, hashed_msgtype) in backfill {
+                        statement.execute((hashed_msgtype, hashed_event_id, &hashed_room_id))?;
+                    }
+
+                    Ok(())
+                })
+                .await?;
+        }
+
+        found.shrink_to_fit();
+
+        Ok(found)
+    }
+
+    #[instrument(skip(self))]
+    async fn load_all_gaps(
+        &self,
+        linked_chunk_id: LinkedChunkId<'_>,
+    ) -> Result<Vec<(ChunkIdentifier, Gap)>, Self::Error> {
+        let _timer = timer!("method");
+
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
+        let encryption = self.encryption.clone();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                txn.prepare(
+                    "SELECT chunk_id, prev_token FROM gap_chunks WHERE linked_chunk_id = ?",
+                )?
+                .query_map((&hashed_linked_chunk_id,), |row| {
+                    Ok((row.get::<_, u64>(0)?, row.get::<_, Vec<u8>>(1)?))
+                })?
+                .map(|row| {
+                    let (chunk_id, encoded_prev_token) = row?;
+                    let prev_token_bytes = encryption.decode_value(&encoded_prev_token)?;
+                    let prev_token = String::from_utf8(prev_token_bytes.into_owned())?;
+                    Ok((ChunkIdentifier::new(chunk_id), Gap { token: prev_token }))
+                })
+                .collect()
+            })
+            .await
+    }
+
     #[instrument(skip(self, event))]
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         let _timer = timer!("method");
@@ -1873,19 +2073,19 @@ impl EventCacheStore for SqliteEventCacheStore {
             return Ok(());
         };
 
-        let hashed_event_type = self.encryption.encode_key(keys::EVENTS, event_type);
+        let hashed_event_type = self.encryption.encode_key(keys::EVENTS, &event_type);
         let hashed_session_id =
             event.kind.session_id().map(|s| self.encryption.encode_key(keys::EVENTS, s));
 
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
-        let encoded_event = self.encryption.encode_event(&event)?;
+        let encoded_event = self.encryption.encode_event(&event, &event_type)?;
 
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<_> {
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, msgtype) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         &hashed_room_id,
                         hashed_event_id,
@@ -1893,7 +2093,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                         hashed_session_id,
                         encoded_event.content,
                         encoded_event.relates_to,
-                        encoded_event.rel_type
+                        encoded_event.rel_type,
+                        encoded_event.msgtype,
                     )
                 )?;
 
@@ -2326,6 +2527,76 @@ mod tests {
         // Check that the gaps match those set up in the corresponding integration test
         // above
         assert_eq!(gaps, vec![42, 44]);
+    }
+
+    #[async_test]
+    async fn test_find_events_by_message_types_backfills_legacy_rows() {
+        use matrix_sdk_base::linked_chunk::Position;
+        use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+        use ruma::owned_mxc_uri;
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let image = f.image("a.png".to_owned(), owned_mxc_uri!("mxc://example.org/a")).into_event();
+        let text = f.text_msg("hello").into_event();
+
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![image.clone(), text],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let count_unknown = |store: SqliteEventCacheStore| async move {
+            store
+                .read()
+                .await
+                .unwrap()
+                .with_transaction(|txn| {
+                    txn.query_row("SELECT COUNT(*) FROM events WHERE msgtype IS NULL", (), |row| {
+                        row.get::<_, u64>(0)
+                    })
+                })
+                .await
+                .unwrap()
+        };
+
+        // Fresh rows are indexed on write.
+        assert_eq!(count_unknown(store.clone()).await, 0);
+
+        // Simulate rows written before the `msgtype` column existed.
+        store
+            .write()
+            .await
+            .unwrap()
+            .with_transaction(|txn| txn.execute("UPDATE events SET msgtype = NULL", ()))
+            .await
+            .unwrap();
+        assert_eq!(count_unknown(store.clone()).await, 2);
+
+        // The legacy rows are found by decoding them…
+        let found = store.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0.event_id().as_deref(), image.event_id().as_deref());
+
+        // … and backfilled on the way, so the next query is index-only.
+        assert_eq!(count_unknown(store.clone()).await, 0);
+
+        let found = store.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
+        assert_eq!(found.len(), 1);
     }
 
     #[async_test]
