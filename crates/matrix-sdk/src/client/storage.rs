@@ -42,7 +42,85 @@ pub struct StorageUsageReport {
     pub media: StorageUsage,
 }
 
+/// One room's share of each cache, in bytes. See
+/// [`Client::storage_usage_by_room`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RoomStorageUsage {
+    /// The room keys (megolm inbound group sessions) of the crypto store.
+    pub room_keys_bytes: u64,
+    /// The room's data in the state store.
+    pub room_state_bytes: u64,
+    /// The room's events in the event cache store.
+    pub events_bytes: u64,
+    /// The media contents referenced by the room's stored media messages.
+    pub media_bytes: u64,
+}
+
+impl RoomStorageUsage {
+    fn total(&self) -> u64 {
+        self.room_keys_bytes + self.room_state_bytes + self.events_bytes + self.media_bytes
+    }
+}
+
 impl Client {
+    /// Walk the known rooms' storage usage, calling `on_room` for each room
+    /// with any cached data, as soon as its numbers are known: the cheap
+    /// per-room stores (keys, state, events) are measured up front in a few
+    /// grouped queries, then each room's media (which requires decoding its
+    /// media messages to find their URIs) is measured in turn, biggest rooms
+    /// first, so that a UI can fill in progressively.
+    #[instrument(skip_all)]
+    pub async fn storage_usage_by_room(
+        &self,
+        mut on_room: impl FnMut(OwnedRoomId, RoomStorageUsage),
+    ) -> Result<()> {
+        let room_ids: Vec<OwnedRoomId> =
+            self.rooms().iter().map(|room| room.room_id().to_owned()).collect();
+
+        #[cfg(feature = "e2e-encryption")]
+        let room_keys = match self.olm_machine().await.as_ref() {
+            Some(olm_machine) => olm_machine.store().room_keys_storage_usage(&room_ids).await?,
+            None => StorageUsage::default(),
+        };
+        #[cfg(not(feature = "e2e-encryption"))]
+        let room_keys = StorageUsage::default();
+        let room_state = self.state_store().storage_usage(&room_ids).await?;
+        let events = self.locked_event_cache_store().await?.storage_usage(&room_ids).await?;
+
+        let mut usages: Vec<(OwnedRoomId, RoomStorageUsage)> = room_ids
+            .into_iter()
+            .map(|room_id| {
+                let usage = RoomStorageUsage {
+                    room_keys_bytes: room_keys.per_room.get(&room_id).copied().unwrap_or(0),
+                    room_state_bytes: room_state.per_room.get(&room_id).copied().unwrap_or(0),
+                    events_bytes: events.per_room.get(&room_id).copied().unwrap_or(0),
+                    media_bytes: 0,
+                };
+                (room_id, usage)
+            })
+            .collect();
+        usages.sort_by_key(|(_, usage)| std::cmp::Reverse(usage.total()));
+
+        for (room_id, mut usage) in usages {
+            // A room without events has no cached media messages to attribute
+            // media to.
+            if usage.events_bytes > 0 {
+                let uris = self.locked_event_cache_store().await?.room_media_uris(&room_id).await?;
+                if !uris.is_empty() {
+                    let room_media = [(room_id.clone(), uris)];
+                    let media = self.media_store().lock().await?.storage_usage(&room_media).await?;
+                    usage.media_bytes = media.per_room.get(&room_id).copied().unwrap_or(0);
+                }
+            }
+
+            if usage.total() > 0 {
+                on_room(room_id, usage);
+            }
+        }
+
+        Ok(())
+    }
+
     /// Measure how much storage each of the caches uses, overall and per
     /// known room.
     ///

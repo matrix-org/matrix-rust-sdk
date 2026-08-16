@@ -39,7 +39,10 @@ use tracing::trace;
 pub use self::integration_tests::EventCacheStoreIntegrationTests;
 pub use self::{
     memory_store::MemoryStore,
-    traits::{DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore},
+    traits::{
+        DEFAULT_CHUNK_CAPACITY, DynEventCacheStore, EventCacheStore, IntoEventCacheStore,
+        MEDIA_MSGTYPES,
+    },
 };
 
 /// The high-level public type to represent an `EventCacheStore` lock.

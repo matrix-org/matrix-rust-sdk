@@ -135,7 +135,7 @@ pub(crate) mod thread_subscriptions;
 
 pub use self::{
     builder::{ClientBuildError, ClientBuilder, sanitize_server_name},
-    storage::{StorageUsage, StorageUsageReport},
+    storage::{RoomStorageUsage, StorageUsage, StorageUsageReport},
 };
 #[cfg(feature = "experimental-search")]
 use crate::search_index::SearchIndex;
