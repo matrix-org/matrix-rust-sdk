@@ -313,3 +313,58 @@ async fn test_sync_service_offline_mode_restarting() {
     assert_next_matches_with_timeout!(states, 2000, State::Running);
     assert_next_matches_with_timeout!(states, 2000, State::Offline);
 }
+
+#[async_test]
+async fn test_sync_service_expired_session_restarts_silently() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    // Respond to the first room-list sync with a session expiry, and 200 to
+    // everything else, counting the requests that follow the expiry.
+    let sent_expiry = Arc::new(Mutex::new(false));
+    let requests_after_expiry = Arc::new(Mutex::new(0));
+
+    let sent_expiry_clone = sent_expiry.clone();
+    let requests_after_expiry_clone = requests_after_expiry.clone();
+    let _guard = Mock::given(SlidingSyncMatcher)
+        .respond_with(move |request: &Request| {
+            let partial_request: PartialSlidingSyncRequest = request.body_json().unwrap();
+
+            let mut sent_expiry = sent_expiry_clone.lock().unwrap();
+            if !*sent_expiry {
+                if partial_request.conn_id.as_deref() == Some("room-list") {
+                    *sent_expiry = true;
+                    return ResponseTemplate::new(400).set_body_json(json!({
+                        "errcode": "M_UNKNOWN_POS",
+                        "error": "Unknown position",
+                    }));
+                }
+            } else {
+                *requests_after_expiry_clone.lock().unwrap() += 1;
+            }
+
+            ResponseTemplate::new(200)
+                .set_body_json(json!({
+                    "txn_id": partial_request.txn_id,
+                    "pos": "1",
+                }))
+                .set_delay(Duration::from_millis(50))
+        })
+        .mount_as_scoped(server.server())
+        .await;
+
+    let sync_service = SyncService::builder(client).build().await.unwrap();
+    let mut state_stream = sync_service.state();
+
+    sync_service.start().await;
+    assert_next_matches!(state_stream, State::Running);
+
+    // The expired session restarts silently: syncing resumes without the
+    // state ever leaving `Running` (previously this surfaced as
+    // `Error`/`Offline`, which UIs show as "server unreachable").
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_pending!(state_stream);
+    assert!(*requests_after_expiry.lock().unwrap() > 0, "syncing should have resumed");
+
+    sync_service.stop().await;
+}

@@ -38,6 +38,7 @@ use matrix_sdk::{
     executor::{JoinHandle, spawn},
     sleep::sleep,
 };
+use ruma::time::Instant;
 use thiserror::Error;
 use tokio::sync::{
     Mutex as AsyncMutex, OwnedMutexGuard,
@@ -250,6 +251,8 @@ impl SyncTaskSupervisor {
         let parent_span = inner.parent_span.clone();
 
         let future = async move {
+            let mut last_silent_expiry_restart: Option<Instant> = None;
+
             loop {
                 let (room_list_task, encryption_sync_task) = Self::spawn_child_tasks(
                     room_list_service.clone(),
@@ -308,6 +311,23 @@ impl SyncTaskSupervisor {
 
                 if let Err(err) = encryption_sync_task.await {
                     error!("when awaiting encryption sync: {err:#}");
+                }
+
+                // A session expiry (e.g. the server no longer knows our sliding
+                // sync position) is a routine, self-healing event: the sessions
+                // have been expired above and a restart from scratch is expected
+                // to succeed, so don't detour through the offline/error states
+                // (surfaced by UIs as "server unreachable"). Restart silently,
+                // unless the previous silent restart was recent enough that we
+                // might be spinning on expiries, in which case fall through to
+                // the regular handling.
+                if report.has_expired()
+                    && last_silent_expiry_restart
+                        .is_none_or(|at| at.elapsed() > Duration::from_secs(10))
+                {
+                    info!("sync session expired; restarting silently");
+                    last_silent_expiry_restart = Some(Instant::now());
+                    continue;
                 }
 
                 if let Some(error) = report.error {
