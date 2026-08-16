@@ -71,7 +71,6 @@ use super::{
     DateDividerMode, EmbeddedEvent, Error, EventSendState, EventTimelineItem, InReplyToDetails,
     MediaUploadProgress, Profile, TimelineDetails, TimelineEventItemId, TimelineFocus,
     TimelineItem, TimelineItemContent, TimelineItemKind, TimelineReadReceiptTracking,
-    VirtualTimelineItem,
     algorithms::{rfind_event_by_id, rfind_event_item},
     event_handler::TimelineEventHandler,
     event_item::{ReactionStatus, RemoteEventOrigin},
@@ -1525,14 +1524,20 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub async fn insert_timeline_start_if_missing(&self) {
         let mut state = self.state.write().await;
         let mut txn = state.transaction();
-        txn.items.push_timeline_start_if_missing(
-            txn.meta.new_timeline_item(VirtualTimelineItem::TimelineStart),
-        );
+        txn.insert_timeline_start_if_missing();
         txn.commit();
     }
 
     /// Take note of the latest set of gaps reported by the event cache, and
     /// reconcile the timeline's gap items against it.
+    ///
+    /// Also re-evaluates the timeline start item: gaps decide whether the
+    /// start of the room has been seen (a leading gap means it hasn't, even
+    /// with the storage exhausted), and this is where they change. In
+    /// particular, resolving the last leading gap is what finally reaches the
+    /// start; the pagination status has been saying "start hit" (storage
+    /// exhausted) since before that, so clients aren't paginating anymore and
+    /// no pagination will insert the item.
     ///
     /// Does nothing unless this timeline uses storage-only pagination: with
     /// network-backed pagination, gaps are resolved under the hood and never
@@ -1550,6 +1555,40 @@ impl<P: RoomDataProvider> TimelineController<P> {
         txn.meta.timeline_gaps = gaps;
         // The reconciliation itself runs as part of the commit.
         txn.commit();
+
+        let mut txn = state.transaction();
+        if txn.has_leading_gap() {
+            // A timeline start inserted before we learnt about the gap (the
+            // pagination status and the gaps travel on different streams)
+            // is a lie: retract it.
+            if txn.items.get(0).is_some_and(|item| item.is_timeline_start()) {
+                txn.items.remove(0);
+            }
+        } else if let TimelineFocusKind::Live { event_cache, .. } = self.focus()
+            && let PaginationStatus::Idle { hit_timeline_start: true } =
+                event_cache.pagination().status().get()
+            && txn.meta.subscriber_skip_count.get() == 0
+        {
+            txn.insert_timeline_start_if_missing();
+        }
+        txn.commit();
+    }
+
+    /// Refresh the set of gaps from the event cache, instead of waiting for
+    /// its next `UpdateTimelineGaps` update.
+    ///
+    /// Use this right after a pagination or a gap resolution: their effect on
+    /// the gaps (and, through them, on the timeline start item) applies
+    /// synchronously, instead of racing with the pagination status.
+    pub(super) async fn refresh_timeline_gaps(&self, event_cache: &RoomEventCache) {
+        if !self.settings.storage_only_pagination {
+            return;
+        }
+
+        match event_cache.timeline_gaps().await {
+            Ok(gaps) => self.handle_timeline_gaps(gaps).await,
+            Err(err) => warn!(?err, "Failed to refresh the timeline gaps"),
+        }
     }
 
     /// Create a [`EmbeddedEvent`] from an arbitrary event, be it in the

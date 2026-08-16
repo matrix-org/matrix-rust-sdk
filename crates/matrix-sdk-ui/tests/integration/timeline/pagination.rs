@@ -1407,3 +1407,79 @@ async fn test_timeline_start_properly_inserted_when_created() {
     assert!(items[0].is_timeline_start());
     assert_pending!(stream2);
 }
+
+#[async_test]
+async fn test_resolving_the_last_leading_gap_inserts_the_timeline_start() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // A limited sync records a gap before its event: `[gap "pb1"] [$1]`.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("heyo").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("pb1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let timeline = room.timeline_builder().with_storage_only_pagination().build().await.unwrap();
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+    assert_eq!(items.len(), 2, "{items:?}");
+    assert!(items[0].is_date_divider());
+    assert!(items[1].as_event().is_some());
+
+    // The storage pagination walks up to the leading gap: as far as the
+    // storage is concerned the start is hit, but there's no timeline start
+    // yet, only the gap item.
+    let hit_start = timeline.paginate_backwards(10).await.unwrap();
+    assert!(hit_start);
+
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    assert_eq!(timeline_updates.len(), 1, "{timeline_updates:?}");
+    assert_let!(VectorDiff::Insert { index: 1, value } = &timeline_updates[0]);
+    assert!(value.is_gap());
+    assert_pending!(timeline_stream);
+
+    // Resolving the gap yields the rest of the room, and no further
+    // prev-batch token: the room's start is now genuinely reached, so the
+    // timeline start must be inserted, even though the pagination status
+    // already said the start was hit and no client will paginate again.
+    server
+        .mock_room_messages()
+        .match_from("pb1")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("hello").event_id(event_id!("$0"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let resolved = timeline.resolve_gap("pb1".to_owned(), 10).await.unwrap();
+    assert!(resolved);
+
+    let mut saw_timeline_start = false;
+    let mut gap_removed = false;
+    while !(saw_timeline_start && gap_removed) {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            match update {
+                VectorDiff::PushFront { value } | VectorDiff::Insert { index: 0, value }
+                    if value.is_timeline_start() =>
+                {
+                    saw_timeline_start = true;
+                }
+                VectorDiff::Remove { .. } => gap_removed = true,
+                _ => {}
+            }
+        }
+    }
+
+    let items = timeline.items().await;
+    assert!(items[0].is_timeline_start(), "{items:?}");
+    assert!(items.iter().all(|item| !item.is_gap()), "{items:?}");
+}

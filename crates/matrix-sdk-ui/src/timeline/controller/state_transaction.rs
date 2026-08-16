@@ -1143,6 +1143,33 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
         self.meta.update_read_marker(&mut self.items);
     }
 
+    /// Whether the oldest known gap leads the timeline, i.e. no known remote
+    /// event is older than it.
+    ///
+    /// Judged from the event cache's gap snapshot
+    /// ([`TimelineMetadata::timeline_gaps`]) rather than from the rendered
+    /// gap items: a gap whose anchor event hasn't reached this timeline yet
+    /// has no item, but is leading all the same.
+    pub(super) fn has_leading_gap(&self) -> bool {
+        self.meta.timeline_gaps.first().is_some_and(|gap| {
+            self.items
+                .position_by_event_id(&gap.following_event_id)
+                .is_none_or(|event_index| event_index == 0)
+        })
+    }
+
+    /// Insert the timeline start item, unless it's there already, or a
+    /// leading gap means the room's start hasn't actually been seen yet.
+    pub(super) fn insert_timeline_start_if_missing(&mut self) {
+        if self.has_leading_gap() {
+            return;
+        }
+
+        self.items.push_timeline_start_if_missing(
+            self.meta.new_timeline_item(VirtualTimelineItem::TimelineStart),
+        );
+    }
+
     /// Reconcile the gap virtual items against the latest set of gaps
     /// reported by the event cache ([`TimelineMetadata::timeline_gaps`]).
     ///

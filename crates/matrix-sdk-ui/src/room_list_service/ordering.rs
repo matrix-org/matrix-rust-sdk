@@ -27,16 +27,15 @@
 //!      timestamp and a bump stamp) whose bump stamp is at or above its own,
 //!      and is then sub-ordered by its own bump stamp. This guarantees that a
 //!      room without a preview never ranks above a room the server considers
-//!      more recent that has one: a single anchor with an inconsistent
-//!      (fresh timestamp, stale bump stamp) pair - a just-sent local message
-//!      before its sync echo, say - cannot drag its bump-stamp neighbours to
-//!      the top of the list. A room whose bump stamp is above every anchor's
-//!      borrows the top anchor's timestamp and sits just above it, so a
-//!      genuinely new event in a room with no computable preview still
-//!      surfaces;
+//!      more recent that has one: a single anchor with an inconsistent (fresh
+//!      timestamp, stale bump stamp) pair - a just-sent local message before
+//!      its sync echo, say - cannot drag its bump-stamp neighbours to the top
+//!      of the list. A room whose bump stamp is above every anchor's borrows
+//!      the top anchor's timestamp and sits just above it, so a genuinely new
+//!      event in a room with no computable preview still surfaces;
 //!    - before any latest event has been computed (e.g. at startup), this
-//!      degenerates into a pure bump-stamp order, which is the server's view
-//!      of recency, so the initial order is immediately meaningful.
+//!      degenerates into a pure bump-stamp order, which is the server's view of
+//!      recency, so the initial order is immediately meaningful.
 //! 3. Ties are broken by display name, then by room ID, so the order is fully
 //!    deterministic.
 //!
@@ -143,13 +142,11 @@ fn compute_recencies(items: &[&RoomListItem]) -> Vec<Option<Recency>> {
     // promote its neighbours.
     let mut anchors: Vec<(u64, u64)> = items
         .iter()
-        .filter_map(|room| {
-            match (room.cached_latest_event_timestamp, room.cached_recency_stamp) {
-                (Some(timestamp), Some(bump_stamp)) => {
-                    Some((bump_stamp.into(), timestamp.get().into()))
-                }
-                _ => None,
+        .filter_map(|room| match (room.cached_latest_event_timestamp, room.cached_recency_stamp) {
+            (Some(timestamp), Some(bump_stamp)) => {
+                Some((bump_stamp.into(), timestamp.get().into()))
             }
+            _ => None,
         })
         .collect();
     anchors.sort_unstable();
@@ -282,8 +279,7 @@ fn diff_orders(
     for (new_index, maybe_old_position) in sequence.iter().enumerate() {
         let Some(old_position) = maybe_old_position else { continue };
 
-        let length =
-            tails.partition_point(|&tail| sequence[tail].unwrap() < *old_position);
+        let length = tails.partition_point(|&tail| sequence[tail].unwrap() < *old_position);
 
         if length == tails.len() {
             tails.push(new_index);
@@ -425,9 +421,9 @@ impl OrderingState {
         // Fast path: only `Set`s whose ordering inputs are unchanged. The
         // order cannot change; forward the value updates at their sorted
         // positions.
-        let key_changed = touched.iter().any(|value| {
-            self.key_inputs.get(value.room_id()) != Some(&KeyInputs::of(value))
-        });
+        let key_changed = touched
+            .iter()
+            .any(|value| self.key_inputs.get(value.room_id()) != Some(&KeyInputs::of(value)));
 
         if !structural && !key_changed {
             return touched
@@ -475,8 +471,7 @@ impl OrderingState {
         // Update the state. `key_inputs` is refreshed for the rooms still
         // present; rooms that disappeared are dropped.
         self.sorted = new_sorted;
-        self.key_inputs
-            .retain(|room_id, _| new_positions.contains_key(room_id));
+        self.key_inputs.retain(|room_id, _| new_positions.contains_key(room_id));
         for room_id in self.sorted.iter() {
             if let Some(room) = by_id.get(&**room_id) {
                 self.key_inputs.insert(room_id.clone(), KeyInputs::of(room));
@@ -497,9 +492,7 @@ mod tests {
     };
     use matrix_sdk_base::RoomInfoNotableUpdateReasons;
     use matrix_sdk_test::async_test;
-    use ruma::{
-        events::room::message::RoomMessageEventContent, room_id, serde::Raw,
-    };
+    use ruma::{events::room::message::RoomMessageEventContent, room_id, serde::Raw};
     use serde_json::json;
     use stream_assert::assert_pending;
     use tokio_stream::wrappers::ReceiverStream;
@@ -634,11 +627,8 @@ mod tests {
         set_bump_stamp(&mut room_c, 30.into()).await;
         set_bump_stamp(&mut room_d, 40.into()).await;
 
-        let initial: Vector<RoomListItem> = [
-            room_a.clone(), room_b.clone(), room_c.clone(), room_d.clone(),
-        ]
-        .into_iter()
-        .collect();
+        let initial: Vector<RoomListItem> =
+            [room_a.clone(), room_b.clone(), room_c.clone(), room_d.clone()].into_iter().collect();
 
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
         let (values, stream) = sorted_by_recency(initial, ReceiverStream::new(receiver));
@@ -646,10 +636,7 @@ mod tests {
 
         // Initial order: by bump stamp, descending.
         let order: Vec<&RoomId> = values.iter().map(|room| room.room_id()).collect();
-        assert_eq!(
-            order,
-            [room_d.room_id(), room_c.room_id(), room_b.room_id(), room_a.room_id()]
-        );
+        assert_eq!(order, [room_d.room_id(), room_c.room_id(), room_b.room_id(), room_a.room_id()]);
 
         let mut current = values.clone();
 
@@ -683,10 +670,7 @@ mod tests {
         // must move to the front in one atomic batch.
         set_latest_event(&mut room_a, remote(400)).await;
 
-        sender
-            .send(vec![VectorDiff::Set { index: 0, value: room_a.clone() }])
-            .await
-            .unwrap();
+        sender.send(vec![VectorDiff::Set { index: 0, value: room_a.clone() }]).await.unwrap();
 
         let diffs = stream.next().await.unwrap();
         apply_and_check(
@@ -729,9 +713,7 @@ mod tests {
         set_bump_stamp(&mut old_b, 4.into()).await;
 
         let initial: Vector<RoomListItem> =
-            [poisoned.clone(), recent.clone(), old_a.clone(), old_b.clone()]
-                .into_iter()
-                .collect();
+            [poisoned.clone(), recent.clone(), old_a.clone(), old_b.clone()].into_iter().collect();
 
         let (values, _stream) = sorted_by_recency(initial, futures_util::stream::pending());
 
@@ -759,8 +741,7 @@ mod tests {
         set_bump_stamp(&mut room_a, 1.into()).await;
         set_bump_stamp(&mut room_b, 2.into()).await;
 
-        let initial: Vector<RoomListItem> =
-            [room_a.clone(), room_b.clone()].into_iter().collect();
+        let initial: Vector<RoomListItem> = [room_a.clone(), room_b.clone()].into_iter().collect();
 
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
         let (values, stream) = sorted_by_recency(initial, ReceiverStream::new(receiver));
@@ -771,10 +752,7 @@ mod tests {
 
         // A value update with unchanged ordering inputs: a single `Set` at the
         // sorted position, no moves.
-        sender
-            .send(vec![VectorDiff::Set { index: 0, value: room_a.clone() }])
-            .await
-            .unwrap();
+        sender.send(vec![VectorDiff::Set { index: 0, value: room_a.clone() }]).await.unwrap();
 
         let diffs = stream.next().await.unwrap();
         assert_eq!(diffs.len(), 1);
@@ -794,8 +772,7 @@ mod tests {
         set_bump_stamp(&mut room_b, 2.into()).await;
 
         let (sender, receiver) = tokio::sync::mpsc::channel(8);
-        let (_values, stream) =
-            sorted_by_recency(Vector::new(), ReceiverStream::new(receiver));
+        let (_values, stream) = sorted_by_recency(Vector::new(), ReceiverStream::new(receiver));
         pin_mut!(stream);
 
         sender

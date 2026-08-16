@@ -16,7 +16,7 @@ use async_rx::StreamExt as _;
 use async_stream::stream;
 use futures_core::Stream;
 use futures_util::{StreamExt as _, pin_mut};
-use matrix_sdk::event_cache::{PaginationStatus, RoomPagination};
+use matrix_sdk::event_cache::{PaginationStatus, RoomEventCache};
 use tracing::instrument;
 
 use super::Error;
@@ -47,7 +47,7 @@ impl super::Timeline {
                     }
                 }
 
-                Ok(self.live_paginate_backwards(&event_cache.pagination(), num_events).await?)
+                Ok(self.live_paginate_backwards(event_cache, num_events).await?)
             }
 
             TimelineFocusKind::Event { event_cache, .. } => {
@@ -90,9 +90,10 @@ impl super::Timeline {
     /// Returns whether we hit the start of the timeline.
     async fn live_paginate_backwards(
         &self,
-        event_cache_pagination: &RoomPagination,
+        event_cache: &RoomEventCache,
         batch_size: u16,
     ) -> Result<bool, Error> {
+        let event_cache_pagination = event_cache.pagination();
         // In storage-only mode, gaps encountered while walking the storage
         // are surfaced as gap timeline items instead of being resolved over
         // the network, so all the cached content is reachable even offline.
@@ -109,6 +110,11 @@ impl super::Timeline {
             match result {
                 Ok(outcome) => {
                     if outcome.reached_start {
+                        // In storage-only mode, "reached start" may only mean
+                        // "exhausted the storage, up to a leading gap": pick
+                        // up the gaps synchronously so the timeline start
+                        // decision doesn't race with the gaps update.
+                        self.controller.refresh_timeline_gaps(event_cache).await;
                         self.controller.insert_timeline_start_if_missing().await;
                         return Ok(true);
                     }
@@ -145,7 +151,18 @@ impl super::Timeline {
     pub async fn resolve_gap(&self, prev_token: String, batch_size: u16) -> Result<bool, Error> {
         match self.controller.focus() {
             TimelineFocusKind::Live { event_cache, .. } => {
-                Ok(event_cache.resolve_gap(prev_token, batch_size).await.map_err(Error::from)?)
+                let resolved =
+                    event_cache.resolve_gap(prev_token, batch_size).await.map_err(Error::from)?;
+
+                // Resolving the last leading gap of an exhausted storage is
+                // what finally reaches the start of the room: pick up the new
+                // set of gaps right away, so the timeline start gets inserted
+                // (see `TimelineController::handle_timeline_gaps`).
+                if resolved {
+                    self.controller.refresh_timeline_gaps(event_cache).await;
+                }
+
+                Ok(resolved)
             }
 
             TimelineFocusKind::Event { .. }
@@ -174,6 +191,7 @@ impl super::Timeline {
         let current_value = self.controller.map_pagination_status(status.next_now()).await;
 
         let controller = self.controller.clone();
+        let event_cache = event_cache.clone();
         let stream = Box::pin(stream! {
             let status_stream = status.dedup();
 
@@ -185,6 +203,7 @@ impl super::Timeline {
                 match state {
                     PaginationStatus::Idle { hit_timeline_start } => {
                         if hit_timeline_start {
+                            controller.refresh_timeline_gaps(&event_cache).await;
                             controller.insert_timeline_start_if_missing().await;
                         }
                     }
