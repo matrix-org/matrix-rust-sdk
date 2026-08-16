@@ -553,6 +553,27 @@ impl From<RumaMessageType> for RoomMessageEventMessageType {
     }
 }
 
+impl RoomMessageEventMessageType {
+    /// The `msgtype` string of this message type, if it's a known one.
+    pub(crate) fn msgtype(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::Audio => "m.audio",
+            Self::Emote => "m.emote",
+            Self::File => "m.file",
+            #[cfg(feature = "unstable-msc4274")]
+            Self::Gallery => "dm.filament.gallery",
+            Self::Image => "m.image",
+            Self::Location => "m.location",
+            Self::Notice => "m.notice",
+            Self::ServerNotice => "m.server_notice",
+            Self::Text => "m.text",
+            Self::Video => "m.video",
+            Self::VerificationRequest => "m.key.verification.request",
+            Self::Other => return None,
+        })
+    }
+}
+
 /// Contains the 2 possible identifiers of an event, either it has a remote
 /// event id or a local transaction id, never both or none.
 #[derive(Clone, uniffi::Enum)]

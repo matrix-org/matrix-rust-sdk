@@ -179,7 +179,14 @@ impl TimelineBuilder {
         )
     )]
     pub async fn build(self) -> Result<Timeline, Error> {
-        let Self { room, settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
+        let Self { room, mut settings, unable_to_decrypt_hook, focus, internal_id_prefix } = self;
+
+        // A message-type filtered timeline is served from the store, and
+        // renders the room's gaps as items to resolve on demand: that's what
+        // storage-only pagination means.
+        if matches!(focus, TimelineFocus::MessageTypes { .. }) {
+            settings.storage_only_pagination = true;
+        }
 
         // Subscribe the event cache to sync responses, in case we hadn't done it yet.
         let client = room.client();

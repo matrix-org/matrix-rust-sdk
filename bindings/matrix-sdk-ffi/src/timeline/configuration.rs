@@ -140,6 +140,15 @@ pub enum TimelineFocus {
         root_event_id: String,
     },
     PinnedEvents,
+    /// Only the room messages of the given types, served from the event
+    /// cache store's index (so that e.g. a media gallery of a fully cached
+    /// room shows instantly, without walking the room's whole history), with
+    /// the room's gaps as gap items to resolve on demand.
+    ///
+    /// Storage-only pagination is implied. Local echoes aren't shown.
+    MessageTypes {
+        types: Vec<RoomMessageEventMessageType>,
+    },
 }
 
 impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
@@ -170,6 +179,12 @@ impl TryFrom<TimelineFocus> for matrix_sdk_ui::timeline::TimelineFocus {
                 Ok(Self::Thread { root_event_id: parsed_root_event_id })
             }
             TimelineFocus::PinnedEvents => Ok(Self::PinnedEvents),
+            TimelineFocus::MessageTypes { types } => Ok(Self::MessageTypes {
+                msgtypes: types
+                    .iter()
+                    .filter_map(|message_type| message_type.msgtype().map(ToOwned::to_owned))
+                    .collect(),
+            }),
         }
     }
 }

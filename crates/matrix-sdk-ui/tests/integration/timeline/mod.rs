@@ -49,6 +49,7 @@ mod echo;
 mod edit;
 mod focus_event;
 mod media;
+mod message_types;
 mod pagination;
 mod pinned_event;
 mod profiles;

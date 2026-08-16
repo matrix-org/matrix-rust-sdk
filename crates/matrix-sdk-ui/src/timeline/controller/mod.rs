@@ -27,8 +27,9 @@ use imbl::{HashSet, Vector};
 use matrix_sdk::{
     deserialized_responses::TimelineEvent,
     event_cache::{
-        DecryptionRetryRequest, EventCache, EventFocusedCache, PaginationStatus, PinnedEventsCache,
-        RoomEventCache, Subscriber as EventCacheSubscriber, ThreadEventCache, TimelineVectorDiffs,
+        DecryptionRetryRequest, EventCache, EventFocusedCache, MessageTypesEventCache,
+        PaginationStatus, PinnedEventsCache, RoomEventCache, Subscriber as EventCacheSubscriber,
+        ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::{
         LocalEcho, LocalEchoContent, RoomSendQueueUpdate, SendHandle, SendReactionHandle,
@@ -85,7 +86,7 @@ use crate::{
         controller::decryption_retry_task::compute_redecryption_candidates,
         date_dividers::DateDividerAdjuster,
         event_item::TimelineItemHandle,
-        tasks::{event_focused_task, pinned_events_task, thread_updates_task},
+        tasks::{event_focused_task, message_types_task, pinned_events_task, thread_updates_task},
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -164,6 +165,13 @@ pub(in crate::timeline) enum TimelineFocusKind {
         /// The cache holding all the events for this focus.
         event_cache: PinnedEventsCache,
     },
+
+    /// The timeline shows the room messages of some `msgtype`s, from the
+    /// store's index.
+    MessageTypes {
+        /// The view serving the events (and gaps) for this focus.
+        event_cache: MessageTypesEventCache,
+    },
 }
 
 impl TimelineFocusKind {
@@ -193,7 +201,9 @@ impl TimelineFocusKind {
                     TimelineEventFocusThreadMode::Automatic { hide_threaded_events: true }
                 )
             }
-            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => false,
+            TimelineFocusKind::Thread { .. }
+            | TimelineFocusKind::PinnedEvents { .. }
+            | TimelineFocusKind::MessageTypes { .. } => false,
         }
     }
 
@@ -207,7 +217,9 @@ impl TimelineFocusKind {
     fn thread_root(&self) -> Option<&EventId> {
         match self {
             TimelineFocusKind::Event { thread_root, .. } => thread_root.get().map(|v| &**v),
-            TimelineFocusKind::Live { .. } | TimelineFocusKind::PinnedEvents { .. } => None,
+            TimelineFocusKind::Live { .. }
+            | TimelineFocusKind::PinnedEvents { .. }
+            | TimelineFocusKind::MessageTypes { .. } => None,
             TimelineFocusKind::Thread { root_event_id, .. } => Some(root_event_id),
         }
     }
@@ -453,6 +465,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
 
             TimelineFocus::PinnedEvents => TimelineFocusKind::PinnedEvents {
                 event_cache: event_cache.pinned_events(room_id).await?.0,
+            },
+
+            TimelineFocus::MessageTypes { msgtypes } => TimelineFocusKind::MessageTypes {
+                event_cache: event_cache.message_types(room_id, msgtypes.clone()).await?.0,
             },
         };
 
@@ -752,7 +768,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
         self.handle_remote_events_with_diffs_and_gaps(diffs, origin, gaps).await
     }
 
-    async fn handle_remote_events_with_diffs_and_gaps(
+    pub(super) async fn handle_remote_events_with_diffs_and_gaps(
         &self,
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
@@ -1610,6 +1626,10 @@ impl<P: RoomDataProvider> TimelineController<P> {
             && txn.meta.subscriber_skip_count.get() == 0
         {
             txn.insert_timeline_start_if_missing();
+        } else if let TimelineFocusKind::MessageTypes { event_cache } = self.focus()
+            && event_cache.hit_start().await
+        {
+            txn.insert_timeline_start_if_missing();
         }
         txn.commit();
     }
@@ -1786,6 +1806,28 @@ impl TimelineController {
                         "timeline::thread_event_cache_updates",
                         thread_updates_task(subscriber, event_cache.clone(), self.clone())
                             .instrument(span),
+                    )
+                    .abort_on_drop();
+
+                Ok(InitFocusResult { has_events, focus_task: Some(task) })
+            }
+
+            TimelineFocusKind::MessageTypes { event_cache } => {
+                let (events, gaps, receiver) = event_cache.subscribe().await;
+
+                let has_events = !events.is_empty();
+
+                self.replace_with_initial_remote_events(events, RemoteEventOrigin::Cache).await;
+                // Also inserts the timeline start if the view is fully exposed.
+                self.handle_timeline_gaps(gaps).await;
+
+                let task = self
+                    .room_data_provider
+                    .client()
+                    .task_monitor()
+                    .spawn_infinite_task(
+                        "timeline::message_types_cache_updates",
+                        message_types_task(event_cache.clone(), self.clone(), receiver),
                     )
                     .abort_on_drop();
 
@@ -2000,6 +2042,7 @@ impl TimelineController {
                             *hide_threaded_events
                         }
                         TimelineFocusKind::PinnedEvents { .. } => true,
+                        TimelineFocusKind::MessageTypes { .. } => false,
                     };
 
                     let previous_event = all_remote_events
@@ -2109,6 +2152,7 @@ impl TimelineController {
                 false
             }
             TimelineFocusKind::PinnedEvents { .. } => true,
+            TimelineFocusKind::MessageTypes { .. } => false,
         };
 
         state

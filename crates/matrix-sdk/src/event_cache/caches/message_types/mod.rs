@@ -466,6 +466,13 @@ impl MessageTypesEventCache {
         (state.exposed_events(), state.timeline_gaps(), self.inner.update_sender.subscribe())
     }
 
+    /// Whether everything the store knows for this room is exposed (there is
+    /// nothing older to expose with [`Self::paginate_backwards`], gaps
+    /// notwithstanding).
+    pub async fn hit_start(&self) -> bool {
+        self.inner.state.read().await.exposed_from == 0
+    }
+
     /// The exposed events (oldest first) and the gaps to render.
     pub async fn events_and_gaps(&self) -> (Vec<Event>, Vec<TimelineGap>) {
         let state = self.inner.state.read().await;

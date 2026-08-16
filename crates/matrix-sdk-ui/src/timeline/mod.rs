@@ -147,6 +147,25 @@ pub enum TimelineFocus {
 
     /// Only show pinned events.
     PinnedEvents,
+
+    /// Only show the room messages of the given `msgtype`s (e.g. `m.image`,
+    /// `m.video`, `m.file`, `m.audio` for a media and files gallery), served
+    /// from the event cache store's index instead of the room's in-memory
+    /// linked chunk, so that showing all the media of a fully cached room
+    /// doesn't require walking its whole history.
+    ///
+    /// Such a timeline gets its events oldest-first in pages
+    /// ([`Timeline::paginate_backwards`] exposes older ones, from the store,
+    /// never from the network), renders the room's gaps as
+    /// [`VirtualTimelineItem::Gap`] items (to be resolved with
+    /// [`Timeline::resolve_gap`]), doesn't show local echoes, and receives
+    /// live updates: new matching messages, redactions, redecryptions.
+    ///
+    /// [`VirtualTimelineItem::Gap`]: crate::timeline::VirtualTimelineItem::Gap
+    MessageTypes {
+        /// The `msgtype`s to show.
+        msgtypes: Vec<String>,
+    },
 }
 
 /// Options for controlling the behaviour of [`TimelineFocus::Event`]
@@ -195,6 +214,7 @@ impl TimelineFocus {
             TimelineFocus::Event { target, .. } => format!("permalink:{target}"),
             TimelineFocus::Thread { root_event_id, .. } => format!("thread:{root_event_id}"),
             TimelineFocus::PinnedEvents => "pinned-events".to_owned(),
+            TimelineFocus::MessageTypes { msgtypes } => format!("msgtypes:{}", msgtypes.join(",")),
         }
     }
 }

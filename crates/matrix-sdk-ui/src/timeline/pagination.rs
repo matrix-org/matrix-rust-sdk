@@ -63,6 +63,13 @@ impl super::Timeline {
                 .map(|outcome| outcome.reached_start)?),
 
             TimelineFocusKind::PinnedEvents { .. } => Err(Error::PaginationError(NotSupported)),
+
+            TimelineFocusKind::MessageTypes { event_cache } => {
+                // Exposes older events from the store; the diffs (and the
+                // timeline start, once everything is exposed) reach the
+                // timeline through the view's updates.
+                Ok(event_cache.paginate_backwards(num_events.into()).await?)
+            }
         }
     }
 
@@ -78,9 +85,9 @@ impl super::Timeline {
                 Ok(event_cache.paginate_forwards(num_events).await?.hit_end_of_timeline)
             }
 
-            TimelineFocusKind::Thread { .. } | TimelineFocusKind::PinnedEvents { .. } => {
-                Err(Error::PaginationError(NotSupported))
-            }
+            TimelineFocusKind::Thread { .. }
+            | TimelineFocusKind::PinnedEvents { .. }
+            | TimelineFocusKind::MessageTypes { .. } => Err(Error::PaginationError(NotSupported)),
         }
     }
 
@@ -195,6 +202,10 @@ impl super::Timeline {
                 }
 
                 Ok(resolved)
+            }
+
+            TimelineFocusKind::MessageTypes { event_cache } => {
+                Ok(event_cache.resolve_gap(prev_token, batch_size).await?)
             }
 
             TimelineFocusKind::Event { .. }

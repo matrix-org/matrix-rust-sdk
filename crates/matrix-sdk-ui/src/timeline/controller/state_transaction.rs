@@ -576,6 +576,12 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
                 true
             }
 
+            TimelineFocusKind::MessageTypes { .. } => {
+                // The view only serves messages of the wanted types (and the
+                // user filter ran above).
+                true
+            }
+
             TimelineFocusKind::Event { .. } => {
                 // For event-focused timelines, thread filtering is now handled in the
                 // event cache layer. We accept all events from pagination.

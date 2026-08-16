@@ -19,8 +19,9 @@ use std::collections::BTreeSet;
 use eyeball::Subscriber as EyeballSubscriber;
 use matrix_sdk::{
     event_cache::{
-        EventFocusThreadMode, EventFocusedCache, EventsOrigin, PinnedEventsCache, RoomEventCache,
-        RoomEventCacheUpdate, Subscriber, ThreadEventCache, TimelineVectorDiffs,
+        EventFocusThreadMode, EventFocusedCache, EventsOrigin, MessageTypesCacheUpdate,
+        MessageTypesEventCache, PinnedEventsCache, RoomEventCache, RoomEventCacheUpdate,
+        Subscriber, ThreadEventCache, TimelineVectorDiffs,
     },
     send_queue::RoomSendQueueUpdate,
 };
@@ -87,6 +88,62 @@ pub(in crate::timeline) async fn pinned_events_task(
             EventsOrigin::Cache => RemoteEventOrigin::Cache,
         };
         timeline_controller.handle_remote_events_with_diffs(update.diffs, origin).await;
+    }
+}
+
+/// Long-lived task, in the message-types focus mode, that updates the
+/// timeline after any change of the view: exposed pages, new matching
+/// messages from sync, gap resolutions, redactions, redecryptions.
+#[instrument(
+    skip_all,
+    fields(
+        room_id = %timeline_controller.room().room_id(),
+    )
+)]
+pub(in crate::timeline) async fn message_types_task(
+    event_cache: MessageTypesEventCache,
+    timeline_controller: TimelineController,
+    mut receiver: Receiver<MessageTypesCacheUpdate>,
+) {
+    loop {
+        trace!("Waiting for an update.");
+
+        let update = match receiver.recv().await {
+            Ok(update) => update,
+            Err(RecvError::Closed) => break,
+            Err(RecvError::Lagged(num_skipped)) => {
+                warn!(num_skipped, "Lagged behind message-types view updates, resetting timeline");
+
+                let (events, gaps) = event_cache.events_and_gaps().await;
+                timeline_controller
+                    .replace_with_initial_remote_events(events, RemoteEventOrigin::Cache)
+                    .await;
+                timeline_controller.handle_timeline_gaps(gaps).await;
+
+                continue;
+            }
+        };
+
+        trace!("Received a message-types view update");
+
+        let MessageTypesCacheUpdate { diffs, origin, gaps } = update;
+        let origin = match origin {
+            EventsOrigin::Sync => RemoteEventOrigin::Sync,
+            EventsOrigin::Pagination => RemoteEventOrigin::Pagination,
+            EventsOrigin::Cache => RemoteEventOrigin::Cache,
+        };
+
+        if diffs.is_empty() {
+            // Only the gaps changed.
+            timeline_controller.handle_timeline_gaps(gaps).await;
+        } else {
+            timeline_controller
+                .handle_remote_events_with_diffs_and_gaps(diffs, origin, Some(gaps.clone()))
+                .await;
+            // Re-evaluate the timeline start (and retract it above a leading
+            // gap) now that both the events and the gaps are in.
+            timeline_controller.handle_timeline_gaps(gaps).await;
+        }
     }
 }
 
