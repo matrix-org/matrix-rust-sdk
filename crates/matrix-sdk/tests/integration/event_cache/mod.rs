@@ -187,9 +187,8 @@ async fn test_ignored_unignored() {
         let mut seen_diffs = Vec::new();
         while seen_diffs.len() < 2 {
             assert_let_timeout!(
-                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs, ..
-                })) = room_stream.recv()
+                Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                    room_stream.recv()
             );
             seen_diffs.extend(diffs);
         }
@@ -224,7 +223,8 @@ async fn test_ignored_unignored() {
     server
         .mock_sync()
         .ok_and_run(&client, |sync_builder| {
-            sync_builder.add_global_account_data(f.ignored_user_list(Vec::<ruma::OwnedUserId>::new()));
+            sync_builder
+                .add_global_account_data(f.ignored_user_list(Vec::<ruma::OwnedUserId>::new()));
         })
         .await;
 
@@ -3522,7 +3522,7 @@ async fn test_limited_sync_gap_surfaces_on_storage_pagination() {
     let gaps = next_gaps_update(&mut room_stream).await;
     assert_eq!(gaps.len(), 1);
     assert_eq!(gaps[0].prev_token, "prev_batch");
-    assert_eq!(gaps[0].following_event_id, event_id!("$1"));
+    assert_eq!(gaps[0].following_event_id.as_deref(), Some(event_id!("$1")));
 }
 
 #[async_test]
@@ -3593,7 +3593,7 @@ async fn test_resolve_gap() {
     let gaps = next_gaps_update(&mut room_stream).await;
     assert_eq!(gaps.len(), 1);
     assert_eq!(gaps[0].prev_token, "pb2");
-    assert_eq!(gaps[0].following_event_id, event_id!("$3"));
+    assert_eq!(gaps[0].following_event_id.as_deref(), Some(event_id!("$3")));
 
     // Resolving the new gap returns nothing more: the gap is dropped for
     // good.

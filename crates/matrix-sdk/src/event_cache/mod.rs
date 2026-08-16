@@ -73,6 +73,7 @@ pub use self::{
     caches::{
         TimelineVectorDiffs,
         event_focused::{EventFocusThreadMode, EventFocusedCache, EventFocusedCacheKey},
+        message_types::{MessageTypesCacheUpdate, MessageTypesEventCache},
         pagination::{BackPaginationOutcome, PaginationStatus},
         pinned_events::PinnedEventsCache,
         room::{
@@ -492,6 +493,37 @@ impl EventCache {
         let caches_for_room = self.inner.all_caches_for_room(room_id).await?;
 
         Ok((caches_for_room.pinned_events().await?.clone(), drop_handles))
+    }
+
+    /// Return a message-type filtered view over a room's event cache: all the
+    /// room messages of the given `msgtype`s (e.g. `m.image`, `m.video` for a
+    /// media gallery), served from the store's index, with the room's gaps.
+    ///
+    /// See [`MessageTypesEventCache`].
+    pub async fn message_types(
+        &self,
+        room_id: &RoomId,
+        msgtypes: Vec<String>,
+    ) -> Result<(MessageTypesEventCache, Arc<EventCacheDropHandles>)> {
+        let Some(drop_handles) = self.inner.drop_handles.get().cloned() else {
+            return Err(EventCacheError::NotSubscribedYet);
+        };
+
+        let Ok(client) = self.inner.client() else {
+            return Err(EventCacheError::ClientDropped);
+        };
+
+        let (room_event_cache, _) = self.room(room_id).await?;
+
+        let cache = MessageTypesEventCache::new(
+            &client,
+            room_event_cache,
+            &self.inner.linked_chunk_update_sender,
+            msgtypes,
+        )
+        .await?;
+
+        Ok((cache, drop_handles))
     }
 
     /// Return an event-focused view over the [`EventCache`].

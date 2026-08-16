@@ -1151,10 +1151,14 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
     /// gap items: a gap whose anchor event hasn't reached this timeline yet
     /// has no item, but is leading all the same.
     pub(super) fn has_leading_gap(&self) -> bool {
-        self.meta.timeline_gaps.first().is_some_and(|gap| {
-            self.items
-                .position_by_event_id(&gap.following_event_id)
-                .is_none_or(|event_index| event_index == 0)
+        self.meta.timeline_gaps.first().is_some_and(|gap| match &gap.following_event_id {
+            Some(following_event_id) => self
+                .items
+                .position_by_event_id(following_event_id)
+                .is_none_or(|event_index| event_index == 0),
+            // A gap with nothing known after it leads the timeline only if
+            // nothing is known before it either.
+            None => self.items.all_remote_events().iter().next().is_none(),
         })
     }
 
@@ -1205,17 +1209,20 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             .clone()
             .into_iter()
             .filter_map(|gap| {
-                let event_index = self.items.position_by_event_id(&gap.following_event_id)?;
-                let anchor_item_index = self
-                    .items
-                    .all_remote_events()
-                    .range(event_index..)
-                    .find_map(|event_meta| event_meta.timeline_item_index)
-                    // Nothing after the gap is rendered in this timeline
-                    // (e.g. a filtered timeline whose newest items predate
-                    // the gap): the gap's contents would land after every
-                    // rendered item, so show it at the newest end.
-                    .unwrap_or_else(|| self.items.len());
+                let anchor_item_index = match &gap.following_event_id {
+                    Some(following_event_id) => self
+                        .items
+                        .all_remote_events()
+                        .range(self.items.position_by_event_id(following_event_id)?..)
+                        .find_map(|event_meta| event_meta.timeline_item_index)
+                        // Nothing after the gap is rendered in this timeline
+                        // (e.g. a filtered timeline whose newest items predate
+                        // the gap): the gap's contents would land after every
+                        // rendered item, so show it at the newest end.
+                        .unwrap_or_else(|| self.items.len()),
+                    // Nothing known after the gap at all: newest end too.
+                    None => self.items.len(),
+                };
                 Some((gap, anchor_item_index))
             })
             .collect::<Vec<_>>();
@@ -1296,20 +1303,25 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             // The anchor is the timeline item of the first event at-or-after
             // the gap's following event that has one (the following event
             // itself may be filtered out of this timeline).
-            let Some(event_index) = self.items.position_by_event_id(&gap.following_event_id) else {
-                // The timeline doesn't know about the event (yet); a later
-                // transaction will reconcile again.
-                continue;
-            };
+            let anchor_item_index = match &gap.following_event_id {
+                Some(following_event_id) => {
+                    let Some(event_index) = self.items.position_by_event_id(following_event_id)
+                    else {
+                        // The timeline doesn't know about the event (yet); a
+                        // later transaction will reconcile again.
+                        continue;
+                    };
 
-            let anchor_item_index = self
-                .items
-                .all_remote_events()
-                .range(event_index..)
-                .find_map(|event_meta| event_meta.timeline_item_index)
-                // See above: nothing rendered after the gap, show it at the
-                // newest end.
-                .unwrap_or_else(|| self.items.len());
+                    self.items
+                        .all_remote_events()
+                        .range(event_index..)
+                        .find_map(|event_meta| event_meta.timeline_item_index)
+                        // See above: nothing rendered after the gap, show it
+                        // at the newest end.
+                        .unwrap_or_else(|| self.items.len())
+                }
+                None => self.items.len(),
+            };
 
             let item = existing_items.remove(&gap.prev_token).unwrap_or_else(|| {
                 self.meta.new_timeline_item(VirtualTimelineItem::Gap { prev_token: gap.prev_token })

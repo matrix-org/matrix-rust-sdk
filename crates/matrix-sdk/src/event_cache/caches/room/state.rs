@@ -234,7 +234,7 @@ impl RoomEventCacheState {
                     if let Some(event_id) = events.iter().find_map(|event| event.event_id()) {
                         gaps.extend(pending_tokens.drain(..).map(|prev_token| TimelineGap {
                             prev_token,
-                            following_event_id: event_id.to_owned(),
+                            following_event_id: Some(event_id.to_owned()),
                         }));
                     }
                 }

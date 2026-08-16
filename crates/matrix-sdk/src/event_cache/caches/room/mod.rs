@@ -247,6 +247,46 @@ impl RoomEventCache {
             .is_some())
     }
 
+    /// Load the room's linked chunk from storage, backwards, until the gap
+    /// identified by the given prev-batch token is in memory (so that it can
+    /// be resolved with [`Self::resolve_gap`]), or storage is exhausted.
+    ///
+    /// Gaps can only be resolved on the in-memory linked chunk, and the
+    /// in-memory linked chunk is always a suffix of the persisted one, so
+    /// reaching a gap sitting behind not-yet-loaded chunks means loading
+    /// those first (each load is a cheap store read; the room's live
+    /// timelines see them as a pagination).
+    // ponytail: loads everything down to the gap into memory; a store-only
+    // resolution (insert the fetched chunk in the store without going
+    // through memory) would avoid that if it ever matters.
+    pub async fn load_from_storage_until_gap(&self, prev_token: &str) -> Result<()> {
+        loop {
+            let in_memory =
+                self.inner.state.read().await?.room_linked_chunk().chunks().any(|chunk| {
+                    matches!(
+                        chunk.content(),
+                        matrix_sdk_base::linked_chunk::ChunkContent::Gap(
+                            matrix_sdk_base::event_cache::Gap { token }
+                        ) if token == prev_token
+                    )
+                });
+
+            if in_memory {
+                return Ok(());
+            }
+
+            // Loads (at least) one more chunk from storage; the batch size
+            // only matters for the network, which storage-only never hits.
+            let outcome = self.pagination().run_backwards_once_from_storage(1).await?;
+
+            if outcome.reached_start {
+                // The gap isn't in the store either (resolved concurrently?);
+                // `resolve_gap` will report it as unknown.
+                return Ok(());
+            }
+        }
+    }
+
     /// Try to find a single event in this room, starting from the most recent
     /// event.
     ///
@@ -3373,7 +3413,7 @@ mod timed_tests {
         let gaps = room_event_cache.timeline_gaps().await.unwrap();
         assert_eq!(gaps.len(), 1);
         assert_eq!(gaps[0].prev_token, "cheddar");
-        assert_eq!(gaps[0].following_event_id, event_id!("$2"));
+        assert_eq!(gaps[0].following_event_id.as_deref(), Some(event_id!("$2")));
     }
 
     #[async_test]
@@ -3407,7 +3447,7 @@ mod timed_tests {
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }) = stream.recv());
         assert_eq!(gaps.len(), 1);
         assert_eq!(gaps[0].prev_token, "cheddar");
-        assert_eq!(gaps[0].following_event_id, event_id!("$2"));
+        assert_eq!(gaps[0].following_event_id.as_deref(), Some(event_id!("$2")));
 
         // …followed by the loaded events.
         assert_let_timeout!(
@@ -3484,6 +3524,6 @@ mod timed_tests {
         let gaps = room_event_cache.timeline_gaps().await.unwrap();
         assert_eq!(gaps.len(), 1);
         assert_eq!(gaps[0].prev_token, "brie");
-        assert_eq!(gaps[0].following_event_id, event_id!("$1"));
+        assert_eq!(gaps[0].following_event_id.as_deref(), Some(event_id!("$1")));
     }
 }

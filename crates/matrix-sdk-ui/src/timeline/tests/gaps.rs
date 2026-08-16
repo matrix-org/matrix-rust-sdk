@@ -38,7 +38,7 @@ async fn gappy_timeline() -> TestTimeline {
 fn gap(prev_token: &str, following_event_id: &ruma::EventId) -> TimelineGap {
     TimelineGap {
         prev_token: prev_token.to_owned(),
-        following_event_id: following_event_id.to_owned(),
+        following_event_id: Some(following_event_id.to_owned()),
     }
 }
 

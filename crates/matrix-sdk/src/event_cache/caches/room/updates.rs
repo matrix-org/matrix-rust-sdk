@@ -90,9 +90,15 @@ pub struct TimelineGap {
     /// The ID of the first event following this gap in the linked chunk,
     /// used to anchor the gap in the timeline.
     ///
-    /// Trailing gaps (with no known event after them) are not reported: there
-    /// is nothing to anchor them to, and nothing to separate them from.
-    pub following_event_id: OwnedEventId,
+    /// `None` when no known event follows the gap: the gap then sits at the
+    /// newest end of whatever the timeline shows. The room event cache never
+    /// reports such trailing gaps (there is nothing to anchor them to, and
+    /// nothing to separate them from); message-type filtered views do (see
+    /// [`MessageTypesEventCache`]), since "no media after this gap" is
+    /// exactly what a media grid needs to show a spinner for.
+    ///
+    /// [`MessageTypesEventCache`]: crate::event_cache::MessageTypesEventCache
+    pub following_event_id: Option<OwnedEventId>,
 }
 
 /// Represents a timeline update of a room. It hides the details of
