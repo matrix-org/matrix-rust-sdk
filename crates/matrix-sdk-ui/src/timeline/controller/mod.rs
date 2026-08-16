@@ -719,6 +719,45 @@ impl<P: RoomDataProvider> TimelineController<P> {
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
     ) {
+        self.handle_remote_events_with_diffs_and_gaps(diffs, origin, None).await
+    }
+
+    /// Handle updates on events as [`VectorDiff`]s coming from the event
+    /// cache, along with its current gaps snapshot.
+    ///
+    /// The event cache announces the events diffs and the resulting gaps as
+    /// two separate updates. Applying the diffs against the previous gaps
+    /// snapshot would first re-anchor a just-resolved gap next to the events
+    /// that used to follow it (i.e. in the middle of the viewport), then move
+    /// it back once the gaps update lands: a visible jump. So read the current
+    /// snapshot upfront, and let a single transaction place both the events
+    /// and the gaps.
+    pub(super) async fn handle_live_remote_events_with_diffs(
+        &self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+    ) {
+        if diffs.is_empty() {
+            return;
+        }
+
+        let gaps = if self.settings.storage_only_pagination
+            && let TimelineFocusKind::Live { event_cache, .. } = self.focus()
+        {
+            event_cache.timeline_gaps().await.ok()
+        } else {
+            None
+        };
+
+        self.handle_remote_events_with_diffs_and_gaps(diffs, origin, gaps).await
+    }
+
+    async fn handle_remote_events_with_diffs_and_gaps(
+        &self,
+        diffs: Vec<VectorDiff<TimelineEvent>>,
+        origin: RemoteEventOrigin,
+        gaps: Option<Vec<matrix_sdk::event_cache::TimelineGap>>,
+    ) {
         if diffs.is_empty() {
             return;
         }
@@ -728,6 +767,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
             .handle_remote_events_with_diffs(
                 diffs,
                 origin,
+                gaps,
                 &self.room_data_provider,
                 &self.settings,
             )

@@ -15,7 +15,9 @@
 use std::sync::Arc;
 
 use eyeball_im::VectorDiff;
-use matrix_sdk::{deserialized_responses::TimelineEvent, send_queue::SendHandle};
+use matrix_sdk::{
+    deserialized_responses::TimelineEvent, event_cache::TimelineGap, send_queue::SendHandle,
+};
 #[cfg(test)]
 use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
@@ -81,6 +83,7 @@ impl<P: RoomDataProvider> TimelineState<P> {
         &mut self,
         diffs: Vec<VectorDiff<TimelineEvent>>,
         origin: RemoteEventOrigin,
+        gaps: Option<Vec<TimelineGap>>,
         room_data: &P,
         settings: &TimelineSettings,
     ) {
@@ -89,6 +92,9 @@ impl<P: RoomDataProvider> TimelineState<P> {
         }
 
         let mut transaction = self.transaction();
+        if let Some(gaps) = gaps {
+            transaction.meta.timeline_gaps = gaps;
+        }
         transaction.handle_remote_events_with_diffs(diffs, origin, room_data, settings).await;
         transaction.commit();
     }

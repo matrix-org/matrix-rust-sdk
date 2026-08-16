@@ -1483,3 +1483,92 @@ async fn test_resolving_the_last_leading_gap_inserts_the_timeline_start() {
     assert!(items[0].is_timeline_start(), "{items:?}");
     assert!(items.iter().all(|item| !item.is_gap()), "{items:?}");
 }
+
+#[async_test]
+async fn test_resolving_a_gap_never_shows_the_gap_below_the_resolved_events() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // A limited sync records a gap before its event: `[gap "pb1"] [$1]`.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("heyo").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("pb1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let timeline = room.timeline_builder().with_storage_only_pagination().build().await.unwrap();
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+    assert_eq!(items.len(), 2, "{items:?}");
+
+    // Walk up to the leading gap.
+    assert!(timeline.paginate_backwards(10).await.unwrap());
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    for update in timeline_updates {
+        update.apply(&mut items);
+    }
+    assert!(items[1].is_gap(), "{items:?}");
+    assert_pending!(timeline_stream);
+
+    // Resolving the gap yields more events, and another prev-batch token: the
+    // gap moves up, above the resolved events. The events diffs and the gaps
+    // snapshot travel as separate event cache updates; the timeline must not
+    // apply the former against the stale snapshot, or the (already resolved)
+    // gap gets re-anchored to `$1`, i.e. *below* the resolved events, for one
+    // batch: a visible jump for anyone scrolled at the top.
+    server
+        .mock_room_messages()
+        .match_from("pb1")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![
+                f.text_msg("hello").event_id(event_id!("$0")),
+                f.text_msg("hi").event_id(event_id!("$-1")),
+            ])
+            .end_token("pb0"))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Resolve through the event cache directly (rather than
+    // `Timeline::resolve_gap`, which refreshes the gaps right away and could
+    // win the race in this single-threaded test), so the timeline sees the
+    // updates in the order the event cache sends them: events, then gaps.
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    assert!(room_event_cache.resolve_gap("pb1".to_owned(), 10).await.unwrap());
+
+    // Consume updates until the new gap is in place, checking after every
+    // single diff that no gap ever sits below an event (this room only ever
+    // has one gap, so this holds within a transaction as well as between
+    // transactions; the batched stream may coalesce the latter).
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+
+            let first_event = items.iter().position(|item| item.as_event().is_some());
+            let last_gap = items.iter().rposition(|item| item.is_gap());
+            if let (Some(first_event), Some(last_gap)) = (first_event, last_gap) {
+                assert!(last_gap < first_event, "gap rendered below an event: {items:?}");
+            }
+        }
+
+        if items.iter().any(|item| item.as_gap() == Some("pb0")) && items.len() == 5 {
+            break;
+        }
+    }
+
+    // [divider, gap "pb0", $-1, $0, $1]
+    assert!(items[0].is_date_divider(), "{items:?}");
+    assert_eq!(items[1].as_gap(), Some("pb0"), "{items:?}");
+    assert_eq!(items[2].as_event().unwrap().event_id().unwrap(), event_id!("$-1"));
+    assert_eq!(items[3].as_event().unwrap().event_id().unwrap(), event_id!("$0"));
+    assert_eq!(items[4].as_event().unwrap().event_id().unwrap(), event_id!("$1"));
+    assert_pending!(timeline_stream);
+}
