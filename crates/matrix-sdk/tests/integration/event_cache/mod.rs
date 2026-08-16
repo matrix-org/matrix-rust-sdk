@@ -3496,3 +3496,96 @@ async fn test_limited_sync_gap_surfaces_on_storage_pagination() {
     assert_eq!(gaps[0].prev_token, "prev_batch");
     assert_eq!(gaps[0].following_event_id, event_id!("$1"));
 }
+
+#[async_test]
+async fn test_resolve_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // A limited sync records a gap: `[gap "pb1"] [$1]`. Load it into memory
+    // with a storage pagination.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("heyo").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("pb1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.len(), 1);
+    assert_eq!(gaps[0].prev_token, "pb1");
+
+    // Resolving the gap fetches the missing events; the response carries
+    // another prev-batch token, so a new gap replaces the resolved one:
+    // `[gap "pb2"] [$3, $2] [$1]`.
+    server
+        .mock_room_messages()
+        .match_from("pb1")
+        .ok(RoomMessagesResponseTemplate::default().end_token("pb2").events(vec![
+            f.text_msg("world").event_id(event_id!("$2")),
+            f.text_msg("hello").event_id(event_id!("$3")),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let resolved = room_event_cache.resolve_gap("pb1".to_owned(), 20).await.unwrap();
+    assert!(resolved);
+
+    // The fetched events are inserted at the position of the gap…
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 2);
+    assert_matches!(&diffs[0], VectorDiff::Insert { index: 0, value: event } => {
+        assert_event_matches_msg(event, "hello");
+    });
+    assert_matches!(&diffs[1], VectorDiff::Insert { index: 1, value: event } => {
+        assert_event_matches_msg(event, "world");
+    });
+
+    // …and the partially-resolved gap is reported with its new token,
+    // anchored to the oldest fetched event.
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.len(), 1);
+    assert_eq!(gaps[0].prev_token, "pb2");
+    assert_eq!(gaps[0].following_event_id, event_id!("$3"));
+
+    // Resolving the new gap returns nothing more: the gap is dropped for
+    // good.
+    server
+        .mock_room_messages()
+        .match_from("pb2")
+        .ok(RoomMessagesResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+
+    let resolved = room_event_cache.resolve_gap("pb2".to_owned(), 20).await.unwrap();
+    assert!(resolved);
+
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert!(gaps.is_empty());
+
+    // Resolving a token that isn't known (anymore) is a cheap no-op: no
+    // network hit (nothing is mocked for it), no updates.
+    let resolved = room_event_cache.resolve_gap("pb1".to_owned(), 20).await.unwrap();
+    assert!(!resolved);
+    assert!(room_stream.recv().now_or_never().is_none());
+}

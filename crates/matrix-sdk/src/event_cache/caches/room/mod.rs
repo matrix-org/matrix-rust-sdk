@@ -17,10 +17,10 @@ mod state;
 mod updates;
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt,
     sync::{
-        Arc,
+        Arc, Mutex as StdMutex,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -56,7 +56,7 @@ use super::{
     },
     TimelineVectorDiffs,
     event_linked_chunk::sort_positions_descending,
-    pagination::SharedPaginationStatus,
+    pagination::{PaginatedCache as _, SharedPaginationStatus},
     subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
@@ -97,6 +97,7 @@ impl RoomEventCache {
                 auto_shrink_sender,
                 shared_pagination_status,
                 poisoned: AtomicBool::new(false),
+                gap_resolutions_in_flight: StdMutex::new(HashSet::new()),
             }),
         }
     }
@@ -169,6 +170,80 @@ impl RoomEventCache {
     /// initial state when subscribing.
     pub async fn timeline_gaps(&self) -> Result<Vec<TimelineGap>> {
         Ok(self.inner.state.read().await?.timeline_gaps())
+    }
+
+    /// Resolve the gap identified by the given prev-batch token, with a single
+    /// `/messages` request to the server.
+    ///
+    /// The results are merged into the linked chunk in place of the gap. If
+    /// the response carries another prev-batch token (i.e. the gap was only
+    /// partially resolved), a new gap replaces the resolved one. Observers
+    /// learn about all of this via
+    /// [`RoomEventCacheUpdate::UpdateTimelineEvents`] and
+    /// [`RoomEventCacheUpdate::UpdateTimelineGaps`] updates.
+    ///
+    /// Concurrent resolutions of the same gap are deduplicated: only the first
+    /// one runs, the others return `false` immediately.
+    ///
+    /// Returns `true` if a resolution ran to completion, `false` if it was
+    /// skipped (already in flight, gap gone after a timeline reset, or the
+    /// client is shutting down).
+    pub async fn resolve_gap(&self, prev_token: String, batch_size: u16) -> Result<bool> {
+        // Deduplicate concurrent resolutions of the same gap.
+        {
+            let mut in_flight = self.inner.gap_resolutions_in_flight.lock().unwrap();
+            if !in_flight.insert(prev_token.clone()) {
+                trace!("gap resolution already in flight, skipping");
+                return Ok(false);
+            }
+        }
+
+        // Remove the token from the in-flight set on the way out, however we
+        // leave (success, error, or cancellation of the calling task).
+        struct RemoveOnDrop<'a> {
+            set: &'a StdMutex<HashSet<String>>,
+            token: String,
+        }
+
+        impl Drop for RemoveOnDrop<'_> {
+            fn drop(&mut self) {
+                self.set.lock().unwrap().remove(&self.token);
+            }
+        }
+
+        let _remove_on_drop =
+            RemoveOnDrop { set: &self.inner.gap_resolutions_in_flight, token: prev_token.clone() };
+
+        // Cheap pre-check that the gap (still) exists, to save a network
+        // round-trip on stale resolution requests. The post-request check in
+        // `conclude_backwards_pagination_from_network` remains authoritative.
+        if !self
+            .inner
+            .state
+            .read()
+            .await?
+            .timeline_gaps()
+            .iter()
+            .any(|gap| gap.prev_token == prev_token)
+        {
+            trace!("gap is unknown (already resolved?), skipping");
+            return Ok(false);
+        }
+
+        let prev_token = Some(prev_token);
+
+        let Some((events, new_token)) =
+            self.inner.paginate_backwards_with_network(batch_size, &prev_token).await?
+        else {
+            // The client is shutting down.
+            return Ok(false);
+        };
+
+        Ok(self
+            .inner
+            .conclude_backwards_pagination_from_network(events, prev_token, new_token)
+            .await?
+            .is_some())
     }
 
     /// Try to find a single event in this room, starting from the most recent
@@ -443,6 +518,12 @@ pub(super) struct RoomEventCacheInner {
     /// mid-way). When this is set, the next update entry point reloads the
     /// linked chunk from the store before processing anything else.
     poisoned: AtomicBool,
+
+    /// Prev-batch tokens of the gaps currently being resolved by
+    /// [`RoomEventCache::resolve_gap`], to deduplicate concurrent resolutions
+    /// of the same gap (the UI typically retriggers a resolution as long as a
+    /// gap remains visible).
+    gap_resolutions_in_flight: StdMutex<HashSet<String>>,
 }
 
 impl RoomEventCacheInner {
