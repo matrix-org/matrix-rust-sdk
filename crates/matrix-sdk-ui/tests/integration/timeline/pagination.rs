@@ -1525,7 +1525,12 @@ async fn test_storage_pagination_status_settles_to_idle_with_a_leading_gap() {
 
     // The gap item is rendered.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert!(timeline_updates.iter().any(|update| matches!(update, VectorDiff::Insert { value, .. } if value.is_gap())), "{timeline_updates:?}");
+    assert!(
+        timeline_updates
+            .iter()
+            .any(|update| matches!(update, VectorDiff::Insert { value, .. } if value.is_gap())),
+        "{timeline_updates:?}"
+    );
 
     // Offline: resolving the gap fails. That must not disturb the status.
     server
