@@ -100,10 +100,6 @@ async fn test_message_types_focus_shows_indexed_media_with_gaps() {
     assert_eq!(describe(&items), ["start", "divider", "$img1", "gap(g1)", "$img2"], "{items:?}");
     assert_pending!(timeline_stream);
 
-    // Nothing to paginate: it's all there.
-    assert!(timeline.paginate_backwards(10).await.unwrap());
-    assert_pending!(timeline_stream);
-
     // Resolving the gap yields an image and a text, fully (no new token):
     // the image lands between $img1 and $img2, and the gap goes away.
     server
@@ -130,6 +126,10 @@ async fn test_message_types_focus_shows_indexed_media_with_gaps() {
         }
     }
     assert_eq!(describe(&items), ["start", "divider", "$img1", "$img1b", "$img2"], "{items:?}");
+    assert_pending!(timeline_stream);
+
+    // Nothing to paginate: it's all there, down to the room's start.
+    assert!(timeline.paginate_backwards(10).await.unwrap());
     assert_pending!(timeline_stream);
 
     // A new image from sync is appended (the text isn't shown).
@@ -229,8 +229,9 @@ async fn test_message_types_focus_around_an_event_pages_both_ways() {
     }
     assert_eq!(event_ids(&items).last().map(|id| id.as_str()), Some("$img59"));
 
-    // Backwards to the start: the timeline start shows up.
-    assert!(timeline.paginate_backwards(10).await.unwrap());
+    // Backwards to the start: the timeline start shows up (this exposes
+    // events, so it doesn't report the start; the next call does).
+    assert!(!timeline.paginate_backwards(10).await.unwrap());
     loop {
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         for update in timeline_updates {
@@ -241,6 +242,7 @@ async fn test_message_types_focus_around_an_event_pages_both_ways() {
         }
     }
     assert_eq!(event_ids(&items).len(), 60);
+    assert!(timeline.paginate_backwards(10).await.unwrap());
 }
 
 #[async_test]
@@ -281,14 +283,35 @@ async fn test_message_types_focus_shows_a_gap_in_a_room_with_no_cached_media() {
     assert_eq!(describe(&items), ["gap(g1)"], "{items:?}");
     assert_pending!(timeline_stream);
 
-    // The store is exhausted, but that's not the room's start.
-    assert!(timeline.paginate_backwards(10).await.unwrap());
-    assert_pending!(timeline_stream);
-
-    // Resolving the gap finds the media, and the room's start.
+    // The store is exhausted, but that's not the room's start: paginating
+    // walks into the gap. First step: only text, and more gap.
     server
         .mock_room_messages()
         .match_from("g1")
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("g0")
+            .events(vec![f.text_msg("half").event_id(event_id!("$txt0b"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(!timeline.paginate_backwards(10).await.unwrap());
+
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+        }
+        if items.iter().any(|item| item.as_gap() == Some("g0")) {
+            break;
+        }
+    }
+    assert_eq!(describe(&items), ["gap(g0)"], "{items:?}");
+
+    // Second step: the media, and the room's start (no more token).
+    server
+        .mock_room_messages()
+        .match_from("g0")
         .ok(RoomMessagesResponseTemplate::default().events(vec![
             f.text_msg("zero").event_id(event_id!("$txt0")),
             f.image("img.png".to_owned(), owned_mxc_uri!("mxc://example.org/img"))
@@ -298,7 +321,7 @@ async fn test_message_types_focus_shows_a_gap_in_a_room_with_no_cached_media() {
         .mount()
         .await;
 
-    assert!(timeline.resolve_gap("g1".to_owned(), 10).await.unwrap());
+    assert!(!timeline.paginate_backwards(10).await.unwrap());
 
     loop {
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
@@ -310,5 +333,9 @@ async fn test_message_types_focus_shows_a_gap_in_a_room_with_no_cached_media() {
         }
     }
     assert_eq!(describe(&items), ["start", "divider", "$img0"], "{items:?}");
+    assert_pending!(timeline_stream);
+
+    // Now that's the room's start.
+    assert!(timeline.paginate_backwards(10).await.unwrap());
     assert_pending!(timeline_stream);
 }

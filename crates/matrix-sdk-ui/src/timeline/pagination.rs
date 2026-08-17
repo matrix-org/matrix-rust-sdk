@@ -65,9 +65,10 @@ impl super::Timeline {
             TimelineFocusKind::PinnedEvents { .. } => Err(Error::PaginationError(NotSupported)),
 
             TimelineFocusKind::MessageTypes { event_cache } => {
-                // Exposes older events from the store; the diffs (and the
-                // timeline start, once everything is exposed) reach the
-                // timeline through the view's updates.
+                // Exposes older events from the store, then resolves the
+                // room's gaps back to the next matching event; the diffs (and
+                // the timeline start, once the room's start is reached) reach
+                // the timeline through the view's updates.
                 Ok(event_cache.paginate_backwards(num_events.into()).await?)
             }
         }

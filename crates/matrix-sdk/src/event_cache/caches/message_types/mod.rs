@@ -222,6 +222,24 @@ impl State {
             .collect()
     }
 
+    /// The gap to resolve to find older matching events: the newest exposed
+    /// gap older than the oldest exposed event, or the newest exposed gap
+    /// when no event is exposed. `None` when no gap remains before the
+    /// oldest exposed event, i.e. the room's start is reached (assuming the
+    /// whole store is exposed).
+    fn gap_to_resolve_backwards(&self) -> Option<String> {
+        let exposed = &self.entries[self.exposed_from..self.exposed_to];
+        let before_oldest_event = match exposed.iter().position(|entry| entry.is_event()) {
+            Some(index) => &exposed[..index],
+            None => exposed,
+        };
+
+        before_oldest_event.iter().rev().find_map(|entry| match entry {
+            Entry::Gap { token, .. } => Some(token.clone()),
+            Entry::Event { .. } | Entry::Pending { .. } => None,
+        })
+    }
+
     /// Insert an entry at its place in the timeline order.
     ///
     /// Entries landing among the exposed ones (or right after them, when the
@@ -558,9 +576,19 @@ impl MessageTypesEventCache {
     /// Expose up to `num_events` more (older) events, sent to subscribers as
     /// an update.
     ///
-    /// Returns whether everything the store knows for this room is exposed
-    /// now (there is nothing older to expose, gaps notwithstanding).
+    /// Once the store is exhausted, older matching events can only hide in
+    /// the room's gaps: each call then resolves the next gap back (the newest
+    /// one older than the oldest exposed event, or the newest gap at all when
+    /// nothing is exposed) with one request, its outcome reaching the view
+    /// through the store updates. Calling this repeatedly walks back to the
+    /// next matching event, or to the room's start.
+    ///
+    /// Returns whether the room's start is reached: everything the store
+    /// knows is exposed and no gap remains before the oldest exposed event.
     pub async fn paginate_backwards(&self, num_events: usize) -> Result<bool> {
+        // Subscribed before looking at the state, so that a resolution
+        // completing concurrently can't slip its update past us (see below).
+        let mut updates = self.inner.update_sender.subscribe();
         let mut state = self.inner.state.write().await;
 
         let mut diffs = Vec::new();
@@ -574,7 +602,6 @@ impl MessageTypesEventCache {
         }
         // Inserted at 0 one by one, newest first, they end up oldest first.
         diffs.reverse();
-        let hit_start = state.exposed_from == 0;
 
         if !diffs.is_empty() {
             let _ = self.inner.update_sender.send(MessageTypesCacheUpdate {
@@ -582,9 +609,30 @@ impl MessageTypesEventCache {
                 origin: EventsOrigin::Cache,
                 gaps: state.timeline_gaps(),
             });
+            return Ok(false);
         }
 
-        Ok(hit_start)
+        if state.exposed_from != 0 {
+            // Older events remain in the store (they were all removed from it
+            // meanwhile, or the like): another call will get to them.
+            return Ok(false);
+        }
+
+        // The store is exhausted: walk into the gaps.
+        let Some(prev_token) = state.gap_to_resolve_backwards() else {
+            return Ok(true);
+        };
+        drop(state);
+
+        if !self.resolve_gap(prev_token, num_events.try_into().unwrap_or(u16::MAX)).await? {
+            // Skipped: a resolution of that gap is already in flight (a gap
+            // item shown to the user, most likely). Its outcome is progress
+            // for us too: wait for it, rather than reporting no progress and
+            // being called again right away, in a spin.
+            let _ = updates.recv().await;
+        }
+
+        Ok(false)
     }
 
     /// Expose up to `num_events` more (newer) events, sent to subscribers as

@@ -252,8 +252,9 @@ async fn test_paginate_backwards_exposes_older_pages() {
     }
     assert!(gaps.is_empty());
 
-    // Expose the rest: hits the start, and the leading gap comes along.
-    assert!(view.paginate_backwards(100).await.unwrap());
+    // Expose the rest: the store is exhausted, and the leading gap comes
+    // along; that's not the room's start yet.
+    assert!(!view.paginate_backwards(100).await.unwrap());
 
     assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, gaps, .. }) = updates.recv());
     assert_eq!(diffs.len(), 5);
@@ -264,7 +265,23 @@ async fn test_paginate_backwards_exposes_older_pages() {
     let (events, _) = view.events_and_gaps().await;
     assert_eq!(ids(&events), ids(&images));
 
-    // Nothing more to expose: no update.
+    // Nothing more to expose: paginating resolves the leading gap, which
+    // turns out to be the room's start (no events, no more token).
+    server
+        .mock_room_messages()
+        .match_from("leading")
+        .ok(RoomMessagesResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(!view.paginate_backwards(1).await.unwrap());
+
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, gaps, .. }) = updates.recv());
+    assert!(diffs.is_empty());
+    assert!(gaps.is_empty());
+
+    // Now that's the start: no network, no update.
     assert!(view.paginate_backwards(1).await.unwrap());
     assert!(updates.recv().now_or_never().is_none());
 }
