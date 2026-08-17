@@ -86,15 +86,15 @@ pub(crate) type StopCondition = Box<dyn FnMut(&BackPaginationOutcome) -> Control
 /// [`BackPaginationQueue`].
 pub(crate) struct BackPaginationRequest {
     /// The room to back-paginate.
-    pub(crate) room_id: OwnedRoomId,
+    pub room_id: OwnedRoomId,
     /// Scheduling priority.
-    pub(crate) priority: Priority,
+    pub priority: Priority,
     /// When to stop.
-    pub(crate) stop: StopCondition,
+    pub stop: StopCondition,
     /// Number of events to request per pagination.
-    pub(crate) batch_size: u16,
+    pub batch_size: u16,
     /// Maximum number of paginations for this request (`None` = unbounded).
-    pub(crate) max_batches: Option<usize>,
+    pub max_batches: Option<usize>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -133,9 +133,9 @@ pub(crate) enum RoomBackPaginationEnd {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BackPaginationRunResult {
     /// Why the run ended.
-    pub(crate) end: RoomBackPaginationEnd,
+    pub end: RoomBackPaginationEnd,
     /// The oldest event timestamp reached, if any events were loaded.
-    pub(crate) reached: Option<MilliSecondsSinceUnixEpoch>,
+    pub reached: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 /// A handle to an enqueued [`BackPaginationRequest`].
