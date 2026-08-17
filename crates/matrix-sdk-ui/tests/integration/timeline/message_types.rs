@@ -242,3 +242,73 @@ async fn test_message_types_focus_around_an_event_pages_both_ways() {
     }
     assert_eq!(event_ids(&items).len(), 60);
 }
+
+#[async_test]
+async fn test_message_types_focus_shows_a_gap_in_a_room_with_no_cached_media() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // A limited sync with only text: the room's linked chunk is
+    // `[gap "g1"] [$txt1]`, and no cached event matches the filter.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("one").event_id(event_id!("$txt1")))
+                .set_timeline_prev_batch("g1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::MessageTypes {
+            msgtypes: vec!["m.image".to_owned()],
+            around_event: None,
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+
+    // Not an empty timeline: the gap is shown (media may hide in it), and
+    // there is no timeline start, since the room's start hasn't been seen.
+    assert_eq!(describe(&items), ["gap(g1)"], "{items:?}");
+    assert_pending!(timeline_stream);
+
+    // The store is exhausted, but that's not the room's start.
+    assert!(timeline.paginate_backwards(10).await.unwrap());
+    assert_pending!(timeline_stream);
+
+    // Resolving the gap finds the media, and the room's start.
+    server
+        .mock_room_messages()
+        .match_from("g1")
+        .ok(RoomMessagesResponseTemplate::default().events(vec![
+            f.text_msg("zero").event_id(event_id!("$txt0")),
+            f.image("img.png".to_owned(), owned_mxc_uri!("mxc://example.org/img"))
+                .event_id(event_id!("$img0")),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(timeline.resolve_gap("g1".to_owned(), 10).await.unwrap());
+
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+        }
+        if items.front().is_some_and(|item| item.is_timeline_start()) {
+            break;
+        }
+    }
+    assert_eq!(describe(&items), ["start", "divider", "$img0"], "{items:?}");
+    assert_pending!(timeline_stream);
+}
