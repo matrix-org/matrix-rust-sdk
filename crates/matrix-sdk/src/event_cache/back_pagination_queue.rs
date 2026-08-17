@@ -473,12 +473,14 @@ async fn run_request(
             }
         };
 
-        if outcome.reached_start {
-            break BackPaginationStopReason::ReachedTimelineStart;
-        }
-
+        // Reaching the start of the timeline can still come with a last batch of
+        // events, so let the stop condition see it before ending the run.
         if (request.stop)(&outcome).is_break() {
             break BackPaginationStopReason::StopConditionMet;
+        }
+
+        if outcome.reached_start {
+            break BackPaginationStopReason::ReachedTimelineStart;
         }
 
         if outcome.events.is_empty() {
