@@ -13,8 +13,8 @@
 // limitations under the License.
 
 //! A single component that owns one background task and executes
-//! back-pagination requests coming from various use cases (search backfill, the
-//! latest-event resolver, read-receipt finding) through one code path.
+//! back-pagination requests coming from various components (search,
+//! latest event, read receipt).
 //!
 //! Callers enqueue a [`BackPaginationRequest`] describing which room to
 //! back-paginate, at which priority, and until when and they get a
@@ -23,18 +23,18 @@
 //!
 //! The executor:
 //! - runs at most [`EventCacheConfig::max_concurrent_back_paginations`]
-//!   requests at once
+//!   requests concurrently
 //! - schedules by [`Priority`], higher first, FIFO within a priority
-//! - never runs two requests for the same room concurrently, per-room
-//!   single-flight
-//! - coalesces a request for a room already queued or running at the same
-//!   priority onto that run: both callers await and share its result, rather
-//!   than paginating the same history twice.
+//! - never runs two requests for the same room concurrently
+//! - deduplicates by room *and* priority: a request for a room already queued
+//!   or running at the same priority is coalesced onto that run, so both
+//!   callers await and share its result rather than paginating the same history
+//!   twice.
 //!
-//! Requests are meant to be short, so a higher-priority request for a busy
-//! room only waits for the current run, not a full sweep. It's up to each
-//! consumer to keep its own requests short, with a batch cap or a stop
-//! predicate that fires once it has what it wants.
+//! A running request is never preempted, so a queued request only starts once
+//! the current run for its room ends. Consumers bound their own runs with a
+//! [`BackPaginationRequest::max_batches`] cap or a stop predicate that fires
+//! once they have what they want.
 
 use std::{
     cmp::Ordering,
@@ -60,17 +60,16 @@ pub(crate) const BATCH_SIZE: u16 = 30;
 
 /// Priority of a [`BackPaginationRequest`], relative to the others in the
 /// queue.
-// Not every priority has a consumer yet: read receipts is `Normal`, while the
-// search backfill (`Low`) and the latest-event resolver (`High`) are landing
-// separately.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Priority {
-    /// Bulk work with no deadline (search backfill).
+    /// Lowest priority: will run slowly when no higher priority requests are
+    /// pending.
     Low,
-    /// Reactive work backing a background computation (read receipts).
+    /// Default priority. Higher than [`Self::Low`] and lower than
+    /// [`Self::High`].
     Normal,
-    /// Reactive, user-facing work that wants a result promptly (latest event).
+    /// Highest priority: will run before any other pending request.
     High,
 }
 
@@ -130,8 +129,6 @@ pub(crate) enum RoomBackPaginationEnd {
 }
 
 /// The result of running a single [`BackPaginationRequest`] to completion.
-// Read receipts is fire-and-forget and ignores this; the consumers that read it
-// (the latest-event resolver, the search backfill) are landing separately.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BackPaginationRunResult {
@@ -169,8 +166,7 @@ impl BackPaginationHandle {
     }
 }
 
-/// A queue of background back-pagination requests, executed by priority with a
-/// bounded in-flight number.
+/// A bounded queue of back-pagination requests, ordered by priority.
 #[derive(Clone)]
 pub struct BackPaginationQueue {
     inner: Arc<BackPaginationQueueInner>,
@@ -236,8 +232,8 @@ struct SubmittedRequest {
     completion: oneshot::Sender<BackPaginationRunResult>,
 }
 
-/// A [`BackPaginationRequest`] admitted to the scheduler's heap, with the
-/// bookkeeping needed to order and run it.
+/// A [`BackPaginationRequest`] admitted to the scheduler, holding the sequence
+/// number and request details.
 struct ScheduledRequest {
     request: BackPaginationRequest,
     /// Insertion order, assigned by the scheduler, for FIFO within a priority.
@@ -280,10 +276,11 @@ async fn scheduler(
     let mut active_requests: Vec<(OwnedRoomId, Priority)> = Vec::new();
     let mut next_seq: u64 = 0;
 
-    // Completion senders for every outstanding run (queued or active), keyed by
-    // room and priority. A duplicate request coalesces onto the existing run by
-    // adding its completion sender here rather than starting a second run. When
-    // the run finishes every waiter for the key receives the same result.
+    // Completion senders for every request the scheduler knows about (queued or
+    // running), keyed by room and priority. A duplicate request coalesces onto the
+    // existing run by adding its completion sender here rather than starting a
+    // second run. When the run finishes every waiter for the key receives the same
+    // result.
     let mut waiters: HashMap<RequestCoalescingKey, Vec<oneshot::Sender<BackPaginationRunResult>>> =
         HashMap::new();
 
@@ -293,8 +290,8 @@ async fn scheduler(
         mpsc::unbounded_channel::<(RequestCoalescingKey, BackPaginationRunResult)>();
 
     loop {
-        // Schedule as many pending requests as the concurrency budget and the
-        // per-room single-flight rule allow.
+        // Schedule as many pending requests as the concurrency budget allows, never
+        // starting a second run for a room that's already running one.
         schedule(
             &event_cache,
             &mut scheduled_requests,
