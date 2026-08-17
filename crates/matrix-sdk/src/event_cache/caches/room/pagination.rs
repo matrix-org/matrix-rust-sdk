@@ -18,7 +18,7 @@
 //! [`RoomEventCache`]: super::super::super::RoomEventCache
 
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fmt,
     pin::Pin,
     sync::Arc,
@@ -30,10 +30,10 @@ use eyeball_im::VectorDiff;
 use futures_core::{Stream, ready};
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
-    linked_chunk::{ChunkContent, LinkedChunkId, Update},
+    linked_chunk::{ChunkContent, LinkedChunkId, Position, Update},
 };
 use pin_project_lite::pin_project;
-use ruma::api::Direction;
+use ruma::{OwnedEventId, api::Direction};
 use tracing::{debug, error, trace};
 
 pub use super::super::pagination::PaginationStatus;
@@ -50,8 +50,12 @@ use super::{
         },
     },
     RoomEventCacheInner, RoomEventCacheUpdate,
+    state::RoomEventCacheState,
 };
-use crate::{event_cache::caches::pagination::SharedPaginationStatus, room::MessagesOptions};
+use crate::{
+    event_cache::{caches::pagination::SharedPaginationStatus, states::StateLockWriteGuard},
+    room::MessagesOptions,
+};
 
 pin_project! {
     /// A subscriber to a [`PaginationStatus`].
@@ -479,6 +483,163 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             }
         }
 
+        // Anchored resolution. A gap resolved on top of loaded history (the
+        // storage walk loads the chunks behind a gap before the gap is
+        // resolved) mostly returns events we already hold in the events
+        // chunk(s) right before the gap, plus a few the cache missed. The
+        // legacy path below removes every duplicate and re-inserts the whole
+        // batch in place of the gap: correct, but it takes a run of rendered
+        // items away and puts it back, and the timeline can't keep its
+        // scroll anchor through that (a visible jump). Instead, when the
+        // duplicates all live in the events chunks contiguous before the
+        // gap, and the batch orders them as we do, keep them in place as
+        // anchors: each run of new events is inserted right before the
+        // anchor following it in the batch, and the run newer than every
+        // anchor takes the gap's place. The token for even older history is
+        // dropped: it points into the anchors' own chunk, which we hold.
+        // Anything the rule doesn't confidently claim (older new events with
+        // a token to follow, disagreeing order, duplicates elsewhere) takes
+        // the legacy path.
+        let anchored = if let Some(gap_id) = prev_gap_id
+            && !all_duplicates
+            && !in_memory_duplicated_event_ids.is_empty()
+        {
+            let chunks_before_gap: HashSet<_> = state
+                .room_linked_chunk()
+                .rchunks()
+                .skip_while(|chunk| chunk.identifier() != gap_id)
+                .skip(1)
+                .take_while(|chunk| !chunk.is_gap())
+                .map(|chunk| chunk.identifier())
+                .collect();
+
+            let all_before_gap = in_memory_duplicated_event_ids
+                .iter()
+                .all(|(_, position)| chunks_before_gap.contains(&position.chunk_identifier()));
+
+            let by_id = in_memory_duplicated_event_ids
+                .iter()
+                .cloned()
+                .collect::<BTreeMap<OwnedEventId, Position>>();
+
+            // Anchors, in topological (batch) order.
+            let anchors = events
+                .iter()
+                .rev()
+                .filter_map(|event| {
+                    let event_id = event.event_id()?;
+                    Some((event_id.to_owned(), *by_id.get(event_id)?))
+                })
+                .collect::<Vec<_>>();
+
+            let order_matches = anchors.windows(2).all(|pair| {
+                let first = state.room_linked_chunk().event_order(pair[0].1);
+                let second = state.room_linked_chunk().event_order(pair[1].1);
+                first.zip(second).is_some_and(|(first, second)| first < second)
+            });
+
+            // Whether the oldest event of the batch is an anchor: then no
+            // new event predates our loaded history, and the new token
+            // (older than that anchor) is redundant with what we hold.
+            let oldest_is_anchor = events
+                .last()
+                .and_then(|event| event.event_id())
+                .is_some_and(|event_id| by_id.contains_key(event_id));
+
+            (all_before_gap && order_matches && (oldest_is_anchor || new_token.is_none()))
+                .then_some(anchors)
+        } else {
+            None
+        };
+
+        if let Some(anchors) = anchored {
+            debug!(
+                num_anchors = anchors.len(),
+                num_new = events.len() - anchors.len(),
+                "gap resolution anchored on the loaded history before the gap"
+            );
+
+            // The store-only duplicates can go: their removal shifts no
+            // in-memory position.
+            state.remove_events(Vec::new(), in_store_duplicated_event_ids).await?;
+
+            let anchor_ids =
+                anchors.iter().map(|(event_id, _)| event_id.clone()).collect::<HashSet<_>>();
+
+            // Split the batch (topological order) into the runs around the
+            // anchors: run `i` goes right before anchor `i`, the trailing
+            // run in place of the gap.
+            let mut runs = vec![Vec::new()];
+            for event in events.iter().rev() {
+                if event.event_id().is_some_and(|event_id| anchor_ids.contains(event_id)) {
+                    runs.push(Vec::new());
+                } else {
+                    runs.last_mut().expect("`runs` is never empty").push(event.clone());
+                }
+            }
+            let trailing_run = runs.pop().expect("`runs` is never empty");
+
+            let reached_start = state.room_linked_chunk_mut().push_backwards_pagination_events(
+                prev_gap_id,
+                None,
+                &trailing_run,
+            );
+
+            // The position right after the newest anchor (the trailing run's
+            // start, or whatever followed the gap): the fallback insertion
+            // point below.
+            let gap_position = {
+                let (_, newest_anchor) = anchors.last().expect("anchors are non-empty");
+                let mut found = false;
+                state.room_linked_chunk().events().find_map(|(position, _)| {
+                    if found {
+                        Some(position)
+                    } else {
+                        found = position == *newest_anchor;
+                        None
+                    }
+                })
+            };
+
+            // Deepest position first, so the outstanding (strictly smaller)
+            // positions stay valid.
+            for ((_, anchor_position), run) in anchors.iter().zip(runs).rev() {
+                if !run.is_empty()
+                    && let Err(err) = state
+                        .room_linked_chunk_mut()
+                        .insert_events_at(*anchor_position, run.clone())
+                {
+                    // Losing the placement is cosmetic, losing the events is
+                    // not: put the run where the gap was instead.
+                    error!(?err, "gap resolution: stale anchor position; inserting at the gap");
+                    if let Some(position) = gap_position {
+                        let _ = state.room_linked_chunk_mut().insert_events_at(position, run);
+                    }
+                }
+            }
+
+            let new_events = events
+                .iter()
+                .rev()
+                .filter(|event| {
+                    !event.event_id().is_some_and(|event_id| anchor_ids.contains(event_id))
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            state.post_process_new_events(new_events, None).await?;
+
+            send_pagination_updates(self, &mut state);
+
+            let events = events
+                .into_iter()
+                .filter(|event| {
+                    !event.event_id().is_some_and(|event_id| anchor_ids.contains(event_id))
+                })
+                .collect();
+
+            return Ok(Some(BackPaginationOutcome { events, reached_start }));
+        }
+
         // If not all the events have been back-paginated, we need to remove the
         // previous ones, otherwise we can end up with misordered events.
         //
@@ -544,35 +705,44 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // Note: this flushes updates to the store.
         state.post_process_new_events(topo_ordered_events, receipt_event).await?;
 
-        let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
-
-        if !timeline_event_diffs.is_empty() {
-            self.update_sender.send(
-                RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
-                    diffs: timeline_event_diffs,
-                    origin: EventsOrigin::Pagination,
-                }),
-                Some(RoomEventCacheGenericUpdate {
-                    room_id: self.room_id.clone(),
-                    origin: EventsOrigin::Pagination,
-                }),
-            );
-        }
-
-        // The resolved gap has been removed (and possibly replaced with a new
-        // one carrying the next prev-batch token): let observers know — but
-        // only if they've been told about gaps before. A purely legacy
-        // pagination flow (which loads gaps only to resolve them right away,
-        // and may park a new one for its own next run) shouldn't start
-        // announcing gaps on its own; if observers believe there are no gaps,
-        // leave it that way, the next sync or storage pagination reconciles.
-        if state.has_announced_timeline_gaps()
-            && let Some(gaps) = state.take_timeline_gaps_update()
-        {
-            self.update_sender.send(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
-        }
+        send_pagination_updates(self, &mut state);
 
         Ok(Some(BackPaginationOutcome { events, reached_start }))
+    }
+}
+
+/// Send the pending timeline diffs (and gaps update, if observers are told
+/// about gaps) after a network back-pagination.
+fn send_pagination_updates(
+    inner: &RoomEventCacheInner,
+    state: &mut StateLockWriteGuard<'_, RoomEventCacheState>,
+) {
+    let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
+
+    if !timeline_event_diffs.is_empty() {
+        inner.update_sender.send(
+            RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs {
+                diffs: timeline_event_diffs,
+                origin: EventsOrigin::Pagination,
+            }),
+            Some(RoomEventCacheGenericUpdate {
+                room_id: inner.room_id.clone(),
+                origin: EventsOrigin::Pagination,
+            }),
+        );
+    }
+
+    // The resolved gap has been removed (and possibly replaced with a new
+    // one carrying the next prev-batch token): let observers know — but
+    // only if they've been told about gaps before. A purely legacy
+    // pagination flow (which loads gaps only to resolve them right away,
+    // and may park a new one for its own next run) shouldn't start
+    // announcing gaps on its own; if observers believe there are no gaps,
+    // leave it that way, the next sync or storage pagination reconciles.
+    if state.has_announced_timeline_gaps()
+        && let Some(gaps) = state.take_timeline_gaps_update()
+    {
+        inner.update_sender.send(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }, None);
     }
 }
 
