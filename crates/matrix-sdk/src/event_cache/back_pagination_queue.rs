@@ -44,7 +44,7 @@ use std::{
 };
 
 use matrix_sdk_base::task_monitor::TaskMonitor;
-use matrix_sdk_common::executor::spawn;
+use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::OwnedRoomId;
 use tokio::{
     select,
@@ -284,7 +284,10 @@ async fn scheduler(
     trace!("Spawning the back-pagination queue executor");
 
     let mut pending_requests: BinaryHeap<PendingRequest> = BinaryHeap::new();
-    let mut active_requests: Vec<(OwnedRoomId, Priority)> = Vec::new();
+    // The tasks of the currently running requests, keyed by room: also the set of
+    // rooms that can't take another run right now. Dropping the scheduler aborts
+    // all of them.
+    let mut active_requests: HashMap<OwnedRoomId, AbortOnDrop<()>> = HashMap::new();
     let mut next_seq: u64 = 0;
 
     // Completion senders for every request the scheduler knows about (queued or
@@ -341,9 +344,7 @@ async fn scheduler(
             }
 
             Some((key, result)) = done_rx.recv() => {
-                if let Some(index) = active_requests.iter().position(|(id, _)| *id == key.0) {
-                    active_requests.swap_remove(index);
-                }
+                active_requests.remove(&key.0);
                 // Fan the single run's result out to every coalesced waiter.
                 if let Some(senders) = waiters.remove(&key) {
                     for sender in senders {
@@ -384,7 +385,7 @@ fn try_coalesce(
 fn schedule(
     event_cache: &Weak<EventCacheInner>,
     pending_requests: &mut BinaryHeap<PendingRequest>,
-    active_requests: &mut Vec<(OwnedRoomId, Priority)>,
+    active_requests: &mut HashMap<OwnedRoomId, AbortOnDrop<()>>,
     max_concurrent: usize,
     done_tx: &mpsc::UnboundedSender<(RequestCoalescingKey, BackPaginationRunResult)>,
 ) {
@@ -399,42 +400,49 @@ fn schedule(
             "back-pagination scheduled"
         );
 
+        let room_id = key.0.clone();
         let event_cache = event_cache.clone();
         let done_tx = done_tx.clone();
-        spawn(async move {
+        let task = spawn(async move {
             let result = run_request(&event_cache, request.request, &request.token).await;
             // The scheduler owns the completion senders (for coalescing), so hand it the
             // result to fan out to every waiter for this key.
             let _ = done_tx.send((key, result));
         });
+
+        active_requests.insert(room_id, task.abort_on_drop());
     }
 }
 
 /// Pick the requests that can start right now, highest priority first: bounded
 /// by `max_concurrent` total in flight, and never two runs for the same room.
 ///
-/// Picked rooms are appended to `active_requests` and requests popped but not
-/// yet runnable (their room is busy) are pushed back onto the heap.
-fn next_runnable(
+/// Requests popped but not yet runnable (their room is busy) are pushed back
+/// onto the heap.
+// Generic over the map's value type so the scheduling tests don't need a
+// runtime to build a task handle; only the keys matter here.
+fn next_runnable<T>(
     pending_requests: &mut BinaryHeap<PendingRequest>,
-    active_requests: &mut Vec<(OwnedRoomId, Priority)>,
+    active_requests: &HashMap<OwnedRoomId, T>,
     max_concurrent: usize,
 ) -> Vec<PendingRequest> {
-    let mut picked = Vec::new();
+    let mut picked: Vec<PendingRequest> = Vec::new();
     let mut skipped = Vec::new();
 
-    while active_requests.len() < max_concurrent {
+    while active_requests.len() + picked.len() < max_concurrent {
         let Some(request) = pending_requests.pop() else {
             break;
         };
 
-        if active_requests.iter().any(|(id, _)| *id == request.request.room_id) {
+        let room_id = &request.request.room_id;
+        if active_requests.contains_key(room_id)
+            || picked.iter().any(|other| other.request.room_id == *room_id)
+        {
             // This room is busy, try it again next round.
             skipped.push(request);
             continue;
         }
 
-        active_requests.push((request.request.room_id.clone(), request.request.priority));
         picked.push(request);
     }
 
@@ -515,7 +523,7 @@ async fn run_request(
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
-    use std::ops::ControlFlow;
+    use std::{collections::HashMap, ops::ControlFlow};
 
     use ruma::room_id;
 
@@ -552,8 +560,8 @@ mod tests {
         pending_requests.push(queued(c.to_owned(), Priority::Normal, 2));
         pending_requests.push(queued(d.to_owned(), Priority::High, 3));
 
-        let mut active_requests = Vec::new();
-        let picked: Vec<_> = next_runnable(&mut pending_requests, &mut active_requests, 10)
+        let active_requests: HashMap<_, ()> = HashMap::new();
+        let picked: Vec<_> = next_runnable(&mut pending_requests, &active_requests, 10)
             .into_iter()
             .map(|r| r.request.room_id)
             .collect();
@@ -572,11 +580,10 @@ mod tests {
             pending_requests.push(queued((*room).to_owned(), Priority::Normal, i as u64));
         }
 
-        let mut active_requests = Vec::new();
-        let picked = next_runnable(&mut pending_requests, &mut active_requests, 2);
+        let active_requests: HashMap<_, ()> = HashMap::new();
+        let picked = next_runnable(&mut pending_requests, &active_requests, 2);
 
         assert_eq!(picked.len(), 2);
-        assert_eq!(active_requests.len(), 2);
         // The third request stays queued.
         assert_eq!(pending_requests.len(), 1);
     }
@@ -590,14 +597,14 @@ mod tests {
         let (a, b) = (room_id!("!a:e"), room_id!("!b:e"));
 
         // `a` is already running.
-        let mut active_requests = vec![(a.to_owned(), Priority::High)];
+        let active_requests = HashMap::from([(a.to_owned(), ())]);
 
         let mut pending_requests = BinaryHeap::new();
         pending_requests.push(queued(a.to_owned(), Priority::High, 0)); // same room as active
         pending_requests.push(queued(a.to_owned(), Priority::High, 1)); // and again
         pending_requests.push(queued(b.to_owned(), Priority::Low, 2)); // a different room
 
-        let picked: Vec<_> = next_runnable(&mut pending_requests, &mut active_requests, 10)
+        let picked: Vec<_> = next_runnable(&mut pending_requests, &active_requests, 10)
             .into_iter()
             .map(|r| r.request.room_id)
             .collect();
@@ -612,8 +619,6 @@ mod tests {
     /// priority for the same room opens its own run.
     #[test]
     fn test_coalescing() {
-        use std::collections::HashMap;
-
         let a = room_id!("!a:e");
         let mut waiters = HashMap::new();
 
