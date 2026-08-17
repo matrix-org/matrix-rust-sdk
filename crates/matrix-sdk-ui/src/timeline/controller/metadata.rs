@@ -37,7 +37,7 @@ use super::{
     super::{TimelineItem, TimelineItemKind, TimelineUniqueId, subscriber::skip::SkipCount},
     ActiveCallInfo, Aggregation, AggregationKind, Aggregations, AllRemoteEvents,
     ObservableItemsTransaction, PendingEdit, PendingEditKind,
-    read_receipts::ReadReceipts,
+    read_receipts::ReadReceiptsState,
 };
 use crate::{
     timeline::{
@@ -126,7 +126,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Read receipts related state.
     ///
     /// TODO: move this over to the event cache (see also #3058).
-    pub(super) read_receipts: ReadReceipts,
+    pub(super) read_receipts: ReadReceiptsState,
 
     /// The event ID of the active RtcNotification item that should have
     /// active_members populated.
