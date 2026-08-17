@@ -588,9 +588,8 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         // Update the store.
         self.propagate_changes().await?;
 
-        // Extract a new read receipt, if available.
-        let new_receipt = extract_read_receipt(ephemeral_events);
-        self.post_process_new_events(events, new_receipt).await?;
+        // Post-process newly inserted events.
+        self.post_process_upserted_events(events, extract_read_receipt(ephemeral_events)).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -610,9 +609,8 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     // utility methods
     // --------------------------------------------
 
-    /// Post-process new events, after they have been added to the in-memory
-    /// linked chunk.
-    pub async fn post_process_new_events(
+    /// Post-process newly inserted or updated events.
+    pub async fn post_process_upserted_events(
         &mut self,
         events: Vec<Event>,
         receipt_event: Option<ReceiptEventContent>,

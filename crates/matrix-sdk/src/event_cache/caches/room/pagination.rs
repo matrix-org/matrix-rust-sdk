@@ -419,8 +419,8 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // receipt.
         let receipt_event = None;
 
-        // Note: this flushes updates to the store.
-        state.post_process_new_events(topo_ordered_events, receipt_event).await?;
+        // Post-process newly inserted events.
+        state.post_process_upserted_events(topo_ordered_events, receipt_event).await?;
 
         let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
 
