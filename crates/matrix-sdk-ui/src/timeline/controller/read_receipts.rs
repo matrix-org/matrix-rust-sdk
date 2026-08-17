@@ -32,7 +32,7 @@ use crate::timeline::{TimelineItem, TimelineItemContent, controller::TimelineSta
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
-pub(super) struct ReadReceipts {
+pub(super) struct ReadReceiptsState {
     /// Map of public read receipts on events.
     ///
     /// Event ID => User ID => Read receipt of the user.
@@ -66,7 +66,7 @@ pub(super) enum ImplicitReadReceipts {
     Exclude,
 }
 
-impl ReadReceipts {
+impl ReadReceiptsState {
     /// Empty the caches.
     pub(super) fn clear(&mut self) {
         self.by_event.clear();
