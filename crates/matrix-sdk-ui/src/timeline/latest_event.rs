@@ -15,6 +15,7 @@
 use matrix_sdk::{Client, Room, latest_events::LocalLatestEventValue};
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
+    event_cache::store::EventCacheStoreLockState,
     latest_event::LatestEventValue as BaseLatestEventValue,
     serde_helpers::{extract_relation, extract_thread_root, extract_thread_root_from_content},
 };
@@ -95,8 +96,15 @@ pub enum LatestEventValue {
 ///
 /// An edit carries an `m.replace` relation, not the thread relation - that
 /// lives on the edited original - so when the candidate is an edit, look the
-/// original up in the event cache (memory or store, no network) and read the
-/// thread root off it.
+/// original up in the event cache store (no network) and read the thread
+/// root off it.
+///
+/// This reads the store directly rather than going through
+/// `Room::event_cache()`: that would create the room's event cache when it
+/// isn't loaded yet, which loads the room's last chunk from the store while
+/// holding the event cache's global write lock. On a room-list build at
+/// launch, one busy room costs 100+ms and every other summary queues behind
+/// it (measured 30ms → 240ms for the first 64-room page).
 pub async fn resolve_latest_event_thread_root(
     room: &Room,
     event: &TimelineEvent,
@@ -110,8 +118,10 @@ pub async fn resolve_latest_event_thread_root(
         return None;
     }
 
-    let (event_cache, _drop_handles) = room.event_cache().await.ok()?;
-    let original = event_cache.find_event(&target).await.ok()??;
+    // A dirty lock doesn't matter for a read-only lookup.
+    let (EventCacheStoreLockState::Clean(store) | EventCacheStoreLockState::Dirty(store)) =
+        room.client().event_cache_store().lock().await.ok()?;
+    let original = store.find_event(room.room_id(), &target).await.ok()??;
 
     extract_thread_root(original.raw())
 }
