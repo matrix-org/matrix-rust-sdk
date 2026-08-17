@@ -200,22 +200,27 @@ impl BackPaginationQueue {
     /// Enqueue a new request returning a handle to await it.
     /// A request for a room already queued or running at the same priority is
     /// coalesced onto that run rather than starting a second one.
-    pub(crate) fn enqueue(&self, request: BackPaginationRequest) -> BackPaginationHandle {
+    pub(crate) fn enqueue(
+        &self,
+        request: BackPaginationRequest,
+    ) -> Result<BackPaginationHandle, QueueShutDown> {
         let token = CancellationToken::new();
         let (completion_tx, completion_rx) = oneshot::channel();
 
         let submitted =
             SubmittedRequest { request, token: token.clone(), completion: completion_tx };
 
-        if self.inner.sender.send(submitted).is_err() {
-            // The executor is not available, resolve the handle as cancelled
-            // straight away.
-            token.cancel();
-        }
+        self.inner.sender.send(submitted).map_err(|_| QueueShutDown)?;
 
-        BackPaginationHandle { _guard: token.drop_guard(), completion: Some(completion_rx) }
+        Ok(BackPaginationHandle { _guard: token.drop_guard(), completion: Some(completion_rx) })
     }
 }
+
+/// The queue's executor isn't running anymore, so no new request can be
+/// enqueued.
+#[derive(Debug, thiserror::Error)]
+#[error("the back-pagination queue executor is not running")]
+pub(crate) struct QueueShutDown;
 
 /// Identifies a coalescable run i.e. a room back-paginated at a given priority.
 type RequestCoalescingKey = (OwnedRoomId, Priority);
