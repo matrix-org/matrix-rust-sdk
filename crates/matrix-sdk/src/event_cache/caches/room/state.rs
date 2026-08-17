@@ -471,7 +471,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         self.propagate_changes().await
     }
 
-    async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+    pub(super) async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
         let updates = self.state.room_linked_chunk.store_updates().take();
 
         self.send_updates_to_store(updates).await
@@ -585,6 +585,9 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             &events,
         );
 
+        // Update the store.
+        self.propagate_changes().await?;
+
         // Extract a new read receipt, if available.
         let new_receipt = extract_read_receipt(ephemeral_events);
         self.post_process_new_events(events, new_receipt).await?;
@@ -594,8 +597,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // so it only contains the last one; otherwise, there might be a
             // valid gap in between, and observers may not render it (yet).
             //
-            // We must do this *after* persisting these events to storage (in
-            // `post_process_new_events`).
+            // We must do this *after* persisting these events to storage.
             self.shrink_to_last_reloaded_chunk().await?;
         }
 
@@ -610,16 +612,11 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
 
     /// Post-process new events, after they have been added to the in-memory
     /// linked chunk.
-    ///
-    /// Flushes updates to disk first.
     pub async fn post_process_new_events(
         &mut self,
         events: Vec<Event>,
         receipt_event: Option<ReceiptEventContent>,
     ) -> Result<(), EventCacheError> {
-        // Update the store before doing the post-processing.
-        self.propagate_changes().await?;
-
         for event in events {
             self.maybe_apply_new_redaction(&event).await?;
 
