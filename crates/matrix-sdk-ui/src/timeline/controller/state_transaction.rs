@@ -523,11 +523,10 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             false
         } else {
             // Some duplicates - log an error and return true (used in tests)
-            tracing::error!(
-                ?duplicates,
-                items = ?self.items,
-                "duplicate read receipts in this timeline",
-            );
+            // Don't dump the items: hundreds of KB per line, on every
+            // transaction while the duplicate lives, and the duplicates
+            // themselves already name the events involved.
+            tracing::error!(?duplicates, "duplicate read receipts in this timeline");
 
             true
         }
