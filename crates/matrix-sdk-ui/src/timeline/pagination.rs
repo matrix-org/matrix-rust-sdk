@@ -194,18 +194,14 @@ impl super::Timeline {
     pub async fn resolve_gap(&self, prev_token: String, batch_size: u16) -> Result<bool, Error> {
         match self.controller.focus() {
             TimelineFocusKind::Live { event_cache, .. } => {
-                let resolved =
-                    event_cache.resolve_gap(prev_token, batch_size).await.map_err(Error::from)?;
-
-                // Resolving the last leading gap of an exhausted storage is
-                // what finally reaches the start of the room: pick up the new
-                // set of gaps right away, so the timeline start gets inserted
-                // (see `TimelineController::handle_timeline_gaps`).
-                if resolved {
-                    self.controller.refresh_timeline_gaps(event_cache).await;
-                }
-
-                Ok(resolved)
+                // No synchronous gaps refresh here, unlike after a pagination:
+                // it would race the event subscriber task and remove the gap
+                // item in a transaction of its own, before the fetched events
+                // land (a visible jump). The events update carries the new
+                // gaps snapshot in the same transaction, and the trailing
+                // `UpdateTimelineGaps` update settles the timeline start (see
+                // `TimelineController::handle_timeline_gaps`).
+                Ok(event_cache.resolve_gap(prev_token, batch_size).await.map_err(Error::from)?)
             }
 
             TimelineFocusKind::MessageTypes { event_cache } => {

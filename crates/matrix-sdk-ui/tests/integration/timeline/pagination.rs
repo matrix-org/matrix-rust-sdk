@@ -1462,21 +1462,26 @@ async fn test_resolving_the_last_leading_gap_inserts_the_timeline_start() {
     let resolved = timeline.resolve_gap("pb1".to_owned(), 10).await.unwrap();
     assert!(resolved);
 
-    let mut saw_timeline_start = false;
-    let mut gap_removed = false;
-    while !(saw_timeline_start && gap_removed) {
+    // The gap item goes away in the same batch as the fetched event lands:
+    // removing it first, on its own, would make the following items jump up
+    // before the content fills the space (that's what a synchronous gaps
+    // refresh right after the resolution used to do).
+    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+    let gap_removed =
+        timeline_updates.iter().any(|update| matches!(update, VectorDiff::Remove { .. }));
+    let event_inserted = timeline_updates.iter().any(|update| {
+        matches!(update, VectorDiff::Insert { value, .. } if value.as_event().is_some_and(|event| event.event_id() == Some(event_id!("$0"))))
+    });
+    assert!(gap_removed && event_inserted, "{timeline_updates:?}");
+
+    let mut saw_timeline_start = timeline_updates.iter().any(|update| {
+        matches!(update, VectorDiff::PushFront { value } | VectorDiff::Insert { index: 0, value } if value.is_timeline_start())
+    });
+    while !saw_timeline_start {
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-        for update in timeline_updates {
-            match update {
-                VectorDiff::PushFront { value } | VectorDiff::Insert { index: 0, value }
-                    if value.is_timeline_start() =>
-                {
-                    saw_timeline_start = true;
-                }
-                VectorDiff::Remove { .. } => gap_removed = true,
-                _ => {}
-            }
-        }
+        saw_timeline_start = timeline_updates.iter().any(|update| {
+            matches!(update, VectorDiff::PushFront { value } | VectorDiff::Insert { index: 0, value } if value.is_timeline_start())
+        });
     }
 
     let items = timeline.items().await;
