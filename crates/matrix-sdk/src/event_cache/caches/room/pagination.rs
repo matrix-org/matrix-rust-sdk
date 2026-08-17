@@ -407,6 +407,9 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             &topo_ordered_events,
         );
 
+        // Update the store.
+        state.propagate_changes().await?;
+
         // A back-pagination can't include new read receipt events, as those are
         // ephemeral events not included in /messages responses, so we can
         // safely set the receipt event to None here.
