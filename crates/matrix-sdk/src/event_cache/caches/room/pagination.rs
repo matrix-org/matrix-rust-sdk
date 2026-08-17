@@ -18,6 +18,7 @@
 //! [`RoomEventCache`]: super::super::super::RoomEventCache
 
 use std::{
+    collections::HashSet,
     fmt,
     pin::Pin,
     sync::Arc,
@@ -33,7 +34,7 @@ use matrix_sdk_base::{
 };
 use pin_project_lite::pin_project;
 use ruma::api::Direction;
-use tracing::{error, trace};
+use tracing::{debug, error, trace};
 
 pub use super::super::pagination::PaginationStatus;
 use super::{
@@ -433,7 +434,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             all_events: mut events,
             in_memory_duplicated_event_ids,
             in_store_duplicated_event_ids,
-            non_empty_all_duplicates: all_duplicates,
+            non_empty_all_duplicates: mut all_duplicates,
         } = filter_duplicate_events(
             &state.state.own_user_id,
             &state.store,
@@ -442,6 +443,41 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             events,
         )
         .await?;
+
+        // Redundant gap guard. Several gaps can sit in memory at once (storage-only
+        // pagination surfaces them all), and each is resolved on demand, so two
+        // resolutions can walk overlapping ranges of history. If any event
+        // returned for this gap already lives *after* the gap in the linked
+        // chunk, a newer gap's resolution has already walked past this gap's
+        // position: whatever is older is (or will be) reached through that
+        // newer gap's own trailing gap. This gap is redundant: drop it, and
+        // insert nothing. Applying the usual "move the duplicates here" logic
+        // instead would drag those events *backwards*, in front of the newer
+        // gap's frontier, and misorder the timeline (events surfacing before
+        // history that's older than them; a dropped leading gap then falsely
+        // reveals a "start of the room").
+        if let Some(gap_id) = prev_gap_id
+            && !in_memory_duplicated_event_ids.is_empty()
+        {
+            let chunks_after_gap: HashSet<_> = state
+                .room_linked_chunk()
+                .chunks()
+                .skip_while(|chunk| chunk.identifier() != gap_id)
+                .skip(1)
+                .map(|chunk| chunk.identifier())
+                .collect();
+
+            if in_memory_duplicated_event_ids
+                .iter()
+                .any(|(_, position)| chunks_after_gap.contains(&position.chunk_identifier()))
+            {
+                debug!(
+                    "gap resolution returned events already known after the gap: \
+                     the gap is redundant, dropping it"
+                );
+                all_duplicates = true;
+            }
+        }
 
         // If not all the events have been back-paginated, we need to remove the
         // previous ones, otherwise we can end up with misordered events.

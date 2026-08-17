@@ -3617,3 +3617,116 @@ async fn test_resolve_gap() {
     assert!(!resolved);
     assert!(room_stream.recv().now_or_never().is_none());
 }
+
+#[async_test]
+async fn test_resolve_gap_drops_gap_overtaken_by_a_newer_gap() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Two limited syncs in a row record two gaps: `[gap "pb1"] [$1] [gap
+    // "pb2"] [$2]`.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("one").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("pb1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("two").event_id(event_id!("$2")))
+                .set_timeline_prev_batch("pb2".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    // Load everything into memory with storage paginations; both gaps
+    // surface.
+    let mut gaps = Vec::new();
+    loop {
+        let outcome =
+            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+        while let Some(Ok(update)) = room_stream.recv().now_or_never() {
+            if let RoomEventCacheUpdate::UpdateTimelineGaps { gaps: new_gaps } = update {
+                gaps = new_gaps;
+            }
+        }
+        if outcome.reached_start {
+            break;
+        }
+    }
+    assert_eq!(gaps.iter().map(|gap| gap.prev_token.as_str()).collect::<Vec<_>>(), ["pb1", "pb2"]);
+
+    // Resolving the newer gap walks past the older one: it returns `$1`
+    // (already known, right before the gap: moved into place, as usual) and
+    // `$0`, plus a new token: `[gap "pb1"] [gap "pb3"] [$0, $1] [$2]`.
+    server
+        .mock_room_messages()
+        .match_from("pb2")
+        .ok(RoomMessagesResponseTemplate::default().end_token("pb3").events(vec![
+            f.text_msg("one").event_id(event_id!("$1")),
+            f.text_msg("zero").event_id(event_id!("$0")),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(room_event_cache.resolve_gap("pb2".to_owned(), 20).await.unwrap());
+
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.iter().map(|gap| gap.prev_token.as_str()).collect::<Vec<_>>(), ["pb1", "pb3"]);
+    assert_eq!(gaps[1].following_event_id.as_deref(), Some(event_id!("$0")));
+
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(
+        events.iter().map(|ev| ev.event_id().unwrap()).collect::<Vec<_>>(),
+        [event_id!("$0"), event_id!("$1"), event_id!("$2")]
+    );
+
+    // Now resolving the older gap returns `$0` (already known *after* the gap,
+    // fetched through the newer one) and `$-1`, older still. The older gap
+    // has been overtaken: it's dropped, its events are NOT dragged in front
+    // of "pb3" (which would misorder the timeline and, the leading gap being
+    // gone, falsely reveal the start of the room), and no new gap replaces
+    // it. `$-1` will come through "pb3", the actual frontier.
+    server
+        .mock_room_messages()
+        .match_from("pb1")
+        .ok(RoomMessagesResponseTemplate::default().end_token("pb4").events(vec![
+            f.text_msg("zero").event_id(event_id!("$0")),
+            f.text_msg("minus one").event_id(event_id!("$-1")),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(room_event_cache.resolve_gap("pb1".to_owned(), 20).await.unwrap());
+
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.iter().map(|gap| gap.prev_token.as_str()).collect::<Vec<_>>(), ["pb3"]);
+    assert_eq!(gaps[0].following_event_id.as_deref(), Some(event_id!("$0")));
+
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(
+        events.iter().map(|ev| ev.event_id().unwrap()).collect::<Vec<_>>(),
+        [event_id!("$0"), event_id!("$1"), event_id!("$2")]
+    );
+
+    // "pb3" still leads: nothing is stored before it.
+    let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+    assert!(outcome.reached_start);
+}
