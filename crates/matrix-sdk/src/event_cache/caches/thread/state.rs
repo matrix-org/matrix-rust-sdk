@@ -480,7 +480,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             &events,
         );
 
+        // Update the store.
         self.state.propagate_changes(&self.store).await?;
+
+        // Post-process newly inserted events.
+        self.post_process_upserted_events(events).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -491,7 +495,13 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
         }
 
-        // Do stuff for each event.
+        let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
+
+        Ok((has_new_gap, timeline_event_diffs))
+    }
+
+    /// Post-process newly inserted or updated events.
+    pub async fn post_process_upserted_events(&mut self, events: Vec<Event>) -> Result<()> {
         for event in events {
             // Handle redaction.
             self.maybe_apply_new_redaction(&event).await?;
@@ -502,9 +512,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             }
         }
 
-        let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
-
-        Ok((has_new_gap, timeline_event_diffs))
+        Ok(())
     }
 
     /// If the given event is a redaction, try to retrieve the
