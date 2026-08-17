@@ -43,7 +43,7 @@ use std::{
     sync::{Arc, Weak},
 };
 
-use matrix_sdk_base::task_monitor::TaskMonitor;
+use matrix_sdk_base::{locks::Mutex, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::OwnedRoomId;
 use tokio::{
@@ -136,12 +136,15 @@ pub(crate) struct BackPaginationRunResult {
     pub reason: BackPaginationStopReason,
 }
 
+/// Identifies a coalescable run i.e. a room back-paginated at a given priority.
+type RequestCoalescingKey = (OwnedRoomId, Priority);
+
 /// A handle to an enqueued [`BackPaginationRequest`].
-/// Dropping the handle cancels the request.
+/// Dropping the last handle for a request cancels it.
 pub(crate) struct BackPaginationHandle {
-    /// Cancels the request on drop, unless disarmed by
-    /// [`BackPaginationHandle::detach`].
-    guard: DropGuard,
+    /// Cancels the request once every handle sharing it is dropped, unless
+    /// disarmed by [`BackPaginationHandle::detach`].
+    guard: Arc<DropGuard>,
     // Only read by `join`, which the consumers awaiting a result are landing with.
     #[allow(dead_code)]
     completion: Option<oneshot::Receiver<BackPaginationRunResult>>,
@@ -158,7 +161,11 @@ impl BackPaginationHandle {
     /// Let the request run to completion instead of cancelling it, for callers
     /// that don't care about its result.
     pub(crate) fn detach(self) {
-        self.guard.disarm();
+        // Only the last handle can disarm the cancellation; while others are alive
+        // they keep the request running anyway.
+        if let Some(guard) = Arc::into_inner(self.guard) {
+            guard.disarm();
+        }
     }
 
     /// Await the request's completion, returning why it ended.
@@ -180,7 +187,23 @@ pub struct BackPaginationQueue {
 
 struct BackPaginationQueueInner {
     sender: mpsc::UnboundedSender<SubmittedRequest>,
+    /// The cancellation shared by all the handles of a coalescing key, so a run
+    /// is only cancelled once every caller waiting on it has dropped its
+    /// handle.
+    ///
+    /// This only tracks handle lifetimes; the scheduler stays authoritative for
+    /// whether a request actually coalesces onto an existing run.
+    cancellations: Mutex<HashMap<RequestCoalescingKey, SharedCancellation>>,
     _task: matrix_sdk_base::task_monitor::BackgroundTaskHandle,
+}
+
+/// The cancellation of a single coalescable run.
+struct SharedCancellation {
+    /// Handed to the run, cancelled when the last `guard` below is dropped.
+    token: CancellationToken,
+    /// Weak, because the guard is owned by the handles: once they're all gone
+    /// the token fires and this entry is stale.
+    guard: Weak<DropGuard>,
 }
 
 #[cfg(not(tarpaulin_include))]
@@ -204,7 +227,13 @@ impl BackPaginationQueue {
             scheduler(event_cache, receiver, max_concurrent),
         );
 
-        Self { inner: Arc::new(BackPaginationQueueInner { sender, _task: task }) }
+        Self {
+            inner: Arc::new(BackPaginationQueueInner {
+                sender,
+                cancellations: Mutex::new(HashMap::new()),
+                _task: task,
+            }),
+        }
     }
 
     /// Enqueue a new request returning a handle to await it.
@@ -214,16 +243,45 @@ impl BackPaginationQueue {
         &self,
         request: BackPaginationRequest,
     ) -> Result<BackPaginationHandle, QueueShutDown> {
-        let token = CancellationToken::new();
-        let (completion_tx, completion_rx) = oneshot::channel();
+        let key = (request.room_id.clone(), request.priority);
+        let (token, guard) = cancellation_for(&self.inner.cancellations, key);
 
-        let submitted =
-            SubmittedRequest { request, token: token.clone(), completion: completion_tx };
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let submitted = SubmittedRequest { request, token, completion: completion_tx };
 
         self.inner.sender.send(submitted).map_err(|_| QueueShutDown)?;
 
-        Ok(BackPaginationHandle { guard: token.drop_guard(), completion: Some(completion_rx) })
+        Ok(BackPaginationHandle { guard, completion: Some(completion_rx) })
     }
+}
+
+/// The cancellation shared by every handle for `key`, created if this is the
+/// first live one.
+///
+/// Requests that coalesce onto the same run must not be able to cancel each
+/// other, so they all hold a clone of one guard and the run is only cancelled
+/// once the last of them is dropped.
+fn cancellation_for(
+    cancellations: &Mutex<HashMap<RequestCoalescingKey, SharedCancellation>>,
+    key: RequestCoalescingKey,
+) -> (CancellationToken, Arc<DropGuard>) {
+    let mut cancellations = cancellations.lock();
+
+    if let Some(existing) = cancellations.get(&key)
+        && let Some(guard) = existing.guard.upgrade()
+    {
+        return (existing.token.clone(), guard);
+    }
+
+    // Forget the keys whose handles are all gone, while we're holding the lock.
+    cancellations.retain(|_, cancellation| cancellation.guard.strong_count() > 0);
+
+    let token = CancellationToken::new();
+    let guard = Arc::new(token.clone().drop_guard());
+    cancellations
+        .insert(key, SharedCancellation { token: token.clone(), guard: Arc::downgrade(&guard) });
+
+    (token, guard)
 }
 
 /// The queue's executor isn't running anymore, so no new request can be
@@ -231,9 +289,6 @@ impl BackPaginationQueue {
 #[derive(Debug, thiserror::Error)]
 #[error("the back-pagination queue executor is not running")]
 pub(crate) struct QueueShutDown;
-
-/// Identifies a coalescable run i.e. a room back-paginated at a given priority.
-type RequestCoalescingKey = (OwnedRoomId, Priority);
 
 /// A request as it arrives on the queue's channel, before the scheduler has
 /// assigned it a sequence number or decided whether to coalesce it.
@@ -527,9 +582,13 @@ async fn run_request(
 mod tests {
     use std::{collections::HashMap, ops::ControlFlow};
 
+    use matrix_sdk_base::locks::Mutex;
     use ruma::room_id;
 
-    use super::{BackPaginationRequest, PendingRequest, Priority, next_runnable, try_coalesce};
+    use super::{
+        BackPaginationRequest, PendingRequest, Priority, cancellation_for, next_runnable,
+        try_coalesce,
+    };
 
     /// Build a queued request for a room, at a priority, with an insertion seq.
     fn queued(room_id: ruma::OwnedRoomId, priority: Priority, seq: u64) -> PendingRequest {
@@ -614,6 +673,40 @@ mod tests {
         // Only `b` runs; both `a` requests stay queued (a is busy).
         assert_eq!(picked, vec![b.to_owned()]);
         assert_eq!(pending_requests.len(), 2);
+    }
+
+    /// Every handle for a room + priority shares one cancellation, so a caller
+    /// dropping its handle can't cancel a run others are still waiting on.
+    #[test]
+    fn test_cancellation_is_shared_per_key() {
+        let cancellations = Mutex::new(HashMap::new());
+        let key = (room_id!("!a:e").to_owned(), Priority::Normal);
+
+        let (first_token, first_guard) = cancellation_for(&cancellations, key.clone());
+        let (second_token, second_guard) = cancellation_for(&cancellations, key.clone());
+
+        // One run, so one token for both callers.
+        assert!(!first_token.is_cancelled());
+        drop(first_guard);
+        assert!(!first_token.is_cancelled());
+        assert!(!second_token.is_cancelled());
+
+        // The last handle to go cancels the run.
+        drop(second_guard);
+        assert!(first_token.is_cancelled());
+        assert!(second_token.is_cancelled());
+
+        // Once they're all gone the key is stale, so the next caller gets a fresh
+        // token rather than an already-cancelled one.
+        let (third_token, _third_guard) = cancellation_for(&cancellations, key);
+        assert!(!third_token.is_cancelled());
+
+        // A different priority for the same room is a different run.
+        let other = (room_id!("!a:e").to_owned(), Priority::High);
+        let (other_token, other_guard) = cancellation_for(&cancellations, other);
+        drop(other_guard);
+        assert!(other_token.is_cancelled());
+        assert!(!third_token.is_cancelled());
     }
 
     /// The first request for a room + priority opens a new run; a later one at
