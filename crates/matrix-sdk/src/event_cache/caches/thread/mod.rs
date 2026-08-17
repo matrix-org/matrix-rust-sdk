@@ -299,23 +299,28 @@ impl ThreadEventCache {
         // calling this method.
         let _ = state.thread_linked_chunk_mut().store_updates().take();
 
-        Ok(
-            if let Some(timeline_event_diffs) = timeline_event_diffs
-                && !timeline_event_diffs.is_empty()
-            {
-                state.update_sender.send(
-                    TimelineVectorDiffs {
-                        diffs: timeline_event_diffs,
-                        origin: EventsOrigin::Cache,
-                    },
-                    Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
-                );
+        state
+            .post_process_upserted_events(
+                resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
+            )
+            .await?;
 
-                true
-            } else {
-                false
-            },
-        )
+        let timeline_event_diffs = timeline_event_diffs
+            .into_iter()
+            .flatten()
+            .chain(state.thread_linked_chunk_mut().updates_as_vector_diffs())
+            .collect::<Vec<_>>();
+
+        Ok(if !timeline_event_diffs.is_empty() {
+            state.update_sender.send(
+                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Cache },
+                Some(RoomEventCacheGenericUpdate { room_id: self.inner.room_id.clone() }),
+            );
+
+            true
+        } else {
+            false
+        })
     }
 }
 
