@@ -528,7 +528,7 @@ impl EventCache {
             // unreads.
             let receipt_event = None;
 
-            state.post_process_new_events(resolved_events, receipt_event).await?;
+            state.post_process_upserted_events(resolved_events, receipt_event).await?;
 
             timeline_event_diffs.extend(state.room_linked_chunk_mut().updates_as_vector_diffs());
 
