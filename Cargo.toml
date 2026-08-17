@@ -37,8 +37,8 @@ clap = { version = "4.6.4", default-features = false, features = ["std", "help",
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
 dirs = { version = "6.0.0", default-features = false }
 eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }
-eyeball-im = { version = "0.8.0", default-features = false, features = ["tracing"] }
-eyeball-im-util = { version = "0.10.0", default-features = false }
+eyeball-im = { version = "0.9.0", default-features = false, features = ["tracing"] }
+eyeball-im-util = { version = "0.11.0", default-features = false }
 futures-core = { version = "0.3.33", default-features = false, features = ["std"] }
 futures-executor = { version = "0.3.33", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
@@ -49,7 +49,7 @@ growable-bloom-filter = { version = "2.1.1", default-features = false }
 hkdf = "0.13.0"
 hmac = "0.13.0"
 http = { version = "1.5.0", default-features = false }
-imbl = { version = "6.1.0", default-features = false }
+imbl = { version = "7.0.1", default-features = false }
 indexed_db_futures = { version = "0.7.0", package = "matrix_indexed_db_futures", default-features = false }
 indexmap = { version = "2.14.0", default-features = false }
 insta = { version = "1.48.0", features = ["json", "redactions"] }
