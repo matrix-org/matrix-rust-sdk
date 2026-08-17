@@ -28,7 +28,9 @@ use matrix_sdk::{
     sleep::sleep,
 };
 use matrix_sdk_base::{
-    RoomState, StoreError, deserialized_responses::TimelineEvent, sync::RoomUpdates,
+    RoomState, StoreError,
+    deserialized_responses::TimelineEvent,
+    sync::{JoinedRoomUpdate, RoomUpdates, Timeline},
 };
 use matrix_sdk_common::{cross_process_lock::CrossProcessLockConfig, timeout::timeout};
 use ruma::{
@@ -674,6 +676,87 @@ impl NotificationClient {
         }
     }
 
+    /// Best-effort counterpart of [`Self::ingest_into_shared_event_cache`]
+    /// for the `/context` fallback (taken when the sliding sync attempt times
+    /// out, which a slow server makes common): persist the notified event as
+    /// a limited batch at the room's tail, behind the `/context` prev-batch
+    /// token, so the main app finds it in the room's timeline right away
+    /// instead of after its own catch-up sync.
+    ///
+    /// Skipped when the shared store already knows the event, or holds
+    /// something newer for the room (a delayed push for an old event must
+    /// not land at the tail): the main app's sync is authoritative there.
+    async fn ingest_context_event_into_shared_event_cache(
+        &self,
+        room_id: &RoomId,
+        event: &TimelineEvent,
+        prev_batch: Option<String>,
+    ) {
+        if !matches!(self.process_setup, NotificationProcessSetup::MultipleProcesses) {
+            return;
+        }
+
+        let Some(event_id) = event.event_id() else {
+            return;
+        };
+        let Some(timestamp) = event.timestamp() else {
+            return;
+        };
+
+        let event_cache = self.parent_client.event_cache();
+        if let Err(err) = event_cache.subscribe() {
+            warn!("cannot subscribe the shared event cache, skipping ingestion: {err}");
+            return;
+        }
+
+        let (room_cache, _drop_handles) = match event_cache.room(room_id).await {
+            Ok(room_cache) => room_cache,
+            Err(err) => {
+                warn!("cannot open the shared event cache for the room, skipping ingestion: {err}");
+                return;
+            }
+        };
+
+        match room_cache.find_event(event_id).await {
+            Ok(Some(_)) => {
+                trace!("notified event already in the shared event cache, not ingesting");
+                return;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!("cannot look up the notified event in the shared event cache: {err}");
+                return;
+            }
+        }
+
+        // Only the loaded (last) chunk is inspected: it's the room's tail.
+        match room_cache.events().await {
+            Ok(events) => {
+                if events.iter().any(|known| known.timestamp().is_some_and(|ts| ts >= timestamp)) {
+                    trace!("shared event cache holds newer events for the room, not ingesting");
+                    return;
+                }
+            }
+            Err(err) => {
+                warn!("cannot read the shared event cache for the room: {err}");
+                return;
+            }
+        }
+
+        let mut updates = RoomUpdates::default();
+        updates.joined.insert(
+            room_id.to_owned(),
+            JoinedRoomUpdate {
+                timeline: Timeline { limited: true, prev_batch, events: vec![event.clone()] },
+                ..Default::default()
+            },
+        );
+
+        if let Err(err) = event_cache.ingest_out_of_band_room_updates(updates).await {
+            warn!("failed to ingest the notified event into the shared event cache: {err}");
+        }
+    }
+
     pub async fn get_notification_with_sliding_sync(
         &self,
         room_id: &RoomId,
@@ -908,6 +991,13 @@ impl NotificationClient {
         if let Some(decrypted_event) = self.retry_decryption(&room, timeline_event.raw()).await? {
             timeline_event = decrypted_event;
         }
+
+        self.ingest_context_event_into_shared_event_cache(
+            room_id,
+            &timeline_event,
+            response.prev_batch_token,
+        )
+        .await;
 
         let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
 

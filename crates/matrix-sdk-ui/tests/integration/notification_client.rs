@@ -641,6 +641,79 @@ async fn test_notification_client_sliding_sync_ingests_into_shared_event_cache()
 }
 
 #[async_test]
+async fn test_notification_client_context_ingests_into_shared_event_cache() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let sender = user_id!("@user:example.org");
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    // The shared store already holds an older event for the room.
+    client.event_cache().subscribe().unwrap();
+    let old_event_id = event_id!("$old");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("earlier").event_id(old_event_id).server_ts(1000).into_raw_sync(),
+            ),
+        )
+        .await;
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let event_id = event_id!("$notified");
+    let event = f.text_msg("Hello world!").event_id(event_id).server_ts(2000).into_event();
+
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(event.clone()).start("context-start"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let notification_client =
+        NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+            .await
+            .unwrap();
+
+    let status =
+        notification_client.get_notification_with_context(room_id, event_id).await.unwrap();
+    assert_matches!(status, NotificationStatus::Event(_));
+
+    // The notified event has been persisted at the tail of the room, as a
+    // limited batch behind the `/context` prev-batch token: the main app finds
+    // it right away, and its own sync deduplicates it later.
+    let event_cache = client.event_cache();
+    let (room_event_cache, _drop_handles) = event_cache.room(room_id).await.unwrap();
+    let (events, _receiver) = room_event_cache.subscribe().await.unwrap();
+    // (A limited batch shrinks the in-memory view to its last chunk; the
+    // older event lives in the store, behind the gap.)
+    let ids: Vec<_> = events.iter().filter_map(|event| event.event_id()).collect();
+    assert_eq!(ids, [event_id.to_owned()]);
+
+    // A delayed push for an event older than what the store holds must not
+    // land at the tail.
+    let stale_event_id = event_id!("$stale");
+    let stale_event = f.text_msg("stale").event_id(stale_event_id).server_ts(1500).into_event();
+    server
+        .mock_room_event_context()
+        .ok(RoomContextResponseTemplate::new(stale_event).start("stale-start"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let status =
+        notification_client.get_notification_with_context(room_id, stale_event_id).await.unwrap();
+    assert_matches!(status, NotificationStatus::Event(_));
+
+    let (events, _receiver) = room_event_cache.subscribe().await.unwrap();
+    let ids: Vec<_> = events.iter().filter_map(|event| event.event_id()).collect();
+    assert_eq!(ids, [event_id.to_owned()]);
+    assert!(room_event_cache.find_event(stale_event_id).await.unwrap().is_none());
+}
+
+#[async_test]
 async fn test_notification_client_sliding_sync_invites() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let room_id2 = room_id!("!a98sd12bjh2:example.org");
