@@ -562,51 +562,38 @@ impl Client {
         Ok(self.inner.get_store_sizes().await?.into())
     }
 
-    /// Walk the known rooms' storage usage, reporting each room with cached
-    /// data to the listener as soon as its numbers are known (roughly the
-    /// biggest rooms first; a room's media takes the longest to measure), then
-    /// `on_finished`. Drop the returned handle to stop the walk.
+    /// The known rooms' storage usage, rooms with cached data only, biggest
+    /// first.
     ///
     /// Sizes are the stored payloads' sizes, an approximation of the space
     /// taken on disk (see [`Self::get_store_sizes`] for the files' sizes,
     /// which are the ones to show as totals).
-    pub fn storage_usage_by_room(
-        &self,
-        listener: Box<dyn StorageUsageListener>,
-    ) -> Arc<TaskHandle> {
-        let client = self.inner.clone();
-        Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            let result = client
-                .storage_usage_by_room(|rooms| {
-                    let rooms = rooms
-                        .into_iter()
-                        .map(|(room_id, usage)| {
-                            let room = client.get_room(&room_id);
-                            RoomStorageUsage {
-                                room_id: room_id.to_string(),
-                                display_name: room
-                                    .as_ref()
-                                    .and_then(|room| room.cached_display_name())
-                                    .map(|name| name.to_string()),
-                                last_activity_ts: room
-                                    .as_ref()
-                                    .and_then(|room| room.recency_stamp())
-                                    .map(u64::from),
-                                room_keys_bytes: usage.room_keys_bytes,
-                                room_state_bytes: usage.room_state_bytes,
-                                events_bytes: usage.events_bytes,
-                                media_bytes: usage.media_bytes,
-                            }
-                        })
-                        .collect();
-                    listener.on_rooms_usage(rooms);
-                })
-                .await;
-            if let Err(error) = result {
-                error!("Failed walking the storage usage by room: {error}");
-            }
-            listener.on_finished();
-        })))
+    pub async fn storage_usage_by_room(&self) -> Result<Vec<RoomStorageUsage>, ClientError> {
+        let rooms = self
+            .inner
+            .storage_usage_by_room()
+            .await?
+            .into_iter()
+            .map(|(room_id, usage)| {
+                let room = self.inner.get_room(&room_id);
+                RoomStorageUsage {
+                    room_id: room_id.to_string(),
+                    display_name: room
+                        .as_ref()
+                        .and_then(|room| room.cached_display_name())
+                        .map(|name| name.to_string()),
+                    last_activity_ts: room
+                        .as_ref()
+                        .and_then(|room| room.recency_stamp())
+                        .map(u64::from),
+                    room_keys_bytes: usage.room_keys_bytes,
+                    room_state_bytes: usage.room_state_bytes,
+                    events_bytes: usage.events_bytes,
+                    media_bytes: usage.media_bytes,
+                }
+            })
+            .collect();
+        Ok(rooms)
     }
 
     /// Measure how much storage each cache uses, overall and per known room
@@ -3642,14 +3629,6 @@ pub struct StorageUsageReport {
     pub media_bytes: u64,
     /// The rooms with cached data, largest total first.
     pub rooms: Vec<RoomStorageUsage>,
-}
-
-/// Receives the rooms' storage usage from [`Client::storage_usage_by_room`].
-#[matrix_sdk_ffi_macros::export(callback_interface)]
-pub trait StorageUsageListener: SyncOutsideWasm + SendOutsideWasm {
-    /// A batch of rooms, each replacing the room's previous numbers if any.
-    fn on_rooms_usage(&self, rooms: Vec<RoomStorageUsage>);
-    fn on_finished(&self);
 }
 
 /// One room's share of each cache.

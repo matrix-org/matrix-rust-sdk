@@ -72,16 +72,12 @@ async fn test_storage_usage_and_room_clearing() {
     assert!(!report.media.per_room.contains_key(room_b), "{report:?}");
     assert!(report.media.total_bytes >= 1000);
 
-    // The progressive walk: every room first (biggest first, no media yet),
-    // then the rooms with media.
-    let mut batches = Vec::new();
-    client.storage_usage_by_room(|rooms| batches.push(rooms)).await.unwrap();
-    assert_eq!(batches.len(), 2, "{batches:?}");
-    assert_eq!(batches[0][0].0, room_a, "{batches:?}");
-    assert!(batches[0].iter().all(|(_, usage)| usage.media_bytes == 0), "{batches:?}");
-    assert_eq!(batches[1].len(), 1, "{batches:?}");
-    assert_eq!(batches[1][0].0, room_a, "{batches:?}");
-    assert!(batches[1][0].1.media_bytes >= 1000, "{batches:?}");
+    // The per-room walk: rooms with data, biggest first, media included.
+    let usages = client.storage_usage_by_room().await.unwrap();
+    assert_eq!(usages[0].0, room_a, "{usages:?}");
+    assert!(usages[0].1.media_bytes >= 1000, "{usages:?}");
+    assert!(usages.iter().any(|(id, _)| id == room_b), "{usages:?}");
+    assert!(usages.iter().all(|(id, usage)| id == room_a || usage.media_bytes == 0), "{usages:?}");
 
     // Clearing room A's caches empties its events and members, keeps the room
     // (and room B), and marks the members as missing, persistently.

@@ -63,17 +63,11 @@ impl RoomStorageUsage {
 }
 
 impl Client {
-    /// Walk the known rooms' storage usage, calling `on_rooms` with the rooms
-    /// with any cached data as soon as their numbers are known: first with the
-    /// keys, state and events shares (from the stores' per-room counters,
-    /// cheap), biggest rooms first; then again with the rooms that have media,
-    /// media share included (attributed through the event cache's media URI
-    /// index and one media size map), so that a UI can fill in progressively.
+    /// The known rooms' storage usage (keys, state, events and media shares),
+    /// rooms with any cached data only, biggest first. Media is attributed
+    /// through the event cache's media URI index and one media size map.
     #[instrument(skip_all)]
-    pub async fn storage_usage_by_room(
-        &self,
-        mut on_rooms: impl FnMut(Vec<(OwnedRoomId, RoomStorageUsage)>),
-    ) -> Result<()> {
+    pub async fn storage_usage_by_room(&self) -> Result<Vec<(OwnedRoomId, RoomStorageUsage)>> {
         let room_ids: Vec<OwnedRoomId> =
             self.rooms().iter().map(|room| room.room_id().to_owned()).collect();
 
@@ -87,6 +81,16 @@ impl Client {
         let room_state = self.state_store().storage_usage(&room_ids).await?;
         let events = self.locked_event_cache_store().await?.storage_usage(&room_ids).await?;
 
+        let with_events: Vec<OwnedRoomId> =
+            events.per_room.iter().filter(|(_, bytes)| **bytes > 0).map(|(id, _)| id.clone()).collect();
+        let room_media =
+            self.locked_event_cache_store().await?.media_uris_by_room(&with_events).await?;
+        let media = if room_media.is_empty() {
+            StorageUsage::default()
+        } else {
+            self.media_store().lock().await?.storage_usage(&room_media).await?
+        };
+
         let mut usages: Vec<(OwnedRoomId, RoomStorageUsage)> = room_ids
             .into_iter()
             .map(|room_id| {
@@ -94,7 +98,7 @@ impl Client {
                     room_keys_bytes: room_keys.per_room.get(&room_id).copied().unwrap_or(0),
                     room_state_bytes: room_state.per_room.get(&room_id).copied().unwrap_or(0),
                     events_bytes: events.per_room.get(&room_id).copied().unwrap_or(0),
-                    media_bytes: 0,
+                    media_bytes: media.per_room.get(&room_id).copied().unwrap_or(0),
                 };
                 (room_id, usage)
             })
@@ -102,28 +106,7 @@ impl Client {
             .collect();
         usages.sort_by_key(|(_, usage)| std::cmp::Reverse(usage.total()));
 
-        on_rooms(usages.clone());
-
-        // Media: the URIs of every room with events (indexed, one query), then
-        // one size map for all of them.
-        let with_events: Vec<OwnedRoomId> = usages
-            .iter()
-            .filter(|(_, usage)| usage.events_bytes > 0)
-            .map(|(room_id, _)| room_id.clone())
-            .collect();
-        let room_media =
-            self.locked_event_cache_store().await?.media_uris_by_room(&with_events).await?;
-        if !room_media.is_empty() {
-            let media = self.media_store().lock().await?.storage_usage(&room_media).await?;
-            for (room_id, usage) in &mut usages {
-                if let Some(media_bytes) = media.per_room.get(room_id).copied() {
-                    usage.media_bytes = media_bytes;
-                }
-            }
-            on_rooms(usages.into_iter().filter(|(_, usage)| usage.media_bytes > 0).collect());
-        }
-
-        Ok(())
+        Ok(usages)
     }
 
     /// Measure how much storage each of the caches uses, overall and per
