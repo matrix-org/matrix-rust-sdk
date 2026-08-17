@@ -46,10 +46,7 @@ use std::{
 use matrix_sdk_base::{locks::Mutex, task_monitor::TaskMonitor};
 use matrix_sdk_common::executor::{AbortOnDrop, JoinHandleExt as _, spawn};
 use ruma::OwnedRoomId;
-use tokio::{
-    select,
-    sync::{mpsc, oneshot},
-};
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tracing::{debug, info, instrument, trace, warn};
 
@@ -186,7 +183,7 @@ pub struct BackPaginationQueue {
 }
 
 struct BackPaginationQueueInner {
-    sender: mpsc::UnboundedSender<SubmittedRequest>,
+    sender: mpsc::UnboundedSender<SchedulerEvent>,
     /// The cancellation shared by all the handles of a coalescing key, so a run
     /// is only cancelled once every caller waiting on it has dropped its
     /// handle.
@@ -222,10 +219,15 @@ impl BackPaginationQueue {
     ) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
 
-        let task = task_monitor.spawn_infinite_task(
-            "event_cache::back_pagination_queue",
-            scheduler(event_cache, receiver, max_concurrent),
-        );
+        // The scheduler holds a sender of its own, to be handed to the runs it
+        // spawns, so the channel never closes on its own: the task runs until the
+        // queue is dropped, which aborts it.
+        let task = task_monitor
+            .spawn_infinite_task(
+                "event_cache::back_pagination_queue",
+                scheduler(event_cache, receiver, sender.clone(), max_concurrent),
+            )
+            .abort_on_drop();
 
         Self {
             inner: Arc::new(BackPaginationQueueInner {
@@ -249,7 +251,7 @@ impl BackPaginationQueue {
         let (completion_tx, completion_rx) = oneshot::channel();
         let submitted = SubmittedRequest { request, token, completion: completion_tx };
 
-        self.inner.sender.send(submitted).map_err(|_| QueueShutDown)?;
+        self.inner.sender.send(SchedulerEvent::Submitted(submitted)).map_err(|_| QueueShutDown)?;
 
         Ok(BackPaginationHandle { guard, completion: Some(completion_rx) })
     }
@@ -289,6 +291,15 @@ fn cancellation_for(
 #[derive(Debug, thiserror::Error)]
 #[error("the back-pagination queue executor is not running")]
 pub(crate) struct QueueShutDown;
+
+/// Everything the scheduler reacts to, on a single channel so it can wait on
+/// one `recv_many` rather than selecting over two receivers.
+enum SchedulerEvent {
+    /// A caller enqueued a new request.
+    Submitted(SubmittedRequest),
+    /// A run finished: free its room and hand its result to every waiter.
+    Finished(RequestCoalescingKey, BackPaginationRunResult),
+}
 
 /// A request as it arrives on the queue's channel, before the scheduler has
 /// assigned it a sequence number or decided whether to coalesce it.
@@ -333,7 +344,8 @@ impl Ord for PendingRequest {
 #[instrument(skip_all)]
 async fn scheduler(
     event_cache: Weak<EventCacheInner>,
-    mut receiver: mpsc::UnboundedReceiver<SubmittedRequest>,
+    mut receiver: mpsc::UnboundedReceiver<SchedulerEvent>,
+    sender: mpsc::UnboundedSender<SchedulerEvent>,
     max_concurrent: usize,
 ) {
     trace!("Spawning the back-pagination queue executor");
@@ -353,10 +365,10 @@ async fn scheduler(
     let mut waiters: HashMap<RequestCoalescingKey, Vec<oneshot::Sender<BackPaginationRunResult>>> =
         HashMap::new();
 
-    // The executor is notified which run finished so it can free the room and
-    // send the completion result to every waiter.
-    let (done_tx, mut done_rx) =
-        mpsc::unbounded_channel::<(RequestCoalescingKey, BackPaginationRunResult)>();
+    // At most `max_concurrent` runs are in flight, so there's never a reason to
+    // drain more than that in one go.
+    let batch_limit = max_concurrent.max(1);
+    let mut events = Vec::with_capacity(batch_limit);
 
     loop {
         // Schedule as many pending requests as the concurrency budget allows, never
@@ -366,44 +378,45 @@ async fn scheduler(
             &mut pending_requests,
             &mut active_requests,
             max_concurrent,
-            &done_tx,
+            &sender,
         );
 
-        select! {
-            request = receiver.recv() => {
-                match request {
-                    Some(request) => {
-                        let key = (request.request.room_id.clone(), request.request.priority);
+        // Unreachable while this task holds `sender`, but guards against a hot loop
+        // if that ever stops being true.
+        if receiver.recv_many(&mut events, batch_limit).await == 0 {
+            info!("Back-pagination queue channel closed, exiting");
+            break;
+        }
 
-                        if try_coalesce(&mut waiters, &key, request.completion) {
-                            trace!(
-                                room_id = %key.0,
-                                priority = ?key.1,
-                                "coalesced back-pagination request onto an existing run"
-                            );
-                            continue;
-                        }
+        for event in events.drain(..) {
+            match event {
+                SchedulerEvent::Submitted(submitted) => {
+                    let key = (submitted.request.room_id.clone(), submitted.request.priority);
 
-                        pending_requests.push(PendingRequest {
-                            request: request.request,
-                            seq: next_seq,
-                            token: request.token,
-                        });
-                        next_seq += 1;
+                    if try_coalesce(&mut waiters, &key, submitted.completion) {
+                        trace!(
+                            room_id = %key.0,
+                            priority = ?key.1,
+                            "coalesced back-pagination request onto an existing run"
+                        );
+                        continue;
                     }
-                    None => {
-                        info!("Back-pagination queue sender closed, exiting");
-                        break;
-                    }
+
+                    pending_requests.push(PendingRequest {
+                        request: submitted.request,
+                        seq: next_seq,
+                        token: submitted.token,
+                    });
+                    next_seq += 1;
                 }
-            }
 
-            Some((key, result)) = done_rx.recv() => {
-                active_requests.remove(&key.0);
-                // Fan the single run's result out to every coalesced waiter.
-                if let Some(senders) = waiters.remove(&key) {
-                    for sender in senders {
-                        let _ = sender.send(result);
+                SchedulerEvent::Finished(key, result) => {
+                    active_requests.remove(&key.0);
+                    // Fan the single run's result out to every coalesced waiter.
+                    if let Some(senders) = waiters.remove(&key) {
+                        for waiter in senders {
+                            let _ = waiter.send(result);
+                        }
                     }
                 }
             }
@@ -442,7 +455,7 @@ fn schedule(
     pending_requests: &mut BinaryHeap<PendingRequest>,
     active_requests: &mut HashMap<OwnedRoomId, AbortOnDrop<()>>,
     max_concurrent: usize,
-    done_tx: &mpsc::UnboundedSender<(RequestCoalescingKey, BackPaginationRunResult)>,
+    sender: &mpsc::UnboundedSender<SchedulerEvent>,
 ) {
     for request in next_runnable(pending_requests, active_requests, max_concurrent) {
         let key = (request.request.room_id.clone(), request.request.priority);
@@ -457,12 +470,12 @@ fn schedule(
 
         let room_id = key.0.clone();
         let event_cache = event_cache.clone();
-        let done_tx = done_tx.clone();
+        let sender = sender.clone();
         let task = spawn(async move {
             let result = run_request(&event_cache, request.request, &request.token).await;
             // The scheduler owns the completion senders (for coalescing), so hand it the
             // result to fan out to every waiter for this key.
-            let _ = done_tx.send((key, result));
+            let _ = sender.send(SchedulerEvent::Finished(key, result));
         });
 
         active_requests.insert(room_id, task.abort_on_drop());
