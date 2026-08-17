@@ -611,7 +611,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     // --------------------------------------------
 
     /// Post-process newly inserted or updated events.
-    pub async fn post_process_upserted_events<'i, I>(
+    pub(super) async fn post_process_upserted_events<'i, I>(
         &mut self,
         events: I,
         receipt_event: Option<ReceiptEventContent>,
