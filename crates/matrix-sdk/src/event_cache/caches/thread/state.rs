@@ -484,7 +484,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         self.state.propagate_changes(&self.store).await?;
 
         // Post-process newly inserted events.
-        self.post_process_upserted_events(events).await?;
+        self.post_process_upserted_events(events.iter()).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -501,14 +501,17 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Post-process newly inserted or updated events.
-    pub async fn post_process_upserted_events(&mut self, events: Vec<Event>) -> Result<()> {
+    pub async fn post_process_upserted_events<'i, I>(&mut self, events: I) -> Result<()>
+    where
+        I: Iterator<Item = &'i Event>,
+    {
         for event in events {
             // Handle redaction.
-            self.maybe_apply_new_redaction(&event).await?;
+            self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread]).await?;
+            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
+                self.save_events([*bundled_thread.clone()]).await?;
             }
         }
 

@@ -420,7 +420,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         let receipt_event = None;
 
         // Post-process newly inserted events.
-        state.post_process_upserted_events(topo_ordered_events, receipt_event).await?;
+        state.post_process_upserted_events(topo_ordered_events.iter(), receipt_event).await?;
 
         let timeline_event_diffs = state.room_linked_chunk_mut().updates_as_vector_diffs();
 

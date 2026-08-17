@@ -589,7 +589,8 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         self.propagate_changes().await?;
 
         // Post-process newly inserted events.
-        self.post_process_upserted_events(events, extract_read_receipt(ephemeral_events)).await?;
+        self.post_process_upserted_events(events.iter(), extract_read_receipt(ephemeral_events))
+            .await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -610,17 +611,20 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     // --------------------------------------------
 
     /// Post-process newly inserted or updated events.
-    pub async fn post_process_upserted_events(
+    pub async fn post_process_upserted_events<'i, I>(
         &mut self,
-        events: Vec<Event>,
+        events: I,
         receipt_event: Option<ReceiptEventContent>,
-    ) -> Result<(), EventCacheError> {
+    ) -> Result<(), EventCacheError>
+    where
+        I: Iterator<Item = &'i Event>,
+    {
         for event in events {
-            self.maybe_apply_new_redaction(&event).await?;
+            self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread]).await?;
+            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
+                self.save_events([*bundled_thread.clone()]).await?;
             }
         }
 
@@ -774,7 +778,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub(in super::super::super) fn replace_in_memory_utds(
+    pub(in super::super::super) async fn replace_in_memory_utds(
         &mut self,
         resolved_events: &[MaybeResolvedEvent],
     ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
@@ -782,6 +786,19 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // Drain the updates to the store, events have already been updated with
             // `save_events`!
             let _ = self.room_linked_chunk_mut().store_updates().take();
+
+            self.post_process_upserted_events(
+                resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
+                // Read receipt events aren't encrypted, so we can't have decrypted a new
+                // one here. As a result, we don't have any new receipt events to
+                // post-process, so we can just pass `None` here.
+                //
+                // Note: read receipts may be updated anyhow in the post-processing step,
+                // as the redecryption may have decrypted some events that don't count as
+                // unreads.
+                None,
+            )
+            .await?;
 
             Some(self.room_linked_chunk_mut().updates_as_vector_diffs())
         } else {
