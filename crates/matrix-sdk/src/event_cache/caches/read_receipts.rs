@@ -144,13 +144,21 @@ fn paginate_for_read_receipt(
     let room_id = room_id.to_owned();
     debug!(%room_id, "started backfill request for read receipts");
 
-    let handle = queue.enqueue(BackPaginationRequest {
+    let request = BackPaginationRequest {
         room_id: room_id.clone(),
         priority: Priority::Normal,
         stop: Box::new(stop_on_event_ids(targets)),
         batch_size: BATCH_SIZE,
         max_batches: Some(READ_RECEIPT_MAX_BATCHES),
-    });
+    };
+
+    let handle = match queue.enqueue(request) {
+        Ok(handle) => handle,
+        Err(err) => {
+            warn!(%room_id, "couldn't enqueue a read-receipt backfill request: {err}");
+            return;
+        }
+    };
 
     // Await completion in the background purely to log when it's done; the
     // spawned task itself is never awaited or aborted, so the request always
