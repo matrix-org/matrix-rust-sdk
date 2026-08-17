@@ -146,6 +146,12 @@ impl EventLinkedChunk {
         Ok(next_pos)
     }
 
+    /// Remove the gap identified by `gap_identifier` (which must be a gap).
+    #[instrument(err, skip_all, fields(gap_identifier, sentry = true))]
+    pub fn remove_gap_at(&mut self, gap_identifier: ChunkIdentifier) -> Result<(), Error> {
+        self.replace_gap_at(gap_identifier, Vec::new()).map(|_| ())
+    }
+
     /// Remove some events from the linked chunk.
     ///
     /// If a chunk becomes empty, it's going to be removed.
@@ -178,7 +184,11 @@ impl EventLinkedChunk {
     /// `position` must point to a valid item, otherwise the method returns an
     /// error.
     #[instrument(err, skip_all, fields(position, sentry = true))]
-    pub fn insert_events_at(&mut self, position: Position, events: Vec<Event>) -> Result<(), Error> {
+    pub fn insert_events_at(
+        &mut self,
+        position: Position,
+        events: Vec<Event>,
+    ) -> Result<(), Error> {
         self.chunks.insert_items_at(position, events)
     }
 

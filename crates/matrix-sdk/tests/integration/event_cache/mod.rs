@@ -3707,6 +3707,102 @@ async fn test_resolve_gap_anchors_on_loaded_history() {
 }
 
 #[async_test]
+async fn test_resolve_gap_anchors_across_redundant_gaps() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Two limited syncs on top of some history:
+    // `[$1, $2, $3] [gap "ga"] [$4] [gap "gb"] [$5]`.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("one").event_id(event_id!("$1")))
+                .add_timeline_event(f.text_msg("two").event_id(event_id!("$2")))
+                .add_timeline_event(f.text_msg("three").event_id(event_id!("$3"))),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("four").event_id(event_id!("$4")))
+                .set_timeline_prev_batch("ga".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("five").event_id(event_id!("$5")))
+                .set_timeline_prev_batch("gb".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    loop {
+        let outcome =
+            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+        if outcome.reached_start {
+            break;
+        }
+    }
+    let (events, _) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(
+        events.iter().map(|event| event.event_id().unwrap().to_string()).collect::<Vec<_>>(),
+        ["$1", "$2", "$3", "$4", "$5"]
+    );
+    assert_eq!(room_event_cache.timeline_gaps().await.unwrap().len(), 2);
+    while room_stream.recv().now_or_never().is_some() {}
+
+    // Resolving the newest gap walks all the way down into the oldest
+    // chunk: everything between is accounted for, so the older gap is
+    // redundant and goes away, and the one missed event lands in place.
+    server
+        .mock_room_messages()
+        .match_from("gb")
+        .ok(RoomMessagesResponseTemplate::default().end_token("g0").events(vec![
+            f.text_msg("four").event_id(event_id!("$4")),
+            f.text_msg("three").event_id(event_id!("$3")),
+            f.text_msg("two and a half").event_id(event_id!("$2b")),
+            f.text_msg("two").event_id(event_id!("$2")),
+            f.text_msg("one").event_id(event_id!("$1")),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(room_event_cache.resolve_gap("gb".to_owned(), 20).await.unwrap());
+
+    assert_let_timeout!(
+        Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+            room_stream.recv()
+    );
+    assert_eq!(diffs.len(), 1, "{diffs:?}");
+    assert_matches!(&diffs[0], VectorDiff::Insert { index: 2, value: event } => {
+        assert_event_matches_msg(event, "two and a half");
+    });
+
+    let (events, _) = room_event_cache.subscribe().await.unwrap();
+    assert_eq!(
+        events.iter().map(|event| event.event_id().unwrap().to_string()).collect::<Vec<_>>(),
+        ["$1", "$2", "$2b", "$3", "$4", "$5"]
+    );
+    assert!(room_event_cache.timeline_gaps().await.unwrap().is_empty());
+}
+
+#[async_test]
 async fn test_resolve_gap_drops_gap_overtaken_by_a_newer_gap() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

@@ -485,38 +485,26 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
         // Anchored resolution. A gap resolved on top of loaded history (the
         // storage walk loads the chunks behind a gap before the gap is
-        // resolved) mostly returns events we already hold in the events
-        // chunk(s) right before the gap, plus a few the cache missed. The
-        // legacy path below removes every duplicate and re-inserts the whole
-        // batch in place of the gap: correct, but it takes a run of rendered
-        // items away and puts it back, and the timeline can't keep its
-        // scroll anchor through that (a visible jump). Instead, when the
-        // duplicates all live in the events chunks contiguous before the
-        // gap, and the batch orders them as we do, keep them in place as
-        // anchors: each run of new events is inserted right before the
-        // anchor following it in the batch, and the run newer than every
-        // anchor takes the gap's place. The token for even older history is
-        // dropped: it points into the anchors' own chunk, which we hold.
-        // Anything the rule doesn't confidently claim (older new events with
-        // a token to follow, disagreeing order, duplicates elsewhere) takes
-        // the legacy path.
+        // resolved) mostly returns events we already hold before the gap,
+        // plus a few the cache missed. The legacy path below removes every
+        // duplicate and re-inserts the whole batch in place of the gap:
+        // correct, but it takes a run of rendered items away and puts it
+        // back, and the timeline can't keep its scroll anchor through that
+        // (a visible jump). Instead, when the batch orders the duplicates as
+        // we do, keep them in place as anchors: each run of new events is
+        // inserted right before the anchor following it in the batch, and
+        // the run newer than every anchor takes the gap's place. The batch is
+        // a contiguous slice of the room's history, so the gaps sitting
+        // between the oldest anchor and the resolved gap hold nothing it
+        // didn't return: they are dropped, and so is the token for even
+        // older history, which points into the anchors' own chunk. Anything
+        // the rule doesn't confidently claim (older new events with a token
+        // to follow, disagreeing order) takes the legacy path. (Duplicates
+        // *after* the gap were handled just above.)
         let anchored = if let Some(gap_id) = prev_gap_id
             && !all_duplicates
             && !in_memory_duplicated_event_ids.is_empty()
         {
-            let chunks_before_gap: HashSet<_> = state
-                .room_linked_chunk()
-                .rchunks()
-                .skip_while(|chunk| chunk.identifier() != gap_id)
-                .skip(1)
-                .take_while(|chunk| !chunk.is_gap())
-                .map(|chunk| chunk.identifier())
-                .collect();
-
-            let all_before_gap = in_memory_duplicated_event_ids
-                .iter()
-                .all(|(_, position)| chunks_before_gap.contains(&position.chunk_identifier()));
-
             let by_id = in_memory_duplicated_event_ids
                 .iter()
                 .cloned()
@@ -546,8 +534,7 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 .and_then(|event| event.event_id())
                 .is_some_and(|event_id| by_id.contains_key(event_id));
 
-            (all_before_gap && order_matches && (oldest_is_anchor || new_token.is_none()))
-                .then_some(anchors)
+            (order_matches && (oldest_is_anchor || new_token.is_none())).then_some(anchors)
         } else {
             None
         };
@@ -562,6 +549,26 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             // The store-only duplicates can go: their removal shifts no
             // in-memory position.
             state.remove_events(Vec::new(), in_store_duplicated_event_ids).await?;
+
+            // The gaps between the oldest anchor and the resolved gap are
+            // redundant with the batch: drop them.
+            let gap_id = prev_gap_id.expect("anchored implies a gap");
+            let oldest_anchor_chunk =
+                anchors.first().expect("anchors are non-empty").1.chunk_identifier();
+            let redundant_gaps = state
+                .room_linked_chunk()
+                .chunks()
+                .skip_while(|chunk| chunk.identifier() != oldest_anchor_chunk)
+                .take_while(|chunk| chunk.identifier() != gap_id)
+                .filter(|chunk| chunk.is_gap())
+                .map(|chunk| chunk.identifier())
+                .collect::<Vec<_>>();
+            for redundant_gap in redundant_gaps {
+                debug!(?redundant_gap, "dropping a gap spanned by the resolved batch");
+                if let Err(err) = state.room_linked_chunk_mut().remove_gap_at(redundant_gap) {
+                    error!(?err, "gap resolution: failed to drop a redundant gap");
+                }
+            }
 
             let anchor_ids =
                 anchors.iter().map(|(event_id, _)| event_id.clone()).collect::<HashSet<_>>();
