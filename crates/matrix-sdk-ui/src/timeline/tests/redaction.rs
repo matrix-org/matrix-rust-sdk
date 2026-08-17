@@ -83,7 +83,8 @@ async fn test_redact_replied_to_event() {
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_message());
 
-    timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&ALICE)).await;
+    // Someone else (a moderator) redacts Alice's message.
+    timeline.handle_live_event(f.redaction(first_item.event_id().unwrap()).sender(&BOB)).await;
 
     let first_item_again =
         assert_next_matches!(stream, VectorDiff::Set { index: 0, value } => value);
@@ -96,6 +97,10 @@ async fn test_redact_replied_to_event() {
     let in_reply_to = msglike.in_reply_to.clone().unwrap();
     assert_let!(TimelineDetails::Ready(replied_to_event) = &in_reply_to.event);
     assert!(replied_to_event.content.is_redacted());
+    // The placeholder keeps the redacted event's own sender and timestamp, not
+    // the redaction's.
+    assert_eq!(replied_to_event.sender, *ALICE);
+    assert_eq!(replied_to_event.timestamp, first_item.timestamp());
 }
 
 #[async_test]
