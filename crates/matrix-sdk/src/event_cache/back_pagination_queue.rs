@@ -111,7 +111,7 @@ impl std::fmt::Debug for BackPaginationRequest {
 
 /// Why a single room's back-pagination run ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RoomBackPaginationEnd {
+pub(crate) enum BackPaginationStopReason {
     /// Reached the start of the room's timeline; nothing more to load.
     ReachedTimelineStart,
     /// The request's [`StopCondition`] was met.
@@ -133,7 +133,7 @@ pub(crate) enum RoomBackPaginationEnd {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct BackPaginationRunResult {
     /// Why the run ended.
-    pub end: RoomBackPaginationEnd,
+    pub reason: BackPaginationStopReason,
     /// The oldest event timestamp reached, if any events were loaded.
     pub reached: Option<MilliSecondsSinceUnixEpoch>,
 }
@@ -158,7 +158,7 @@ impl BackPaginationHandle {
     /// event timestamp reached (if any events were loaded).
     pub(crate) async fn join(mut self) -> BackPaginationRunResult {
         let cancelled =
-            BackPaginationRunResult { end: RoomBackPaginationEnd::Cancelled, reached: None };
+            BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled, reached: None };
         match self.completion.take() {
             Some(completion) => completion.await.unwrap_or(cancelled),
             None => cancelled,
@@ -234,28 +234,28 @@ struct SubmittedRequest {
 
 /// A [`BackPaginationRequest`] admitted to the scheduler, holding the sequence
 /// number and request details.
-struct ScheduledRequest {
+struct PendingRequest {
     request: BackPaginationRequest,
     /// Insertion order, assigned by the scheduler, for FIFO within a priority.
     seq: u64,
     token: CancellationToken,
 }
 
-impl PartialEq for ScheduledRequest {
+impl PartialEq for PendingRequest {
     fn eq(&self, other: &Self) -> bool {
         self.request.priority == other.request.priority && self.seq == other.seq
     }
 }
 
-impl Eq for ScheduledRequest {}
+impl Eq for PendingRequest {}
 
-impl PartialOrd for ScheduledRequest {
+impl PartialOrd for PendingRequest {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ScheduledRequest {
+impl Ord for PendingRequest {
     fn cmp(&self, other: &Self) -> Ordering {
         // Higher priority first, then earlier `seq` first
         self.request.priority.cmp(&other.request.priority).then_with(|| other.seq.cmp(&self.seq))
@@ -272,7 +272,7 @@ async fn scheduler(
 ) {
     trace!("Spawning the back-pagination queue executor");
 
-    let mut scheduled_requests: BinaryHeap<ScheduledRequest> = BinaryHeap::new();
+    let mut pending_requests: BinaryHeap<PendingRequest> = BinaryHeap::new();
     let mut active_requests: Vec<(OwnedRoomId, Priority)> = Vec::new();
     let mut next_seq: u64 = 0;
 
@@ -294,7 +294,7 @@ async fn scheduler(
         // starting a second run for a room that's already running one.
         schedule(
             &event_cache,
-            &mut scheduled_requests,
+            &mut pending_requests,
             &mut active_requests,
             max_concurrent,
             &done_tx,
@@ -315,7 +315,7 @@ async fn scheduler(
                             continue;
                         }
 
-                        scheduled_requests.push(ScheduledRequest {
+                        pending_requests.push(PendingRequest {
                             request: request.request,
                             seq: next_seq,
                             token: request.token,
@@ -372,19 +372,19 @@ fn try_coalesce(
 /// Pop and spawn every currently-schedulable request.
 fn schedule(
     event_cache: &Weak<EventCacheInner>,
-    scheduled_requests: &mut BinaryHeap<ScheduledRequest>,
+    pending_requests: &mut BinaryHeap<PendingRequest>,
     active_requests: &mut Vec<(OwnedRoomId, Priority)>,
     max_concurrent: usize,
     done_tx: &mpsc::UnboundedSender<(RequestCoalescingKey, BackPaginationRunResult)>,
 ) {
-    for request in next_runnable(scheduled_requests, active_requests, max_concurrent) {
+    for request in next_runnable(pending_requests, active_requests, max_concurrent) {
         let key = (request.request.room_id.clone(), request.request.priority);
 
         trace!(
             room_id = %key.0,
             priority = ?key.1,
             active = active_requests.len(),
-            queued = scheduled_requests.len(),
+            queued = pending_requests.len(),
             "back-pagination scheduled"
         );
 
@@ -405,15 +405,15 @@ fn schedule(
 /// Picked rooms are appended to `active_requests` and requests popped but not
 /// yet runnable (their room is busy) are pushed back onto the heap.
 fn next_runnable(
-    scheduled_requests: &mut BinaryHeap<ScheduledRequest>,
+    pending_requests: &mut BinaryHeap<PendingRequest>,
     active_requests: &mut Vec<(OwnedRoomId, Priority)>,
     max_concurrent: usize,
-) -> Vec<ScheduledRequest> {
+) -> Vec<PendingRequest> {
     let mut picked = Vec::new();
     let mut skipped = Vec::new();
 
     while active_requests.len() < max_concurrent {
-        let Some(request) = scheduled_requests.pop() else {
+        let Some(request) = pending_requests.pop() else {
             break;
         };
 
@@ -428,7 +428,7 @@ fn next_runnable(
     }
 
     for request in skipped {
-        scheduled_requests.push(request);
+        pending_requests.push(request);
     }
 
     picked
@@ -444,7 +444,10 @@ async fn run_request(
 ) -> BackPaginationRunResult {
     // Cancelled while still queued, nothing to do.
     if token.is_cancelled() {
-        return BackPaginationRunResult { end: RoomBackPaginationEnd::Cancelled, reached: None };
+        return BackPaginationRunResult {
+            reason: BackPaginationStopReason::Cancelled,
+            reached: None,
+        };
     }
 
     // Grab an owned `RoomPagination`, dropping the caches guard immediately so
@@ -452,7 +455,7 @@ async fn run_request(
     let pagination = {
         let Some(inner) = event_cache.upgrade() else {
             return BackPaginationRunResult {
-                end: RoomBackPaginationEnd::Cancelled,
+                reason: BackPaginationStopReason::Cancelled,
                 reached: None,
             };
         };
@@ -461,7 +464,7 @@ async fn run_request(
             Err(err) => {
                 warn!("no caches for room while back-paginating: {err}");
                 return BackPaginationRunResult {
-                    end: RoomBackPaginationEnd::Failed,
+                    reason: BackPaginationStopReason::Failed,
                     reached: None,
                 };
             }
@@ -471,16 +474,16 @@ async fn run_request(
     let mut oldest_reached: Option<MilliSecondsSinceUnixEpoch> = None;
     let mut batches = 0usize;
 
-    let end = loop {
+    let reason = loop {
         if token.is_cancelled() {
-            break RoomBackPaginationEnd::Cancelled;
+            break BackPaginationStopReason::Cancelled;
         }
 
         let outcome = match pagination.run_backwards_once(request.batch_size).await {
             Ok(outcome) => outcome,
             Err(err) => {
                 warn!("back-pagination failed: {err}");
-                break RoomBackPaginationEnd::Failed;
+                break BackPaginationStopReason::Failed;
             }
         };
 
@@ -489,26 +492,26 @@ async fn run_request(
         }
 
         if outcome.reached_start {
-            break RoomBackPaginationEnd::ReachedTimelineStart;
+            break BackPaginationStopReason::ReachedTimelineStart;
         }
 
         if (request.stop)(&outcome).is_break() {
-            break RoomBackPaginationEnd::StopConditionMet;
+            break BackPaginationStopReason::StopConditionMet;
         }
 
         if outcome.events.is_empty() {
-            break RoomBackPaginationEnd::NoDataAvailable;
+            break BackPaginationStopReason::NoDataAvailable;
         }
 
         batches += 1;
         if let Some(max) = request.max_batches
             && batches >= max
         {
-            break RoomBackPaginationEnd::BatchLimitReached;
+            break BackPaginationStopReason::BatchLimitReached;
         }
     };
 
-    BackPaginationRunResult { end, reached: oldest_reached }
+    BackPaginationRunResult { reason, reached: oldest_reached }
 }
 
 /// The oldest event timestamp in a batch, if any.
@@ -524,11 +527,11 @@ mod tests {
 
     use ruma::room_id;
 
-    use super::{BackPaginationRequest, Priority, ScheduledRequest, next_runnable, try_coalesce};
+    use super::{BackPaginationRequest, PendingRequest, Priority, next_runnable, try_coalesce};
 
     /// Build a queued request for a room, at a priority, with an insertion seq.
-    fn queued(room_id: ruma::OwnedRoomId, priority: Priority, seq: u64) -> ScheduledRequest {
-        ScheduledRequest {
+    fn queued(room_id: ruma::OwnedRoomId, priority: Priority, seq: u64) -> PendingRequest {
+        PendingRequest {
             request: BackPaginationRequest {
                 room_id,
                 priority,
@@ -550,15 +553,15 @@ mod tests {
 
         let (a, b, c, d) = (room_id!("!a:e"), room_id!("!b:e"), room_id!("!c:e"), room_id!("!d:e"));
 
-        let mut scheduled_requests = BinaryHeap::new();
+        let mut pending_requests = BinaryHeap::new();
         // Push out of priority order, with monotonic seqs.
-        scheduled_requests.push(queued(a.to_owned(), Priority::Low, 0));
-        scheduled_requests.push(queued(b.to_owned(), Priority::High, 1));
-        scheduled_requests.push(queued(c.to_owned(), Priority::Normal, 2));
-        scheduled_requests.push(queued(d.to_owned(), Priority::High, 3));
+        pending_requests.push(queued(a.to_owned(), Priority::Low, 0));
+        pending_requests.push(queued(b.to_owned(), Priority::High, 1));
+        pending_requests.push(queued(c.to_owned(), Priority::Normal, 2));
+        pending_requests.push(queued(d.to_owned(), Priority::High, 3));
 
         let mut active_requests = Vec::new();
-        let picked: Vec<_> = next_runnable(&mut scheduled_requests, &mut active_requests, 10)
+        let picked: Vec<_> = next_runnable(&mut pending_requests, &mut active_requests, 10)
             .into_iter()
             .map(|r| r.request.room_id)
             .collect();
@@ -572,18 +575,18 @@ mod tests {
     fn test_scheduling_respects_concurrency_cap() {
         use std::collections::BinaryHeap;
 
-        let mut scheduled_requests = BinaryHeap::new();
+        let mut pending_requests = BinaryHeap::new();
         for (i, room) in [room_id!("!a:e"), room_id!("!b:e"), room_id!("!c:e")].iter().enumerate() {
-            scheduled_requests.push(queued((*room).to_owned(), Priority::Normal, i as u64));
+            pending_requests.push(queued((*room).to_owned(), Priority::Normal, i as u64));
         }
 
         let mut active_requests = Vec::new();
-        let picked = next_runnable(&mut scheduled_requests, &mut active_requests, 2);
+        let picked = next_runnable(&mut pending_requests, &mut active_requests, 2);
 
         assert_eq!(picked.len(), 2);
         assert_eq!(active_requests.len(), 2);
         // The third request stays queued.
-        assert_eq!(scheduled_requests.len(), 1);
+        assert_eq!(pending_requests.len(), 1);
     }
 
     /// `next_runnable` won't start a room that's already active, nor two runs
@@ -597,19 +600,19 @@ mod tests {
         // `a` is already running.
         let mut active_requests = vec![(a.to_owned(), Priority::High)];
 
-        let mut scheduled_requests = BinaryHeap::new();
-        scheduled_requests.push(queued(a.to_owned(), Priority::High, 0)); // same room as active
-        scheduled_requests.push(queued(a.to_owned(), Priority::High, 1)); // and again
-        scheduled_requests.push(queued(b.to_owned(), Priority::Low, 2)); // a different room
+        let mut pending_requests = BinaryHeap::new();
+        pending_requests.push(queued(a.to_owned(), Priority::High, 0)); // same room as active
+        pending_requests.push(queued(a.to_owned(), Priority::High, 1)); // and again
+        pending_requests.push(queued(b.to_owned(), Priority::Low, 2)); // a different room
 
-        let picked: Vec<_> = next_runnable(&mut scheduled_requests, &mut active_requests, 10)
+        let picked: Vec<_> = next_runnable(&mut pending_requests, &mut active_requests, 10)
             .into_iter()
             .map(|r| r.request.room_id)
             .collect();
 
         // Only `b` runs; both `a` requests stay queued (a is busy).
         assert_eq!(picked, vec![b.to_owned()]);
-        assert_eq!(scheduled_requests.len(), 2);
+        assert_eq!(pending_requests.len(), 2);
     }
 
     /// The first request for a room + priority opens a new run; a later one at
