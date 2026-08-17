@@ -501,7 +501,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Post-process newly inserted or updated events.
-    pub async fn post_process_upserted_events<'i, I>(&mut self, events: I) -> Result<()>
+    pub(super) async fn post_process_upserted_events<'i, I>(&mut self, events: I) -> Result<()>
     where
         I: Iterator<Item = &'i Event>,
     {
