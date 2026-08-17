@@ -85,7 +85,7 @@ use ruma::{
             discovery::get_authorization_server_metadata::v1::{
                 AccountManagementActionData, DeviceDeleteData, DeviceViewData,
             },
-            profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, Status},
+            profile::{AvatarUrl, Call, DisplayName, ProfileFieldName, StaticProfileField, Status},
             room::create_room::{RoomPowerLevelsContentOverride, v3::CreationContent},
             rtc::RtcTransport,
             uiaa::{EmailUserIdentifier, UserIdentifier},
@@ -2617,12 +2617,23 @@ impl UserProfile {
         user_id: &UserId,
         profile: &ruma::profile::UserProfile,
     ) -> Result<Self, ClientError> {
-        let display_name = profile.get_static::<DisplayName>()?;
-        let avatar_url = profile.get_static::<AvatarUrl>()?.map(|url| url.to_string());
-        let status = profile.get_static::<Status>()?.map(UserStatus::from);
-        let call = profile.get_static::<Call>()?.map(UserCall::from);
+        let display_name = Self::get_field::<DisplayName>(profile)?;
+        let avatar_url = Self::get_field::<AvatarUrl>(profile)?.map(|url| url.to_string());
+        let status = Self::get_field::<Status>(profile)?.map(UserStatus::from);
+        let call = Self::get_field::<Call>(profile)?.map(UserCall::from);
 
         Ok(UserProfile { user_id: user_id.to_string(), display_name, avatar_url, status, call })
+    }
+
+    /// Reads a static profile field, tolerating an explicit `null` value by
+    /// treating it as absent while still surfacing genuine decode errors.
+    fn get_field<F: StaticProfileField>(
+        profile: &ruma::profile::UserProfile,
+    ) -> Result<Option<F::Value>, ClientError> {
+        match profile.get(F::NAME) {
+            Some(value) if !value.is_null() => Ok(Some(serde_json::from_value(value.clone())?)),
+            _ => Ok(None),
+        }
     }
 }
 
@@ -3647,5 +3658,31 @@ mod tests {
         // We're back to the initial state: no content scanner, default fetcher
         assert!(client.content_scanner().await.is_none());
         assert_eq!(format!("{:?}", client.inner.get_media_fetcher().await), "DefaultMediaFetcher");
+    }
+
+    #[test]
+    fn test_from_profile_tolerates_null_fields() {
+        use ruma::profile::{ProfileFieldName, UserProfile as RumaUserProfile};
+        use serde_json::Value as JsonValue;
+
+        use super::UserProfile;
+
+        let user_id = ruma::user_id!("@user:example.com");
+
+        // A display name with avatar/status/call explicitly set as `null` JSON values.
+        let mut profile = RumaUserProfile::new();
+        profile
+            .set(ProfileFieldName::DisplayName.as_str().to_owned(), serde_json::json!("Example"));
+        profile.set(ProfileFieldName::AvatarUrl.as_str().to_owned(), JsonValue::Null);
+        profile.set(ProfileFieldName::Status.as_str().to_owned(), JsonValue::Null);
+        profile.set(ProfileFieldName::Call.as_str().to_owned(), JsonValue::Null);
+
+        let converted = UserProfile::from_profile(user_id, &profile)
+            .expect("null fields must not abort the profile conversion");
+
+        assert_eq!(converted.display_name.as_deref(), Some("Example"));
+        assert!(converted.avatar_url.is_none());
+        assert!(converted.status.is_none());
+        assert!(converted.call.is_none());
     }
 }
