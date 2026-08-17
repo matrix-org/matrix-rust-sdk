@@ -45,7 +45,7 @@ use std::{
 
 use matrix_sdk_base::task_monitor::TaskMonitor;
 use matrix_sdk_common::executor::spawn;
-use ruma::{MilliSecondsSinceUnixEpoch, OwnedRoomId};
+use ruma::OwnedRoomId;
 use tokio::{
     select,
     sync::{mpsc, oneshot},
@@ -134,8 +134,6 @@ pub(crate) enum BackPaginationStopReason {
 pub(crate) struct BackPaginationRunResult {
     /// Why the run ended.
     pub reason: BackPaginationStopReason,
-    /// The oldest event timestamp reached, if any events were loaded.
-    pub reached: Option<MilliSecondsSinceUnixEpoch>,
 }
 
 /// A handle to an enqueued [`BackPaginationRequest`].
@@ -154,11 +152,9 @@ impl std::fmt::Debug for BackPaginationHandle {
 }
 
 impl BackPaginationHandle {
-    /// Await the request's completion returning why it ended and the oldest
-    /// event timestamp reached (if any events were loaded).
+    /// Await the request's completion, returning why it ended.
     pub(crate) async fn join(mut self) -> BackPaginationRunResult {
-        let cancelled =
-            BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled, reached: None };
+        let cancelled = BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled };
         match self.completion.take() {
             Some(completion) => completion.await.unwrap_or(cancelled),
             None => cancelled,
@@ -444,34 +440,24 @@ async fn run_request(
 ) -> BackPaginationRunResult {
     // Cancelled while still queued, nothing to do.
     if token.is_cancelled() {
-        return BackPaginationRunResult {
-            reason: BackPaginationStopReason::Cancelled,
-            reached: None,
-        };
+        return BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled };
     }
 
     // Grab an owned `RoomPagination`, dropping the caches guard immediately so
     // we don't hold the room lock across network paginations.
     let pagination = {
         let Some(inner) = event_cache.upgrade() else {
-            return BackPaginationRunResult {
-                reason: BackPaginationStopReason::Cancelled,
-                reached: None,
-            };
+            return BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled };
         };
         match inner.all_caches_for_room(&request.room_id).await {
             Ok(caches) => caches.room.pagination(),
             Err(err) => {
                 warn!("no caches for room while back-paginating: {err}");
-                return BackPaginationRunResult {
-                    reason: BackPaginationStopReason::Failed,
-                    reached: None,
-                };
+                return BackPaginationRunResult { reason: BackPaginationStopReason::Failed };
             }
         }
     };
 
-    let mut oldest_reached: Option<MilliSecondsSinceUnixEpoch> = None;
     let mut batches = 0usize;
 
     let reason = loop {
@@ -486,10 +472,6 @@ async fn run_request(
                 break BackPaginationStopReason::Failed;
             }
         };
-
-        if let Some(batch_oldest) = oldest_event_timestamp(&outcome) {
-            oldest_reached = Some(oldest_reached.map_or(batch_oldest, |cur| cur.min(batch_oldest)));
-        }
 
         if outcome.reached_start {
             break BackPaginationStopReason::ReachedTimelineStart;
@@ -511,14 +493,7 @@ async fn run_request(
         }
     };
 
-    BackPaginationRunResult { reason, reached: oldest_reached }
-}
-
-/// The oldest event timestamp in a batch, if any.
-pub(crate) fn oldest_event_timestamp(
-    outcome: &BackPaginationOutcome,
-) -> Option<MilliSecondsSinceUnixEpoch> {
-    outcome.events.iter().filter_map(|event| event.timestamp()).min()
+    BackPaginationRunResult { reason }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
