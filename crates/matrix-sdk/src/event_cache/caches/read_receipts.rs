@@ -107,7 +107,7 @@ use matrix_sdk_base::{
     store::DynStateStore,
 };
 use matrix_sdk_common::{
-    deserialized_responses::TimelineEvent, executor::spawn, ring_buffer::RingBuffer,
+    deserialized_responses::TimelineEvent, ring_buffer::RingBuffer,
     serde_helpers::extract_thread_root,
 };
 use ruma::{
@@ -141,32 +141,22 @@ fn paginate_for_read_receipt(
     room_id: &RoomId,
     targets: HashSet<OwnedEventId>,
 ) {
-    let room_id = room_id.to_owned();
     debug!(%room_id, "started backfill request for read receipts");
 
     let request = BackPaginationRequest {
-        room_id: room_id.clone(),
+        room_id: room_id.to_owned(),
         priority: Priority::Normal,
         stop: Box::new(stop_on_event_ids(targets)),
         batch_size: BATCH_SIZE,
         max_batches: Some(READ_RECEIPT_MAX_BATCHES),
     };
 
-    let handle = match queue.enqueue(request) {
-        Ok(handle) => handle,
-        Err(err) => {
-            warn!(%room_id, "couldn't enqueue a read-receipt backfill request: {err}");
-            return;
-        }
-    };
-
-    // Await completion in the background purely to log when it's done; the
-    // spawned task itself is never awaited or aborted, so the request always
-    // runs to completion regardless of this function's caller.
-    spawn(async move {
-        handle.join().await;
-        debug!(%room_id, "finished backfill request for read receipts");
-    });
+    match queue.enqueue(request) {
+        // Fire-and-forget: nobody awaits the result, so detach the handle to let the
+        // request run to completion instead of cancelling it on drop.
+        Ok(handle) => handle.detach(),
+        Err(err) => warn!(%room_id, "couldn't enqueue a read-receipt backfill request: {err}"),
+    }
 }
 
 /// A stop predicate that fires as soon as a batch loads any of `targets`. With

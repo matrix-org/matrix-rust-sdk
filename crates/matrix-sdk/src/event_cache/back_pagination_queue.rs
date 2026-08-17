@@ -51,7 +51,7 @@ use tokio::{
     sync::{mpsc, oneshot},
 };
 use tokio_util::sync::{CancellationToken, DropGuard};
-use tracing::{info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use super::{EventCacheInner, caches::pagination::BackPaginationOutcome};
 
@@ -139,8 +139,11 @@ pub(crate) struct BackPaginationRunResult {
 /// A handle to an enqueued [`BackPaginationRequest`].
 /// Dropping the handle cancels the request.
 pub(crate) struct BackPaginationHandle {
-    /// Cancels the request on drop; held only for its `Drop` side effect.
-    _guard: DropGuard,
+    /// Cancels the request on drop, unless disarmed by
+    /// [`BackPaginationHandle::detach`].
+    guard: DropGuard,
+    // Only read by `join`, which the consumers awaiting a result are landing with.
+    #[allow(dead_code)]
     completion: Option<oneshot::Receiver<BackPaginationRunResult>>,
 }
 
@@ -152,7 +155,14 @@ impl std::fmt::Debug for BackPaginationHandle {
 }
 
 impl BackPaginationHandle {
+    /// Let the request run to completion instead of cancelling it, for callers
+    /// that don't care about its result.
+    pub(crate) fn detach(self) {
+        self.guard.disarm();
+    }
+
     /// Await the request's completion, returning why it ended.
+    #[allow(dead_code)]
     pub(crate) async fn join(mut self) -> BackPaginationRunResult {
         let cancelled = BackPaginationRunResult { reason: BackPaginationStopReason::Cancelled };
         match self.completion.take() {
@@ -212,7 +222,7 @@ impl BackPaginationQueue {
 
         self.inner.sender.send(submitted).map_err(|_| QueueShutDown)?;
 
-        Ok(BackPaginationHandle { _guard: token.drop_guard(), completion: Some(completion_rx) })
+        Ok(BackPaginationHandle { guard: token.drop_guard(), completion: Some(completion_rx) })
     }
 }
 
@@ -499,6 +509,8 @@ async fn run_request(
             break BackPaginationStopReason::BatchLimitReached;
         }
     };
+
+    debug!(?reason, "back-pagination run finished");
 
     BackPaginationRunResult { reason }
 }
