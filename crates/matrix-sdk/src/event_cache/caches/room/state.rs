@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::iter::empty;
+
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -556,12 +558,13 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         if all_duplicates {
             // No new events and no gap (per the previous check), thus no need to change the
             // room state. We're done!
-
+            //
             // We might have a new read receipt, though! If that's the case, handle it for
             // unread counts tracking.
-            if let Some(new_receipt) = extract_read_receipt(ephemeral_events) {
-                self.update_read_receipts(Some(&new_receipt)).await?;
-            }
+            //
+            // Post-process the ephemeral events.
+            self.post_process_upserted_events(empty(), extract_read_receipt(ephemeral_events))
+                .await?;
 
             return Ok((false, Vec::new()));
         }
