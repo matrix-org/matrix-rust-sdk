@@ -787,7 +787,7 @@ impl SlidingSync {
         // coming from the `OlmMachine::outgoing_requests()` method.
 
         #[cfg(feature = "e2e-encryption")]
-        let response = {
+        let (response, e2ee_uploads) = {
             if self.is_e2ee_enabled() {
                 // Here, we need to run 2 things:
                 //
@@ -821,18 +821,14 @@ impl SlidingSync {
                 // Wait on the sliding sync request success or failure early.
                 let response = request.await?;
 
-                // At this point, if `request` has been resolved successfully, we wait on
-                // `e2ee_uploads`. It did run concurrently, so it should not be blocking for too
-                // long. Otherwise —if `request` has failed— `e2ee_uploads` has
-                // been dropped, so aborted.
-                e2ee_uploads.await.map_err(|error| Error::JoinError {
-                    task_description: "e2ee_uploads".to_owned(),
-                    error,
-                })?;
-
-                response
+                // The E2EE requests are awaited only once the response has been
+                // handled (below): they can take a long time (a `pos`-less start
+                // marks every tracked user as dirty, i.e. several MB of
+                // `/keys/query`, tens of seconds on a busy account), and the
+                // response may well carry the room keys the user is waiting on.
+                (response, Some(e2ee_uploads))
             } else {
-                request.await?
+                (request.await?, None)
             }
         };
 
@@ -910,13 +906,26 @@ impl SlidingSync {
 
             debug!("Done handling response");
 
-            Ok(updates)
+            Ok::<_, crate::Error>(updates)
         };
 
-        spawn(future.instrument(Span::current())).await.map_err(|error| Error::JoinError {
-            task_description: "handle_response".to_owned(),
-            error,
-        })?
+        let updates = spawn(future.instrument(Span::current())).await.map_err(|error| {
+            Error::JoinError { task_description: "handle_response".to_owned(), error }
+        })??;
+
+        // At this point, the response has been handled. Wait on `e2ee_uploads`
+        // before the next iteration sends its own batch of outgoing requests
+        // (so two batches never overlap). If handling failed above,
+        // `e2ee_uploads` has been dropped, so aborted.
+        #[cfg(feature = "e2e-encryption")]
+        if let Some(e2ee_uploads) = e2ee_uploads {
+            e2ee_uploads.await.map_err(|error| Error::JoinError {
+                task_description: "e2ee_uploads".to_owned(),
+                error,
+            })?;
+        }
+
+        Ok(updates)
     }
 
     /// Is the e2ee extension enabled for this sliding sync instance?
@@ -2257,6 +2266,100 @@ mod tests {
 
             assert!(outgoing_requests.is_empty());
         }
+
+        Ok(())
+    }
+
+    // The outgoing E2EE requests sent alongside a sync request (e.g. the
+    // `/keys/query` of every tracked user after a `pos`-less start) can take
+    // tens of seconds; the sync response must be handled without waiting on
+    // them, since it may well carry the room keys the user is waiting on.
+    #[async_test]
+    #[cfg(feature = "e2e-encryption")]
+    async fn test_sync_response_is_handled_before_outgoing_e2ee_requests_complete()
+    -> anyhow::Result<()> {
+        use std::time::Instant;
+
+        use ruma::{events::AnyToDeviceEvent, user_id};
+        use wiremock::matchers::path_regex;
+
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+
+        // Track a user, so that the `pos`-less request marks it dirty and a
+        // `/keys/query` goes out with the sync request.
+        {
+            let olm_machine = client.olm_machine().await;
+            olm_machine
+                .as_ref()
+                .unwrap()
+                .update_tracked_users([user_id!("@alice:localhost")])
+                .await?;
+        }
+
+        const E2EE_DELAY: Duration = Duration::from_secs(3);
+
+        let slow_e2ee = ResponseTemplate::new(200).set_body_json(json!({})).set_delay(E2EE_DELAY);
+        Mock::given(method("POST"))
+            .and(path_regex(r"/_matrix/client/.*/keys/upload"))
+            .respond_with(slow_e2ee.clone())
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path_regex(r"/_matrix/client/.*/keys/query"))
+            .respond_with(slow_e2ee)
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // The sync response carries a to-device event.
+        Mock::given(SlidingSyncMatcher)
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "pos": "1",
+                "extensions": {
+                    "to_device": {
+                        "next_batch": "nb",
+                        "events": [{
+                            "type": "io.element.test",
+                            "sender": "@alice:localhost",
+                            "content": {},
+                        }],
+                    },
+                },
+            })))
+            .mount(&server)
+            .await;
+
+        let handled_at = Arc::new(Mutex::new(None::<Instant>));
+        client.add_event_handler({
+            let handled_at = handled_at.clone();
+            move |_: Raw<AnyToDeviceEvent>| {
+                let handled_at = handled_at.clone();
+                async move {
+                    *handled_at.lock().unwrap() = Some(Instant::now());
+                }
+            }
+        });
+
+        let sync = client
+            .sliding_sync("test-slidingsync")?
+            .add_list(SlidingSyncList::builder("new_list"))
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true)}))
+            .with_to_device_extension(
+                assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
+            )
+            .build()
+            .await?;
+
+        let start = Instant::now();
+        sync.sync_once().await?;
+
+        let handled_at = handled_at.lock().unwrap().expect("the to-device event has been handled");
+        assert!(
+            handled_at.duration_since(start) < E2EE_DELAY,
+            "the to-device event waited on the outgoing E2EE requests: {:?}",
+            handled_at.duration_since(start)
+        );
 
         Ok(())
     }

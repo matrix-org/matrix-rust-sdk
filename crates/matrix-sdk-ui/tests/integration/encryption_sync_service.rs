@@ -466,7 +466,12 @@ async fn test_notification_client_does_not_upload_duplicate_one_time_keys() -> a
                 }
             }
         })
-        .expect(4)
+        // The outgoing requests of a sync iteration run concurrently with the
+        // handling of its response: an upload may be created either right
+        // before or right after the response's key count lands, so the top-up
+        // takes 3 or 4 uploads. What matters is that none of them duplicates a
+        // one-time key.
+        .expect(3..=4)
         .mount(server.server())
         .await;
 
