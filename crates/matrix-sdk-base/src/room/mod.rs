@@ -56,6 +56,7 @@ use ruma::{
             join_rules::JoinRule,
             member::MembershipState,
             power_levels::{RoomPowerLevels, RoomPowerLevelsEventContent, RoomPowerLevelsSource},
+            retention::RoomRetentionEventContent,
         },
     },
     room::RoomType,
@@ -375,6 +376,11 @@ impl Room {
     /// 0-100 where 100 would be the max power level.
     pub fn max_power_level(&self) -> i64 {
         self.info.read().base_info.max_power_level
+    }
+
+    /// Get the message retention policy of this room, if set.
+    pub fn retention(&self) -> Option<RoomRetentionEventContent> {
+        self.info.read().retention().cloned()
     }
 
     /// Get the service members in this room, if available.
