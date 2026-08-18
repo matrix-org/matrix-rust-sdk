@@ -76,6 +76,13 @@ async fn test_latest_event_is_recomputed_when_a_user_is_ignored() {
     // In some configurations, this makes the test non-flaky.
     yield_now().await;
 
-    // The latest event is reset to `None` because the room has been cleared.
-    assert_matches!(latest_event_stream.next().await, Some(LatestEventValue::None));
+    // Ignoring a user filters their events out of the event cache instead of
+    // clearing it (`RoomEventCacheState::remove_events_by_senders`): Bob's
+    // event is removed, and the latest event is recomputed to Alice's.
+    assert_matches!(
+        latest_event_stream.next().await,
+        Some(LatestEventValue::Remote(event)) => {
+            assert_eq!(event.event_id(), Some(event_alice));
+        }
+    );
 }
