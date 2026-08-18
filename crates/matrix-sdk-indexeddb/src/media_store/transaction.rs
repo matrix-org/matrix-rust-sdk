@@ -79,8 +79,8 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`IndexedLease`] in case
     /// inspection is needed.
-    pub async fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
-        self.transaction.put_item(lease).await
+    pub fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
+        self.transaction.put_item(lease)
     }
 
     /// Query IndexedDB for the stored [`MediaRetentionPolicy`]
@@ -103,12 +103,12 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`IndexedMediaCLeanupTime`] in
     /// case inspection is needed.
-    pub async fn put_media_cleanup_time(
+    pub fn put_media_cleanup_time(
         &self,
         time: impl Into<MediaCleanupTime>,
     ) -> Result<IndexedMediaCleanupTime, TransactionError> {
         let time: MediaCleanupTime = time.into();
-        self.transaction.put_item(&time).await
+        self.transaction.put_item(&time)
     }
 
     /// Query IndexedDB for [`MediaMetadata`] and [`MediaContent`] that matches
@@ -174,20 +174,18 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         };
         let content = MediaContent { content_id, data: media.content };
         let option = if media.ignore_policy.is_yes() {
-            self.put_media_content(&content).await.map(Some)?
+            self.put_media_content(&content).map(Some)?
         } else {
-            self.put_media_content_if_policy_compliant(&content, policy).await?
+            self.put_media_content_if_policy_compliant(&content, policy)?
         };
         if let Some(indexed_content) = option {
-            let indexed_metadata = self
-                .put_media_metadata(&MediaMetadata {
-                    request_parameters: media.request_parameters,
-                    last_access: media.last_access,
-                    ignore_policy: media.ignore_policy,
-                    content_id,
-                    content_size: indexed_content.content.len(),
-                })
-                .await?;
+            let indexed_metadata = self.put_media_metadata(&MediaMetadata {
+                request_parameters: media.request_parameters,
+                last_access: media.last_access,
+                ignore_policy: media.ignore_policy,
+                content_id,
+                content_size: indexed_content.content.len(),
+            })?;
             Ok(Some((indexed_metadata, indexed_content)))
         } else {
             Ok(None)
@@ -327,7 +325,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         if let Some(mut media_metadata) = self.get_media_metadata_by_id(request_parameters).await? {
             let last_access = media_metadata.last_access;
             media_metadata.last_access = current_time.into();
-            self.put_item(&media_metadata).await?;
+            self.put_item(&media_metadata)?;
             media_metadata.last_access = last_access;
             Ok(Some(media_metadata))
         } else {
@@ -357,7 +355,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         for mut media_metadata in self.get_media_metadata_by_uri(uri).await? {
             let last_access = media_metadata.last_access;
             media_metadata.last_access = current_time;
-            self.put_item(&media_metadata).await?;
+            self.put_item(&media_metadata)?;
             media_metadata.last_access = last_access;
             media_metadatas.push(media_metadata);
         }
@@ -456,22 +454,22 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// already exists, it will be rejected. When the item is successfully
     /// added, the function returns the intermediary type
     /// [`IndexedMediaMetadata`] in case inspection is needed.
-    pub async fn add_media_metadata(
+    pub fn add_media_metadata(
         &self,
         media_metadata: &MediaMetadata,
     ) -> Result<IndexedMediaMetadata, TransactionError> {
-        self.add_item(media_metadata).await
+        self.add_item(media_metadata)
     }
 
     /// Puts [`MediaMetadata`] in IndexedDB object. If an item with the same key
     /// already exists, it will be overwritten. When the item is successfully
     /// put, the function returns the intermediary type
     /// [`IndexedMediaMetadata`] in case inspection is needed.
-    pub async fn put_media_metadata(
+    pub fn put_media_metadata(
         &self,
         media_metadata: &MediaMetadata,
     ) -> Result<IndexedMediaMetadata, TransactionError> {
-        self.put_item(media_metadata).await
+        self.put_item(media_metadata)
     }
 
     /// Delete [`MediaMetadata`] that match the given [`MediaRequestParameters`]
@@ -591,22 +589,22 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// exists, it will be rejected. When the item is successfully added, the
     /// function returns the intermediary type [`IndexedMediaContent`] in case
     /// inspection is needed.
-    pub async fn add_media_content(
+    pub fn add_media_content(
         &self,
         content: &MediaContent,
     ) -> Result<IndexedMediaContent, TransactionError> {
-        self.add_item(content).await
+        self.add_item(content)
     }
 
     /// Puts [`MediaContent`] in IndexedDB object. If an item with the same key
     /// already exists, it will be overwritten. When the item is successfully
     /// put, the function returns the intermediary type
     /// [`IndexedMediaContent`] in case inspection is needed.
-    pub async fn put_media_content(
+    pub fn put_media_content(
         &self,
         content: &MediaContent,
     ) -> Result<IndexedMediaContent, TransactionError> {
-        self.put_item(content).await
+        self.put_item(content)
     }
 
     /// Adds [`MediaContent`] to IndexedDB if the size of
@@ -615,7 +613,7 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
     /// already exists, it will be overwritten. When the item is successfully
     /// put, the function returns the intermediary type
     /// [`IndexedMediaContent`] in case inspection is needed.
-    pub async fn put_media_content_if_policy_compliant(
+    pub fn put_media_content_if_policy_compliant(
         &self,
         media: &MediaContent,
         policy: MediaRetentionPolicy,
@@ -623,7 +621,6 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         self.put_item_if(media, |indexed| {
             !policy.exceeds_max_file_size(indexed.content.len() as u64)
         })
-        .await
     }
 
     /// Delete [`MediaContent`] that match the given identifier from IndexedDB
