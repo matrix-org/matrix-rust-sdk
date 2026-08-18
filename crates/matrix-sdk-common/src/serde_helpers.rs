@@ -18,14 +18,16 @@
 use ruma::{
     MilliSecondsSinceUnixEpoch, OwnedEventId,
     events::{
-        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-        MessageLikeEventType,
+        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
+        AnySyncTimelineEvent, MessageLikeEventType,
+        receipt::{ReceiptEventContent, SyncReceiptEvent},
         relation::{BundledThread, RelationType},
     },
     room_version_rules::RedactionRules,
     serde::Raw,
 };
 use serde::Deserialize;
+use tracing::error;
 
 use crate::deserialized_responses::{ThreadSummary, ThreadSummaryStatus};
 
@@ -159,6 +161,28 @@ pub fn extract_timestamp(
     }
 
     Some(origin_server_ts)
+}
+
+/// Extract the first valid read receipt event from a list of ephemeral events,
+/// if available.
+pub fn extract_read_receipt(
+    ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
+) -> Option<ReceiptEventContent> {
+    for raw_ephemeral in ephemeral_events {
+        match raw_ephemeral.deserialize() {
+            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
+                return Some(content);
+            }
+
+            Ok(_) => {}
+
+            Err(err) => {
+                error!(%err, "error when deserializing an ephemeral event");
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
