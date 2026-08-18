@@ -897,8 +897,18 @@ impl SlidingSync {
             // event cache silently loses those events, as the server won't
             // send them again (element-hq/element-x-ios#5973). The in-memory
             // `pos` advances normally; the sync loop is not delayed.
-            this.persist_pos(position_guard.pos.clone(), this.inner.client.last_room_updates_seq())
-                .await;
+            //
+            // A response without room updates hides nothing behind its `pos`
+            // that the event cache still has to persist, so it keeps the
+            // previous target instead of adopting the global one: this way a
+            // connection that never carries rooms (the encryption connection)
+            // persists at once, rather than after the room list's catch-up.
+            let target_seq = if updates.rooms.is_empty() {
+                this.inner.pos_persist.borrow().as_ref().map_or(0, |pending| pending.target_seq)
+            } else {
+                this.inner.client.last_room_updates_seq()
+            };
+            this.persist_pos(position_guard.pos.clone(), target_seq).await;
 
             // Release the position guard lock.
             // It means that other responses can be generated and then handled later.
@@ -3539,6 +3549,37 @@ mod tests {
         // Syncing with a key count, will update the key count.
         sync_with_key_count!(client, server, 10);
         assert_key_count!(client, 10);
+
+        Ok(())
+    }
+
+    // A response without room updates must not wait on the event cache
+    // catching up with room updates that came from *another* connection: the
+    // encryption connection never carries rooms, and its `pos` would otherwise
+    // be held behind the room list's catch-up (a kill in between leaves a
+    // stale `pos` on disk, `M_UNKNOWN_POS` on the next start, and a full
+    // `/keys/query` sweep).
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_pos_of_a_room_less_response_is_persisted_at_once() -> Result<()> {
+        let server = MockServer::start().await;
+        let client = logged_in_client(Some(server.uri())).await;
+        client.event_cache().subscribe().unwrap();
+
+        // Emulate another connection having broadcast room updates.
+        client.inner.room_updates_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+        Mock::given(SlidingSyncMatcher)
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "pos": "1" })))
+            .mount(&server)
+            .await;
+
+        let sync = client.sliding_sync("room-less")?.share_pos().build().await?;
+        sync.sync_once().await?;
+
+        // The write is not gated on the event cache catching up with anything.
+        let pending = sync.inner.pos_persist.borrow().clone().expect("a `pos` write was queued");
+        assert_eq!(pending, super::PendingPosPersist { pos: Some("1".to_owned()), target_seq: 0 });
 
         Ok(())
     }

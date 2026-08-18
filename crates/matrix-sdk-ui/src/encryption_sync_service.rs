@@ -78,10 +78,21 @@ impl EncryptionSyncService {
         // Make sure to use the same `conn_id` and caching store identifier, whichever
         // process is running this sliding sync. There must be at most one
         // sliding sync instance that enables the e2ee and to-device extensions.
+        //
+        // The `pos` is shared across processes (it lives in the crypto store,
+        // like the to-device token): a process starting without one restarts
+        // the server-side connection, which deletes the other process's
+        // position and, since MSC4186 sends no device-list changes for a
+        // request without `pos`, marks every tracked user dirty (a full
+        // `/keys/query` sweep, several MB on a busy account). Writes happen
+        // only after the response has been processed, so a shared `pos` never
+        // runs ahead of the crypto store; two processes racing on the same
+        // position at worst get `M_UNKNOWN_POS` and restart, which is where a
+        // non-shared `pos` starts from every time.
         let mut builder = client
             .sliding_sync("encryption")
             .map_err(Error::SlidingSync)?
-            //.share_pos() // TODO: This is racy, needs cross-process lock :')
+            .share_pos()
             .with_to_device_extension(
                 assign!(http::request::ToDevice::default(), { enabled: Some(true)}),
             )
