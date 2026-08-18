@@ -417,21 +417,51 @@ impl EventCacheStore for IndexeddbEventCacheStore {
     }
 
     #[instrument(skip(self))]
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<ThreadInfo, Self::Error> {
         let _timer = timer!("method");
 
+        let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readonly)?;
+
+        if let Some(thread) = transaction.load_thread_info(room_id, thread_id).await? {
+            return Ok(thread.info);
+        }
+
+        drop(transaction);
+
         let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readwrite)?;
+
         let thread = Thread {
             room_id: room_id.to_owned(),
             thread_id: thread_id.to_owned(),
             info: ThreadInfo::new(),
         };
+        transaction.update_thread_info(&thread).await?;
+        transaction.commit().await?;
 
-        transaction.put_thread(&thread).await?;
+        Ok(thread.info)
+    }
+
+    #[instrument(skip(self))]
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
+    ) -> Result<(), Self::Error> {
+        let _timer = timer!("method");
+
+        let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readwrite)?;
+
+        let thread = Thread {
+            room_id: room_id.to_owned(),
+            thread_id: thread_id.to_owned(),
+            info: thread_info.clone(),
+        };
+        transaction.update_thread_info(&thread).await?;
         transaction.commit().await?;
 
         Ok(())

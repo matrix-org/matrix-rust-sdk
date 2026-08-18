@@ -575,13 +575,25 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         self.delete_items_by_linked_chunk_id::<Gap, IndexedGapIdKey>(linked_chunk_id).await
     }
 
-    /// Remember a thread.
-    pub async fn put_thread(&self, thread: &Thread) -> Result<IndexedThread, TransactionError> {
+    /// Load a thread info.
+    pub async fn load_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+    ) -> Result<Option<Thread>, TransactionError> {
+        self.get_item_by_key_components::<Thread, IndexedThreadIdKey>((room_id, thread_id)).await
+    }
+
+    /// Update a thread info.
+    pub async fn update_thread_info(
+        &self,
+        thread: &Thread,
+    ) -> Result<IndexedThread, TransactionError> {
         self.put_item(thread).await
     }
 
-    /// List all threads (remembered with [`Self::put_thread`]) for a particular
-    /// room ID.
+    /// List all threads (remembered with [`Self::update_thread_info`]) for a
+    /// particular room ID.
     pub async fn get_threads_by_room_id(
         &self,
         room_id: &RoomId,

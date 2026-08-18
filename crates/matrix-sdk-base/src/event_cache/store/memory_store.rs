@@ -164,17 +164,33 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+    ) -> Result<ThreadInfo, Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        let threads = &mut inner.threads;
+
+        let key = (room_id.to_owned(), thread_id.to_owned());
+
+        let thread_info = threads.entry(key).or_default();
+
+        Ok(thread_info.clone())
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
         let threads = &mut inner.threads;
 
         let key = (room_id.to_owned(), thread_id.to_owned());
 
-        threads.entry(key).or_default();
+        *threads.get_mut(&key).expect("The thread entry must exist") = thread_info.clone();
 
         Ok(())
     }

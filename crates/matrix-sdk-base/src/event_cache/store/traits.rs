@@ -25,8 +25,10 @@ use matrix_sdk_common::{
 };
 use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType};
 
-use super::EventCacheStoreError;
-use crate::event_cache::{Event, Gap};
+use super::{
+    super::{Event, Gap, thread::ThreadInfo},
+    EventCacheStoreError,
+};
 
 /// A default capacity for linked chunks, when manipulating in conjunction with
 /// an `EventCacheStore` implementation.
@@ -95,17 +97,30 @@ pub trait EventCacheStore: AsyncTraitDeps {
         before_chunk_identifier: ChunkIdentifier,
     ) -> Result<Option<RawChunk<Event, Gap>>, Self::Error>;
 
-    /// Register a new thread.
+    /// Load the [`ThreadInfo`] associated to `room_id` and `thread_id`.
     ///
-    /// It does nothing regarding events or linked chunks: it simply remembers
-    /// that a thread has been created. This is important if one wants to list
-    /// all threads, or remove specific events or linked chunks.
+    /// If the `ThreadInfo` does not exist, this method **must create** it.
+    /// Consequently, this method is also a way to remember a thread.
     ///
-    /// If the thread already exists, it returns successfully.
-    async fn remember_thread(
+    /// It does nothing regarding events or linked chunks.
+    /// This is important if one wants to list all threads, or remove specific
+    /// events or linked chunks.
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+    ) -> Result<ThreadInfo, Self::Error>;
+
+    /// Update the [`ThreadInfo`] associated to `room_id` and `thread_id`.
+    ///
+    /// If it does not exist, this method **must fail**! Normally, the
+    /// `ThreadInfo` must be created automatically with
+    /// [`Self::load_thread_info`], so it must always exist.
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error>;
 
     /// Clear persisted events for all the rooms if `room_id` is `None`, or a
@@ -269,12 +284,21 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
             .map_err(Into::into)
     }
 
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+    ) -> Result<ThreadInfo, Self::Error> {
+        self.0.load_thread_info(room_id, thread_id).await.map_err(Into::into)
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error> {
-        self.0.remember_thread(room_id, thread_id).await.map_err(Into::into)
+        self.0.update_thread_info(room_id, thread_id, thread_info).await.map_err(Into::into)
     }
 
     async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {

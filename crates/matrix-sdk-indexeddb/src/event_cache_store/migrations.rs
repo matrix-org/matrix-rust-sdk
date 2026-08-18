@@ -78,7 +78,8 @@ impl Version {
             Self::V3 => v3::upgrade(transaction).map(Some),
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
-            Self::V6 => Ok(None),
+            Self::V6 => v6::upgrade(transaction).map(Some),
+            Self::V7 => Ok(None),
         }
     }
 }
