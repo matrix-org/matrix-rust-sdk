@@ -1527,8 +1527,7 @@ mod tests {
         events::{
             AnyRoomAccountDataEvent,
             room::{
-                pinned_events::RoomPinnedEventsEventContent,
-                retention::RoomRetentionEventContent,
+                pinned_events::RoomPinnedEventsEventContent, retention::RoomRetentionEventContent,
             },
             tag::{TagInfo, TagName, Tags, UserTagName},
         },
@@ -1626,6 +1625,7 @@ mod tests {
                 "max_power_level": 100,
                 "member_hints": null,
                 "name": null,
+                "retention": null,
                 "tombstone": null,
                 "topic": null,
                 "pinned_events": {
@@ -2234,10 +2234,7 @@ mod tests {
 
     #[test]
     fn test_retention_stored_on_handle_state_event() {
-        let mut info = RoomInfo::new(
-            room_id!("!gda78o:server.tld"),
-            RoomState::Joined,
-        );
+        let mut info = RoomInfo::new(room_id!("!gda78o:server.tld"), RoomState::Joined);
         assert!(info.retention().is_none(), "retention should be absent before any event");
 
         let max_lifetime = Duration::from_secs(86_400); // 1 day
