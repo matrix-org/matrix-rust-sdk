@@ -144,6 +144,11 @@ impl Encryption {
     fn encode_thread_info(&self, thread_info: &ThreadInfo) -> Result<Vec<u8>> {
         self.encode_value(serde_json::to_vec(thread_info)?)
     }
+
+    /// Decode a [`ThreadInfo`].
+    fn decode_thread_info(&self, encoded_thread_info: &[u8]) -> Result<ThreadInfo> {
+        Ok(serde_json::from_slice(&self.decode_value(encoded_thread_info)?)?)
+    }
 }
 
 impl EncryptableStore for Encryption {
@@ -1379,24 +1384,85 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
-    ) -> Result<(), Self::Error> {
-        let hashed_linked_chunk_id = self
-            .encryption
-            .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Thread(room_id, thread_id));
+    ) -> Result<ThreadInfo, Self::Error> {
+        let linked_chunk_id = LinkedChunkId::Thread(room_id, thread_id);
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
+        let encryption = self.encryption.clone();
+
+        // First off, try by selecting the thread info. It's the most common case. If it
+        // doesn't exist, create an empty one.
+        //
+        // We do that with 2 transactions.
+        let maybe_thread_info = self
+            .read()
+            .await?
+            .with_transaction(move |txn| {
+                let maybe_encoded_thread_info = txn
+                    .query_one(
+                        "SELECT info FROM threads WHERE linked_chunk_id = ?",
+                        (hashed_linked_chunk_id,),
+                        |row| row.get::<_, Vec<u8>>(0),
+                    )
+                    .optional()?;
+
+                maybe_encoded_thread_info
+                    .map(|encoded_thread_info| {
+                        encryption.decode_thread_info(encoded_thread_info.as_slice())
+                    })
+                    .transpose()
+            })
+            .await?;
+
+        if let Some(thread_info) = maybe_thread_info {
+            return Ok(thread_info);
+        }
+
+        // The thread doesn't exist, let's create it.
+
+        let thread_info = ThreadInfo::new();
+        let hashed_linked_chunk_id =
+            self.encryption.encode_linked_chunk(keys::LINKED_CHUNKS, &linked_chunk_id);
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let hashed_thread_id = self.encryption.encode_thread_id(thread_id)?;
-        let encoded_thread_id = self.encryption.encode_thread_info(&ThreadInfo::new())?;
+        let encoded_thread_id = self.encryption.encode_thread_info(&thread_info)?;
 
         self.write()
             .await?
             .with_transaction(move |txn| {
                 txn.execute(
-                    "INSERT OR IGNORE INTO threads VALUES (?, ?, ?, ?)",
+                    "INSERT INTO threads VALUES (?, ?, ?, ?)",
                     (hashed_linked_chunk_id, hashed_room_id, hashed_thread_id, encoded_thread_id),
+                )?;
+
+                Ok::<(), Self::Error>(())
+            })
+            .await?;
+
+        Ok(thread_info)
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
+    ) -> Result<(), Self::Error> {
+        let hashed_linked_chunk_id = self
+            .encryption
+            .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Thread(room_id, thread_id));
+        let encoded_thread_info = self.encryption.encode_thread_info(thread_info)?;
+
+        self.write()
+            .await?
+            .with_transaction(move |txn| {
+                txn.execute(
+                    "UPDATE threads SET info = ? WHERE linked_chunk_id = ?",
+                    (encoded_thread_info, hashed_linked_chunk_id),
                 )?;
 
                 Ok(())
