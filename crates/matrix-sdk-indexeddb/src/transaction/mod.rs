@@ -20,7 +20,7 @@
 
 use futures_util::TryStreamExt;
 use indexed_db_futures::{
-    BuildSerde, cursor::CursorDirection, internals::SystemRepr, query_source::QuerySource,
+    Build, BuildSerde, cursor::CursorDirection, internals::SystemRepr, query_source::QuerySource,
     transaction as inner,
 };
 use serde::{
@@ -366,7 +366,7 @@ impl<'a> Transaction<'a> {
     /// exists, it will be rejected. When the item is successfully added, the
     /// function returns the intermediary type [`Indexed::IndexedType`] in case
     /// inspection is needed.
-    pub async fn add_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
+    pub fn add_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
@@ -376,7 +376,7 @@ impl<'a> Transaction<'a> {
             .serializer
             .serialize(item)
             .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
-        self.transaction.object_store(T::OBJECT_STORE)?.add(output.value).await?;
+        self.transaction.object_store(T::OBJECT_STORE)?.add(output.value).build()?;
         Ok(output.indexed)
     }
 
@@ -385,7 +385,7 @@ impl<'a> Transaction<'a> {
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`Indexed::IndexedType`] in case
     /// inspection is needed.
-    pub async fn put_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
+    pub fn put_item<T>(&self, item: &T) -> Result<T::IndexedType, TransactionError>
     where
         T: Indexed + Serialize,
         T::IndexedType: Serialize,
@@ -395,7 +395,7 @@ impl<'a> Transaction<'a> {
             .serializer
             .serialize(item)
             .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
-        self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
+        self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).build()?;
         Ok(output.indexed)
     }
 
@@ -405,7 +405,7 @@ impl<'a> Transaction<'a> {
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`Indexed::IndexedType`] in case
     /// inspection is needed.
-    pub async fn put_item_if<T>(
+    pub fn put_item_if<T>(
         &self,
         item: &T,
         f: impl Fn(&T::IndexedType) -> bool,
@@ -420,7 +420,7 @@ impl<'a> Transaction<'a> {
             .serialize_if(item, f)
             .map_err(|e| TransactionError::Serialization(Box::new(e)))?;
         if let Some(output) = option {
-            self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).await?;
+            self.transaction.object_store(T::OBJECT_STORE)?.put(output.value).build()?;
             Ok(Some(output.indexed))
         } else {
             Ok(None)
@@ -445,7 +445,7 @@ impl<'a> Transaction<'a> {
         F: Fn(T) -> T,
     {
         for item in self.get_items_by_key_components::<T, K>(range).await? {
-            self.put_item(&f(item)).await?;
+            self.put_item(&f(item))?;
         }
         Ok(())
     }
@@ -472,7 +472,7 @@ impl<'a> Transaction<'a> {
                 }
             }
         } else {
-            object_store.delete(range).serde()?.await?;
+            object_store.delete(range).serde()?;
         }
         Ok(())
     }
@@ -506,10 +506,11 @@ impl<'a> Transaction<'a> {
 
     /// Clear all items of type `T` from the associated object store
     /// `T::OBJECT_STORE` from IndexedDB
-    pub async fn clear<T>(&self) -> Result<(), TransactionError>
+    pub fn clear<T>(&self) -> Result<(), TransactionError>
     where
         T: Indexed,
     {
-        self.transaction.object_store(T::OBJECT_STORE)?.clear()?.await.map_err(Into::into)
+        self.transaction.object_store(T::OBJECT_STORE)?.clear()?;
+        Ok(())
     }
 }

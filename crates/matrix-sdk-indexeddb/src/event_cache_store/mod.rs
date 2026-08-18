@@ -150,7 +150,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         };
 
         Ok(if let Some(lease) = lease {
-            transaction.put_lease(&lease).await?;
+            transaction.put_lease(&lease)?;
             transaction.commit().await?;
 
             Some(lease.generation)
@@ -188,13 +188,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
                 }
                 Update::NewGapChunk { previous, new, next, gap } => {
                     trace!(%linked_chunk_id, "Inserting new gap (prev={previous:?}, new={new:?}, next={next:?})");
-                    transaction
-                        .add_item(&types::Gap {
-                            linked_chunk_id: linked_chunk_id.to_owned(),
-                            chunk_identifier: new.index(),
-                            token: gap.token,
-                        })
-                        .await?;
+                    transaction.add_item(&types::Gap {
+                        linked_chunk_id: linked_chunk_id.to_owned(),
+                        chunk_identifier: new.index(),
+                        token: gap.token,
+                    })?;
                     transaction
                         .add_chunk(&types::Chunk {
                             linked_chunk_id: linked_chunk_id.to_owned(),
@@ -233,13 +231,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
 
                     trace!(%linked_chunk_id, "replacing item @ {chunk_id}:{index}");
 
-                    transaction
-                        .put_event(&types::Event::InBand(InBandEvent {
-                            linked_chunk_id: linked_chunk_id.to_owned(),
-                            content: item,
-                            position: at.into(),
-                        }))
-                        .await?;
+                    transaction.put_event(&types::Event::InBand(InBandEvent {
+                        linked_chunk_id: linked_chunk_id.to_owned(),
+                        content: item,
+                        position: at.into(),
+                    }))?;
                 }
                 Update::RemoveItem { at } => {
                     let chunk_id = at.chunk_identifier().index();
@@ -439,7 +435,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             thread_id: thread_id.to_owned(),
             info: ThreadInfo::new(),
         };
-        transaction.update_thread_info(&thread).await?;
+        transaction.update_thread_info(&thread)?;
         transaction.commit().await?;
 
         Ok(thread.info)
@@ -461,7 +457,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             thread_id: thread_id.to_owned(),
             info: thread_info.clone(),
         };
-        transaction.update_thread_info(&thread).await?;
+        transaction.update_thread_info(&thread)?;
         transaction.commit().await?;
 
         Ok(())
@@ -482,9 +478,9 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         match room_id {
             // Clear all events.
             None => {
-                transaction.clear::<types::Chunk>().await?;
-                transaction.clear::<types::Event>().await?;
-                transaction.clear::<types::Gap>().await?;
+                transaction.clear::<types::Chunk>()?;
+                transaction.clear::<types::Event>()?;
+                transaction.clear::<types::Gap>()?;
                 transaction.commit().await?;
             }
 
@@ -693,7 +689,7 @@ impl EventCacheStore for IndexeddbEventCacheStore {
             }));
         }
         for event in events {
-            transaction.put_event(&event).await?;
+            transaction.put_event(&event)?;
         }
         transaction.commit().await?;
         Ok(())
