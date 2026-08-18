@@ -1257,6 +1257,7 @@ mod tests {
         event_cache::{
             Event, Gap,
             store::{EventCacheStore, EventCacheStoreError, MemoryStore},
+            thread::ThreadInfo,
         },
         linked_chunk::{
             ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId, Position,
@@ -1397,12 +1398,21 @@ mod tests {
             self.memory_store.load_previous_chunk(linked_chunk_id, before_chunk_identifier).await
         }
 
-        async fn remember_thread(
+        async fn load_thread_info(
             &self,
             room_id: &RoomId,
             thread_id: &EventId,
+        ) -> Result<ThreadInfo, Self::Error> {
+            self.memory_store.load_thread_info(room_id, thread_id).await
+        }
+
+        async fn update_thread_info(
+            &self,
+            room_id: &RoomId,
+            thread_id: &EventId,
+            thread_info: &ThreadInfo,
         ) -> Result<(), Self::Error> {
-            self.memory_store.remember_thread(room_id, thread_id).await
+            self.memory_store.update_thread_info(room_id, thread_id, thread_info).await
         }
 
         async fn clear_all_events(&self, room_id: Option<&RoomId>) -> Result<(), Self::Error> {

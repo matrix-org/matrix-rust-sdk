@@ -78,7 +78,8 @@ impl Version {
             Self::V3 => v3::upgrade(transaction).map(Some),
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
-            Self::V6 => Ok(None),
+            Self::V6 => v6::upgrade(transaction).map(Some),
+            Self::V7 => Ok(None),
         }
     }
 }
@@ -98,6 +99,8 @@ impl TryFrom<u32> for Version {
             3 => Ok(Version::V3),
             4 => Ok(Version::V4),
             5 => Ok(Version::V5),
+            6 => Ok(Version::V6),
+            7 => Ok(Version::V7),
             v => Err(UnknownVersionError(v)),
         }
     }

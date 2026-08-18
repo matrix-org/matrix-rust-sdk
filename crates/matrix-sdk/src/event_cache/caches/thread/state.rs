@@ -16,7 +16,7 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
     deserialized_responses::ThreadSummary,
-    event_cache::{Event, Gap, store::EventCacheStoreLockGuard},
+    event_cache::{Event, Gap, store::EventCacheStoreLockGuard, thread::ThreadInfo},
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
@@ -70,6 +70,9 @@ pub struct ThreadEventCacheState {
     /// The linked chunk for this thread.
     thread_linked_chunk: EventLinkedChunk,
 
+    /// The information related to this thread, [`ThreadInfo`].
+    thread_info: ThreadInfo,
+
     /// A clone of [`super::ThreadEventCacheInner::update_sender`].
     ///
     /// This is used only by the [`LockedThreadEventCacheState::read`] and
@@ -114,10 +117,11 @@ impl ThreadEventCacheState {
     ) -> Result<Self> {
         let linked_chunk_id = LinkedChunkId::Thread(&room_id, &thread_id);
 
-        // Register the thread in the list of threads. It does nothing regarding events
-        // or linked chunks: it only remembers the thread exists for the thread list
-        // feature.
-        store_guard.remember_thread(&room_id, &thread_id).await?;
+        // Load the thread info.
+        //
+        // It will register the thread in the list of threads. It does nothing regarding
+        // events or linked chunks.
+        let thread_info = store_guard.load_thread_info(&room_id, &thread_id).await?;
 
         // Load the full linked chunk's metadata, so as to feed the order tracker.
         //
@@ -169,6 +173,7 @@ impl ThreadEventCacheState {
                 linked_chunk,
                 full_linked_chunk_metadata,
             ),
+            thread_info,
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
