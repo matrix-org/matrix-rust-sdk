@@ -149,8 +149,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`IndexedLease`] in case
     /// inspection is needed.
-    pub async fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
-        self.put_item(lease).await
+    pub fn put_lease(&self, lease: &Lease) -> Result<IndexedLease, TransactionError> {
+        self.put_item(lease)
     }
 
     /// Query IndexedDB for chunks that match the given chunk identifier and the
@@ -257,7 +257,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// function returns the intermediary type [`IndexedChunk`] in case
     /// inspection is needed.
     pub async fn add_chunk(&self, chunk: &Chunk) -> Result<IndexedChunk, TransactionError> {
-        let indexed = self.add_item(chunk).await?;
+        let indexed = self.add_item(chunk)?;
         if let Some(previous) = chunk.previous {
             let previous_identifier = ChunkIdentifier::new(previous);
             let mut previous_chunk = self
@@ -265,7 +265,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                 .await?
                 .ok_or(TransactionError::ItemNotFound)?;
             previous_chunk.next = Some(chunk.identifier);
-            self.put_item(&previous_chunk).await?;
+            self.put_item(&previous_chunk)?;
         }
         if let Some(next) = chunk.next {
             let next_identifier = ChunkIdentifier::new(next);
@@ -274,7 +274,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                 .await?
                 .ok_or(TransactionError::ItemNotFound)?;
             next_chunk.previous = Some(chunk.identifier);
-            self.put_item(&next_chunk).await?;
+            self.put_item(&next_chunk)?;
         }
         Ok(indexed)
     }
@@ -295,7 +295,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                     self.get_chunk_by_id(linked_chunk_id, previous_identifier).await?
                 {
                     previous_chunk.next = chunk.next;
-                    self.put_item(&previous_chunk).await?;
+                    self.put_item(&previous_chunk)?;
                 }
             }
             if let Some(next) = chunk.next {
@@ -304,7 +304,7 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
                     self.get_chunk_by_id(linked_chunk_id, next_identifier).await?
                 {
                     next_chunk.previous = chunk.previous;
-                    self.put_item(&next_chunk).await?;
+                    self.put_item(&next_chunk)?;
                 }
             }
             self.delete_item_by_key::<Chunk, IndexedChunkIdKey>((linked_chunk_id, chunk_id))
@@ -441,9 +441,9 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
         let existing =
             self.get_event_by_id(event.linked_chunk_id(), event.event_id().unwrap()).await?;
         if matches!(event, Event::InBand(_)) && matches!(existing, Some(Event::OutOfBand(_))) {
-            self.put_event(event).await
+            self.put_event(event)
         } else {
-            self.add_item(event).await
+            self.add_item(event)
         }
     }
 
@@ -451,8 +451,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     /// exists, it will be overwritten. When the item is successfully put, the
     /// function returns the intermediary type [`IndexedEvent`] in case
     /// inspection is needed.
-    pub async fn put_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
-        self.put_item(event).await
+    pub fn put_event(&self, event: &Event) -> Result<IndexedEvent, TransactionError> {
+        self.put_item(event)
     }
 
     /// Update events in the given position range matching the given linked
@@ -576,8 +576,8 @@ impl<'a> IndexeddbEventCacheStoreTransaction<'a> {
     }
 
     /// Remember a thread.
-    pub async fn put_thread(&self, thread: &Thread) -> Result<IndexedThread, TransactionError> {
-        self.put_item(thread).await
+    pub fn put_thread(&self, thread: &Thread) -> Result<IndexedThread, TransactionError> {
+        self.put_item(thread)
     }
 
     /// List all threads (remembered with [`Self::put_thread`]) for a particular
