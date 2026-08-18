@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::iter::empty;
+
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     apply_redaction, check_validity_of_replacement_events,
@@ -20,14 +22,18 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
-    serde_helpers::extract_redaction_target,
+    serde_helpers::{extract_read_receipt, extract_redaction_target},
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
-    events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
+    events::{
+        AnySyncEphemeralRoomEvent, receipt::ReceiptEventContent, relation::RelationType,
+        room::redaction::SyncRoomRedactionEvent,
+    },
     room_version_rules::RoomVersionRules,
+    serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
@@ -443,6 +449,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     pub async fn handle_sync(
         &mut self,
         timeline: Timeline,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
     ) -> Result<(bool, Vec<VectorDiff<Event>>)> {
         let prev_batch_token = &timeline.prev_batch;
 
@@ -463,6 +470,14 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         if all_duplicates {
             // If all events are duplicates, we don't need to do anything; ignore
             // the new events.
+            //
+            // We might have a new read receipt, though! If that's the case, handle it for
+            // unread counts tracking.
+            //
+            // Post-process the ephemeral events.
+            self.post_process_upserted_events(empty(), extract_read_receipt(&ephemeral_events))
+                .await?;
+
             return Ok((false, Vec::new()));
         }
 
@@ -489,7 +504,8 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         self.state.propagate_changes(&self.store).await?;
 
         // Post-process newly inserted events.
-        self.post_process_upserted_events(events.iter()).await?;
+        self.post_process_upserted_events(events.iter(), extract_read_receipt(&ephemeral_events))
+            .await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -506,7 +522,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Post-process newly inserted or updated events.
-    pub(super) async fn post_process_upserted_events<'i, I>(&mut self, events: I) -> Result<()>
+    pub(super) async fn post_process_upserted_events<'i, I>(
+        &mut self,
+        events: I,
+        receipt_event: Option<ReceiptEventContent>,
+    ) -> Result<()>
     where
         I: Iterator<Item = &'i Event>,
     {
@@ -519,6 +539,9 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
                 self.save_events([*bundled_thread.clone()]).await?;
             }
         }
+
+        // do something with `receipt_event`.
+        let _ = receipt_event;
 
         Ok(())
     }
