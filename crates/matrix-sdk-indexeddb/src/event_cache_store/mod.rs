@@ -18,8 +18,9 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 
 use indexed_db_futures::{Build, database::Database};
 #[cfg(target_family = "wasm")]
-use matrix_sdk_base::cross_process_lock::{
-    CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION,
+use matrix_sdk_base::{
+    cross_process_lock::{CrossProcessLockGeneration, FIRST_CROSS_PROCESS_LOCK_GENERATION},
+    event_cache::thread::ThreadInfo,
 };
 use matrix_sdk_base::{
     event_cache::{Event, Gap, store::EventCacheStore},
@@ -424,7 +425,11 @@ impl EventCacheStore for IndexeddbEventCacheStore {
         let _timer = timer!("method");
 
         let transaction = self.transaction(&[keys::THREADS], IdbTransactionMode::Readwrite)?;
-        let thread = Thread { room_id: room_id.to_owned(), thread_id: thread_id.to_owned() };
+        let thread = Thread {
+            room_id: room_id.to_owned(),
+            thread_id: thread_id.to_owned(),
+            info: ThreadInfo::new(),
+        };
 
         transaction.put_thread(&thread).await?;
         transaction.commit().await?;

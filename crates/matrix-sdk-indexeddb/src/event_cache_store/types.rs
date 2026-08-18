@@ -17,7 +17,7 @@ use std::time::Duration;
 use matrix_sdk_base::{
     cross_process_lock::CrossProcessLockGeneration,
     deserialized_responses::TimelineEvent,
-    event_cache::store::extract_event_relation,
+    event_cache::{store::extract_event_relation, thread::ThreadInfo},
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
@@ -241,6 +241,8 @@ pub struct Thread {
     pub room_id: OwnedRoomId,
     /// The root of the thread.
     pub thread_id: OwnedEventId,
+    /// Information about the thread.
+    pub info: ThreadInfo,
 }
 
 impl Thread {
