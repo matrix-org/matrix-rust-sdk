@@ -1,4 +1,5 @@
 #![allow(clippy::large_enum_variant)]
+#![recursion_limit = "256"]
 
 use std::{
     collections::{HashMap, HashSet},

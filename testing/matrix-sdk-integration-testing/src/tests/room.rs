@@ -4,6 +4,7 @@ use anyhow::Result;
 use assert_matches2::{assert_let, assert_matches};
 use eyeball::Subscriber;
 use futures::FutureExt as _;
+use http::StatusCode;
 use matrix_sdk::{
     Room, RoomMemberships, RoomState, assert_let_timeout,
     encryption::{BackupDownloadStrategy, EncryptionSettings, recovery::RecoveryState},
@@ -88,6 +89,66 @@ async fn test_empty_room_decline_invite() -> Result<()> {
     anyhow::ensure!(bob_declined, "bob couldn't find the invite after ~8 seconds");
 
     Ok(())
+}
+
+#[tokio::test]
+async fn test_empty_room_accept_invite() -> Result<()> {
+    let bob = TestClientBuilder::new("bob").use_sqlite().build().await?;
+
+    let b = bob.clone();
+    spawn(async move {
+        let bob = b;
+        loop {
+            if let Err(e) = bob.sync(Default::default()).await {
+                error!("bob sync error: {e}");
+            }
+        }
+    });
+
+    let alice = TestClientBuilder::new("alice").use_sqlite().build().await?;
+
+    let a = alice.clone();
+    spawn(async move {
+        let alice = a;
+        loop {
+            if let Err(e) = alice.sync(Default::default()).await {
+                error!("alice sync error: {e}");
+            }
+        }
+    });
+
+    let room_id = alice
+        .create_room(assign!(CreateRoomRequest::new(), {
+            invite: vec![bob.user_id().unwrap().to_owned()],
+            is_direct: false,
+        }))
+        .await?
+        .room_id()
+        .to_owned();
+
+    let room = alice.get_room(&room_id).expect("Alice should see the room");
+    room.leave().await?;
+
+    for i in 1..=5 {
+        if let Some(room) = bob.get_room(&room_id)
+            && matches!(room.state(), RoomState::Invited)
+        {
+            if let Err(err) = room.join().await {
+                if let Some(api_err) = err.as_client_api_error() {
+                    if api_err.status_code == StatusCode::NOT_FOUND {
+                        return Ok(());
+                    } else {
+                        return Err(err.into());
+                    }
+                } else {
+                    return Err(err.into());
+                }
+            }
+            break;
+        }
+        sleep(Duration::from_millis(500 * i)).await;
+    }
+    Err(anyhow::anyhow!("bob couldn't find the invite after ~8 seconds"))
 }
 
 #[tokio::test]

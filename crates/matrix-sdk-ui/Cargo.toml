@@ -44,7 +44,7 @@ async-stream.workspace = true
 async_cell.workspace = true
 bitflags.workspace = true
 chrono.workspace = true
-emojis = { version = "0.8.0", default-features = false }
+emojis = { version = "0.9.0", default-features = false }
 eyeball.workspace = true
 eyeball-im.workspace = true
 eyeball-im-util.workspace = true

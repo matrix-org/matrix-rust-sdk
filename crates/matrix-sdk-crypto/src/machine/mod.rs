@@ -676,6 +676,13 @@ impl OlmMachine {
         requests.append(&mut self.inner.verification_machine.outgoing_messages());
         requests.append(&mut self.inner.key_request_machine.outgoing_to_device_requests().await?);
 
+        #[cfg(feature = "experimental-x509-identity-verification")]
+        if let Some(signature_upload_request) =
+            self.inner.identity_manager.get_x509_signature_upload_request().await
+        {
+            requests.push(signature_upload_request);
+        }
+
         Ok(requests)
     }
 
@@ -742,6 +749,8 @@ impl OlmMachine {
             AnyIncomingResponse::SignatureUpload(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
                 self.inner.key_request_machine.mark_outgoing_request_as_sent(request_id).await?;
+                #[cfg(feature = "experimental-x509-identity-verification")]
+                self.inner.identity_manager.mark_x509_signature_request_as_sent(request_id).await;
             }
             AnyIncomingResponse::RoomMessage(_) => {
                 self.inner.verification_machine.mark_request_as_sent(request_id);
@@ -1829,19 +1838,21 @@ impl OlmMachine {
             .is_some_and(|d| d.is_dehydrated()))
     }
 
-    /// Handle a to-device and one-time key counts from a sync response.
+    /// Handle changes in the end-to-end-encryption state we received from a
+    /// /sync request.
     ///
-    /// This will decrypt and handle to-device events returning the decrypted
+    /// This will decrypt and handle to-device messages returning the decrypted
     /// versions of them.
     ///
-    /// To decrypt an event from the room timeline, call [`decrypt_room_event`].
+    /// To decrypt an event from the room timeline, call
+    /// [`OlmMachine::decrypt_room_event`].
     ///
     /// # Arguments
     ///
     /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
     ///   a sync response.
-    ///
-    /// [`decrypt_room_event`]: #method.decrypt_room_event
+    /// * `decryption_settings` - Settings controlling how the to-device
+    ///   messages passed in the [`EncryptionSyncChanges`] should be decrypted.
     ///
     /// # Returns
     ///
@@ -1852,7 +1863,62 @@ impl OlmMachine {
         sync_changes: EncryptionSyncChanges<'_>,
         decryption_settings: &DecryptionSettings,
     ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
+        self.receive_sync_changes_impl(sync_changes, decryption_settings, true).await
+    }
+
+    /// Handle changes in the end-to-end-encryption state we received from a
+    /// MSC4186 /sync request.
+    ///
+    /// This will decrypt and handle to-device messages returning the decrypted
+    /// versions of them.
+    ///
+    /// To decrypt an event from the room timeline, call
+    /// [`OlmMachine::decrypt_room_event`].
+    ///
+    /// # Arguments
+    ///
+    /// * `sync_changes` - an [`EncryptionSyncChanges`] value, constructed from
+    ///   a sync response.
+    /// * `decryption_settings` - Settings controlling how the to-device
+    ///   messages passed in the [`EncryptionSyncChanges`] should be decrypted.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of (decrypted to-device events, updated room keys).
+    #[instrument(skip_all)]
+    pub async fn receive_sync_changes_msc4186(
+        &self,
+        sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
+        self.receive_sync_changes_impl(sync_changes, decryption_settings, false).await
+    }
+
+    /// Body for [`OlmMachine::receive_sync_changes`] and
+    /// [`OlmMachine::receive_sync_changes_msc4186`].
+    ///
+    /// There exist some semantic differences between the two sync APIs we
+    /// support, this is publicly exposed as different functions, but
+    /// internally we just use a simple boolean switch.
+    ///
+    /// Please take a look at the docs for [`OlmMachine::receive_sync_changes`]
+    /// and [`Account::update_key_counts`] for more info.
+    async fn receive_sync_changes_impl(
+        &self,
+        sync_changes: EncryptionSyncChanges<'_>,
+        decryption_settings: &DecryptionSettings,
+        is_missing_count_zero: bool,
+    ) -> OlmResult<(Vec<ProcessedToDeviceEvent>, Vec<RoomKeyInfo>)> {
         let mut store_transaction = self.inner.store.transaction().await;
+
+        {
+            let account = store_transaction.account().await?;
+            account.update_key_counts(
+                sync_changes.one_time_keys_counts,
+                sync_changes.unused_fallback_keys,
+                is_missing_count_zero,
+            )
+        }
 
         let (events, changes) = self
             .preprocess_sync_changes(&mut store_transaction, sync_changes, decryption_settings)
@@ -1906,14 +1972,6 @@ impl OlmMachine {
         // The account is automatically saved by the store transaction created by the
         // caller.
         let mut changes = Default::default();
-
-        {
-            let account = transaction.account().await?;
-            account.update_key_counts(
-                sync_changes.one_time_keys_counts,
-                sync_changes.unused_fallback_keys,
-            )
-        }
 
         if let Err(e) = self
             .inner

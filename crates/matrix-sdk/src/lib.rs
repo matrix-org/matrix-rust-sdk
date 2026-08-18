@@ -101,6 +101,10 @@ pub use sliding_sync::{
 uniffi::setup_scaffolding!();
 
 pub mod live_locations_observer;
+
+#[cfg(feature = "unstable-msc4426")]
+mod automatic_call_status;
+
 #[cfg(any(test, feature = "testing"))]
 pub mod test_utils;
 

@@ -885,7 +885,9 @@ impl EventCacheInner {
         }
 
         // Invited rooms.
-        // TODO: we don't anything with `updates.invite` at this point.
+        //
+        // We don't handle `updates.invite` because they contain stripped-state events,
+        // which is not handled by the Event Cache for the moment.
 
         Ok(())
     }
@@ -959,13 +961,14 @@ pub enum EventsOrigin {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_family = "wasm"))]
+    use std::time::Duration;
     use std::{
         ops::Not,
         sync::{
             Arc,
             atomic::{AtomicBool, AtomicU64, Ordering},
         },
-        time::Duration,
     };
 
     use assert_matches::assert_matches;
@@ -994,7 +997,9 @@ mod tests {
         EventId, OwnedEventId, OwnedUserId, RoomId, event_id, events::relation::RelationType,
         room_id, user_id,
     };
-    use tokio::{sync::Mutex, time::sleep};
+    use tokio::sync::Mutex;
+    #[cfg(not(target_family = "wasm"))]
+    use tokio::time::sleep;
 
     use super::{EventCacheError, RoomEventCacheGenericUpdate};
     use crate::{
@@ -1575,7 +1580,8 @@ mod tests {
             .await
     }
 
-    /// Returns the users to pass to [`EventCacheInner::remove_events_of_ignored_users`].
+    /// Returns the users to pass to
+    /// [`EventCacheInner::remove_events_of_ignored_users`].
     fn ignored_user() -> OwnedUserId {
         user_id!("@dexter:lab.org").to_owned()
     }
@@ -1645,6 +1651,10 @@ mod tests {
 
         // Let any leaked-lock renewal task (spawned when the caches were created)
         // settle, so the lock call counter below is deterministic.
+        //
+        // There's no time on wasm, so skip this there; the counter is
+        // deterministic on wasm anyway, since tasks are not preempted.
+        #[cfg(not(target_family = "wasm"))]
         sleep(Duration::from_millis(150)).await;
 
         // The room cache lock succeeds (first call), but the thread cache lock
@@ -1694,6 +1704,10 @@ mod tests {
 
         // Let any leaked-lock renewal task settle, so the lock call counter below
         // is deterministic.
+        //
+        // There's no time on wasm, so skip this there; the counter is
+        // deterministic on wasm anyway, since tasks are not preempted.
+        #[cfg(not(target_family = "wasm"))]
         sleep(Duration::from_millis(150)).await;
 
         // The room cache lock succeeds (first call), but the pinned-events cache

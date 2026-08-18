@@ -62,7 +62,7 @@ use ruma::{
             membership::{join_room_by_id, join_room_by_id_or_alias},
             presence::set_presence as set_presence_status,
             room::create_room,
-            rtc::RtcTransport,
+            rtc::{RtcTransport, transports},
             session::login::v3::DiscoveryInfo,
             sync::sync_events,
             threads::get_thread_subscriptions_changes,
@@ -299,7 +299,7 @@ pub(crate) struct ClientInner {
     /// If it's been built from a homeserver URL directly, we don't know the
     /// server. However, if the `Client` has been built from a server URL or
     /// name, then the homeserver has been discovered, and we know both.
-    server: Option<Url>,
+    server: StdRwLock<Option<Url>>,
 
     /// The URL of the homeserver to connect to.
     ///
@@ -360,6 +360,11 @@ pub(crate) struct ClientInner {
     /// information present in the login response.
     respect_login_well_known: bool,
 
+    /// Whether all the `.well-known/matrix/client` lookups are disabled.
+    ///
+    /// See [`ClientBuilder::disable_well_known_lookup`].
+    well_known_lookup_disabled: StdRwLock<bool>,
+
     /// An event that can be listened on to wait for a successful sync. The
     /// event will only be fired if a sync loop is running. Can be used for
     /// synchronization, e.g. if we send out a request to create a room, we can
@@ -419,6 +424,18 @@ pub(crate) struct ClientInner {
         broadcast::Sender<Option<DuplicateOneTimeKeyErrorMessage>>,
 
     pub(crate) media_fetcher: RwLock<Arc<dyn MediaFetcher>>,
+
+    /// When `Some`, `m.call` auto-sync is enabled and the held
+    /// [`AutomaticCallStatus`] owns the event handler registration.
+    /// Dropping the `Option` (via
+    /// [`Client::enable_automatic_call_status`]) drops the syncer,
+    /// which drops its `EventHandlerDropGuard`, which deregisters the
+    /// handler.
+    ///
+    /// [`AutomaticCallStatus`]: crate::automatic_call_status::AutomaticCallStatus
+    #[cfg(feature = "unstable-msc4426")]
+    pub(crate) automatic_call_status:
+        StdMutex<Option<crate::automatic_call_status::AutomaticCallStatus>>,
 }
 
 impl ClientInner {
@@ -439,6 +456,7 @@ impl ClientInner {
         supported_versions: CachedValue<TtlValue<SupportedVersions>>,
         well_known: CachedValue<TtlValue<Option<WellKnownResponse>>>,
         respect_login_well_known: bool,
+        well_known_lookup_disabled: bool,
         event_cache: OnceCell<EventCache>,
         send_queue: Arc<SendQueueData>,
         latest_events: OnceCell<LatestEvents>,
@@ -454,10 +472,11 @@ impl ClientInner {
             well_known: Cache::with_value(well_known),
             server_metadata: Cache::new(),
             homeserver_capabilities: Cache::new(),
+            rtc_transports: Cache::new(),
         };
 
         let client = Self {
-            server,
+            server: StdRwLock::new(server),
             homeserver: StdRwLock::new(homeserver),
             auth_ctx,
             sliding_sync_version: StdRwLock::new(sliding_sync_version),
@@ -475,6 +494,7 @@ impl ClientInner {
             // ballast for all observers to catch up.
             room_updates_sender: broadcast::Sender::new(32),
             respect_login_well_known,
+            well_known_lookup_disabled: StdRwLock::new(well_known_lookup_disabled),
             sync_beat: event_listener::Event::new(),
             event_cache,
             send_queue_data: send_queue,
@@ -493,6 +513,8 @@ impl ClientInner {
             #[cfg(feature = "e2e-encryption")]
             duplicate_key_upload_error_sender: broadcast::channel(1).0,
             media_fetcher: RwLock::new(media_fetcher),
+            #[cfg(feature = "unstable-msc4426")]
+            automatic_call_status: StdMutex::new(None),
         };
 
         #[allow(clippy::let_and_return)]
@@ -573,11 +595,17 @@ impl Client {
 
     /// Change the homeserver URL used by this client.
     ///
+    /// Note that this will reset [`Client::server`] to `None`.
+    ///
     /// # Arguments
     ///
     /// * `homeserver_url` - The new URL to use.
     fn set_homeserver(&self, homeserver_url: Url) {
-        *self.inner.homeserver.write().unwrap() = homeserver_url;
+        let mut homeserver = self.inner.homeserver.write().unwrap();
+        let mut server = self.inner.server.write().unwrap();
+
+        *homeserver = homeserver_url;
+        *server = None;
     }
 
     /// Change to a different homeserver and re-resolve well-known.
@@ -669,8 +697,8 @@ impl Client {
     /// The server used by the client.
     ///
     /// See `Self::server` to learn more.
-    pub fn server(&self) -> Option<&Url> {
-        self.inner.server.as_ref()
+    pub fn server(&self) -> Option<Url> {
+        self.inner.server.read().unwrap().clone()
     }
 
     /// The homeserver of the client.
@@ -2197,7 +2225,14 @@ impl Client {
     /// 3. If we couldn't get the well-known contents with either the explicit
     ///    server name or the implicit extracted one, we try the homeserver URL
     ///    as a last resort.
+    ///
+    /// Always returns `None` if well-known lookups were disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     pub async fn fetch_client_well_known(&self) -> Option<discover_homeserver::Response> {
+        if self.well_known_lookup_disabled() {
+            return None;
+        }
+
         let homeserver = self.homeserver();
         let scheme = homeserver.scheme();
 
@@ -2621,9 +2656,28 @@ impl Client {
         well_known.into_data()
     }
 
+    /// Whether this client is allowed to look up the homeserver's
+    /// /.well-known/matrix/client file.
+    fn well_known_lookup_disabled(&self) -> bool {
+        *self.inner.well_known_lookup_disabled.read().unwrap()
+    }
+
+    /// Change whether this client is allowed to look up the homeserver's
+    /// /.well-known/matrix/client file.
+    pub fn disable_well_known_lookup(&self, disable: bool) {
+        *self.inner.well_known_lookup_disabled.write().unwrap() = disable;
+    }
+
     /// Get the well-known file of the homeserver by fetching it from the server
     /// or the cache.
+    ///
+    /// Always returns `None` if well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     async fn well_known(&self) -> Option<WellKnownResponse> {
+        if self.well_known_lookup_disabled() {
+            return None;
+        }
+
         match self.well_known_cached().await {
             Ok(CachedValue::Cached(value)) => {
                 return value;
@@ -2640,8 +2694,26 @@ impl Client {
         self.refresh_well_known_cache().await
     }
 
+    /// Get information about the homeserver's advertised RTC transports by
+    /// fetching the well-known file from the server or the cache.
+    ///
+    /// Returns an empty list if well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
+    #[deprecated = "Use `Client::discover_rtc_transports` instead"]
+    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
+        self.well_known_rtc_transports().await
+    }
+
     /// Get information about the homeserver's advertised RTC foci by fetching
     /// the well-known file from the server or the cache.
+    ///
+    /// This will be soon deprecated in favor of
+    /// [`Client::discover_rtc_transports`], which fetches the RTC
+    /// transports advertised by the homeserver through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint.
+    ///
+    /// Returns an empty list if well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     ///
     /// # Examples
     /// ```no_run
@@ -2650,7 +2722,7 @@ impl Client {
     /// # async {
     /// # let homeserver = Url::parse("http://localhost:8080")?;
     /// # let mut client = Client::new(homeserver).await?;
-    /// let rtc_foci = client.rtc_foci().await?;
+    /// let rtc_foci = client.well_known_rtc_transports().await?;
     /// let default_livekit_focus_info = rtc_foci.iter().find_map(|focus| match focus {
     ///     RtcTransport::LiveKit(info) => Some(info),
     ///     _ => None,
@@ -2660,17 +2732,171 @@ impl Client {
     /// }
     /// # anyhow::Ok(()) };
     /// ```
-    pub async fn rtc_foci(&self) -> HttpResult<Vec<RtcTransport>> {
+    pub async fn well_known_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
         let well_known = self.well_known().await;
 
         Ok(well_known.map(|well_known| well_known.rtc_foci).unwrap_or_default())
+    }
+
+    /// Get the RTC transports advertised by the homeserver by fetching them
+    /// from the server or the cache.
+    ///
+    /// The transports are discovered through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint
+    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
+    async fn rtc_transports(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+        match self.rtc_transports_cached() {
+            CachedValue::Cached(value) => Ok(value),
+            // The cache is empty, make a request.
+            CachedValue::NotSet => self.refresh_rtc_transports_cache().await,
+        }
+    }
+
+    /// Get the RTC transports advertised by the homeserver from the cache.
+    ///
+    /// Returns [`CachedValue::NotSet`] if nothing has been cached yet. If the
+    /// cached data has expired, this triggers a background task to refresh it
+    /// and returns the stale value.
+    fn rtc_transports_cached(&self) -> CachedValue<Option<Vec<RtcTransport>>> {
+        let cache = &self.inner.caches.rtc_transports;
+
+        let CachedValue::Cached(value) = cache.value() else {
+            return CachedValue::NotSet;
+        };
+
+        // Spawn a task to refresh the cache if it has expired and we have a valid
+        // access token.
+        if value.has_expired() && self.auth_ctx().has_valid_access_token() {
+            debug!("spawning task to refresh RTC transports cache");
+
+            let client = self.clone();
+            self.task_monitor().spawn_finite_task("refresh RTC transports cache", async move {
+                if let Err(error) = client.refresh_rtc_transports_cache().await {
+                    warn!("failed to refresh RTC transports cache: {error}");
+                }
+            });
+        }
+
+        CachedValue::Cached(value.into_data())
+    }
+
+    /// Refresh the RTC transports advertised by the homeserver in the cache.
+    async fn refresh_rtc_transports_cache(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+        let cache = &self.inner.caches.rtc_transports;
+
+        let mut refresh_guard = match cache.refresh_lock.try_lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                // There is already a refresh in progress, wait for it to finish.
+                let guard = cache.refresh_lock.lock().await;
+
+                if let Err(error) = guard.as_ref() {
+                    // There was an error in the previous refresh, return it.
+                    return Err(HttpError::Cached(error.clone()));
+                }
+
+                // Reuse the data if it was cached and it hasn't expired.
+                if let CachedValue::Cached(value) = cache.value()
+                    && !value.has_expired()
+                {
+                    return Ok(value.into_data());
+                }
+
+                // The data wasn't cached or has expired, we need to make another request.
+                guard
+            }
+        };
+
+        match self.fetch_rtc_transports().await {
+            Ok(transports) => {
+                *refresh_guard = Ok(());
+                cache.set_value(TtlValue::new(Some(transports.clone())));
+                Ok(Some(transports))
+            }
+            Err(error) if error.is_endpoint_not_implemented() => {
+                // The homeserver doesn't implement the RTC transports endpoint. Cache
+                // `None` (with the normal TTL) so we don't hit the endpoint on every
+                // call; this self-heals after the TTL in case the homeserver is
+                // upgraded. `None` is kept distinct from `Some(vec![])` (a homeserver
+                // that advertises no transports) so callers can decide whether to fall
+                // back to the well-known foci (see `Client::rtc_foci`).
+                debug!("homeserver does not implement the RTC transports endpoint");
+                *refresh_guard = Ok(());
+                cache.set_value(TtlValue::new(None));
+                Ok(None)
+            }
+            Err(error) => {
+                let error = Arc::new(error);
+                *refresh_guard = Err(error.clone());
+                Err(HttpError::Cached(error))
+            }
+        }
+    }
+
+    /// Fetch the RTC transports advertised by the homeserver from the network,
+    /// bypassing the cache.
+    pub async fn fetch_rtc_transports(&self) -> HttpResult<Vec<RtcTransport>> {
+        let response = self
+            .send(transports::v1::Request::new())
+            .with_request_config(RequestConfig::short_retry())
+            .await?;
+        Ok(response.rtc_transports)
+    }
+
+    /// Empty the RTC transports cache.
+    ///
+    /// Since the SDK caches the RTC transports, it's possible to have a stale
+    /// entry in the cache. This function makes it possible to force reset it.
+    pub fn reset_rtc_transports(&self) {
+        self.inner.caches.rtc_transports.reset();
+    }
+
+    /// Discover the RTC transports advertised by the homeserver.
+    ///
+    /// The transports are first looked up through the authenticated
+    /// `GET /_matrix/client/v1/rtc/transports` endpoint
+    /// ([MSC4143](https://github.com/matrix-org/matrix-spec-proposals/pull/4143)).
+    /// If the homeserver doesn't implement that endpoint, this falls back to
+    /// the `m.rtc_foci` field of the well-known, see
+    /// [`Client::well_known_rtc_transports`] — unless well-known discovery
+    /// was disabled with [`ClientBuilder::disable_well_known_lookup`].
+    ///
+    /// Returns `None` if neither source could provide transports, which is
+    /// kept distinct from `Some(vec![])`, i.e. a homeserver that advertises no
+    /// transports at all.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use matrix_sdk::Client;
+    /// # use url::Url;
+    /// # async {
+    /// # let homeserver = Url::parse("http://localhost:8080")?;
+    /// # let client = Client::new(homeserver).await?;
+    /// for transport in client.discover_rtc_transports().await?.unwrap_or_default()
+    /// {
+    ///     println!("transport type: {}", transport.transport_type());
+    /// }
+    /// # anyhow::Ok(()) };
+    /// ```
+    pub async fn discover_rtc_transports(&self) -> HttpResult<Option<Vec<RtcTransport>>> {
+        if let Some(transports) = self.rtc_transports().await? {
+            return Ok(Some(transports));
+        }
+
+        // The homeserver doesn't implement the discovery endpoint or does not expose
+        // any transports, fall back to the well-known foci.
+        // `well_known` returns `None` when well-known discovery is
+        // disabled, which correctly collapses into "nothing was discovered".
+        Ok(self.well_known().await.map(|well_known| well_known.rtc_foci))
     }
 
     /// Get information about the homeserver's advertised map tile server, if
     /// any, by fetching the well-known file from the server or the cache.
     ///
     /// Returns `None` if the homeserver has not advertised a tile server in its
-    /// well-known, or if the well-known is otherwise unavailable.
+    /// well-known, or if the well-known is otherwise unavailable — including
+    /// when well-known discovery was disabled with
+    /// [`ClientBuilder::disable_well_known_lookup`].
     pub async fn tile_server(&self) -> Option<TileServerInfo> {
         self.well_known().await.and_then(|well_known| well_known.tile_server).map(Into::into)
     }
@@ -3332,7 +3558,7 @@ impl Client {
         let client = Client {
             inner: ClientInner::new(
                 self.inner.auth_ctx.clone(),
-                self.server().cloned(),
+                self.server(),
                 self.homeserver(),
                 self.sliding_sync_version(),
                 self.inner.sync_presence.clone(),
@@ -3344,6 +3570,7 @@ impl Client {
                 self.inner.caches.supported_versions.value(),
                 self.inner.caches.well_known.value(),
                 self.inner.respect_login_well_known,
+                self.well_known_lookup_disabled(),
                 self.inner.event_cache.clone(),
                 self.inner.send_queue_data.clone(),
                 self.inner.latest_events.clone(),
@@ -3785,7 +4012,7 @@ pub(crate) mod tests {
 
     use super::Client;
     use crate::{
-        Error, TransmissionProgress,
+        Error, Result, TransmissionProgress,
         client::{WeakClient, caches::CachedValue, futures::SendMediaUploadRequest},
         config::{RequestConfig, SyncSettings},
         futures::SendRequest,
@@ -3983,9 +4210,40 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.server().unwrap(), &Url::parse(&server_url).unwrap());
+        assert_eq!(client.server().unwrap(), Url::parse(&server_url).unwrap());
         assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
         client.server_versions().await.unwrap();
+    }
+
+    #[async_test]
+    async fn test_homeserver_swap_resets_server_field() {
+        let homeserver = MatrixMockServer::new().await;
+        let homeserver_url = homeserver.uri();
+
+        let domain = homeserver_url.strip_prefix("http://").unwrap();
+        let alice = UserId::parse("@alice:".to_owned() + domain).unwrap();
+
+        homeserver.mock_well_known().ok().mock_once().named("well-known").mount().await;
+
+        let client = Client::builder()
+            .insecure_server_name_no_tls(alice.server_name())
+            .build()
+            .await
+            .unwrap();
+
+        assert_eq!(client.server().unwrap(), Url::parse(&homeserver_url).unwrap());
+        assert_eq!(client.homeserver(), Url::parse(&homeserver_url).unwrap());
+
+        let new_server = Url::parse("http://example.org").unwrap();
+        // Since we're explicitly setting the server to something else, like we might do
+        // during QR code login...
+        client.set_homeserver(new_server.clone());
+
+        // The new URL should be set in the homeserver field.
+        assert_eq!(client.homeserver(), new_server);
+        // But the server field should be set to empty, since we didn't do any discovery
+        // now.
+        assert!(client.server().is_none())
     }
 
     #[async_test]
@@ -4369,10 +4627,10 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // This subsequent call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -4389,10 +4647,10 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(well_known_mock);
 
@@ -4402,9 +4660,9 @@ pub(crate) mod tests {
         server.mock_well_known().ok().named("second well known mock").expect(2).mount().await;
 
         // Hits network again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Force an expiry of the data.
         let well_known = client.well_known().await;
@@ -4420,6 +4678,236 @@ pub(crate) mod tests {
         // user will fail, only the requests using the homeserver URL will succeed.
         sleep(Duration::from_secs(5)).await;
         assert_matches!(client.inner.caches.well_known.value(), CachedValue::Cached(value) if !value.has_expired());
+    }
+
+    #[async_test]
+    async fn test_rtc_transports_caching() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let transports = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+
+        let transports_mock = Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "rtc_transports": [
+                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                ]
+            })))
+            .named("first transports mock")
+            .expect(1)
+            .mount_as_scoped(server.server())
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        // First call hits the network.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+        // Subsequent call hits the in-memory cache.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+
+        drop(transports_mock);
+
+        // Reset the cache, and observe the endpoint being called again once.
+        client.reset_rtc_transports();
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "rtc_transports": [
+                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                ]
+            })))
+            .named("second transports mock")
+            .expect(2)
+            .mount(server.server())
+            .await;
+
+        // Hits network again.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+        // Hits in-memory cache again.
+        assert_eq!(client.rtc_transports().await.unwrap(), Some(transports.clone()));
+
+        // Force an expiry of the data.
+        let mut ttl_value = TtlValue::new(Some(transports.clone()));
+        ttl_value.expire();
+        client.inner.caches.rtc_transports.set_value(ttl_value);
+
+        // Call the method again to trigger a cache refresh background task.
+        client.rtc_transports().await.unwrap();
+
+        // We wait for the task to finish, the endpoint should have been called again.
+        sleep(Duration::from_secs(1)).await;
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+    }
+
+    #[async_test]
+    async fn test_rtc_transports_unsupported_caching() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+
+        let server = MatrixMockServer::new().await;
+
+        // The homeserver doesn't implement the endpoint: it responds with a 404 and an
+        // `M_UNRECOGNIZED` error (as a homeserver does for an unrecognized endpoint).
+        // We expect it to be hit only once, despite several calls, thanks to the
+        // negative caching.
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_UNRECOGNIZED",
+                "error": "Unrecognized request",
+            })))
+            .named("unrecognized transports mock")
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        // First call hits the network and gets a 404, which is cached as `None`
+        // (unsupported), distinct from `Some(vec![])` (supported but empty).
+        assert_eq!(client.rtc_transports().await.unwrap(), None);
+        // Subsequent call hits the in-memory cache, without re-hitting the endpoint.
+        assert_eq!(client.rtc_transports().await.unwrap(), None);
+        assert_matches!(client.inner.caches.rtc_transports.value(), CachedValue::Cached(value) if !value.has_expired());
+    }
+
+    /// Mounts a scoped mock for the MSC4143 RTC transports endpoint, either
+    /// advertising a single LiveKit transport, or responding with the
+    /// `M_UNRECOGNIZED` error of a homeserver that doesn't implement it.
+    async fn mock_rtc_transports_endpoint(
+        server: &MatrixMockServer,
+        supported: bool,
+    ) -> wiremock::MockGuard {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path_regex},
+        };
+
+        let response = if supported {
+            ResponseTemplate::new(200).set_body_json(json!({
+                "rtc_transports": [
+                    { "type": "livekit", "livekit_service_url": "https://livekit.example.com" }
+                ]
+            }))
+        } else {
+            ResponseTemplate::new(404).set_body_json(json!({
+                "errcode": "M_UNRECOGNIZED",
+                "error": "Unrecognized request",
+            }))
+        };
+
+        Mock::given(method("GET"))
+            .and(path_regex(r"^/_matrix/client/unstable/org.matrix.msc4143/rtc/transports"))
+            .respond_with(response)
+            .named("transports mock")
+            .expect(1)
+            .mount_as_scoped(server.server())
+            .await
+    }
+
+    #[async_test]
+    async fn test_discover_rtc_transports_prefers_the_endpoint() {
+        let server = MatrixMockServer::new().await;
+        let transports = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, true).await;
+
+        // The homeserver implements the discovery endpoint, so the well-known must not
+        // be queried at all.
+        let _well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well-known mock")
+            .expect(0)
+            .mount_as_scoped()
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(transports));
+    }
+
+    #[async_test]
+    async fn test_discover_rtc_transports_falls_back_to_well_known() {
+        let server = MatrixMockServer::new().await;
+        // The `m.rtc_foci` advertised by `WellKnownEndpoint::ok`.
+        let rtc_foci = vec![RtcTransport::livekit("https://livekit.example.com".to_owned())];
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+
+        let _well_known_mock = server
+            .mock_well_known()
+            .ok()
+            .named("well-known mock")
+            .expect(1)
+            .mount_as_scoped()
+            .await;
+
+        let client = server.client_builder().build().await;
+
+        // The homeserver doesn't implement the discovery endpoint, so the well-known
+        // foci are used instead.
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), Some(rtc_foci));
+    }
+
+    /// Mounts a well-known mock that must never be hit.
+    async fn mock_well_known_never_called(server: &MatrixMockServer) -> wiremock::MockGuard {
+        server.mock_well_known().ok().named("well-known mock").expect(0).mount_as_scoped().await
+    }
+
+    #[async_test]
+    async fn test_well_known_lookup_disabled() {
+        let server = MatrixMockServer::new().await;
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+
+        // There should be no requests to fetch the well-known.
+        let _well_known_mock = mock_well_known_never_called(&server).await;
+
+        // Disable well-known lookups at client build time.
+        let client = server
+            .client_builder()
+            .on_builder(|builder| builder.disable_well_known_lookup(true))
+            .build()
+            .await;
+
+        // The homeserver doesn't implement the discovery endpoint, and falling back to
+        // the well-known isn't allowed, so nothing could be discovered.
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
+        // The other well-known consumers are disabled too.
+        assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
+        assert!(client.tile_server().await.is_none());
+        assert!(client.fetch_client_well_known().await.is_none());
+    }
+
+    #[async_test]
+    async fn test_well_known_lookup_disabled_after_build() {
+        let server = MatrixMockServer::new().await;
+
+        let _transports_mock = mock_rtc_transports_endpoint(&server, false).await;
+
+        // There should be no requests to fetch the well-known.
+        let _well_known_mock = mock_well_known_never_called(&server).await;
+
+        // Disable well-known lookups after building the client.
+        let client = server.client_builder().build().await;
+        client.disable_well_known_lookup(true);
+
+        // The homeserver doesn't implement the discovery endpoint, and falling back to
+        // the well-known isn't allowed, so nothing could be discovered.
+        assert_eq!(client.discover_rtc_transports().await.unwrap(), None);
+        // The other well-known consumers are disabled too.
+        assert!(client.well_known_rtc_transports().await.unwrap().is_empty());
+        assert!(client.tile_server().await.is_none());
+        assert!(client.fetch_client_well_known().await.is_none());
     }
 
     #[async_test]
@@ -4447,10 +4935,10 @@ pub(crate) mod tests {
             .build()
             .await;
 
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // This subsequent call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(client);
 
@@ -4466,10 +4954,10 @@ pub(crate) mod tests {
             .await;
 
         // This call to the new client hits the on-disk cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         // Then this call hits the in-memory cache.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
 
         drop(well_known_mock);
 
@@ -4485,9 +4973,9 @@ pub(crate) mod tests {
             .await;
 
         // Hits network again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
         // Hits in-memory cache again.
-        assert_eq!(client.rtc_foci().await.unwrap(), rtc_foci);
+        assert_eq!(client.well_known_rtc_transports().await.unwrap(), rtc_foci);
     }
 
     #[async_test]
@@ -5164,5 +5652,87 @@ pub(crate) mod tests {
             .await;
 
         assert_matches!(client.fetch_client_well_known().await, Some(_));
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_syncing_one_time_key_counts_updates() -> Result<()> {
+        use wiremock::ResponseTemplate;
+
+        macro_rules! assert_key_count {
+            ($client: ident, $count:literal) => {{
+                let machine = $client.olm_machine().await;
+                let uploaded_key_counts =
+                    machine.as_ref().unwrap().uploaded_key_count().await.unwrap();
+                assert_eq!(uploaded_key_counts, $count)
+            }};
+        }
+
+        macro_rules! sync_with_key_count {
+            ($client: ident, $server:ident, $count:literal) => {
+                let count = Some($count);
+                sync_with_key_count!($client, $server, count);
+            };
+            ($client: ident, $server:ident, $count:ident) => {{
+                use rand::RngExt as _;
+
+                let next_batch: String = rand::rng()
+                    .sample_iter(&rand::distr::Alphanumeric)
+                    .take(16)
+                    .map(char::from)
+                    .collect();
+
+                let count: Option<u32> = $count;
+
+                let template = if let Some(count) = count {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "next_batch": next_batch,
+                        "rooms": {"leave": {}, "join": {}, "invite": {}},
+                        "device_lists": {
+                          "changed": [],
+                          "left": [],
+                        },
+                        "device_one_time_keys_count": {
+                          "signed_curve25519": count
+                        },
+                    }))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(json!({
+                        "next_batch": next_batch,
+                        "rooms": {"leave": {}, "join": {}, "invite": {}},
+                        "device_lists": {
+                          "changed": [],
+                          "left": [],
+                        },
+                        "device_one_time_keys_count": {},
+                    }))
+                };
+
+                let _sync_mock_guard = $server.mock_sync().respond_with(template).mount_as_scoped().await;
+                $client.sync_once(Default::default()).await?;
+            }}
+        }
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        server.mock_upload_keys().ok_with_signed_curve_key_count(50).mock_once().mount().await;
+
+        // In the beginning there were no uploaded keys.
+        assert_key_count!(client, 0);
+
+        // The first sync will upload 50 one-time keys.
+        sync_with_key_count!(client, server, 50);
+        assert_key_count!(client, 50);
+
+        // Syncing with a key count, will update the key count.
+        sync_with_key_count!(client, server, 10);
+        assert_key_count!(client, 10);
+
+        // Syncing with no key count will set the key count to zero.
+        sync_with_key_count!(client, server, None);
+        assert_key_count!(client, 0);
+
+        Ok(())
     }
 }

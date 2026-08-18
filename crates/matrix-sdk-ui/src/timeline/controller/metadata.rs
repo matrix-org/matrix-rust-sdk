@@ -20,7 +20,7 @@ use std::{
 use imbl::Vector;
 use matrix_sdk::deserialized_responses::EncryptionInfo;
 use ruma::{
-    EventId, OwnedEventId, OwnedUserId,
+    EventId, OwnedEventId, OwnedUserId, UserId,
     events::{
         AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         BundledMessageLikeRelations,
@@ -37,7 +37,7 @@ use super::{
     super::{TimelineItem, TimelineItemKind, TimelineUniqueId, subscriber::skip::SkipCount},
     ActiveCallInfo, Aggregation, AggregationKind, Aggregations, AllRemoteEvents,
     ObservableItemsTransaction, PendingEdit, PendingEditKind,
-    read_receipts::ReadReceipts,
+    read_receipts::ReadReceiptsState,
 };
 use crate::{
     timeline::{
@@ -126,7 +126,7 @@ pub(in crate::timeline) struct TimelineMetadata {
     /// Read receipts related state.
     ///
     /// TODO: move this over to the event cache (see also #3058).
-    pub(super) read_receipts: ReadReceipts,
+    pub(super) read_receipts: ReadReceiptsState,
 
     /// The event ID of the active RtcNotification item that should have
     /// active_members populated.
@@ -568,6 +568,9 @@ pub(in crate::timeline) struct EventMeta {
     /// The ID of the event.
     pub event_id: OwnedEventId,
 
+    /// The sender of the event, if known.
+    pub sender: Option<OwnedUserId>,
+
     /// If this event is part of a thread, this will contain its thread root
     /// event id.
     pub thread_root_id: Option<OwnedEventId>,
@@ -645,12 +648,14 @@ pub(in crate::timeline) struct EventMeta {
 impl EventMeta {
     pub fn new(
         event_id: OwnedEventId,
+        sender: Option<&UserId>,
         visible: bool,
         can_show_read_receipts: bool,
         thread_root_id: Option<OwnedEventId>,
     ) -> Self {
         Self {
             event_id,
+            sender: sender.map(ToOwned::to_owned),
             thread_root_id,
             visible,
             can_show_read_receipts,

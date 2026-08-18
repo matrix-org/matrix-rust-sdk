@@ -212,6 +212,7 @@ impl RoomSendQueue {
         }
 
         let filename = filename.into();
+        let extra_content = config.extra_content.take();
         let upload_file_txn = TransactionId::new();
         let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
 
@@ -254,6 +255,7 @@ impl RoomSendQueue {
                 upload_file_txn.clone(),
                 file_media_request,
                 queue_thumbnail_info,
+                extra_content.clone(),
             )
             .await?;
 
@@ -271,8 +273,11 @@ impl RoomSendQueue {
         self.send_update(RoomSendQueueUpdate::NewLocalEvent(LocalEcho {
             transaction_id: send_event_txn.clone().into(),
             content: LocalEchoContent::Event {
-                serialized_event: SerializableEventContent::new(&event_content.into())
-                    .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                serialized_event: merge_extra_content(
+                    SerializableEventContent::new(&event_content.into())
+                        .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+                    extra_content,
+                )?,
                 send_handle: send_handle.clone(),
                 send_error: None,
             },
@@ -480,6 +485,44 @@ impl RoomSendQueue {
     }
 }
 
+/// Merge additional top-level fields into serialized event content.
+///
+/// Fields already present in the serialized content always win over extra
+/// fields with the same name.
+pub(super) fn merge_extra_content(
+    content: SerializableEventContent,
+    extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+) -> Result<SerializableEventContent, RoomSendQueueStorageError> {
+    let Some(extra_content) = extra_content else {
+        return Ok(content);
+    };
+    if extra_content.is_empty() {
+        return Ok(content);
+    }
+
+    let (raw, event_type) = content.into_raw();
+    let mut object: serde_json::Map<String, serde_json::Value> =
+        raw.deserialize_as().map_err(RoomSendQueueStorageError::JsonSerialization)?;
+
+    for (key, value) in extra_content {
+        match object.entry(key) {
+            serde_json::map::Entry::Occupied(entry) => {
+                warn!(key = entry.key(), "extra content field shadowed by the event's own field");
+            }
+            serde_json::map::Entry::Vacant(entry) => {
+                entry.insert(value);
+            }
+        }
+    }
+
+    let raw = ruma::serde::Raw::from_json(
+        serde_json::value::to_raw_value(&object)
+            .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+    );
+
+    Ok(SerializableEventContent::from_raw(raw, event_type))
+}
+
 impl QueueStorage {
     /// Consumes a finished upload and queues sending of the final media event.
     #[allow(clippy::too_many_arguments)]
@@ -491,6 +534,7 @@ impl QueueStorage {
         mut local_echo: RoomMessageEventContent,
         file_upload_txn: OwnedTransactionId,
         thumbnail_info: Option<FinishUploadThumbnailInfo>,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
         new_updates: &mut Vec<RoomSendQueueUpdate>,
     ) -> Result<(), RoomSendQueueError> {
         // Both uploads are ready: enqueue the event with its final data.
@@ -502,8 +546,11 @@ impl QueueStorage {
             .await?;
         update_media_event_after_upload(&mut local_echo, sent_media);
 
-        let new_content = SerializableEventContent::new(&local_echo.into())
-            .map_err(RoomSendQueueStorageError::JsonSerialization)?;
+        let new_content = merge_extra_content(
+            SerializableEventContent::new(&local_echo.into())
+                .map_err(RoomSendQueueStorageError::JsonSerialization)?,
+            extra_content,
+        )?;
 
         // Indicates observers that the upload finished, by editing the local echo for
         // the event into its final form before sending.
@@ -839,6 +886,7 @@ impl QueueStorage {
                     mut local_echo,
                     file_upload,
                     thumbnail_info,
+                    extra_content,
                 } = found.kind
                 else {
                     return Err(InvalidMediaCaptionEdit);
@@ -852,6 +900,7 @@ impl QueueStorage {
                     local_echo: local_echo.clone(),
                     file_upload,
                     thumbnail_info,
+                    extra_content,
                 };
                 store
                     .update_dependent_queued_request(

@@ -80,6 +80,7 @@ impl<'a> IntoFuture for SendAttachment<'a> {
                 thumbnail: config.thumbnail,
                 caption: config.caption,
                 mentions: config.mentions,
+                extra_content: config.extra_content,
                 reply,
             };
 

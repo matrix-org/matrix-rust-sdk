@@ -60,6 +60,10 @@ pub struct Capabilities {
 
     /// This allows the widget to download files as per MSC4039.
     pub download_file: bool,
+
+    /// This allows the widget to discover the RTC transports advertised by the
+    /// homeserver as per MSC4515.
+    pub rtc_transports: bool,
 }
 
 impl Capabilities {
@@ -118,6 +122,8 @@ pub(super) const SEND_DELAYED_EVENT: &str = "org.matrix.msc4157.send.delayed_eve
 pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed_event";
 
 pub(super) const DOWNLOAD_FILE: &str = "org.matrix.msc4039.download_file";
+
+pub(super) const RTC_TRANSPORTS: &str = "org.matrix.msc4515.rtc_transports";
 
 impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -182,6 +188,9 @@ impl Serialize for Capabilities {
         if self.download_file {
             seq.serialize_element(DOWNLOAD_FILE)?;
         }
+        if self.rtc_transports {
+            seq.serialize_element(RTC_TRANSPORTS)?;
+        }
         for filter in &self.read {
             let name = match filter {
                 Filter::MessageLike(_) => READ_EVENT,
@@ -213,6 +222,7 @@ impl<'de> Deserialize<'de> for Capabilities {
             UpdateDelayedEvent,
             SendDelayedEvent,
             DownloadFile,
+            RtcTransports,
             Read(Filter),
             Send(Filter),
             Unknown,
@@ -235,6 +245,9 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
                 if s == DOWNLOAD_FILE {
                     return Ok(Self::DownloadFile);
+                }
+                if s == RTC_TRANSPORTS {
+                    return Ok(Self::RtcTransports);
                 }
 
                 match s.split_once(':') {
@@ -297,6 +310,7 @@ impl<'de> Deserialize<'de> for Capabilities {
                 Permission::UpdateDelayedEvent => capabilities.update_delayed_event = true,
                 Permission::SendDelayedEvent => capabilities.send_delayed_event = true,
                 Permission::DownloadFile => capabilities.download_file = true,
+                Permission::RtcTransports => capabilities.rtc_transports = true,
             }
         }
 
@@ -335,7 +349,8 @@ mod tests {
             "org.matrix.msc3819.send.to_device:io.element.call.encryption_keys",
             "org.matrix.msc4157.send.delayed_event",
             "org.matrix.msc4157.update_delayed_event",
-            "org.matrix.msc4039.download_file"
+            "org.matrix.msc4039.download_file",
+            "org.matrix.msc4515.rtc_transports"
         ]"#;
 
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
@@ -366,6 +381,7 @@ mod tests {
             update_delayed_event: true,
             send_delayed_event: true,
             download_file: true,
+            rtc_transports: true,
         };
 
         assert_eq!(parsed, expected);
@@ -397,6 +413,7 @@ mod tests {
             update_delayed_event: false,
             send_delayed_event: false,
             download_file: false,
+            rtc_transports: true,
         };
 
         let capabilities_str = serde_json::to_string(&capabilities).unwrap();

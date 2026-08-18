@@ -27,7 +27,7 @@ use matrix_sdk_search::{
     index::{IndexableEvent, RoomIndex, RoomIndexOperation, builder::RoomIndexBuilder},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, RoomId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId,
     events::{
         AnySyncMessageLikeEvent, AnySyncTimelineEvent,
         poll::{
@@ -284,19 +284,23 @@ fn room_message_body(msgtype: &MessageType) -> Option<String> {
 
 /// Build an [`IndexableEvent`] from a room message, or `None` if its type
 /// carries no searchable text.
-fn indexable_from_room_message(event: &OriginalSyncRoomMessageEvent) -> Option<IndexableEvent> {
+fn indexable_from_room_message(
+    event: &OriginalSyncRoomMessageEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
+) -> Option<IndexableEvent> {
     let body = room_message_body(&event.content.msgtype)?;
     let original_event_id = match &event.content.relates_to {
         Some(Relation::Replacement(replacement)) => replacement.event_id.clone(),
         _ => event.event_id.clone(),
     };
-    Some(IndexableEvent {
-        event_id: event.event_id.clone(),
+
+    Some(IndexableEvent::new(
+        event.event_id.clone(),
         original_event_id,
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
+        event.sender.clone(),
+        timestamp,
         body,
-    })
+    ))
 }
 
 /// If the given [`OriginalSyncRoomMessageEvent`] is an edit we make an
@@ -304,12 +308,13 @@ fn indexable_from_room_message(event: &OriginalSyncRoomMessageEvent) -> Option<I
 /// original.
 async fn handle_possible_edit(
     event: &OriginalSyncRoomMessageEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
     cache: &RoomEventCache,
 ) -> Option<RoomIndexOperation> {
     if let Some(Relation::Replacement(replacement_data)) = &event.content.relates_to {
         if let Some(recent) = get_most_recent_edit(cache, &replacement_data.event_id).await {
             return Some(
-                indexable_from_room_message(&recent).map_or(
+                indexable_from_room_message(&recent, timestamp).map_or(
                     RoomIndexOperation::Noop,
                     |indexable| {
                         RoomIndexOperation::Edit(replacement_data.event_id.clone(), indexable)
@@ -327,15 +332,18 @@ async fn handle_possible_edit(
 /// depending on the message.
 async fn handle_room_message(
     event: SyncRoomMessageEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
     cache: &RoomEventCache,
 ) -> Option<RoomIndexOperation> {
     if let Some(event) = event.as_original() {
-        return handle_possible_edit(event, cache).await.or(get_most_recent_edit(
+        return handle_possible_edit(event, timestamp, cache).await.or(get_most_recent_edit(
             cache,
             &event.event_id,
         )
         .await
-        .and_then(|recent| indexable_from_room_message(&recent).map(RoomIndexOperation::Add)));
+        .and_then(|recent| {
+            indexable_from_room_message(&recent, timestamp).map(RoomIndexOperation::Add)
+        }));
     }
     None
 }
@@ -344,6 +352,7 @@ async fn handle_room_message(
 /// re-adding the most recent remaining version if an edit was redacted.
 async fn handle_room_redaction(
     event: SyncRoomRedactionEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
     cache: &RoomEventCache,
     rules: &RedactionRules,
 ) -> Option<RoomIndexOperation> {
@@ -356,7 +365,7 @@ async fn handle_room_redaction(
             redacted_event,
         ))) = redacted_event.raw().deserialize()
         && let Some(redacted_event) = redacted_event.as_original()
-        && let Some(operation) = handle_possible_edit(redacted_event, cache).await
+        && let Some(operation) = handle_possible_edit(redacted_event, timestamp, cache).await
     {
         return Some(operation);
     }
@@ -367,15 +376,19 @@ async fn handle_room_redaction(
 }
 
 /// Return a [`RoomIndexOperation::Add`] indexing a sticker's descriptive text.
-fn handle_sticker(event: SyncStickerEvent) -> Option<RoomIndexOperation> {
+fn handle_sticker(
+    event: SyncStickerEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
+) -> Option<RoomIndexOperation> {
     let event = event.as_original()?;
-    Some(RoomIndexOperation::Add(IndexableEvent {
-        event_id: event.event_id.clone(),
-        original_event_id: event.event_id.clone(),
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
-        body: event.content.body.clone(),
-    }))
+
+    Some(RoomIndexOperation::Add(IndexableEvent::new(
+        event.event_id.clone(),
+        event.event_id.clone(),
+        event.sender.clone(),
+        timestamp,
+        event.content.body.clone(),
+    )))
 }
 
 /// Return a [`RoomIndexOperation::Add`] indexing an unstable poll's question
@@ -384,7 +397,10 @@ fn handle_sticker(event: SyncStickerEvent) -> Option<RoomIndexOperation> {
 /// ponytail: only indexes the initial `New` poll — edits (`Replacement`) and
 /// poll ends are ignored. Add edit handling if editing a poll needs to update
 /// search results.
-fn handle_unstable_poll_start(event: SyncUnstablePollStartEvent) -> Option<RoomIndexOperation> {
+fn handle_unstable_poll_start(
+    event: SyncUnstablePollStartEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
+) -> Option<RoomIndexOperation> {
     let event = event.as_original()?;
 
     let UnstablePollStartEventContent::New(content) = &event.content else {
@@ -398,13 +414,13 @@ fn handle_unstable_poll_start(event: SyncUnstablePollStartEvent) -> Option<RoomI
         body.push_str(&answer.text);
     }
 
-    Some(RoomIndexOperation::Add(IndexableEvent {
-        event_id: event.event_id.clone(),
-        original_event_id: event.event_id.clone(),
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
+    Some(RoomIndexOperation::Add(IndexableEvent::new(
+        event.event_id.clone(),
+        event.event_id.clone(),
+        event.sender.clone(),
+        timestamp,
         body,
-    }))
+    )))
 }
 
 /// Return a [`RoomIndexOperation::Add`] indexing a stable poll's question and
@@ -412,7 +428,10 @@ fn handle_unstable_poll_start(event: SyncUnstablePollStartEvent) -> Option<RoomI
 ///
 /// ponytail: like [`handle_unstable_poll_start`], edits and poll ends are
 /// ignored — only the initial poll is indexed.
-fn handle_poll_start(event: SyncPollStartEvent) -> Option<RoomIndexOperation> {
+fn handle_poll_start(
+    event: SyncPollStartEvent,
+    timestamp: Option<MilliSecondsSinceUnixEpoch>,
+) -> Option<RoomIndexOperation> {
     let event = event.as_original()?;
 
     // Skip poll edits, matching the unstable poll handling.
@@ -429,13 +448,13 @@ fn handle_poll_start(event: SyncPollStartEvent) -> Option<RoomIndexOperation> {
         }
     }
 
-    Some(RoomIndexOperation::Add(IndexableEvent {
-        event_id: event.event_id.clone(),
-        original_event_id: event.event_id.clone(),
-        sender: event.sender.clone(),
-        timestamp: event.origin_server_ts,
+    Some(RoomIndexOperation::Add(IndexableEvent::new(
+        event.event_id.clone(),
+        event.event_id.clone(),
+        event.sender.clone(),
+        timestamp,
         body,
-    }))
+    )))
 }
 
 /// Prepare a [`TimelineEvent`] into a [`RoomIndexOperation`] for search
@@ -451,19 +470,21 @@ async fn parse_timeline_event(
         return None;
     }
 
+    let timestamp = event.timestamp();
+
     match event.raw().deserialize() {
         Ok(event) => match event {
             AnySyncTimelineEvent::MessageLike(event) => match event {
                 AnySyncMessageLikeEvent::RoomMessage(event) => {
-                    handle_room_message(event, cache).await
+                    handle_room_message(event, timestamp, cache).await
                 }
                 AnySyncMessageLikeEvent::RoomRedaction(event) => {
-                    handle_room_redaction(event, cache, redaction_rules).await
+                    handle_room_redaction(event, timestamp, cache, redaction_rules).await
                 }
-                AnySyncMessageLikeEvent::Sticker(event) => handle_sticker(event),
-                AnySyncMessageLikeEvent::PollStart(event) => handle_poll_start(event),
+                AnySyncMessageLikeEvent::Sticker(event) => handle_sticker(event, timestamp),
+                AnySyncMessageLikeEvent::PollStart(event) => handle_poll_start(event, timestamp),
                 AnySyncMessageLikeEvent::UnstablePollStart(event) => {
-                    handle_unstable_poll_start(event)
+                    handle_unstable_poll_start(event, timestamp)
                 }
                 _ => None,
             },

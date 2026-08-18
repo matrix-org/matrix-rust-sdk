@@ -49,6 +49,13 @@ enum SwiftCommand {
         #[clap(long)]
         components_path: Option<Utf8PathBuf>,
 
+        /// The macOS deployment target to use when building the framework.
+        ///
+        /// Defaults to not being set, which implies that the build will use the
+        /// default values provided by the Rust and Xcode toolchains.
+        #[clap(long)]
+        macos_deployment_target: Option<String>,
+
         /// The iOS deployment target to use when building the framework.
         ///
         /// Defaults to not being set, which implies that the build will use the
@@ -84,6 +91,7 @@ impl SwiftArgs {
                 target: targets,
                 tier3_targets,
                 components_path,
+                macos_deployment_target,
                 ios_deployment_target,
                 watchos_deployment_target,
                 sequentially,
@@ -98,6 +106,7 @@ impl SwiftArgs {
                     tier3_targets,
                     components_path,
                     sequentially,
+                    macos_deployment_target.as_deref(),
                     ios_deployment_target.as_deref(),
                     watchos_deployment_target.as_deref(),
                 )
@@ -266,6 +275,7 @@ fn build_xcframework(
     tier3_targets: bool,
     components_path: Option<Utf8PathBuf>,
     sequentially: bool,
+    macos_deployment_target: Option<&str>,
     ios_deployment_target: Option<&str>,
     watchos_deployment_target: Option<&str>,
 ) -> Result<()> {
@@ -301,6 +311,7 @@ fn build_xcframework(
         targets,
         profile,
         sequentially,
+        macos_deployment_target,
         ios_deployment_target,
         watchos_deployment_target,
     )?;
@@ -372,6 +383,7 @@ fn build_targets(
     targets: Vec<&Target>,
     profile: &str,
     sequentially: bool,
+    macos_deployment_target: Option<&str>,
     ios_deployment_target: Option<&str>,
     watchos_deployment_target: Option<&str>,
 ) -> Result<HashMap<Platform, Vec<Utf8PathBuf>>> {
@@ -383,8 +395,10 @@ fn build_targets(
         sh.push_env("CARGO_TARGET_AARCH64_APPLE_IOS_RUSTFLAGS", "-Clinker=/usr/bin/clang");
     let _env_guard2 = sh.push_env("AARCH64_APPLE_IOS_CC", "/usr/bin/clang");
     let _env_guard3 =
-        ios_deployment_target.map(|target| sh.push_env("IPHONEOS_DEPLOYMENT_TARGET", target));
+        macos_deployment_target.map(|target| sh.push_env("MACOSX_DEPLOYMENT_TARGET", target));
     let _env_guard4 =
+        ios_deployment_target.map(|target| sh.push_env("IPHONEOS_DEPLOYMENT_TARGET", target));
+    let _env_guard5 =
         watchos_deployment_target.map(|target| sh.push_env("WATCHOS_DEPLOYMENT_TARGET", target));
 
     if sequentially {

@@ -84,7 +84,7 @@ use serde::{Deserialize, de::Error as _};
 use tasks::BundleReceiverTask;
 use tokio::sync::{Mutex, RwLockReadGuard};
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tracing::{Span, debug, error, instrument, warn};
+use tracing::{Instrument, Span, debug, error, instrument, warn};
 use url::Url;
 use vodozemac::Curve25519PublicKey;
 
@@ -106,6 +106,7 @@ use crate::{
 };
 
 pub mod backups;
+pub mod dehydrated_devices;
 pub mod futures;
 pub mod identities;
 pub mod recovery;
@@ -207,6 +208,10 @@ pub(crate) struct EncryptionData {
 
     /// All state related to secret storage recovery.
     pub recovery_state: SharedObservable<RecoveryState>,
+
+    /// State for the dehydrated-devices manager (event channel, scheduled
+    /// rotation task).
+    pub dehydrated_devices_state: dehydrated_devices::DehydratedDevicesState,
 }
 
 impl EncryptionData {
@@ -217,6 +222,7 @@ impl EncryptionData {
             tasks: StdMutex::new(Default::default()),
             backup_state: Default::default(),
             recovery_state: Default::default(),
+            dehydrated_devices_state: Default::default(),
         }
     }
 
@@ -1804,6 +1810,17 @@ impl Encryption {
         Recovery { client: self.client.to_owned() }
     }
 
+    /// Get the dehydrated-devices manager of the client.
+    ///
+    /// A dehydrated device is a virtual device that the homeserver holds on
+    /// the user's behalf and that can receive end-to-end encrypted to-device
+    /// events while the user is offline. See the
+    /// [`dehydrated_devices`] module
+    /// for the full lifecycle and an example.
+    pub fn dehydrated_devices(&self) -> dehydrated_devices::DehydratedDevices {
+        dehydrated_devices::DehydratedDevices { client: self.client.to_owned() }
+    }
+
     /// Enables the crypto-store cross-process lock.
     ///
     /// This may be required if there are multiple processes that may do writes
@@ -1995,24 +2012,27 @@ impl Encryption {
 
         let this = self.clone();
 
-        tasks.setup_e2ee = Some(spawn(async move {
-            // Update the current state first, so we don't have to wait for the result of
-            // network requests
-            this.update_verification_state().await;
+        tasks.setup_e2ee = Some(spawn(
+            async move {
+                // Update the current state first, so we don't have to wait for the result of
+                // network requests
+                this.update_verification_state().await;
 
-            if this.settings().auto_enable_cross_signing
-                && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
-            {
-                error!("Couldn't bootstrap cross signing {e:?}");
-            }
+                if this.settings().auto_enable_cross_signing
+                    && let Err(e) = this.bootstrap_cross_signing_if_needed(auth_data).await
+                {
+                    error!("Couldn't bootstrap cross signing {e:?}");
+                }
 
-            if let Err(e) = this.backups().setup_and_resume().await {
-                error!("Couldn't setup and resume backups {e:?}");
+                if let Err(e) = this.backups().setup_and_resume().await {
+                    error!("Couldn't setup and resume backups {e:?}");
+                }
+                if let Err(e) = this.recovery().setup().await {
+                    error!("Couldn't setup and resume recovery {e:?}");
+                }
             }
-            if let Err(e) = this.recovery().setup().await {
-                error!("Couldn't setup and resume recovery {e:?}");
-            }
-        }));
+            .instrument(Span::current()),
+        ));
 
         tasks.receive_historic_room_key_bundles = bundle_receiver_task;
 

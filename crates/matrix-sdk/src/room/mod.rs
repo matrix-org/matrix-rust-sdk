@@ -2698,6 +2698,7 @@ impl Room {
         self.ensure_room_joined()?;
 
         let txn_id = config.txn_id.take();
+        let extra_content = config.extra_content.take();
         let mentions = config.mentions.take();
 
         let thumbnail = config.thumbnail.take();
@@ -2787,6 +2788,37 @@ impl Room {
                 config.reply,
             )
             .await?;
+
+        // With extra content, the event is sent raw so the custom fields can be
+        // included; fields of the media event itself take precedence over
+        // extra fields with the same name.
+        if let Some(extra_content) = extra_content.filter(|extra| !extra.is_empty()) {
+            let serde_json::Value::Object(mut object) = serde_json::to_value(&content)
+                .map_err(|error| Error::UnknownError(Box::new(error)))?
+            else {
+                unreachable!("a room message event content always serializes to a JSON object");
+            };
+            for (key, value) in extra_content {
+                match object.entry(key) {
+                    serde_json::map::Entry::Occupied(entry) => {
+                        warn!(
+                            key = entry.key(),
+                            "extra content field shadowed by the event's own field"
+                        );
+                    }
+                    serde_json::map::Entry::Vacant(entry) => {
+                        entry.insert(value);
+                    }
+                }
+            }
+
+            let event_type = content.event_type().to_string();
+            let mut fut = self.send_raw(&event_type, serde_json::Value::Object(object));
+            if let Some(txn_id) = &txn_id {
+                fut = fut.with_transaction_id(txn_id);
+            }
+            return fut.await.map(|result| result.response);
+        }
 
         let mut fut = self.send(content);
         if let Some(txn_id) = txn_id {
@@ -3515,7 +3547,7 @@ impl Room {
     ///
     /// * `receipt_type` - The type of receipt to get.
     ///
-    /// * `thread` - The thread containing the event of the receipt, if any.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `user_id` - The ID of the user.
     ///
@@ -3524,10 +3556,13 @@ impl Room {
     pub async fn load_user_receipt(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        self.inner.load_user_receipt(receipt_type, thread, user_id).await.map_err(Into::into)
+        self.inner
+            .load_user_receipt(receipt_type, receipt_thread, user_id)
+            .await
+            .map_err(Into::into)
     }
 
     /// Load the receipts for an event in this room from storage.
@@ -3536,7 +3571,7 @@ impl Room {
     ///
     /// * `receipt_type` - The type of receipt to get.
     ///
-    /// * `thread` - The thread containing the event of the receipt, if any.
+    /// * `receipt_thread` - The thread a receipt applies to.
     ///
     /// * `event_id` - The ID of the event.
     ///
@@ -3545,10 +3580,13 @@ impl Room {
     pub async fn load_event_receipts(
         &self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        self.inner.load_event_receipts(receipt_type, thread, event_id).await.map_err(Into::into)
+        self.inner
+            .load_event_receipts(receipt_type, receipt_thread, event_id)
+            .await
+            .map_err(Into::into)
     }
 
     /// Get the push-condition context for this room.

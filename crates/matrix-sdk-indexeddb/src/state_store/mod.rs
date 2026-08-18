@@ -1455,10 +1455,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        let key = match thread.as_str() {
+        let key = match receipt_thread.as_str() {
             Some(thread_id) => self
                 .encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, thread_id, user_id)),
             None => self.encode_key(keys::ROOM_USER_RECEIPTS, (room_id, receipt_type, user_id)),
@@ -1478,10 +1478,10 @@ impl_state_store!({
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
-        let range = match thread.as_str() {
+        let range = match receipt_thread.as_str() {
             Some(thread_id) => self.encode_to_range(
                 keys::ROOM_EVENT_RECEIPTS,
                 (room_id, receipt_type, thread_id, event_id),

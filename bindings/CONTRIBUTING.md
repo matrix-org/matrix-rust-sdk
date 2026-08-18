@@ -63,6 +63,32 @@ Otherwise add the new definition in the crate’s `.udl` file. For the
 **Remember**: the language inside a `.udl` file isn’t Rust. To
 [learn more about how map Rust into UDL read here](https://mozilla.github.io/uniffi-rs/udl_file_spec.html)
 
+## Build profiles
+
+The `swift` and `kotlin` xtasks build `matrix-sdk-ffi` with a Cargo profile that
+can be chosen with `--profile <name>`, or with `--release` as a shorthand for
+the platform's release profile. `--profile` takes precedence over `--release`.
+The profiles themselves are defined in the workspace
+[Cargo.toml](../Cargo.toml).
+
+Release builds don't use the builtin `release` profile, since optimising for
+size rather than speed shrinks the shipped binaries considerably:
+
+- iOS uses `small-release`, which is `release` with `opt-level = "s"`. That
+  measured ~33% smaller linked code for the distributed XCFramework, see
+  [#6714](https://github.com/matrix-org/matrix-rust-sdk/pull/6714).
+  `cargo xtask swift build-framework --release` selects it.
+- Android uses `small-release-stripped`, which adds `lto = true` and
+  `strip = "debuginfo"` on top of `small-release`, almost halving the size of
+  the resulting library. Backtraces still work but debuggers are affected. Pass
+  it explicitly with `--profile small-release-stripped`, as the `--release`
+  shorthand of `cargo xtask kotlin build-android-library` only selects the
+  builtin `release` profile.
+
+Debug builds default to `reldbg` for Swift and `dev` for Kotlin. Note that the
+builtin `dev` profile puts its artefacts in `target/debug` while every other
+profile uses a directory matching its own name.
+
 ## FAQ
 
 **Q**: I wrote my Rust code and exposed it to UniFFI. How can I check if the

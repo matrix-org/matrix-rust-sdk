@@ -668,3 +668,48 @@ async fn test_room_attachment_send_is_animated() {
 
     assert_eq!(expected_event_id, response.event_id)
 }
+
+#[async_test]
+async fn test_room_attachment_send_extra_content() {
+    let mock = MatrixMockServer::new().await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+
+    let expected_event_id = event_id!("$h29iv0s8:example.com");
+
+    // The custom field must be present on the sent event, while the extra
+    // field colliding with a real event field must have been ignored.
+    mock.mock_room_send()
+        .body_matches_partial_json(json!({
+            "msgtype": "m.image",
+            "com.example.custom": "custom value",
+        }))
+        .ok(expected_event_id)
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_upload()
+        .expect_mime_type("image/jpeg")
+        .ok(mxc_uri!("mxc://example.com/AQwafuaFswefuhsfAFAgsw"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, &DEFAULT_TEST_ROOM_ID).await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    let config = AttachmentConfig::new().extra_content(Some(serde_json::Map::from_iter([
+        ("com.example.custom".to_owned(), "custom value".into()),
+        // The event's own fields take precedence over extra fields.
+        ("msgtype".to_owned(), "com.example.overridden".into()),
+    ])));
+
+    let response = room
+        .send_attachment("image", &mime::IMAGE_JPEG, b"Hello world".to_vec(), config)
+        .await
+        .unwrap();
+
+    assert_eq!(expected_event_id, response.event_id);
+}

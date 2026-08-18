@@ -30,7 +30,8 @@
 
 use vodozemac::{
     Curve25519PublicKey,
-    ecies::{CheckCode, Ecies, EstablishedEcies, InboundCreationResult, InitialMessage, Message},
+    ecies::{Ecies, EstablishedEcies, InboundCreationResult, InitialMessage, Message},
+    hpke::DigitMode,
 };
 
 use crate::authentication::oauth::qrcode::SecureChannelError as Error;
@@ -92,9 +93,11 @@ pub(super) enum EstablishedCryptoChannel {
 
 impl EstablishedCryptoChannel {
     /// Get the [`CheckCode`] of this [`EstablishedCryptoChannel`].
-    pub(super) fn check_code(&self) -> &CheckCode {
+    pub(super) fn check_code(&self) -> u8 {
         match self {
-            EstablishedCryptoChannel::Ecies(established_ecies) => established_ecies.check_code(),
+            EstablishedCryptoChannel::Ecies(established_ecies) => {
+                established_ecies.check_code().to_digit(DigitMode::AllowLeadingZero)
+            }
         }
     }
 

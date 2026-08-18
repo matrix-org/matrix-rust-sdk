@@ -42,8 +42,10 @@ use ruma::{
     serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, instrument, trace, warn};
+use tracing::{debug, error, instrument, trace};
 
+#[cfg(feature = "e2e-encryption")]
+use super::super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         super::{
@@ -530,7 +532,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         Ok(self.room_linked_chunk_mut().updates_as_vector_diffs())
     }
 
-    async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
+    pub(super) async fn propagate_changes(&mut self) -> Result<(), EventCacheError> {
         let updates = self.state.room_linked_chunk.store_updates().take();
 
         self.send_updates_to_store(updates).await
@@ -644,17 +646,19 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             &events,
         );
 
-        // Extract a new read receipt, if available.
-        let new_receipt = extract_read_receipt(ephemeral_events);
-        self.post_process_new_events(events, new_receipt).await?;
+        // Update the store.
+        self.propagate_changes().await?;
+
+        // Post-process newly inserted events.
+        self.post_process_upserted_events(events.iter(), extract_read_receipt(ephemeral_events))
+            .await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
             // so it only contains the last one; otherwise, there might be a
             // valid gap in between, and observers may not render it (yet).
             //
-            // We must do this *after* persisting these events to storage (in
-            // `post_process_new_events`).
+            // We must do this *after* persisting these events to storage.
             self.shrink_to_last_reloaded_chunk().await?;
         }
 
@@ -667,24 +671,21 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     // utility methods
     // --------------------------------------------
 
-    /// Post-process new events, after they have been added to the in-memory
-    /// linked chunk.
-    ///
-    /// Flushes updates to disk first.
-    pub async fn post_process_new_events(
+    /// Post-process newly inserted or updated events.
+    pub(super) async fn post_process_upserted_events<'i, I>(
         &mut self,
-        events: Vec<Event>,
+        events: I,
         receipt_event: Option<ReceiptEventContent>,
-    ) -> Result<(), EventCacheError> {
-        // Update the store before doing the post-processing.
-        self.propagate_changes().await?;
-
+    ) -> Result<(), EventCacheError>
+    where
+        I: Iterator<Item = &'i Event>,
+    {
         for event in events {
-            self.maybe_apply_new_redaction(&event).await?;
+            self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread]).await?;
+            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
+                self.save_events([*bundled_thread.clone()]).await?;
             }
         }
 
@@ -797,7 +798,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         let Some(target_event_id) =
             extract_redaction_target(event.raw(), &self.room_version_rules.redaction)
         else {
-            warn!("missing target event id from the redaction event");
+            trace!("missing target event id from the redaction event");
             return Ok(());
         };
 
@@ -831,6 +832,39 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         }
 
         Ok(())
+    }
+
+    /// Try to locate the events in the linked chunk corresponding to the given
+    /// list of resolved events, and replace them, while alerting observers
+    /// about the update.
+    #[cfg(feature = "e2e-encryption")]
+    #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
+    pub(in super::super::super) async fn replace_in_memory_utds(
+        &mut self,
+        resolved_events: &[MaybeResolvedEvent],
+    ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
+        Ok(if self.room_linked_chunk_mut().replace_utds(resolved_events) {
+            // Drain the updates to the store, events have already been updated with
+            // `save_events`!
+            let _ = self.room_linked_chunk_mut().store_updates().take();
+
+            self.post_process_upserted_events(
+                resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
+                // Read receipt events aren't encrypted, so we can't have decrypted a new
+                // one here. As a result, we don't have any new receipt events to
+                // post-process, so we can just pass `None` here.
+                //
+                // Note: read receipts may be updated anyhow in the post-processing step,
+                // as the redecryption may have decrypted some events that don't count as
+                // unreads.
+                None,
+            )
+            .await?;
+
+            Some(self.room_linked_chunk_mut().updates_as_vector_diffs())
+        } else {
+            None
+        })
     }
 
     /// Save events into the database, without notifying observers.
