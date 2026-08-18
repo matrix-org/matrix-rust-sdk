@@ -113,6 +113,7 @@ impl ThreadEventCache {
                     ThreadEventCacheState::new(
                         room_id.clone(),
                         thread_id.clone(),
+                        weak_room.clone(),
                         own_user_id,
                         room_version_rules,
                         store_guard,
