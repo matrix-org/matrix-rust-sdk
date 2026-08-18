@@ -1490,6 +1490,76 @@ async fn test_resolving_the_last_leading_gap_inserts_the_timeline_start() {
 }
 
 #[async_test]
+async fn test_storage_pagination_resolves_remaining_gaps_before_inserting_the_timeline_start() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    // Some history, then a limited sync: `[$1] [gap "pb"] [$2]`. The head is
+    // a plain events chunk with no predecessor, but the room's start hasn't
+    // been seen: a gap remains.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("one").event_id(event_id!("$1"))),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("two").event_id(event_id!("$2")))
+                .set_timeline_prev_batch("pb".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    let timeline = room.timeline_builder().with_storage_only_pagination().build().await.unwrap();
+    let (items, mut timeline_stream) = timeline.subscribe().await;
+    assert_eq!(items.len(), 2, "{items:?}");
+
+    // The storage walk exhausts the storage (surfacing the gap and `$1`),
+    // but must NOT claim the start: the gap is still unresolved.
+    let hit_start = timeline.paginate_backwards(10).await.unwrap();
+    assert!(!hit_start);
+    assert_let_timeout!(Some(_) = timeline_stream.next());
+    let items = timeline.items().await;
+    assert!(!items[0].is_timeline_start(), "{items:?}");
+    assert!(items.iter().any(|item| item.is_gap()), "{items:?}");
+
+    // Paginating again resolves the remaining gap over the network; its
+    // response has no further prev-batch token: only now is the start hit,
+    // and the timeline start inserted.
+    server
+        .mock_room_messages()
+        .match_from("pb")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("one and a half").event_id(event_id!("$1.5"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let hit_start = timeline.paginate_backwards(10).await.unwrap();
+    assert!(hit_start);
+
+    let mut items = timeline.items().await;
+    while !items[0].is_timeline_start() || items.iter().any(|item| item.is_gap()) {
+        assert_let_timeout!(Some(_) = timeline_stream.next());
+        items = timeline.items().await;
+    }
+    let event_ids = items
+        .iter()
+        .filter_map(|item| item.as_event().and_then(|event| event.event_id()))
+        .map(|event_id| event_id.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(event_ids, ["$1", "$1.5", "$2"]);
+}
+
+#[async_test]
 async fn test_storage_pagination_status_settles_to_idle_with_a_leading_gap() {
     let room_id = room_id!("!a98sd12bjh:example.org");
     let server = MatrixMockServer::new().await;

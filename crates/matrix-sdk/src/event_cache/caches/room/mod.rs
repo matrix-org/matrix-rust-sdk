@@ -25,7 +25,7 @@ use std::{
     },
 };
 
-use eyeball::SharedObservable;
+use eyeball::{ObservableWriteGuard, SharedObservable};
 use matrix_sdk_base::{
     deserialized_responses::{AmbiguityChange, ThreadSummary},
     event_cache::Event,
@@ -240,11 +240,32 @@ impl RoomEventCache {
             return Ok(false);
         };
 
-        Ok(self
+        let Some(outcome) = self
             .inner
             .conclude_backwards_pagination_from_network(events, prev_token, new_token)
             .await?
-            .is_some())
+        else {
+            return Ok(false);
+        };
+
+        // A storage pagination reports "start hit" once the storage is
+        // exhausted, and that status is sticky: while it holds, paginations
+        // return early without looking at the linked chunk. If this
+        // resolution left gaps behind (a leading gap replaced by a newer one,
+        // or removed while other gaps remain, which the next pagination must
+        // resolve before the start is claimed), let the next pagination
+        // re-evaluate. Never touch an ongoing pagination.
+        if !outcome.reached_start {
+            let mut status = self.inner.shared_pagination_status.write();
+            if matches!(*status, SharedPaginationStatus::Idle { hit_timeline_start: true }) {
+                ObservableWriteGuard::set(
+                    &mut status,
+                    SharedPaginationStatus::Idle { hit_timeline_start: false },
+                );
+            }
+        }
+
+        Ok(true)
     }
 
     /// Load the room's linked chunk from storage, backwards, until the gap
@@ -3407,7 +3428,8 @@ mod timed_tests {
         // Load everything from the storage.
         let outcome =
             room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
-        assert!(outcome.reached_start);
+        // The storage is exhausted, but a gap remains: not the start yet.
+        assert!(!outcome.reached_start);
 
         // The gap is now loaded, anchored to the first event after it.
         let gaps = room_event_cache.timeline_gaps().await.unwrap();
@@ -3441,7 +3463,10 @@ mod timed_tests {
             room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
         assert_eq!(outcome.events.len(), 1);
         assert_eq!(outcome.events[0].event_id().as_deref(), Some(event_id!("$1")));
-        assert!(outcome.reached_start);
+        // The storage is exhausted, but the gap remains: not the start yet
+        // (the next pagination resolves it over the network, see
+        // `test_storage_only_pagination_resolves_remaining_gaps_before_start`).
+        assert!(!outcome.reached_start);
 
         // The gap has been surfaced to observers…
         assert_let_timeout!(Ok(RoomEventCacheUpdate::UpdateTimelineGaps { gaps }) = stream.recv());

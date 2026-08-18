@@ -3655,13 +3655,7 @@ async fn test_resolve_gap_anchors_on_loaded_history() {
 
     // Load it all back into memory from the store (storage-only walk: the
     // gap is surfaced, not resolved).
-    loop {
-        let outcome =
-            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
-        if outcome.reached_start {
-            break;
-        }
-    }
+    room_event_cache.load_from_storage_until_gap("pb").await.unwrap();
     let (events, _) = room_event_cache.subscribe().await.unwrap();
     assert_eq!(
         events.iter().map(|event| event.event_id().unwrap().to_string()).collect::<Vec<_>>(),
@@ -3751,13 +3745,7 @@ async fn test_resolve_gap_anchors_across_redundant_gaps() {
         )
         .await;
 
-    loop {
-        let outcome =
-            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
-        if outcome.reached_start {
-            break;
-        }
-    }
+    room_event_cache.load_from_storage_until_gap("ga").await.unwrap();
     let (events, _) = room_event_cache.subscribe().await.unwrap();
     assert_eq!(
         events.iter().map(|event| event.event_id().unwrap().to_string()).collect::<Vec<_>>(),
@@ -3911,6 +3899,114 @@ async fn test_resolve_gap_drops_gap_overtaken_by_a_newer_gap() {
     );
 
     // "pb3" still leads: nothing is stored before it.
+    let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+    assert!(outcome.reached_start);
+}
+
+#[async_test]
+async fn test_storage_only_pagination_resolves_remaining_gaps_before_start() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(user_id!("@a:b.c"));
+
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+    let (_events, mut room_stream) = room_event_cache.subscribe().await.unwrap();
+
+    // Two limited syncs: `[gap "pb1"] [$1] [gap "pb2"] [$2]`.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("one").event_id(event_id!("$1")))
+                .set_timeline_prev_batch("pb1".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.text_msg("two").event_id(event_id!("$2")))
+                .set_timeline_prev_batch("pb2".to_owned())
+                .set_timeline_limited(),
+        )
+        .await;
+
+    // Load everything into memory. "pb1" leads: the storage walk stops there
+    // (the leading gap is resolved on demand).
+    loop {
+        let outcome =
+            room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+        if outcome.reached_start {
+            break;
+        }
+    }
+    while room_stream.recv().now_or_never().is_some() {}
+
+    // Resolving the leading gap reveals the actual start of the room (no end
+    // token): `[$0, $1] [gap "pb2"] [$2]`. The head is now a plain events
+    // chunk with no predecessor, but "pb2" is still unresolved.
+    server
+        .mock_room_messages()
+        .match_from("pb1")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("zero").event_id(event_id!("$0"))]))
+        .mock_once()
+        .mount()
+        .await;
+    assert!(room_event_cache.resolve_gap("pb1".to_owned(), 20).await.unwrap());
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.iter().map(|gap| gap.prev_token.as_str()).collect::<Vec<_>>(), ["pb2"]);
+
+    // A storage pagination on the exhausted storage must NOT claim the start
+    // while "pb2" remains: it resolves it over the network instead.
+    server
+        .mock_room_messages()
+        .match_from("pb2")
+        .ok(RoomMessagesResponseTemplate::default()
+            .end_token("pb3")
+            .events(vec![f.text_msg("one and a half").event_id(event_id!("$1.5"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+    assert!(!outcome.reached_start);
+    assert_eq!(outcome.events.len(), 1);
+    assert_eq!(outcome.events[0].event_id().as_deref(), Some(event_id!("$1.5")));
+
+    let gaps = next_gaps_update(&mut room_stream).await;
+    assert_eq!(gaps.iter().map(|gap| gap.prev_token.as_str()).collect::<Vec<_>>(), ["pb3"]);
+
+    // Same again for "pb3", which returns only known events and no end
+    // token: the gap is dropped, and only now is the start reached.
+    server
+        .mock_room_messages()
+        .match_from("pb3")
+        .ok(RoomMessagesResponseTemplate::default()
+            .events(vec![f.text_msg("one").event_id(event_id!("$1"))]))
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
+    assert!(outcome.reached_start);
+    assert!(outcome.events.is_empty());
+    assert!(room_event_cache.timeline_gaps().await.unwrap().is_empty());
+
+    let events = room_event_cache.events().await.unwrap();
+    assert_eq!(
+        events.iter().map(|ev| ev.event_id().unwrap()).collect::<Vec<_>>(),
+        [event_id!("$0"), event_id!("$1"), event_id!("$1.5"), event_id!("$2")]
+    );
+
+    // And it stays reached.
     let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
     assert!(outcome.reached_start);
 }

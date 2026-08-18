@@ -317,6 +317,13 @@ impl EventLinkedChunk {
             .find_map(|chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.clone()))
     }
 
+    /// Get the token of the oldest gap in the linked chunk, if any.
+    pub fn first_gap_token(&self) -> Option<String> {
+        self.chunks().find_map(
+            |chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.token.clone()),
+        )
+    }
+
     /// Add a gap (i.e. pagination token) to the end of the linked chunk.
     ///
     /// Also make sure to get rid of empty event chunks before the gap, as they

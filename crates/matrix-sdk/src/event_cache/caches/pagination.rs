@@ -294,6 +294,16 @@ where
                     return Ok(Some(BackPaginationOutcome { reached_start: true, events: vec![] }));
                 }
 
+                LoadMoreEventsBackwardsOutcome::ResolveGap { prev_token } => {
+                    // ponytail: bypasses `RoomEventCache::resolve_gap`'s in-flight
+                    // dedup; a concurrent on-demand resolution of the same gap
+                    // costs one redundant request (the loser sees its token gone
+                    // and restarts).
+                    return self
+                        .paginate_backwards_with_network(batch_size, Some(prev_token))
+                        .await;
+                }
+
                 LoadMoreEventsBackwardsOutcome::Events {
                     events,
                     timeline_event_diffs,
@@ -478,6 +488,14 @@ pub(in super::super) enum LoadMoreEventsBackwardsOutcome {
 
     /// The start of the timeline has been reached.
     StartOfTimeline,
+
+    /// The storage is exhausted, but a gap remains somewhere in the linked
+    /// chunk (storage-only mode surfaces gaps instead of resolving them):
+    /// resolve it over the network before claiming the start of the
+    /// timeline. Redundant gaps get dropped in favour of "another gap reaches
+    /// that history", so a gap-free chunk head is only trustworthy once no
+    /// gap is left.
+    ResolveGap { prev_token: String },
 
     /// Events have been inserted.
     Events { events: Vec<Event>, timeline_event_diffs: Vec<VectorDiff<Event>>, reached_start: bool },

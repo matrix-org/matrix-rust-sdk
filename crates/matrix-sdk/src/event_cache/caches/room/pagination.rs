@@ -156,8 +156,12 @@ impl RoomPagination {
     /// the cached content is reachable even offline. Gaps are resolved on
     /// demand with [`RoomEventCache::resolve_gap`].
     ///
-    /// The only exception is an empty room that has never seen any event: it
-    /// still bootstraps over the network (there's no cached content to show).
+    /// Two exceptions reach the network: an empty room that has never seen
+    /// any event still bootstraps over the network (there's no cached content
+    /// to show); and once the storage is exhausted, any gap still unresolved
+    /// is resolved (one per call) before the start of the timeline is
+    /// claimed, since a gap-free chunk head only proves the start once no
+    /// gap is left.
     ///
     /// `batch_size` only applies to that network bootstrap; storage loads
     /// whole chunks at a time.
@@ -240,6 +244,17 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 // event. Otherwise, we have reached the start of the timeline.
 
                 if state.room_linked_chunk().events().next().is_some() {
+                    // A gap-free head only means "start of the timeline" once no
+                    // gap is left anywhere: gaps get dropped as redundant on the
+                    // strength of another gap reaching the same history, so a
+                    // leading events chunk can outlive the gap that used to
+                    // precede it. Resolve the remaining gaps first (same rule as
+                    // `push_backwards_pagination_events`' `!has_gaps`).
+                    if let Some(prev_token) = state.room_linked_chunk().first_gap_token() {
+                        trace!("chunk is fully loaded but a gap remains: resolving it");
+                        return Ok(LoadMoreEventsBackwardsOutcome::ResolveGap { prev_token });
+                    }
+
                     // If there's at least one event, this means we've reached the start of the
                     // timeline, since the chunk is fully loaded.
                     trace!("chunk is fully loaded and non-empty: reached_start=true");
@@ -291,6 +306,9 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             // Return the error.
             return Err(err.into());
         }
+
+        // Same rule as above: a gap anywhere means the start hasn't been seen.
+        let reached_start = reached_start && state.room_linked_chunk().first_gap_token().is_none();
 
         // ⚠️ Let's not propagate the updates to the store! We already have these data
         // in the store! Let's drain them.
