@@ -53,11 +53,13 @@ use super::{
         },
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+        read_receipts::{ThreadReadReceiptEventFilter, compute_unread_counts},
         room::RoomEventCacheLinkedChunkUpdate,
         subscriber::SubscribersHandle,
     },
     ThreadEventCacheUpdateSender,
 };
+use crate::room::WeakRoom;
 
 pub struct ThreadEventCacheState {
     /// The room owning this thread.
@@ -66,6 +68,9 @@ pub struct ThreadEventCacheState {
     /// The ID of the thread root event, which is the first event in the thread
     /// (and eventually the first in the linked chunk).
     pub thread_id: OwnedEventId,
+
+    /// A weak reference to the actual room.
+    weak_room: WeakRoom,
 
     /// The user's own user id.
     pub own_user_id: OwnedUserId,
@@ -112,9 +117,11 @@ impl ThreadEventCacheState {
     ///
     /// [`LinkedChunk`]: matrix_sdk_common::linked_chunk::LinkedChunk
     /// [`ThreadPagination`]: super::pagination::ThreadPagination
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         room_id: OwnedRoomId,
         thread_id: OwnedEventId,
+        weak_room: WeakRoom,
         own_user_id: OwnedUserId,
         room_version_rules: RoomVersionRules,
         store_guard: EventCacheStoreLockGuard,
@@ -173,6 +180,7 @@ impl ThreadEventCacheState {
         Ok(ThreadEventCacheState {
             room_id,
             thread_id,
+            weak_room,
             own_user_id,
             room_version_rules,
             thread_linked_chunk: EventLinkedChunk::with_initial_linked_chunk(
@@ -540,8 +548,52 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             }
         }
 
-        // do something with `receipt_event`.
-        let _ = receipt_event;
+        self.update_read_receipts(receipt_event.as_ref()).await?;
+
+        Ok(())
+    }
+
+    /// Update read receipts for all events in the thread, based on the current
+    /// state of the in-memory linked chunk.
+    pub async fn update_read_receipts(
+        &mut self,
+        receipt_event: Option<&ReceiptEventContent>,
+    ) -> Result<()> {
+        let Some(room) = self.state.weak_room.get() else {
+            debug!("can't update read receipts: client's closing");
+            return Ok(());
+        };
+
+        let prev_read_receipts = &self.state.thread_info.read_receipts;
+        let mut read_receipts = prev_read_receipts.clone();
+
+        let client = room.client();
+        let event_filter = ThreadReadReceiptEventFilter::new(&self.state, client.state_store());
+
+        compute_unread_counts(
+            &self.state.own_user_id,
+            receipt_event,
+            &self.state.thread_linked_chunk,
+            &event_filter,
+            &mut read_receipts,
+            None,
+        )
+        .await;
+
+        if prev_read_receipts != &read_receipts {
+            // The read receipt has changed! Do a little dance to update the `ThreadInfo` in
+            // the store.
+            self.state.thread_info.read_receipts = read_receipts;
+
+            let room_id = &self.state.room_id;
+            let thread_id = &self.state.thread_id;
+
+            if let Err(error) =
+                self.store.update_thread_info(room_id, thread_id, &self.state.thread_info).await
+            {
+                error!(?room_id, ?thread_id, ?error, "Failed to update the `ThreadInfo`");
+            }
+        }
 
         Ok(())
     }
