@@ -31,6 +31,7 @@ use matrix_sdk_base::{
     event_cache::{
         Event, Gap,
         store::{EventCacheStore, extract_event_relation},
+        thread::ThreadInfo,
     },
     linked_chunk::{
         ChunkContent, ChunkIdentifier, ChunkIdentifierGenerator, ChunkMetadata, LinkedChunkId,
@@ -137,6 +138,11 @@ impl Encryption {
         let as_str = str::from_utf8(as_slice.as_ref())?;
 
         Ok(EventId::parse(as_str)?)
+    }
+
+    /// Encode a [`ThreadInfo`]).
+    fn encode_thread_info(&self, thread_info: &ThreadInfo) -> Result<Vec<u8>> {
+        self.encode_value(serde_json::to_vec(thread_info)?)
     }
 }
 
@@ -636,6 +642,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/event_cache_store/016_threads.sql"))?;
             txn.set_db_version(16)
+        })
+        .await?;
+    }
+
+    if version < 17 {
+        debug!("Upgrading database to version 17");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/017_threads_with_thread_infos.sql"
+            ))?;
+            txn.set_db_version(17)
         })
         .await?;
     }
@@ -1372,13 +1389,14 @@ impl EventCacheStore for SqliteEventCacheStore {
             .encode_linked_chunk(keys::LINKED_CHUNKS, &LinkedChunkId::Thread(room_id, thread_id));
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let hashed_thread_id = self.encryption.encode_thread_id(thread_id)?;
+        let encoded_thread_id = self.encryption.encode_thread_info(&ThreadInfo::new())?;
 
         self.write()
             .await?
             .with_transaction(move |txn| {
                 txn.execute(
-                    "INSERT OR IGNORE INTO threads VALUES (?, ?, ?)",
-                    (hashed_linked_chunk_id, hashed_room_id, hashed_thread_id),
+                    "INSERT OR IGNORE INTO threads VALUES (?, ?, ?, ?)",
+                    (hashed_linked_chunk_id, hashed_room_id, hashed_thread_id, encoded_thread_id),
                 )?;
 
                 Ok(())
