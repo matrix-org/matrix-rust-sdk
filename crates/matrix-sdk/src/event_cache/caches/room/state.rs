@@ -23,16 +23,14 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
-    serde_helpers::extract_redaction_target,
+    serde_helpers::{extract_read_receipt, extract_redaction_target},
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
-        AnySyncEphemeralRoomEvent,
-        receipt::{ReceiptEventContent, SyncReceiptEvent},
-        relation::RelationType,
+        AnySyncEphemeralRoomEvent, receipt::ReceiptEventContent, relation::RelationType,
         room::redaction::SyncRoomRedactionEvent,
     },
     room_version_rules::RoomVersionRules,
@@ -834,31 +832,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     pub fn is_dirty(&self) -> bool {
         EventCacheStoreLockGuard::is_dirty(&self.store)
     }
-}
-
-/// Extract a valid read receipt event from the ephemeral events, if
-/// available.
-fn extract_read_receipt(
-    ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
-) -> Option<ReceiptEventContent> {
-    let mut receipt_event = None;
-
-    for raw_ephemeral in ephemeral_events {
-        match raw_ephemeral.deserialize() {
-            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
-                receipt_event = Some(content);
-                break;
-            }
-
-            Ok(_) => {}
-
-            Err(err) => {
-                error!("error when deserializing an ephemeral event from sync: {err}");
-            }
-        }
-    }
-
-    receipt_event
 }
 
 #[cfg(test)]
