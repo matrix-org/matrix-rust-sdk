@@ -237,7 +237,7 @@ impl RoomEventCache {
         self.inner
             .handle_timeline(
                 updates.timeline,
-                updates.ephemeral.clone(),
+                updates.ephemeral,
                 updates.ambiguity_changes,
                 updates.avatar_changes,
             )
