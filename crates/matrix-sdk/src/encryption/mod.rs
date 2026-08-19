@@ -2259,7 +2259,6 @@ mod tests {
             Arc,
             atomic::{AtomicBool, Ordering},
         },
-        time::Duration,
     };
 
     use matrix_sdk_test::{
@@ -2345,7 +2344,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
-        let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("generation_counter_sqlite.db");
         let session = mock_matrix_session();
 
         let client1 = Client::builder()
@@ -2378,7 +2378,7 @@ mod tests {
         client2.encryption().enable_cross_process_store_lock("client2".to_owned()).await.unwrap();
 
         // One client can take the lock.
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
+        let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
         // Keep the olm machine, so we can see if it's changed later, by comparing Arcs.
@@ -2405,10 +2405,9 @@ mod tests {
 
         // Now have the first client release the lock,
         drop(acquired1);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // And re-take it.
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
+        let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
         // In that case, the Olm Machine shouldn't change.
@@ -2417,18 +2416,16 @@ mod tests {
 
         // Ok, release again.
         drop(acquired1);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Client2 can acquire the lock.
-        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
+        let acquired2 = client2.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired2.is_some());
 
         // And then release it.
         drop(acquired2);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Client1 can acquire it again,
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
+        let acquired1 = client1.encryption().spin_lock_store(None).await.unwrap();
         assert!(acquired1.is_some());
 
         // But now its olm machine has been invalidated and thus regenerated!
@@ -2451,8 +2448,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
-        let sqlite_path =
-            std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("generation_counter_no_spurious_invalidations.db");
         let session = mock_matrix_session();
 
         let client = Client::builder()
@@ -2501,11 +2498,10 @@ mod tests {
             assert!(guard.is_some());
 
             drop(guard);
-            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         {
-            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            let acquired = client.encryption().spin_lock_store(None).await.unwrap();
             assert!(acquired.is_some());
         }
 
@@ -2514,7 +2510,7 @@ mod tests {
         assert!(!initial_olm_machine.same_as(&after_taking_lock_first_time));
 
         {
-            let acquired = client.encryption().try_lock_store_once().await.unwrap();
+            let acquired = client.encryption().spin_lock_store(None).await.unwrap();
             assert!(acquired.is_some());
         }
 
