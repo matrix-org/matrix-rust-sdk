@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "event-cache-store")]
 use matrix_sdk_base::event_cache::store::EventCacheStoreError;
-#[cfg(feature = "event-cache-store")]
+#[cfg(feature = "media-store")]
 use matrix_sdk_base::media::store::MediaStoreError;
 #[cfg(feature = "state-store")]
 use matrix_sdk_base::store::StoreError as StateStoreError;
@@ -187,7 +187,7 @@ impl From<Error> for EventCacheStoreError {
     }
 }
 
-#[cfg(feature = "event-cache-store")]
+#[cfg(feature = "media-store")]
 impl From<Error> for MediaStoreError {
     fn from(e: Error) -> Self {
         match e {
