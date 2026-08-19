@@ -2180,23 +2180,6 @@ async fn test_media_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
 
-    // The format should be ignored when requesting a local media.
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"thumbnail");
-
     // ----------------------
     // Send handle operations.
 
@@ -2519,23 +2502,6 @@ async fn test_gallery_uploads() {
         .expect("media should be found");
     assert_eq!(thumbnail_media, b"thumbnail");
 
-    // The format should be ignored when requesting a local media.
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source1.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"thumbnail");
-
     // ----------------------
     // Media 2.
     assert_let!(GalleryItemType::Image(img_content) = gallery_content.itemtypes.get(1).unwrap());
@@ -2587,23 +2553,6 @@ async fn test_gallery_uploads() {
             &MediaRequestParameters {
                 source: local_thumbnail_source2.clone(),
                 format: MediaFormat::File,
-            },
-            true,
-        )
-        .await
-        .expect("media should be found");
-    assert_eq!(thumbnail_media, b"another thumbnail");
-
-    // The format should be ignored when requesting a local media.
-    let thumbnail_media = client
-        .media()
-        .get_media_content(
-            &MediaRequestParameters {
-                source: local_thumbnail_source2.clone(),
-                format: MediaFormat::Thumbnail(MediaThumbnailSettings::new(
-                    tinfo.width.unwrap(),
-                    tinfo.height.unwrap(),
-                )),
             },
             true,
         )

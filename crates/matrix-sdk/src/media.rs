@@ -432,13 +432,22 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
-        // Ignore request parameters for local medias, notably those pending in the send
-        // queue.
-        if let Some(uri) = Self::as_local_uri(&request.source) {
-            return self.get_local_media_content(uri).await;
+        // This is a local media. Force to read the media's content from the store: it
+        // cannot exist somewhere else!
+        if let Some(_uri) = Self::as_local_uri(&request.source) {
+            if let Some(content) =
+                self.client.media_store().lock().await?.get_media_content(request).await?
+            {
+                return Ok(content);
+            } else {
+                return Err(Error::MediaStore(Box::new(store::MediaStoreError::InvalidData {
+                    details: format!("Media does not exist: `{request:?}`"),
+                })));
+            }
         }
 
-        // Read from the cache.
+        // Read from the cache: if it doesn't exist, the execution continues by reading
+        // the media from the network.
         if use_cache
             && let Some(content) =
                 self.client.media_store().lock().await?.get_media_content(request).await?
@@ -465,22 +474,6 @@ impl Media {
         }
 
         Ok(content)
-    }
-
-    /// Get a media file's content that is only available in the media cache.
-    ///
-    /// # Arguments
-    ///
-    /// * `uri` - The local MXC URI of the media content.
-    async fn get_local_media_content(&self, uri: &MxcUri) -> Result<Vec<u8>> {
-        // Read from the cache.
-        self.client
-            .media_store()
-            .lock()
-            .await?
-            .get_media_content_for_uri(uri)
-            .await?
-            .ok_or_else(|| MediaError::LocalMediaNotFound.into())
     }
 
     /// Remove a media file's content from the store.
