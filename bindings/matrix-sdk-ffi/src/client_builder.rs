@@ -67,6 +67,7 @@ enum HomeserverConfig {
     Url(String),
     ServerName(String),
     ServerNameOrUrl(String),
+    ServerNameFromUserId(String),
 }
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
@@ -153,7 +154,6 @@ impl From<ClientError> for ClientBuildError {
 pub struct ClientBuilder {
     store: Option<StoreBuilder>,
     system_is_memory_constrained: bool,
-    username: Option<String>,
     homeserver_cfg: Option<HomeserverConfig>,
     sliding_sync_version_builder: SlidingSyncVersionBuilder,
     disable_automatic_token_refresh: bool,
@@ -203,7 +203,6 @@ impl ClientBuilder {
         Arc::new(Self {
             store: None,
             system_is_memory_constrained: false,
-            username: None,
             homeserver_cfg: None,
             #[cfg(not(target_family = "wasm"))]
             user_agent: None,
@@ -283,17 +282,20 @@ impl ClientBuilder {
         Arc::new(builder)
     }
 
-    /// Set the user ID the homeserver is derived from, when none of
-    /// `homeserver_url`, `server_name` or `server_name_or_homeserver_url` was
-    /// called.
+    /// Uses the server name from the supplied the user ID to discover the 
+    /// homeserver. 
     ///
-    /// The homeserver is then discovered from the server name of that user ID,
-    /// which requires a `.well-known/matrix/client` lookup. This is therefore
-    /// incompatible with `disable_well_known_lookup`, which makes `build` fail
-    /// with `ClientBuildError::WellKnownLookupDisabled`.
-    pub fn username(self: Arc<Self>, username: String) -> Arc<Self> {
+    /// The following methods are mutually exclusive: [`Self::homeserver_url`],
+    /// [`Self::server_name`], [`Self::server_name_or_homeserver_url`] and
+    /// [`Self::server_name_from_user_id`]. If you set more than one, then
+    /// whichever was set last will be used.
+    ///
+    /// This performs a `.well-known/matrix/client` lookup, and is therefore
+    /// incompatible with [`Self::disable_well_known_lookup`]: [`Self::build`]
+    /// then fails with [`ClientBuildError::WellKnownLookupDisabled`].
+    pub fn server_name_from_user_id(self: Arc<Self>, user_id: String) -> Arc<Self> {
         let mut builder = unwrap_or_clone_arc(self);
-        builder.username = Some(username);
+        builder.homeserver_cfg = Some(HomeserverConfig::ServerNameFromUserId(user_id));
         Arc::new(builder)
     }
 
@@ -402,9 +404,10 @@ impl ClientBuilder {
     ///
     /// The homeserver must then be resolvable without a well-known lookup, so
     /// `ClientBuilder::homeserver_url` must be used.
-    /// `ClientBuilder::server_name` and `ClientBuilder::username` can only
-    /// be resolved through the well-known, and `ClientBuilder::build` fails
-    /// with `ClientBuildError::WellKnownLookupDisabled` in that case.
+    /// `ClientBuilder::server_name` and
+    /// `ClientBuilder::server_name_from_user_id` can only be resolved through
+    /// the well-known, and `ClientBuilder::build` fails with
+    /// `ClientBuildError::WellKnownLookupDisabled` in that case.
     /// `ClientBuilder::server_name_or_homeserver_url` skips the well-known step
     /// and works only when given a homeserver URL.
     pub fn disable_well_known_lookup(
@@ -500,15 +503,14 @@ impl ClientBuilder {
             Some(HomeserverConfig::ServerNameOrUrl(server_name_or_url)) => {
                 inner_builder.server_name_or_homeserver_url(server_name_or_url)
             }
+            Some(HomeserverConfig::ServerNameFromUserId(user_id)) => {
+                let user = UserId::parse(user_id)?;
+                inner_builder.server_name(user.server_name())
+            }
             None => {
-                if let Some(username) = builder.username {
-                    let user = UserId::parse(username)?;
-                    inner_builder.server_name(user.server_name())
-                } else {
-                    return Err(ClientBuildError::Generic {
-                        message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or username must be called.".to_owned(),
-                    });
-                }
+                return Err(ClientBuildError::Generic {
+                    message: "Failed to build: One of homeserver_url, server_name, server_name_or_homeserver_url or server_name_from_user_id must be called.".to_owned(),
+                });
             }
         };
 
