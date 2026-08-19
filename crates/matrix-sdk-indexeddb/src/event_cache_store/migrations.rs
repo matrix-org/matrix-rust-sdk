@@ -21,10 +21,10 @@ use thiserror::Error;
 
 /// The current version and keys used in the database.
 pub mod current {
-    use super::{Version, v6};
+    use super::{Version, v7};
 
-    pub const VERSION: Version = Version::V6;
-    pub use v6::keys;
+    pub const VERSION: Version = Version::V7;
+    pub use v7::keys;
 }
 
 /// Opens a connection to the IndexedDB database and takes care of upgrading it
@@ -64,6 +64,8 @@ pub enum Version {
     V5 = 5,
     /// Version 6 of the database, for details see [`v6`].
     V6 = 6,
+    /// Version 7 of the database, for details see [`v7`].
+    V7 = 7,
 }
 
 impl Version {
@@ -76,7 +78,8 @@ impl Version {
             Self::V3 => v3::upgrade(transaction).map(Some),
             Self::V4 => v4::upgrade(transaction).map(Some),
             Self::V5 => v5::upgrade(transaction).map(Some),
-            Self::V6 => Ok(None),
+            Self::V6 => v6::upgrade(transaction).map(Some),
+            Self::V7 => Ok(None),
         }
     }
 }
@@ -383,7 +386,7 @@ pub mod v5 {
         Ok(())
     }
 
-    /// Upgrade database from `v4` to `v5`
+    /// Upgrade database from `v5` to `v6`
     pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
         v6::empty_event_cache(transaction)?;
         Ok(Version::V6)
@@ -415,6 +418,27 @@ mod v6 {
         let events = transaction.object_store(keys::EVENTS)?;
         events.clear()?;
 
+        let threads = transaction.object_store(keys::THREADS)?;
+        threads.clear()?;
+
+        Ok(())
+    }
+
+    /// Upgrade database from `v6` to `v7`
+    pub fn upgrade(transaction: &Transaction<'_>) -> Result<Version, Error> {
+        v7::empty_threads(transaction)?;
+        Ok(Version::V7)
+    }
+}
+
+mod v7 {
+    // Re-use all the same keys from `v6`.
+    pub use super::v6::keys;
+    use super::*;
+
+    /// Clear the threads table, so we can add the new non-optional, encoded
+    /// `info` column at runtime.
+    pub fn empty_threads(transaction: &Transaction<'_>) -> Result<(), Error> {
         let threads = transaction.object_store(keys::THREADS)?;
         threads.clear()?;
 

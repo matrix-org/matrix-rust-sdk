@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::iter::empty;
+
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
@@ -21,16 +23,14 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
-    serde_helpers::extract_redaction_target,
+    serde_helpers::{extract_read_receipt, extract_redaction_target},
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
-        AnySyncEphemeralRoomEvent,
-        receipt::{ReceiptEventContent, SyncReceiptEvent},
-        relation::RelationType,
+        AnySyncEphemeralRoomEvent, receipt::ReceiptEventContent, relation::RelationType,
         room::redaction::SyncRoomRedactionEvent,
     },
     room_version_rules::RoomVersionRules,
@@ -56,7 +56,7 @@ use super::{
         EventLocation,
         event_linked_chunk::EventLinkedChunk,
         pagination::SharedPaginationStatus,
-        read_receipts::compute_unread_counts,
+        read_receipts::{ReadReceiptsForRoom, compute_unread_counts},
         subscriber::SubscribersHandle,
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
@@ -65,7 +65,7 @@ use crate::room::WeakRoom;
 
 pub struct RoomEventCacheState {
     /// Whether thread support has been enabled for the event cache.
-    enabled_thread_support: bool,
+    pub enabled_thread_support: bool,
 
     /// The room this state relates to.
     pub room_id: OwnedRoomId,
@@ -556,12 +556,13 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         if all_duplicates {
             // No new events and no gap (per the previous check), thus no need to change the
             // room state. We're done!
-
+            //
             // We might have a new read receipt, though! If that's the case, handle it for
             // unread counts tracking.
-            if let Some(new_receipt) = extract_read_receipt(ephemeral_events) {
-                self.update_read_receipts(Some(&new_receipt)).await?;
-            }
+            //
+            // Post-process the ephemeral events.
+            self.post_process_upserted_events(empty(), extract_read_receipt(ephemeral_events))
+                .await?;
 
             return Ok((false, Vec::new()));
         }
@@ -644,21 +645,19 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             return Ok(());
         };
 
-        let user_id = &self.state.own_user_id;
-        let room_id = &self.state.room_id;
-
         let prev_read_receipts = room.read_receipts().clone();
         let mut read_receipts = prev_read_receipts.clone();
 
+        let client = room.client();
+        let event_filter = ReadReceiptsForRoom::new(&self.state, client.state_store());
+
         compute_unread_counts(
-            user_id,
-            room_id,
+            &self.state.own_user_id,
             receipt_event,
             &self.state.room_linked_chunk,
+            &event_filter,
             &mut read_receipts,
-            self.state.enabled_thread_support,
             self.state.automatic_pagination.as_ref(),
-            room.client().state_store(),
         )
         .await;
 
@@ -672,6 +671,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
                     (room_info, RoomInfoNotableUpdateReasons::READ_RECEIPT)
                 })
                 .await;
+
             if let Err(error) = result {
                 error!(room_id = ?room.room_id(), ?error, "Failed to save the changes");
             }
@@ -832,31 +832,6 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     pub fn is_dirty(&self) -> bool {
         EventCacheStoreLockGuard::is_dirty(&self.store)
     }
-}
-
-/// Extract a valid read receipt event from the ephemeral events, if
-/// available.
-fn extract_read_receipt(
-    ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
-) -> Option<ReceiptEventContent> {
-    let mut receipt_event = None;
-
-    for raw_ephemeral in ephemeral_events {
-        match raw_ephemeral.deserialize() {
-            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
-                receipt_event = Some(content);
-                break;
-            }
-
-            Ok(_) => {}
-
-            Err(err) => {
-                error!("error when deserializing an ephemeral event from sync: {err}");
-            }
-        }
-    }
-
-    receipt_event
 }
 
 #[cfg(test)]

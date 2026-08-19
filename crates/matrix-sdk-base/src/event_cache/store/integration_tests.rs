@@ -41,8 +41,11 @@ use ruma::{
     room_id,
 };
 
-use super::DynEventCacheStore;
-use crate::event_cache::{Gap, store::DEFAULT_CHUNK_CAPACITY};
+use super::{
+    super::{Gap, thread::ThreadInfo},
+    DEFAULT_CHUNK_CAPACITY, DynEventCacheStore,
+};
+use crate::read_receipts::ReadReceipts;
 
 /// Create a test event with all data filled, for testing that linked chunk
 /// correctly stores event data.
@@ -191,8 +194,8 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that loading a linked chunk's metadata works as intended.
     async fn test_load_all_chunks_metadata(&self);
 
-    /// Test that remembering a thread acts as expected.
-    async fn test_remember_thread(&self);
+    /// Test that loading and updating a `ThreadInfo` acts as expected.
+    async fn test_load_and_update_thread_info(&self);
 
     /// Test that clearing all the rooms' events and linked chunks work.
     async fn test_clear_all_events(&self);
@@ -1268,14 +1271,51 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         });
     }
 
-    async fn test_remember_thread(&self) {
+    async fn test_load_and_update_thread_info(&self) {
         let room_id = room_id!("!r0");
         let thread_id = event_id!("$t0");
 
-        assert!(self.remember_thread(room_id, thread_id).await.is_ok());
+        // Load for the first time.
+        //
+        // We must get an empty `ThreadInfo`.
+        let ThreadInfo { read_receipts } = self.load_thread_info(room_id, thread_id).await.unwrap();
+        let ReadReceipts { num_unread, num_notifications, num_mentions, latest_active, pending } =
+            read_receipts;
+        assert_eq!(num_unread, 0);
+        assert_eq!(num_notifications, 0);
+        assert_eq!(num_mentions, 0);
+        assert!(latest_active.is_none());
+        assert!(pending.is_empty());
 
-        // Remember the same thread does return successfully.
-        assert!(self.remember_thread(room_id, thread_id).await.is_ok());
+        // Load for the second time.
+        //
+        // We must get the same empty `ThreadInfo`.
+        let mut thread_info = self.load_thread_info(room_id, thread_id).await.unwrap();
+        let ThreadInfo { read_receipts } = &thread_info;
+        let ReadReceipts { num_unread, num_notifications, num_mentions, latest_active, pending } =
+            read_receipts;
+        assert_eq!(*num_unread, 0);
+        assert_eq!(*num_notifications, 0);
+        assert_eq!(*num_mentions, 0);
+        assert!(latest_active.is_none());
+        assert!(pending.is_empty());
+
+        // Update the `ThreadInfo`.
+        thread_info.read_receipts.num_unread = 1;
+        thread_info.read_receipts.num_notifications = 2;
+        self.update_thread_info(room_id, thread_id, &thread_info).await.unwrap();
+
+        // Load for the third time.
+        //
+        // We must get the updated `ThreadInfo`.
+        let ThreadInfo { read_receipts } = self.load_thread_info(room_id, thread_id).await.unwrap();
+        let ReadReceipts { num_unread, num_notifications, num_mentions, latest_active, pending } =
+            read_receipts;
+        assert_eq!(num_unread, 1);
+        assert_eq!(num_notifications, 2);
+        assert_eq!(num_mentions, 0);
+        assert!(latest_active.is_none());
+        assert!(pending.is_empty());
     }
 
     async fn test_clear_all_events(&self) {
@@ -1293,7 +1333,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // Assume the thread has been “remembered” correctly (this is done in
             // `ThreadEventCacheState::new`).
             if let LinkedChunkId::Thread(_, thread_id) = &linked_chunk_id {
-                self.remember_thread(room_id, thread_id).await.unwrap();
+                self.load_thread_info(room_id, thread_id).await.unwrap();
             }
 
             self.handle_linked_chunk_updates(
@@ -1377,7 +1417,7 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
             // Assume the thread has been “remembered” correctly (this is done in
             // `ThreadEventCacheState::new`).
             if let LinkedChunkId::Thread(_, thread_id) = &linked_chunk_id {
-                self.remember_thread(room_id, thread_id).await.unwrap();
+                self.load_thread_info(room_id, thread_id).await.unwrap();
             }
 
             self.handle_linked_chunk_updates(
@@ -2490,10 +2530,10 @@ macro_rules! event_cache_store_integration_tests {
             }
 
             #[async_test]
-            async fn test_remember_thread() {
+            async fn test_load_and_update_thread_info() {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
-                event_cache_store.test_remember_thread().await;
+                event_cache_store.test_load_and_update_thread_info().await;
             }
 
             #[async_test]

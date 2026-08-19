@@ -31,8 +31,10 @@ use matrix_sdk_common::{
 use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId, events::relation::RelationType};
 use tracing::error;
 
-use super::{EventCacheStore, EventCacheStoreError, Result, extract_event_relation};
-use crate::event_cache::{Event, Gap};
+use super::{
+    super::{Event, Gap, thread::ThreadInfo},
+    EventCacheStore, EventCacheStoreError, Result, extract_event_relation,
+};
 
 /// In-memory, non-persistent implementation of the `EventCacheStore`.
 ///
@@ -57,7 +59,7 @@ struct MemoryStoreInner {
     events: RelationalLinkedChunk<OwnedEventId, Event, Gap>,
 
     /// List of all threads.
-    threads: Vec<(OwnedRoomId, OwnedEventId)>,
+    threads: HashMap<(OwnedRoomId, OwnedEventId), ThreadInfo>,
 }
 
 impl Default for MemoryStore {
@@ -66,7 +68,7 @@ impl Default for MemoryStore {
             inner: Arc::new(StdRwLock::new(MemoryStoreInner {
                 leases: Default::default(),
                 events: RelationalLinkedChunk::new(),
-                threads: Vec::new(),
+                threads: HashMap::new(),
             })),
         }
     }
@@ -162,19 +164,33 @@ impl EventCacheStore for MemoryStore {
             .map_err(|err| EventCacheStoreError::InvalidData { details: err })
     }
 
-    async fn remember_thread(
+    async fn load_thread_info(
         &self,
         room_id: &RoomId,
         thread_id: &EventId,
+    ) -> Result<ThreadInfo, Self::Error> {
+        let mut inner = self.inner.write().unwrap();
+        let threads = &mut inner.threads;
+
+        let key = (room_id.to_owned(), thread_id.to_owned());
+
+        let thread_info = threads.entry(key).or_default();
+
+        Ok(thread_info.clone())
+    }
+
+    async fn update_thread_info(
+        &self,
+        room_id: &RoomId,
+        thread_id: &EventId,
+        thread_info: &ThreadInfo,
     ) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
         let threads = &mut inner.threads;
 
-        let pair = (room_id.to_owned(), thread_id.to_owned());
+        let key = (room_id.to_owned(), thread_id.to_owned());
 
-        if !threads.contains(&pair) {
-            threads.push(pair);
-        }
+        *threads.get_mut(&key).expect("The thread entry must exist") = thread_info.clone();
 
         Ok(())
     }

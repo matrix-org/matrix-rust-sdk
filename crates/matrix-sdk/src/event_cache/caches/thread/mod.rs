@@ -25,8 +25,10 @@ use matrix_sdk_base::{
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
-    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId, events::relation::RelationType,
+    EventId, OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
+    events::{AnySyncEphemeralRoomEvent, relation::RelationType},
     room_version_rules::RoomVersionRules,
+    serde::Raw,
 };
 use tokio::sync::{Notify, broadcast::Sender, mpsc};
 use tracing::{instrument, trace};
@@ -111,6 +113,7 @@ impl ThreadEventCache {
                     ThreadEventCacheState::new(
                         room_id.clone(),
                         thread_id.clone(),
+                        weak_room.clone(),
                         own_user_id,
                         room_version_rules,
                         store_guard,
@@ -197,7 +200,7 @@ impl ThreadEventCache {
     /// Handle a [`JoinedRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline).await?;
+        self.handle_timeline(updates.timeline, updates.ephemeral).await?;
 
         Ok(())
     }
@@ -205,15 +208,22 @@ impl ThreadEventCache {
     /// Handle a [`LeftRoomUpdate`].
     #[instrument(skip_all, fields(room_id = %self.inner.room_id, thread_root = %self.inner.thread_id))]
     pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline).await?;
+        self.handle_timeline(updates.timeline, Vec::new()).await?;
 
         Ok(())
     }
 
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
     /// thread.
-    async fn handle_timeline(&self, timeline: Timeline) -> Result<()> {
-        if timeline.events.is_empty() && timeline.prev_batch.is_none() {
+    async fn handle_timeline(
+        &self,
+        timeline: Timeline,
+        ephemeral_events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+    ) -> Result<()> {
+        if timeline.events.is_empty()
+            && timeline.prev_batch.is_none()
+            && ephemeral_events.is_empty()
+        {
             return Ok(());
         }
 
@@ -221,7 +231,8 @@ impl ThreadEventCache {
 
         let mut state = self.inner.state.write().await?;
 
-        let (stored_prev_batch_token, timeline_event_diffs) = state.handle_sync(timeline).await?;
+        let (stored_prev_batch_token, timeline_event_diffs) =
+            state.handle_sync(timeline, ephemeral_events).await?;
 
         // Now that all events have been added, we can trigger the
         // `pagination_token_notifier`.
@@ -302,6 +313,14 @@ impl ThreadEventCache {
         state
             .post_process_upserted_events(
                 resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
+                // Read receipt events aren't encrypted, so we can't have decrypted a new
+                // one here. As a result, we don't have any new receipt events to
+                // post-process, so we can just pass `None` here.
+                //
+                // Note: read receipts may be updated anyhow in the post-processing step,
+                // as the redecryption may have decrypted some events that don't count as
+                // unreads.
+                None,
             )
             .await?;
 
