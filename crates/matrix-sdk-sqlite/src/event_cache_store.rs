@@ -425,9 +425,9 @@ impl TransactionExtForLinkedChunks for Transaction<'_> {
         linked_chunk_id: &Key,
         chunk_id: ChunkIdentifier,
     ) -> Result<Gap> {
-        // There's at most one row for it in the database, so a call to `query_row` is
+        // There's at most one row for it in the database, so a call to `query_one` is
         // sufficient.
-        let encoded_prev_token: Vec<u8> = self.query_row(
+        let encoded_prev_token: Vec<u8> = self.query_one(
             "SELECT prev_token FROM gap_chunks WHERE chunk_id = ? AND linked_chunk_id = ?",
             (chunk_id.index(), &linked_chunk_id),
             |row| row.get(0),
@@ -665,7 +665,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .write()
             .await?
             .with_transaction(move |txn| {
-                txn.query_row(
+                txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration) \
                     VALUES (?1, ?2, ?3) \
                     ON CONFLICT (key) \
@@ -763,7 +763,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         trace!("removing chunk @ {chunk_id}");
 
                         // Find chunk to delete.
-                        let (previous, next): (Option<usize>, Option<usize>) = txn.query_row(
+                        let (previous, next): (Option<usize>, Option<usize>) = txn.query_one(
                             "SELECT previous, next FROM linked_chunks WHERE id = ? AND linked_chunk_id = ?",
                             (chunk_id, &hashed_linked_chunk_id),
                             |row| Ok((row.get(0)?, row.get(1)?))
@@ -1235,7 +1235,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     .prepare(
                         "SELECT MAX(id), COUNT(*) FROM linked_chunks WHERE linked_chunk_id = ?"
                     )?
-                    .query_row(
+                    .query_one(
                         (&hashed_linked_chunk_id,),
                         |row| {
                             Ok((
@@ -1263,7 +1263,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     .prepare(
                         "SELECT id, previous, type FROM linked_chunks WHERE linked_chunk_id = ? AND next IS NULL"
                     )?
-                    .query_row(
+                    .query_one(
                         (&hashed_linked_chunk_id,),
                         |row| {
                             Ok((
@@ -1330,7 +1330,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                     .prepare(
                         "SELECT id, previous, next, type FROM linked_chunks WHERE linked_chunk_id = ? AND next = ?"
                     )?
-                    .query_row(
+                    .query_one(
                         (&hashed_linked_chunk_id, before_chunk_identifier.index()),
                         |row| {
                             Ok((
@@ -1586,7 +1586,7 @@ impl EventCacheStore for SqliteEventCacheStore {
             .with_transaction(move |txn| -> Result<_> {
                 let Some(event) = txn
                     .prepare("SELECT content FROM events WHERE event_id = ? AND room_id = ?")?
-                    .query_row((hashed_event_id, hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
+                    .query_one((hashed_event_id, hashed_room_id), |row| row.get::<_, Vec<u8>>(0))
                     .optional()?
                 else {
                     // Event is not found.
@@ -2043,7 +2043,7 @@ mod tests {
             .await
             .unwrap()
             .with_transaction(move |txn| {
-                txn.query_row(
+                txn.query_one(
                     "SELECT COUNT(*) FROM event_chunks WHERE chunk_id = 42 AND linked_chunk_id = ? AND position IN (2, 3, 4)",
                     (hashed_linked_chunk_id,),
                     |row| row.get(0),
@@ -2069,12 +2069,12 @@ mod tests {
             .with_transaction(|txn| -> rusqlite::Result<_> {
                 let num_gaps = txn
                     .prepare("SELECT COUNT(chunk_id) FROM gap_chunks ORDER BY chunk_id")?
-                    .query_row((), |row| row.get::<_, u64>(0))?;
+                    .query_one((), |row| row.get::<_, u64>(0))?;
                 assert_eq!(num_gaps, 0);
 
                 let num_events = txn
                     .prepare("SELECT COUNT(event_id) FROM event_chunks ORDER BY chunk_id")?
-                    .query_row((), |row| row.get::<_, u64>(0))?;
+                    .query_one((), |row| row.get::<_, u64>(0))?;
                 assert_eq!(num_events, 0);
 
                 Ok(())

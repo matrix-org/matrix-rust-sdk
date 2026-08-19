@@ -318,7 +318,7 @@ impl MediaStore for SqliteMediaStore {
             .write()
             .await?
             .with_transaction(move |txn| {
-                txn.query_row(
+                txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
                     ON CONFLICT (key)
