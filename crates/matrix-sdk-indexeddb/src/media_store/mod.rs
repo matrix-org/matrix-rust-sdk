@@ -216,15 +216,6 @@ impl MediaStore for IndexeddbMediaStore {
     }
 
     #[instrument(skip(self))]
-    async fn get_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
-        let _timer = timer!("method");
-        self.media_service.get_media_content_for_uri(self, uri).await
-    }
-
-    #[instrument(skip(self))]
     async fn remove_media_content_for_uri(
         &self,
         uri: &MxcUri,
@@ -376,23 +367,6 @@ impl MediaStoreInner for IndexeddbMediaStore {
             TransactionMode::Readwrite,
         )?;
         let media = transaction.access_media_by_id(request, current_time).await?;
-        transaction.commit().await?;
-        Ok(media.map(|m| m.content))
-    }
-
-    #[instrument(skip_all)]
-    async fn get_media_content_for_uri_inner(
-        &self,
-        uri: &MxcUri,
-        current_time: SystemTime,
-    ) -> Result<Option<Vec<u8>>, IndexeddbMediaStoreError> {
-        let _timer = timer!("method");
-
-        let transaction = self.transaction(
-            &[MediaMetadata::OBJECT_STORE, MediaContent::OBJECT_STORE],
-            TransactionMode::Readwrite,
-        )?;
-        let media = transaction.access_media_by_uri(uri, current_time).await?.pop();
         transaction.commit().await?;
         Ok(media.map(|m| m.content))
     }

@@ -392,7 +392,7 @@ where
         let stored = self.get_media_content_inner(&request_small_5, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
-        let stored = self.get_media_content_for_uri_inner(uri_avg, time).await.unwrap();
+        let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
 
         // Cleanup removes the oldest content first.
@@ -737,7 +737,7 @@ where
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
-        let stored = self.get_media_content_for_uri_inner(uri_avg, time).await.unwrap();
+        let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
 
         // Ignore the average content for now so the max cache size is not reached.
@@ -753,7 +753,7 @@ where
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
-        let stored = self.get_media_content_for_uri_inner(uri_avg, time).await.unwrap();
+        let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_big, time).await.unwrap();
@@ -771,7 +771,7 @@ where
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
-        let stored = self.get_media_content_for_uri_inner(uri_avg, time).await.unwrap();
+        let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_big, time).await.unwrap();
@@ -790,7 +790,7 @@ where
         let stored = self.get_media_content_inner(&request_small, time).await.unwrap();
         assert!(stored.is_none());
         time += Duration::from_secs(1);
-        let stored = self.get_media_content_for_uri_inner(uri_avg, time).await.unwrap();
+        let stored = self.get_media_content_inner(&request_avg, time).await.unwrap();
         assert!(stored.is_some());
         time += Duration::from_secs(1);
         let stored = self.get_media_content_inner(&request_big, time).await.unwrap();
@@ -1123,11 +1123,6 @@ where
             Some(&content),
             "media not found though added"
         );
-        assert_eq!(
-            self.get_media_content_for_uri(uri).await.unwrap().as_ref(),
-            Some(&content),
-            "media not found by URI though added"
-        );
 
         // Let's remove the media.
         self.remove_media_content(&request_file).await.expect("removing media failed");
@@ -1136,10 +1131,6 @@ where
         assert!(
             self.get_media_content(&request_file).await.unwrap().is_none(),
             "media still there after removing"
-        );
-        assert!(
-            self.get_media_content_for_uri(uri).await.unwrap().is_none(),
-            "media still found by URI after removing"
         );
 
         // Let's add the media again.
@@ -1169,12 +1160,6 @@ where
             "thumbnail not found"
         );
 
-        // We get a file with the URI, we don't know which one.
-        assert!(
-            self.get_media_content_for_uri(uri).await.unwrap().is_some(),
-            "media not found by URI though two where added"
-        );
-
         // Let's add another media with a different URI.
         self.add_media_content(
             &request_other_file,
@@ -1189,11 +1174,6 @@ where
             self.get_media_content(&request_other_file).await.unwrap().as_ref(),
             Some(&other_content),
             "other file not found"
-        );
-        assert_eq!(
-            self.get_media_content_for_uri(other_uri).await.unwrap().as_ref(),
-            Some(&other_content),
-            "other file not found by URI"
         );
 
         // Let's remove media based on URI.
@@ -1210,14 +1190,6 @@ where
         assert!(
             self.get_media_content(&request_other_file).await.unwrap().is_some(),
             "other media was removed"
-        );
-        assert!(
-            self.get_media_content_for_uri(uri).await.unwrap().is_none(),
-            "media found by URI wasn't removed"
-        );
-        assert!(
-            self.get_media_content_for_uri(other_uri).await.unwrap().is_some(),
-            "other media found by URI was removed"
         );
     }
 
