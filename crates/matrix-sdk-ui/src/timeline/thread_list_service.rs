@@ -481,12 +481,19 @@ mod tests {
     use futures_util::pin_mut;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
-    use ruma::{event_id, events::AnyTimelineEvent, room_id, serde::Raw, user_id};
+    use ruma::{
+        event_id,
+        events::{AnyTimelineEvent, room::message::RedactedRoomMessageEventContent},
+        room_id,
+        serde::Raw,
+        user_id,
+    };
     use serde_json::json;
     use stream_assert::{assert_next_matches, assert_pending};
     use wiremock::ResponseTemplate;
 
     use super::{ThreadListPaginationState, ThreadListService};
+    use crate::timeline::{MsgLikeContent, MsgLikeKind, TimelineItemContent};
 
     #[async_test]
     async fn test_initial_state() {
@@ -797,6 +804,53 @@ mod tests {
         let latest = items[0].latest_event.as_ref().expect("should have latest_event");
         assert_eq!(latest.event_id, reply_id);
         assert_eq!(latest.sender.as_str(), sender_id.as_str());
+    }
+
+    #[async_test]
+    async fn test_redacted_root_content_is_preserved() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let root_id = event_id!("$root");
+        let reply_id = event_id!("$reply");
+
+        let reply_event =
+            f.text_msg("Reply in thread").event_id(reply_id).into_raw_sync().cast_unchecked();
+
+        // Redacted thread root, still carrying a bundled thread summary.
+        let thread_root = f
+            .redacted(sender_id, RedactedRoomMessageEventContent::new())
+            .event_id(root_id)
+            .with_bundled_thread_summary(reply_event, 3, false)
+            .into_raw();
+
+        server.mock_room_threads().ok(vec![thread_root], None).mock_once().mount().await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let service = ThreadListService::new(room);
+
+        service.paginate().await.expect("paginate failed");
+
+        let items = service.items();
+        assert_eq!(items.len(), 1);
+
+        // The redacted root is surfaced as a redacted message.
+        assert!(matches!(
+            items[0].root_event.content,
+            Some(TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }))
+        ));
+
+        // The plaintext latest reply is surfaced as a regular message.
+        let latest = items[0].latest_event.as_ref().expect("should have latest_event");
+        assert!(matches!(
+            latest.content,
+            Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                ..
+            }))
+        ));
     }
 
     /// Builds a [`ThreadListService`] and makes the room known to the client
