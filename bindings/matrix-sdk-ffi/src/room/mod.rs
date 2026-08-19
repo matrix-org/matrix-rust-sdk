@@ -21,6 +21,7 @@ use matrix_sdk::{
     DraftAttachment as SdkDraftAttachment, DraftAttachmentContent, DraftThumbnail, EncryptionState,
     PredecessorRoom as SdkPredecessorRoom, RoomHeroWithProfile as SdkRoomHeroWithProfile,
     RoomMemberships, RoomState, SuccessorRoom as SdkSuccessorRoom,
+    deserialized_responses::TimelineEvent as SdkTimelineEvent,
     encryption::LocalTrust,
     room::{
         Room as SdkRoom, RoomMemberRole, edit::EditedContent, power_levels::RoomPowerLevelChanges,
@@ -39,6 +40,7 @@ use ruma::{
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent,
         receipt::ReceiptThread as RumaReceiptThread,
+        relation::RelationType as RumaRelationType,
         room::{
             MediaSource as RumaMediaSource, avatar::ImageInfo as RumaAvatarImageInfo,
             history_visibility::HistoryVisibility as RumaHistoryVisibility,
@@ -733,7 +735,7 @@ impl Room {
 
         Ok(self
             .inner
-            .load_user_receipt(receipt_type.try_into()?, thread.try_into()?, &user_id)
+            .load_user_receipt(receipt_type.try_into()?, &thread.try_into()?, &user_id)
             .await?
             .map(|(event_id, receipt)| UserReceipt {
                 event_id: event_id.to_string(),
@@ -1315,6 +1317,79 @@ impl Room {
             .into_full_event(self.inner.room_id().to_owned())
             .into())
     }
+
+    /// Either loads the event associated with the `event_id` from the event
+    /// cache or fetches it from the homeserver, along with the events related
+    /// to it (e.g. reactions and edits), fetched recursively.
+    ///
+    /// An optional filter restricts the relation types fetched; no filter
+    /// fetches relations of all types.
+    pub async fn load_or_fetch_event_with_relations(
+        &self,
+        event_id: String,
+        relation_filter: Option<Vec<RelationType>>,
+    ) -> Result<EventWithRelations, ClientError> {
+        let event_id = EventId::parse(event_id)?;
+        let filter = relation_filter.map(|filter| filter.into_iter().map(Into::into).collect());
+
+        let (event, related_events) =
+            self.inner.load_or_fetch_event_with_relations(&event_id, filter, None).await?;
+
+        let as_ffi_event = |event: SdkTimelineEvent| -> Result<Arc<TimelineEvent>, ClientError> {
+            Ok(Arc::new(
+                event
+                    .kind
+                    .into_raw()
+                    .deserialize()?
+                    .into_full_event(self.inner.room_id().to_owned())
+                    .into(),
+            ))
+        };
+
+        Ok(EventWithRelations {
+            event: as_ffi_event(event)?,
+            related_events: related_events
+                .into_iter()
+                .map(as_ffi_event)
+                .collect::<Result<Vec<_>, _>>()?,
+        })
+    }
+}
+
+/// The relation types that can be used to filter related events when calling
+/// [`Room::load_or_fetch_event_with_relations`].
+#[derive(uniffi::Enum)]
+pub enum RelationType {
+    /// An annotation to an event (e.g. a reaction), `m.annotation`.
+    Annotation,
+    /// A reference to another event, `m.reference`.
+    Reference,
+    /// An event that replaces another event (e.g. an edit), `m.replace`.
+    Replacement,
+    /// An event that belongs to a thread, `m.thread`.
+    Thread,
+}
+
+impl From<RelationType> for RumaRelationType {
+    fn from(value: RelationType) -> Self {
+        match value {
+            RelationType::Annotation => Self::Annotation,
+            RelationType::Reference => Self::Reference,
+            RelationType::Replacement => Self::Replacement,
+            RelationType::Thread => Self::Thread,
+        }
+    }
+}
+
+/// An event and the events related to it, as returned by
+/// [`Room::load_or_fetch_event_with_relations`].
+#[derive(uniffi::Record)]
+pub struct EventWithRelations {
+    /// The event itself.
+    pub event: Arc<TimelineEvent>,
+    /// The events related to it, directly or (recursively) through other
+    /// related events.
+    pub related_events: Vec<Arc<TimelineEvent>>,
 }
 
 /// A listener for receiving call decline events in a room.

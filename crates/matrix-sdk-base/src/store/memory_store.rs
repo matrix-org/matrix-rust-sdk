@@ -116,7 +116,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
         self.inner
@@ -124,7 +124,7 @@ impl MemoryStore {
             .unwrap()
             .room_user_receipts
             .get(room_id)?
-            .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+            .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
             .get(user_id)
             .cloned()
     }
@@ -133,7 +133,7 @@ impl MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Option<Vec<(OwnedUserId, Receipt)>> {
         Some(
@@ -142,7 +142,7 @@ impl MemoryStore {
                 .unwrap()
                 .room_event_receipts
                 .get(room_id)?
-                .get(&(receipt_type.to_string(), thread.as_str().map(ToOwned::to_owned)))?
+                .get(&(receipt_type.to_string(), receipt_thread.as_str().map(ToOwned::to_owned)))?
                 .get(event_id)?
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone()))
@@ -792,21 +792,21 @@ impl StateStore for MemoryStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
-        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, thread, user_id))
+        Ok(self.get_user_room_receipt_event_impl(room_id, receipt_type, receipt_thread, user_id))
     }
 
     async fn get_event_room_receipt_events(
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         Ok(self
-            .get_event_room_receipt_events_impl(room_id, receipt_type, thread, event_id)
+            .get_event_room_receipt_events_impl(room_id, receipt_type, receipt_thread, event_id)
             .unwrap_or_default())
     }
 

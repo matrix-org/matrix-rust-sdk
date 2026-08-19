@@ -1893,6 +1893,17 @@ impl MatrixMock<'_> {
         Self { mock: self.mock.up_to_n_times(num), ..self }
     }
 
+    /// Set the priority of this [`MatrixMock`].
+    ///
+    /// When several mocks match the same request, the one with the highest
+    /// priority (i.e. the lowest value, 1 being the highest and 255 the
+    /// lowest) responds to it. This is useful to mock the same endpoint
+    /// differently for the first and the subsequent requests, by combining it
+    /// with [`Self::up_to_n_times`].
+    pub fn with_priority(self, priority: u8) -> Self {
+        Self { mock: self.mock.with_priority(priority), ..self }
+    }
+
     /// Mount a [`MatrixMock`] on the attached server.
     ///
     /// The [`MatrixMock`] will remain active until the [`MatrixMockServer`] is

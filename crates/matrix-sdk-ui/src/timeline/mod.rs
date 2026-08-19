@@ -44,11 +44,13 @@ use ruma::{
     api::client::receipt::create_receipt::v3::ReceiptType,
     events::{
         AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
+        location::{AssetType, LocationContent, ZoomLevel},
         poll::unstable_start::{NewUnstablePollStartEventContent, UnstablePollStartEventContent},
         receipt::{Receipt, ReceiptThread},
         relation::Thread,
         room::message::{
-            AddMentions, Relation, RelationWithoutReplacement, ReplyWithinThread,
+            AddMentions, LocationMessageEventContent, MessageType, Relation,
+            RelationWithoutReplacement, ReplyWithinThread, RoomMessageEventContent,
             RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
     },
@@ -418,14 +420,48 @@ impl Timeline {
         &self,
         content: RoomMessageEventContentWithoutRelation,
         in_reply_to: OwnedEventId,
-    ) -> Result<(), Error> {
+    ) -> Result<SendHandle, Error> {
         let reply = self
             .infer_reply(Some(in_reply_to))
             .await
             .expect("the reply will always be set because we provided a replied-to event id");
         let content = self.room().make_reply_event(content, reply).await?;
-        self.send(content.into()).await?;
-        Ok(())
+        self.send(content.into()).await
+    }
+
+    /// Send a location event to the room, with `body` as the plain-text
+    /// fallback and `geo_uri` its RFC 5870 representation. With `in_reply_to`,
+    /// the location is sent as a reply, with [`Self::send_reply`] semantics.
+    #[instrument(skip(self, body, geo_uri, description))]
+    pub async fn send_location(
+        &self,
+        body: String,
+        geo_uri: String,
+        description: Option<String>,
+        zoom_level: Option<ZoomLevel>,
+        asset_type: Option<AssetType>,
+        in_reply_to: Option<OwnedEventId>,
+    ) -> Result<SendHandle, Error> {
+        let mut content = LocationMessageEventContent::new(body, geo_uri.clone());
+
+        if let Some(asset_type) = asset_type {
+            content = content.with_asset_type(asset_type);
+        }
+
+        let mut location = LocationContent::new(geo_uri);
+        location.description = description;
+        location.zoom_level = zoom_level;
+        content.location = Some(location);
+
+        let msgtype = MessageType::Location(content);
+
+        match in_reply_to {
+            Some(event_id) => {
+                self.send_reply(RoomMessageEventContentWithoutRelation::new(msgtype), event_id)
+                    .await
+            }
+            None => self.send(RoomMessageEventContent::new(msgtype).into()).await,
+        }
     }
 
     /// Given a message or media to send, and an optional `in_reply_to` event,

@@ -37,8 +37,8 @@ clap = { version = "4.6.4", default-features = false, features = ["std", "help",
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std", "oldtime", "wasmbind"] }
 dirs = { version = "6.0.0", default-features = false }
 eyeball = { version = "0.8.8", default-features = false, features = ["tracing"] }
-eyeball-im = { version = "0.8.0", default-features = false, features = ["tracing"] }
-eyeball-im-util = { version = "0.10.0", default-features = false }
+eyeball-im = { version = "0.9.0", default-features = false, features = ["tracing"] }
+eyeball-im-util = { version = "0.11.0", default-features = false }
 futures-core = { version = "0.3.33", default-features = false, features = ["std"] }
 futures-executor = { version = "0.3.33", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.33", default-features = false, features = ["std"] }
@@ -49,7 +49,7 @@ growable-bloom-filter = { version = "2.1.1", default-features = false }
 hkdf = "0.13.0"
 hmac = "0.13.0"
 http = { version = "1.5.0", default-features = false }
-imbl = { version = "6.1.0", default-features = false }
+imbl = { version = "7.0.1", default-features = false }
 indexed_db_futures = { version = "0.7.0", package = "matrix_indexed_db_futures", default-features = false }
 indexmap = { version = "2.14.0", default-features = false }
 insta = { version = "1.48.0", features = ["json", "redactions"] }
@@ -93,6 +93,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "db24422e03aea7c7974230098f
     "unstable-msc4306",
     "unstable-msc4308",
     "unstable-msc4310",
+    "unstable-msc4388",
 ] }
 sentry = { version = "0.49.0", default-features = false }
 sentry-tracing = { version = "0.49.0", default-features = false }
@@ -108,10 +109,10 @@ tempfile = { version = "3.27.0", default-features = false }
 thiserror = { version = "2.0.19", default-features = false }
 tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
 tokio-stream = { version = "0.1.19", default-features = false }
-tracing = { version = "0.1.41", default-features = false, features = ["std"] }
-tracing-appender = { version = "0.2.3", default-features = false }
-tracing-core = { version = "0.1.34", default-features = false }
-tracing-subscriber = { version = "0.3.20", default-features = false, features = ["std", "smallvec", "fmt"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"] }
+tracing-appender = { version = "0.2.5", default-features = false }
+tracing-core = { version = "0.1.36", default-features = false }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "smallvec", "fmt"] }
 unicode-normalization = { version = "0.1.25", default-features = false }
 unicode-segmentation = { version = "1.13.3", default-features = false }
 uniffi = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4821410bea19e71984ea5e06a7bc8b11ed9e5", version = "0.31.0", default-features = false, features = ["cargo-metadata"] }
@@ -119,7 +120,7 @@ uniffi_bindgen = { git = "https://github.com/mozilla/uniffi-rs.git", rev = "e5f4
 url = { version = "2.5.8", default-features = false }
 uuid = { version = "1.24.0", default-features = false }
 vergen-gitcl = { version = "1.0.8", default-features = false }
-vodozemac = { git = "https://github.com/matrix-org/vodozemac", rev = "f978854", features = ["insecure-pk-encryption", "experimental-session-config"] }
+vodozemac = { git = "https://github.com/matrix-org/vodozemac/", rev = "cfc4eee", features = ["insecure-pk-encryption", "experimental-session-config"] }
 wasm-bindgen = { version = "0.2.105", default-features = false }
 wasm-bindgen-test = { version = "0.3.55", default-features = false, features = ["std"] }
 web-sys = { version = "0.3.103", default-features = false }
@@ -210,6 +211,15 @@ debug = 2
 # `--profile reldbg` to select
 [profile.reldbg]
 inherits = "dbg"
+# Only lightly optimize our own crates as they're the ones being edited, and
+# recompiling them at `opt-level = 3` roughly doubles the time of an
+# incremental binding build. Dependencies keep full optimizations below.
+# Don't lower this to 0 as the app then crashes on device, as it used to with the
+# plain `dev` profile (https://github.com/matrix-org/matrix-rust-sdk/issues/4009).
+opt-level = 1
+debug = "line-tables-only"
+
+[profile.reldbg.package."*"]
 opt-level = 3
 
 # Profile for the distributed Apple framework. `opt-level = "s"` measured ~33%
@@ -241,11 +251,8 @@ lto = false
 [patch.crates-io]
 async-compat = { git = "https://github.com/element-hq/async-compat", rev = "5a27c8b290f1f1dcfc0c4ec22c464e38528aa591" }
 const_panic = { git = "https://github.com/jplatte/const_panic", rev = "e0b317a9a7bde2d48a7d15b6a60d70e4a41d3b5f" }
+
+[patch."https://github.com/ruma/ruma"]
 # Needed to disable checksums since they're incorrect in 32bit devices.
 # Delete this once https://github.com/mozilla/uniffi-rs/issues/2939 is fixed.
 ruma = { git = "https://github.com/matrix-org/ruma", rev = "2a1d714314f6f711d5bca755c73cf2ce3053c3d1" }
-# Needed to fix rotation log issue on Android (https://github.com/tokio-rs/tracing/issues/2937)
-tracing = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-tracing-core = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-tracing-subscriber = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }
-tracing-appender = { git = "https://github.com/tokio-rs/tracing.git", rev = "20f5b3d8ba057ca9c4ae00ad30dda3dce8a71c05" }

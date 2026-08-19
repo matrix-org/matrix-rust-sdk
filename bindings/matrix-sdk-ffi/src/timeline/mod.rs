@@ -41,7 +41,7 @@ use ruma::{
     EventId, UInt, assign,
     events::{
         AnyMessageLikeEventContent,
-        location::{AssetType as RumaAssetType, LocationContent, ZoomLevel},
+        location::{AssetType as RumaAssetType, ZoomLevel},
         poll::{
             unstable_end::UnstablePollEndEventContent,
             unstable_response::UnstablePollResponseEventContent,
@@ -51,8 +51,7 @@ use ruma::{
             },
         },
         room::message::{
-            LocationMessageEventContent, MessageType, RoomMessageEventContentWithoutRelation,
-            TextMessageEventContent,
+            MessageType, RoomMessageEventContentWithoutRelation, TextMessageEventContent,
         },
     },
 };
@@ -549,15 +548,15 @@ impl Timeline {
     ///
     /// If the replied to event has a thread relation, it is forwarded on the
     /// reply so that clients that support threads can render the reply
-    /// inside the thread.
+    /// inside the thread. Returns a handle to abort the pending send.
     pub async fn send_reply(
         &self,
         msg: Arc<RoomMessageEventContentWithoutRelation>,
         event_id: String,
-    ) -> Result<(), ClientError> {
+    ) -> Result<Arc<SendHandle>, ClientError> {
         let event_id = EventId::parse(&event_id).map_err(|_| RoomError::InvalidRepliedToEventId)?;
-        self.inner.send_reply((*msg).clone(), event_id).await?;
-        Ok(())
+        let handle = self.inner.send_reply((*msg).clone(), event_id).await?;
+        Ok(Arc::new(SendHandle::new(handle)))
     }
 
     /// Edits an event from the timeline.
@@ -612,29 +611,37 @@ impl Timeline {
         asset_type: Option<AssetType>,
         replied_to_event_id: Option<String>,
     ) -> Result<(), ClientError> {
-        let mut location_event_message_content =
-            LocationMessageEventContent::new(body, geo_uri.clone());
-
-        if let Some(asset_type) = asset_type {
-            location_event_message_content =
-                location_event_message_content.with_asset_type(RumaAssetType::from(asset_type));
+        if matches!(asset_type, Some(AssetType::Unknown)) {
+            return Err(ClientError::Generic {
+                msg: "cannot send a location with an unknown asset type".to_owned(),
+                details: None,
+            });
         }
 
-        let mut location_content = LocationContent::new(geo_uri);
-        location_content.description = description;
-        location_content.zoom_level = zoom_level.and_then(ZoomLevel::new);
-        location_event_message_content.location = Some(location_content);
+        let zoom_level = zoom_level
+            .map(|zoom| {
+                ZoomLevel::new(zoom).ok_or_else(|| ClientError::Generic {
+                    msg: format!("zoom level {zoom} is out of range"),
+                    details: None,
+                })
+            })
+            .transpose()?;
 
-        let room_message_event_content = RoomMessageEventContentWithoutRelation::new(
-            MessageType::Location(location_event_message_content),
-        );
+        let in_reply_to = replied_to_event_id
+            .map(|id| EventId::parse(id).map_err(|_| RoomError::InvalidRepliedToEventId))
+            .transpose()?;
 
-        if let Some(replied_to_event_id) = replied_to_event_id {
-            self.send_reply(Arc::new(room_message_event_content), replied_to_event_id).await
-        } else {
-            self.send(Arc::new(room_message_event_content)).await?;
-            Ok(())
-        }
+        self.inner
+            .send_location(
+                body,
+                geo_uri,
+                description,
+                zoom_level,
+                asset_type.map(RumaAssetType::from),
+                in_reply_to,
+            )
+            .await?;
+        Ok(())
     }
 
     /// Toggle a reaction on an event.

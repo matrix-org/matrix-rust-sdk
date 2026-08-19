@@ -32,7 +32,7 @@ use crate::timeline::{TimelineItem, TimelineItemContent, controller::TimelineSta
 
 /// In-memory caches for read receipts.
 #[derive(Clone, Debug, Default)]
-pub(super) struct ReadReceipts {
+pub(super) struct ReadReceiptsState {
     /// Map of public read receipts on events.
     ///
     /// Event ID => User ID => Read receipt of the user.
@@ -66,7 +66,7 @@ pub(super) enum ImplicitReadReceipts {
     Exclude,
 }
 
-impl ReadReceipts {
+impl ReadReceiptsState {
     /// Empty the caches.
     pub(super) fn clear(&mut self) {
         self.by_event.clear();
@@ -660,11 +660,11 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
 
             // First, load the main receipts.
             let mut main_receipts =
-                room_data_provider.load_event_receipts(event_id, ReceiptThread::Main).await;
+                room_data_provider.load_event_receipts(event_id, &ReceiptThread::Main).await;
 
             // Then, load the unthreaded receipts.
             let unthreaded_receipts =
-                room_data_provider.load_event_receipts(event_id, ReceiptThread::Unthreaded).await;
+                room_data_provider.load_event_receipts(event_id, &ReceiptThread::Unthreaded).await;
 
             // We can safely extend both here: if a key is already set, then that means that
             // the user has the unthreaded and main receipt on the main event,
@@ -674,7 +674,7 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
         } else {
             // In all other cases, return what's requested, and only that (threaded
             // receipts).
-            room_data_provider.load_event_receipts(event_id, receipt_thread.clone()).await
+            room_data_provider.load_event_receipts(event_id, &receipt_thread).await
         };
 
         let own_user_id = room_data_provider.own_user_id();
@@ -801,13 +801,13 @@ impl<P: RoomDataProvider> TimelineState<P> {
         let wants_unthreaded_receipts = receipt_thread == ReceiptThread::Unthreaded;
 
         let mut read_receipt = room_data_provider
-            .load_user_receipt(receipt_type.clone(), receipt_thread, &own_user_id)
+            .load_user_receipt(receipt_type.clone(), &receipt_thread, &own_user_id)
             .await;
 
         if wants_unthreaded_receipts && read_receipt.is_none() {
             // Fallback to the one in the main thread.
             read_receipt = room_data_provider
-                .load_user_receipt(receipt_type.clone(), ReceiptThread::Main, &own_user_id)
+                .load_user_receipt(receipt_type.clone(), &ReceiptThread::Main, &own_user_id)
                 .await;
         }
 
@@ -933,11 +933,11 @@ impl TimelineMetadata {
             // Maintain compatibility with clients using either the unthreaded and main read
             // receipts, and try to find the most recent one.
             let unthreaded_read_receipt = room_data_provider
-                .load_user_receipt(receipt_type.clone(), ReceiptThread::Unthreaded, user_id)
+                .load_user_receipt(receipt_type.clone(), &ReceiptThread::Unthreaded, user_id)
                 .await;
 
             let main_thread_read_receipt = room_data_provider
-                .load_user_receipt(receipt_type.clone(), ReceiptThread::Main, user_id)
+                .load_user_receipt(receipt_type.clone(), &ReceiptThread::Main, user_id)
                 .await;
 
             // Let's use the unthreaded read receipt as default, since it's the one we
@@ -956,7 +956,7 @@ impl TimelineMetadata {
             // in particular will use this code path, and not be compatible with
             // an unthreaded read receipt.
             room_data_provider
-                .load_user_receipt(receipt_type.clone(), receipt_thread, user_id)
+                .load_user_receipt(receipt_type.clone(), &receipt_thread, user_id)
                 .await
         }
     }

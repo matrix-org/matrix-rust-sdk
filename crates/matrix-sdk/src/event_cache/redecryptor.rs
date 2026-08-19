@@ -506,31 +506,21 @@ impl EventCache {
                 }
             }
 
-            let resolved_events = maybe_resolved_events
-                .iter()
-                .filter_map(|resolved_event| resolved_event.as_resolved())
-                .cloned()
-                .collect::<Vec<_>>();
-
             // Replace all resolved events in the store.
-            state.save_events(resolved_events.clone().into_iter()).await?;
+            state
+                .save_events(
+                    maybe_resolved_events
+                        .iter()
+                        .filter_map(|resolved_event| resolved_event.as_resolved())
+                        .cloned(),
+                )
+                .await?;
 
             // Now, replace the in-memory events.
-            let mut timeline_event_diffs =
-                state.replace_in_memory_utds(&maybe_resolved_in_memory_events)?.unwrap_or_default();
-
-            // Read receipt events aren't encrypted, so we can't have decrypted a new
-            // one here. As a result, we don't have any new receipt events to
-            // post-process, so we can just pass `None` here.
-            //
-            // Note: read receipts may be updated anyhow in the post-processing step,
-            // as the redecryption may have decrypted some events that don't count as
-            // unreads.
-            let receipt_event = None;
-
-            state.post_process_new_events(resolved_events, receipt_event).await?;
-
-            timeline_event_diffs.extend(state.room_linked_chunk_mut().updates_as_vector_diffs());
+            let timeline_event_diffs = state
+                .replace_in_memory_utds(&maybe_resolved_in_memory_events)
+                .await?
+                .unwrap_or_default();
 
             if !timeline_event_diffs.is_empty() {
                 state.update_sender.send(

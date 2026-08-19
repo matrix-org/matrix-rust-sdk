@@ -139,45 +139,42 @@ impl<R: RoomIdentityProvider> RoomIdentityState<R> {
         // Ignore redacted events - memberships should come through as new events, not
         // redactions.
         if let SyncStateEvent::Original(event) = sync_room_member_event.deref() {
-            // Ignore invalid user IDs
-            let user_id: Result<&UserId, _> = event.state_key.as_str().try_into();
-            if let Ok(user_id) = user_id {
-                // Ignore non-existent users, and changes to our own identity
-                if let Some(user_identity @ UserIdentity::Other(_)) =
-                    self.room.user_identity(user_id).await
-                {
-                    // Don't notify on membership changes of verified or pinned identities
-                    if matches!(
-                        self.room.state_of(&user_identity),
-                        IdentityState::Verified | IdentityState::Pinned
-                    ) {
-                        return vec![];
-                    }
+            let user_id = &event.state_key;
+            // Ignore non-existent users, and changes to our own identity
+            if let Some(user_identity @ UserIdentity::Other(_)) =
+                self.room.user_identity(user_id).await
+            {
+                // Don't notify on membership changes of verified or pinned identities
+                if matches!(
+                    self.room.state_of(&user_identity),
+                    IdentityState::Verified | IdentityState::Pinned
+                ) {
+                    return vec![];
+                }
 
-                    match event.content.membership {
-                        MembershipState::Join | MembershipState::Invite => {
-                            // They are joining the room - check whether we need to display a
-                            // warning to the user
-                            if let Some(update) = self.update_user_state(user_id, &user_identity) {
-                                return vec![update];
-                            }
+                match event.content.membership {
+                    MembershipState::Join | MembershipState::Invite => {
+                        // They are joining the room - check whether we need to display a
+                        // warning to the user
+                        if let Some(update) = self.update_user_state(user_id, &user_identity) {
+                            return vec![update];
                         }
-                        MembershipState::Leave | MembershipState::Ban => {
-                            // They are leaving the room - treat that as if they are becoming
-                            // Pinned, which means the UI will remove any banner it was displaying
-                            // for them.
-
-                            if let Some(update) =
-                                self.update_user_state_to(user_id, IdentityState::Pinned)
-                            {
-                                return vec![update];
-                            }
-                        }
-                        MembershipState::Knock => {
-                            // No need to do anything when someone is knocking
-                        }
-                        _ => {}
                     }
+                    MembershipState::Leave | MembershipState::Ban => {
+                        // They are leaving the room - treat that as if they are becoming
+                        // Pinned, which means the UI will remove any banner it was displaying
+                        // for them.
+
+                        if let Some(update) =
+                            self.update_user_state_to(user_id, IdentityState::Pinned)
+                        {
+                            return vec![update];
+                        }
+                    }
+                    MembershipState::Knock => {
+                        // No need to do anything when someone is knocking
+                    }
+                    _ => {}
                 }
             }
         }

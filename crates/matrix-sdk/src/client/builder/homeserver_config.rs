@@ -54,9 +54,16 @@ pub(super) struct HomeserverDiscoveryResult {
 }
 
 impl HomeserverConfig {
+    /// Resolve this configuration into a homeserver URL.
+    ///
+    /// If `well_known_lookup_disabled` is set, no request is ever made to the
+    /// `.well-known/matrix/client` URI. [`Self::ServerName`] can then not be
+    /// resolved at all, and fails with
+    /// [`ClientBuildError::WellKnownLookupDisabled`].
     pub async fn discover(
         &self,
         http_client: &HttpClient,
+        well_known_lookup_disabled: bool,
     ) -> Result<HomeserverDiscoveryResult, ClientBuildError> {
         Ok(match self {
             Self::HomeserverUrl(url) => {
@@ -71,6 +78,13 @@ impl HomeserverConfig {
             }
 
             Self::ServerName { server, protocol } => {
+                // The well-known is the only source of the homeserver URL here, so there is
+                // nothing we could fall back to. Assuming the server name *is* the homeserver
+                // would silently talk to the wrong host for any delegating deployment.
+                if well_known_lookup_disabled {
+                    return Err(ClientBuildError::WellKnownLookupDisabled);
+                }
+
                 let (server, well_known) =
                     discover_homeserver(server, protocol, http_client).await?;
 
@@ -87,6 +101,7 @@ impl HomeserverConfig {
                     discover_homeserver_from_server_name_or_url(
                         server_name_or_url.to_owned(),
                         http_client,
+                        well_known_lookup_disabled,
                     )
                     .await?;
 
@@ -99,9 +114,13 @@ impl HomeserverConfig {
 /// Discovers a homeserver from a server name or a URL.
 ///
 /// Tries well-known discovery and checking if the URL points to a homeserver.
+///
+/// If `well_known_lookup_disabled` is set, the well-known discovery step is
+/// skipped entirely and only the homeserver URL check is performed.
 async fn discover_homeserver_from_server_name_or_url(
     mut server_name_or_url: String,
     http_client: &HttpClient,
+    well_known_lookup_disabled: bool,
 ) -> Result<
     (
         Option<Url>,
@@ -123,23 +142,30 @@ async fn discover_homeserver_from_server_name_or_url(
             UrlScheme::Https
         };
 
-        match discover_homeserver(server_name, &protocol, http_client).await {
-            Ok((server, well_known)) => {
-                return Ok((
-                    Some(server),
-                    Url::parse(&well_known.homeserver.base_url)?,
-                    None,
-                    Some(well_known),
-                ));
-            }
-            Err(e) => {
-                debug!(error = %e, "Well-known discovery failed.");
-                discovery_error = Some(e);
+        let server_name_as_url = match protocol {
+            UrlScheme::Http => format!("http://{server_name}"),
+            UrlScheme::Https => format!("https://{server_name}"),
+        };
 
-                // Check if the server name points to a homeserver.
-                server_name_or_url = match protocol {
-                    UrlScheme::Http => format!("http://{server_name}"),
-                    UrlScheme::Https => format!("https://{server_name}"),
+        if well_known_lookup_disabled {
+            debug!("Well-known discovery is disabled, checking for a homeserver URL directly.");
+            server_name_or_url = server_name_as_url;
+        } else {
+            match discover_homeserver(server_name, &protocol, http_client).await {
+                Ok((server, well_known)) => {
+                    return Ok((
+                        Some(server),
+                        Url::parse(&well_known.homeserver.base_url)?,
+                        None,
+                        Some(well_known),
+                    ));
+                }
+                Err(e) => {
+                    debug!(error = %e, "Well-known discovery failed.");
+                    discovery_error = Some(e);
+
+                    // Check if the server name points to a homeserver.
+                    server_name_or_url = server_name_as_url;
                 }
             }
         }
@@ -216,6 +242,7 @@ pub(super) async fn get_supported_versions(
 
 #[cfg(all(test, not(target_family = "wasm")))]
 mod tests {
+    use assert_matches::assert_matches;
     use matrix_sdk_test::async_test;
     use ruma::OwnedServerName;
     use serde_json::json;
@@ -233,7 +260,7 @@ mod tests {
             HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
 
         let result = HomeserverConfig::HomeserverUrl("https://matrix-client.matrix.org".to_owned())
-            .discover(&http_client)
+            .discover(&http_client, false)
             .await
             .unwrap();
 
@@ -264,7 +291,7 @@ mod tests {
             server: OwnedServerName::try_from(server.address().to_string()).unwrap(),
             protocol: UrlScheme::Http,
         }
-        .discover(&http_client)
+        .discover(&http_client, false)
         .await
         .unwrap();
 
@@ -292,7 +319,7 @@ mod tests {
             .await;
 
         let result = HomeserverConfig::ServerNameOrHomeserverUrl(server.uri().to_string())
-            .discover(&http_client)
+            .discover(&http_client, false)
             .await
             .unwrap();
 
@@ -317,12 +344,120 @@ mod tests {
             .await;
 
         let result = HomeserverConfig::ServerNameOrHomeserverUrl(homeserver.uri().to_string())
-            .discover(&http_client)
+            .discover(&http_client, false)
             .await
             .unwrap();
 
         assert!(result.server.is_none());
         assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
         assert!(result.supported_versions.is_some());
+    }
+
+    /// Mounts a well-known mock that must never be hit. `MockServer` verifies
+    /// the expectation when it is dropped, at the end of the test.
+    async fn mock_well_known_never_called(server: &MockServer, homeserver: &MockServer) {
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/client"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "m.homeserver": {
+                    "base_url": homeserver.uri(),
+                },
+            })))
+            .named("well-known mock")
+            .expect(0)
+            .mount(server)
+            .await;
+    }
+
+    #[async_test]
+    async fn test_url_with_well_known_lookup_disabled() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        // A homeserver URL never needs a lookup, so the flag changes nothing.
+        let result = HomeserverConfig::HomeserverUrl("https://matrix-client.matrix.org".to_owned())
+            .discover(&http_client, true)
+            .await
+            .unwrap();
+
+        assert_eq!(result.server, None);
+        assert_eq!(result.homeserver, Url::parse("https://matrix-client.matrix.org").unwrap());
+        assert!(result.supported_versions.is_none());
+    }
+
+    #[async_test]
+    async fn test_server_name_with_well_known_lookup_disabled() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let server = MockServer::start().await;
+        let homeserver = MockServer::start().await;
+
+        mock_well_known_never_called(&server, &homeserver).await;
+
+        // A server name can only be resolved through the well-known, so this must fail
+        // rather than guess a homeserver.
+        let error = HomeserverConfig::ServerName {
+            server: OwnedServerName::try_from(server.address().to_string()).unwrap(),
+            protocol: UrlScheme::Http,
+        }
+        .discover(&http_client, true)
+        .await
+        .err()
+        .unwrap();
+
+        assert_matches!(error, ClientBuildError::WellKnownLookupDisabled);
+    }
+
+    #[async_test]
+    async fn test_server_name_or_url_with_name_and_well_known_lookup_disabled() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let server = MockServer::start().await;
+        let homeserver = MockServer::start().await;
+
+        mock_well_known_never_called(&server, &homeserver).await;
+
+        // The value points at a delegating server, not at a homeserver: with the
+        // well-known step skipped, the homeserver check is all that's left, and it
+        // fails since `server` doesn't answer `/_matrix/client/versions`.
+        let error = HomeserverConfig::ServerNameOrHomeserverUrl(server.uri().to_string())
+            .discover(&http_client, true)
+            .await
+            .err()
+            .unwrap();
+
+        assert_matches!(error, ClientBuildError::InvalidServerName);
+    }
+
+    #[async_test]
+    async fn test_server_name_or_url_with_url_and_well_known_lookup_disabled() {
+        let http_client =
+            HttpClient::new(HttpSettings::default().make_client().unwrap(), Default::default());
+
+        let homeserver = MockServer::start().await;
+
+        mock_well_known_never_called(&homeserver, &homeserver).await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/versions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "versions": [],
+            })))
+            .mount(&homeserver)
+            .await;
+
+        // The value points at a homeserver, which the `/_matrix/client/versions` check
+        // proves, so this resolves without ever touching the well-known.
+        let result = HomeserverConfig::ServerNameOrHomeserverUrl(homeserver.uri().to_string())
+            .discover(&http_client, true)
+            .await
+            .unwrap();
+
+        assert!(result.server.is_none());
+        assert_eq!(result.homeserver, Url::parse(&homeserver.uri()).unwrap());
+        assert!(result.supported_versions.is_some());
+        assert!(result.well_known.is_none());
     }
 }
