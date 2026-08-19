@@ -11,12 +11,12 @@ rust-version.workspace = true
 rustdoc-args = ["--generate-link-to-definition"]
 
 [features]
-default = ["state-store", "event-cache"]
+default = ["state-store", "event-cache-store"]
 testing = ["matrix-sdk-crypto?/testing"]
 
 bundled = ["rusqlite/bundled"]
 crypto-store = ["dep:matrix-sdk-base", "dep:matrix-sdk-crypto"]
-event-cache = ["dep:matrix-sdk-base"]
+event-cache-store = ["dep:matrix-sdk-base"]
 state-store = ["dep:matrix-sdk-base"]
 
 experimental-encrypted-state-events = [
