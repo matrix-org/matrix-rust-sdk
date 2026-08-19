@@ -4831,7 +4831,8 @@ mod tests {
         use matrix_sdk_base::store::RoomLoadSettings;
         use matrix_sdk_test::{DEFAULT_TEST_ROOM_ID, message_like_event_content};
 
-        let sqlite_path = std::env::temp_dir().join("cache_invalidation_while_encrypt.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("cache_invalidation_while_encrypt.db");
         let session = mock_matrix_session();
 
         let client = Client::builder()
