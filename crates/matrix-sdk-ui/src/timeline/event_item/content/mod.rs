@@ -15,7 +15,10 @@
 use std::sync::Arc;
 
 use as_variant::as_variant;
-use matrix_sdk::{Room, deserialized_responses::TimelineEvent};
+use matrix_sdk::{
+    Room,
+    deserialized_responses::{TimelineEvent, TimelineEventKind},
+};
 use matrix_sdk_base::crypto::types::events::UtdCause;
 use ruma::{
     OwnedDeviceId, OwnedEventId, OwnedMxcUri, OwnedUserId, UserId,
@@ -164,16 +167,20 @@ impl TimelineItemContent {
 
     /// Create a raw [`TimelineItemContent`] for a given [`TimelineEvent`],
     /// without providing extra information (about thread root, replied-to
-    /// information, UTD info, and so on).
+    /// information, and so on).
     pub async fn from_event(room: &Room, timeline_event: TimelineEvent) -> Option<Self> {
-        let raw_event = timeline_event.into_raw();
+        let (utd_info, raw_event) = match timeline_event.kind {
+            TimelineEventKind::UnableToDecrypt { utd_info, event } => (Some(utd_info), event),
+            _ => (None, timeline_event.into_raw()),
+        };
+
         let deserialized_event = raw_event.deserialize().ok()?;
 
         let actions = TimelineAction::from_event(
             deserialized_event,
             &raw_event,
             room,
-            None,
+            utd_info.map(|utd_info| (utd_info, None)),
             None,
             None,
             None,
