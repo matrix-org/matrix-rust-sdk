@@ -61,6 +61,7 @@ use ruma::{
             media,
             membership::{join_room_by_id, join_room_by_id_or_alias},
             presence::set_presence as set_presence_status,
+            retention::get_retention_configuration,
             room::create_room,
             rtc::{RtcTransport, transports},
             session::login::v3::DiscoveryInfo,
@@ -2958,6 +2959,18 @@ impl Client {
         self.send(request).await
     }
 
+    /// Get the server's message retention policy configuration.
+    ///
+    /// Returns the server-level retention policy limits and any per-room
+    /// overrides defined by the server.
+    ///
+    /// See [MSC1763](https://github.com/matrix-org/matrix-spec-proposals/pull/1763) for more info.
+    pub async fn get_retention_configuration(
+        &self,
+    ) -> HttpResult<get_retention_configuration::unstable::Response> {
+        self.send(get_retention_configuration::unstable::Request::default()).await
+    }
+
     /// Delete the given devices from the server.
     ///
     /// # Arguments
@@ -5734,5 +5747,33 @@ pub(crate) mod tests {
         assert_key_count!(client, 0);
 
         Ok(())
+    }
+
+    #[async_test]
+    async fn test_get_retention_configuration() {
+        use wiremock::{
+            Mock, ResponseTemplate,
+            matchers::{method, path},
+        };
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        Mock::given(method("GET"))
+            .and(path("/_matrix/client/unstable/org.matrix.msc1763/retention/configuration"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "policies": {},
+                "limits": {},
+            })))
+            .expect(1)
+            .mount(server.server())
+            .await;
+
+        let response = client.get_retention_configuration().await;
+        assert!(response.is_ok());
+        let response = response.unwrap();
+        assert!(response.policies.is_empty());
+        assert!(response.limits.max_lifetime.is_none());
+        assert!(response.limits.min_lifetime.is_none());
     }
 }
