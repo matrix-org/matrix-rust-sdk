@@ -592,6 +592,8 @@ impl MediaStoreInner for SqliteMediaStore {
                 // See: https://sqlite.org/lang_transaction.html#read_transactions_versus_write_transactions
                 txn.execute("UPDATE media SET last_access = ? WHERE uri = ?", (timestamp, &uri))?;
 
+                // We can have more than one row (the URI is not unique, however, the tuple
+                // (URI, format) _is_ unique). Pick the first one here.
                 txn.query_row::<Vec<u8>, _, _>(
                     "SELECT data FROM media WHERE uri = ?",
                     (&uri,),
