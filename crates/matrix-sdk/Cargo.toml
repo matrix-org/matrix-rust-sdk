@@ -42,6 +42,7 @@ sqlite = [
     "dep:matrix-sdk-sqlite",
     "matrix-sdk-sqlite?/state-store",
     "matrix-sdk-sqlite?/event-cache-store",
+    "matrix-sdk-sqlite?/media-store",
 ]
 bundled-sqlite = ["sqlite", "matrix-sdk-sqlite?/bundled"]
 indexeddb = [
