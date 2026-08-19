@@ -786,7 +786,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         session_id: Key,
     ) -> Result<Option<(Vec<u8>, Vec<u8>, bool)>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT room_id, data, backed_up FROM inbound_group_session WHERE session_id = ?",
                 (session_id,),
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -808,10 +808,10 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         _backup_version: Option<&str>,
     ) -> Result<RoomKeyCounts> {
         let total = self
-            .query_row("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
+            .query_one("SELECT count(*) FROM inbound_group_session", (), |row| row.get(0))
             .await?;
         let backed_up = self
-            .query_row(
+            .query_one(
                 "SELECT count(*) FROM inbound_group_session WHERE backed_up = TRUE",
                 (),
                 |row| row.get(0),
@@ -913,7 +913,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_outbound_group_session(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM outbound_group_session WHERE room_id = ?",
                 (room_id,),
                 |row| row.get(0),
@@ -924,7 +924,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_device(&self, user_id: Key, device_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM device WHERE user_id = ? AND device_id = ?",
                 (user_id, device_id),
                 |row| row.get(0),
@@ -943,14 +943,14 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_user_identity(&self, user_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row("SELECT data FROM identity WHERE user_id = ?", (user_id,), |row| row.get(0))
+            .query_one("SELECT data FROM identity WHERE user_id = ?", (user_id,), |row| row.get(0))
             .await
             .optional()?)
     }
 
     async fn has_olm_hash(&self, data: Vec<u8>) -> Result<bool> {
         Ok(self
-            .query_row("SELECT count(*) FROM olm_hash WHERE data = ?", (data,), |row| {
+            .query_one("SELECT count(*) FROM olm_hash WHERE data = ?", (data,), |row| {
                 row.get::<_, i32>(0)
             })
             .await?
@@ -987,7 +987,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         request_id: Key,
     ) -> Result<Option<(Vec<u8>, bool)>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data, sent_out FROM key_requests WHERE request_id = ?",
                 (request_id,),
                 |row| Ok((row.get(0)?, row.get(1)?)),
@@ -998,7 +998,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_secret_request_by_info(&self, info: Key) -> Result<Option<(Vec<u8>, bool)>> {
         Ok(self
-            .query_row("SELECT data, sent_out FROM key_requests WHERE info = ?", (info,), |row| {
+            .query_one("SELECT data, sent_out FROM key_requests WHERE info = ?", (info,), |row| {
                 Ok((row.get(0)?, row.get(1)?))
             })
             .await
@@ -1037,7 +1037,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         room_id: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM direct_withheld_info WHERE session_id = ?1 AND room_id = ?2",
                 (session_id, room_id),
                 |row| row.get(0),
@@ -1056,7 +1056,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_room_settings(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
+            .query_one("SELECT data FROM room_settings WHERE room_id = ?", (room_id,), |row| {
                 row.get(0)
             })
             .await
@@ -1069,7 +1069,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
         sender_user: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT bundle_data FROM received_room_key_bundle WHERE room_id = ? AND sender_user_id = ?",
                 (room_id, sender_user),
                 |row| { row.get(0) },
@@ -1080,7 +1080,7 @@ trait SqliteObjectCryptoStoreExt: SqliteAsyncConnExt {
 
     async fn get_room_pending_key_bundle(&self, room_id: Key) -> Result<Option<Vec<u8>>> {
         Ok(self
-            .query_row(
+            .query_one(
                 "SELECT data FROM rooms_pending_key_bundle WHERE room_id = ?",
                 (room_id,),
                 |row| row.get(0),
@@ -1843,7 +1843,7 @@ impl CryptoStore for SqliteCryptoStore {
             .write()
             .await?
             .with_transaction(move |txn| {
-                txn.query_row(
+                txn.query_one(
                     "INSERT INTO lease_locks (key, holder, expiration)
                     VALUES (?1, ?2, ?3)
                     ON CONFLICT (key)

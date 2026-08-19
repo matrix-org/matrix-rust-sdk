@@ -97,6 +97,17 @@ pub(crate) trait SqliteAsyncConnExt {
         P: Params + Send + 'static,
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
 
+    async fn query_one<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static;
+
     async fn query_many<T, P, F>(
         &self,
         sql: impl AsRef<str> + Send + 'static,
@@ -285,6 +296,22 @@ impl SqliteAsyncConnExt for SqliteAsyncConn {
         F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
     {
         self.interact(move |conn| conn.query_row(sql.as_ref(), params, f))
+            .await
+            .map_err(map_interact_err)?
+    }
+
+    async fn query_one<T, P, F>(
+        &self,
+        sql: impl AsRef<str> + Send + 'static,
+        params: P,
+        f: F,
+    ) -> rusqlite::Result<T>
+    where
+        T: Send + 'static,
+        P: Params + Send + 'static,
+        F: FnOnce(&Row<'_>) -> rusqlite::Result<T> + Send + 'static,
+    {
+        self.interact(move |conn| conn.query_one(sql.as_ref(), params, f))
             .await
             .map_err(map_interact_err)?
     }
