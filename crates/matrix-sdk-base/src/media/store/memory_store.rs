@@ -171,13 +171,6 @@ impl MediaStore for MemoryMediaStore {
         Ok(())
     }
 
-    async fn get_media_content_for_uri(
-        &self,
-        uri: &MxcUri,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        self.media_service.get_media_content_for_uri(self, uri).await
-    }
-
     async fn remove_media_content_for_uri(&self, uri: &MxcUri) -> Result<(), Self::Error> {
         let mut inner = self.inner.write().unwrap();
 
@@ -313,34 +306,6 @@ impl MediaStoreInner for MemoryMediaStore {
         // First get the content out of the buffer, we are going to put it back at the
         // end.
         let Some(index) = inner.media.iter().position(|media| media.key == expected_key) else {
-            return Ok(None);
-        };
-        let Some(mut content) = inner.media.remove(index) else {
-            return Ok(None);
-        };
-
-        // Clone the data.
-        let data = content.data.clone();
-
-        // Update the last access time.
-        content.last_access = current_time;
-
-        // Put it back in the buffer.
-        inner.media.push(content);
-
-        Ok(Some(data))
-    }
-
-    async fn get_media_content_for_uri_inner(
-        &self,
-        expected_uri: &MxcUri,
-        current_time: SystemTime,
-    ) -> Result<Option<Vec<u8>>, Self::Error> {
-        let mut inner = self.inner.write().unwrap();
-
-        // First get the content out of the buffer, we are going to put it back at the
-        // end.
-        let Some(index) = inner.media.iter().position(|media| media.uri == expected_uri) else {
             return Ok(None);
         };
         let Some(mut content) = inner.media.remove(index) else {

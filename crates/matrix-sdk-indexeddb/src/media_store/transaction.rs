@@ -138,31 +138,6 @@ impl<'a> IndexeddbMediaStoreTransaction<'a> {
         }
     }
 
-    /// Query IndexedDB for [`MediaMetadata`] and [`MediaContent`] that matches
-    /// the given [`MxcUri`]. If an item is found, update
-    /// [`MediaMetadata::last_access`] using `current_time`. If more than
-    /// one item is found, an error is returned.
-    pub async fn access_media_by_uri(
-        &self,
-        uri: &MxcUri,
-        current_time: impl Into<UnixTime>,
-    ) -> Result<Vec<Media>, TransactionError> {
-        let mut medias = Vec::new();
-        for metadata in self.access_media_metadata_by_uri(uri, current_time).await? {
-            let content = self
-                .get_media_content_by_id(metadata.content_id)
-                .await?
-                .ok_or(TransactionError::ItemNotFound)?;
-            medias.push(Media {
-                request_parameters: metadata.request_parameters,
-                last_access: metadata.last_access,
-                ignore_policy: metadata.ignore_policy,
-                content: content.data,
-            });
-        }
-        Ok(medias)
-    }
-
     /// Query IndexedDB for the size recorded in each
     /// [`MediaMetadata::content_size`] which match
     /// the given [`IgnoreMediaRetentionPolicy`]. Returns the sum of all sizes
