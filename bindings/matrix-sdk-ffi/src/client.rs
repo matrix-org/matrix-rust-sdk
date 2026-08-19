@@ -1848,6 +1848,9 @@ impl Client {
         listener: Box<dyn IgnoredUsersListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_to_ignore_user_list_changes();
+
+        listener.call(subscriber.next_now());
+
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(user_ids) = subscriber.next().await {
                 listener.call(user_ids);
@@ -2218,9 +2221,11 @@ impl Client {
         listener: Box<dyn MediaPreviewConfigListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
+
+        // Send the initial value to the listener.
+        listener.on_change(initial_value.map(|config| config.into()));
+
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            // Send the initial value to the listener.
-            listener.on_change(initial_value.map(|config| config.into()));
             // Listen for changes and notify the listener.
             pin_mut!(stream);
             while let Some(media_preview_config) = stream.next().await {
