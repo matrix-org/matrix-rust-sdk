@@ -792,6 +792,8 @@ impl Encryption {
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.verification_state();
 
+        listener.on_update(subscriber.next_now().into());
+
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(verification_state) = subscriber.next().await {
                 listener.on_update(verification_state.into());

@@ -611,19 +611,28 @@ impl ClientBuilder {
 
         #[cfg(feature = "experimental-x509-identity-verification")]
         if let Some(x509_sign) = builder.raw_x509_signer {
+            use std::{future::ready, pin::Pin};
+
+            use matrix_sdk_base::crypto::x509::X509SignatureSigningError;
+
             // Wrap the provided RawX509Signer impl in a shim which converts the arguments
             // and results.
             #[derive(Debug)]
             struct X509SignImpl(Arc<dyn RawX509Signer>);
-            impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
-                fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
-                    use matrix_sdk_base::crypto::x509::X509SignatureSigningError;
 
-                    self.0.sign(message.to_vec()).map_err(|e| {
+            impl matrix_sdk_base::crypto::x509::RawX509Signer for X509SignImpl {
+                fn sign(
+                    &self,
+                    message: Vec<u8>,
+                ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>>
+                {
+                    let result = self.0.sign(message.to_vec()).map_err(|e| {
                         SignatureError::X509SigningError(X509SignatureSigningError::Custom(
                             e.into(),
                         ))
-                    })
+                    });
+
+                    Box::pin(ready(result))
                 }
 
                 fn validity_not_after(&self) -> Result<DateTime, ValidityError> {

@@ -4,7 +4,7 @@ use http::Response;
 use ruma::{
     OwnedRoomId, OwnedUserId, UserId,
     api::{
-        IncomingResponse,
+        IncomingResponseExt as _,
         client::sync::sync_events::v3::{
             InvitedRoom, JoinedRoom, KnockedRoom, LeftRoom, Response as SyncResponse, State,
         },
@@ -201,9 +201,9 @@ impl SyncResponseBuilder {
     /// [build_json_sync_response()](#method.build_json_sync_response) if you
     /// need an untyped response.
     pub fn build_sync_response(&mut self) -> SyncResponse {
-        let body = self.build_json_sync_response();
+        let body = serde_json::to_vec(&self.build_json_sync_response()).unwrap();
 
-        let response = Response::builder().body(serde_json::to_vec(&body).unwrap()).unwrap();
+        let response = Response::builder().body(body.as_slice()).unwrap();
 
         SyncResponse::try_from_http_response(response).unwrap()
     }

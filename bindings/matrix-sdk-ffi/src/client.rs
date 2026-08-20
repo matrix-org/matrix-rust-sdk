@@ -333,7 +333,8 @@ pub trait SyncNotificationListener: SyncOutsideWasm + SendOutsideWasm {
 pub trait RawX509Signer: SyncOutsideWasm + SendOutsideWasm + Debug {
     /// Create a signature for the given message using our private key
     ///
-    /// Returns (key ID, signature)
+    /// Note: the matrix-rust-sdk implementation supports asynchronous signing,
+    /// but (for now) in this FFI we only support synchronous.
     fn sign(&self, message: Vec<u8>) -> Result<RawX509Signature, ClientError>;
 
     /// Return the "not after" time for the certificate's validity period as a
@@ -1848,6 +1849,9 @@ impl Client {
         listener: Box<dyn IgnoredUsersListener>,
     ) -> Arc<TaskHandle> {
         let mut subscriber = self.inner.subscribe_to_ignore_user_list_changes();
+
+        listener.call(subscriber.next_now());
+
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
             while let Some(user_ids) = subscriber.next().await {
                 listener.call(user_ids);
@@ -2218,9 +2222,11 @@ impl Client {
         listener: Box<dyn MediaPreviewConfigListener>,
     ) -> Result<Arc<TaskHandle>, ClientError> {
         let (initial_value, stream) = self.inner.account().observe_media_preview_config().await?;
+
+        // Send the initial value to the listener.
+        listener.on_change(initial_value.map(|config| config.into()));
+
         Ok(Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            // Send the initial value to the listener.
-            listener.on_change(initial_value.map(|config| config.into()));
             // Listen for changes and notify the listener.
             pin_mut!(stream);
             while let Some(media_preview_config) = stream.next().await {

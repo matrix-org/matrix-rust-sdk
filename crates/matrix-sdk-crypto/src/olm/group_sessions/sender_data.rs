@@ -801,6 +801,7 @@ mod tests {
             #[cfg(feature = "experimental-x509-identity-verification")]
             None,
         )
+        .await
         .unwrap();
 
         let bob_identity = PrivateCrossSigningIdentity::new(owned_user_id!("@bob:example.com"));

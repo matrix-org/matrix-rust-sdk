@@ -872,6 +872,56 @@ mod tests {
         ));
     }
 
+    #[async_test]
+    async fn test_redacted_root_still_listed_with_summary() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let room_id = room_id!("!a:b.c");
+        let sender_id = user_id!("@alice:b.c");
+        let f = EventFactory::new().room(room_id).sender(sender_id);
+        let root_id = event_id!("$root");
+        let reply_id = event_id!("$reply");
+
+        let reply_event =
+            f.text_msg("Reply in thread").event_id(reply_id).into_raw_sync().cast_unchecked();
+
+        // Redacted thread root, still carrying a bundled thread summary.
+        let thread_root = f
+            .redacted(sender_id, RedactedRoomMessageEventContent::new())
+            .event_id(root_id)
+            .with_bundled_thread_summary(reply_event, 3, false)
+            .into_raw();
+
+        server.mock_room_threads().ok(vec![thread_root], None).mock_once().mount().await;
+
+        let room = server.sync_joined_room(&client, room_id).await;
+        let service = ThreadListService::new(room);
+
+        service.paginate().await.expect("paginate failed");
+
+        let items = service.items();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].root_event.event_id, root_id);
+        assert_eq!(items[0].num_replies, 3);
+
+        // The redacted root is surfaced as a redacted message.
+        assert!(matches!(
+            items[0].root_event.content,
+            Some(TimelineItemContent::MsgLike(MsgLikeContent { kind: MsgLikeKind::Redacted, .. }))
+        ));
+
+        // The plaintext latest reply is surfaced as a regular message.
+        let latest = items[0].latest_event.as_ref().expect("should have latest_event");
+        assert_eq!(latest.event_id, reply_id);
+        assert!(matches!(
+            latest.content,
+            Some(TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Message(_),
+                ..
+            }))
+        ));
+    }
+
     /// Builds a [`ThreadListService`] and makes the room known to the client
     /// by performing a sync.
     async fn make_service(server: &MatrixMockServer) -> ThreadListService {
