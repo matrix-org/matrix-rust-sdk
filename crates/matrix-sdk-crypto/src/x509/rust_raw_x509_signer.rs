@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{future::ready, pin::Pin, sync::Arc};
+use std::{future::ready, pin::Pin, sync::Arc, time::Duration};
 
 use cms::cert::x509::{Certificate, der};
 use rustls::{
@@ -44,11 +44,12 @@ pub struct RustRawX509Signer {
     /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
 
-    /// The "not after" time for the certificate's validity period.
+    /// The "not after" time for the certificate's validity period (as a
+    /// duration since the unix epoch).
     ///
     /// We pre-calculate this on creation to avoid needing to re-parse the
     /// certificate chain every time.
-    validity_not_after: der::DateTime,
+    validity_not_after: Duration,
 }
 
 /// An enum of possible errors that can occur while instantiating
@@ -93,7 +94,7 @@ impl RustRawX509Signer {
         // chain itself will not be valid after that time.
         let validity_not_after = cert_chain
             .into_iter()
-            .map(|cert| cert.tbs_certificate.validity.not_after.to_date_time())
+            .map(|cert| cert.tbs_certificate.validity.not_after.to_unix_duration())
             .min()
             .ok_or(RustX509SignError::CertificateNotFound)?;
 
@@ -148,7 +149,7 @@ impl RawX509Signer for RustRawX509Signer {
         Box::pin(ready(ret))
     }
 
-    fn validity_not_after(&self) -> Result<der::DateTime, ValidityError> {
+    fn validity_not_after(&self) -> Result<Duration, ValidityError> {
         Ok(self.validity_not_after)
     }
 }
@@ -191,7 +192,7 @@ mod tests {
 
         assert_eq!(
             x509_sign.validity_not_after,
-            der::DateTime::new(2027, 6, 5, 15, 2, 16).unwrap()
+            der::DateTime::new(2027, 6, 5, 15, 2, 16).unwrap().unix_duration()
         );
     }
 
