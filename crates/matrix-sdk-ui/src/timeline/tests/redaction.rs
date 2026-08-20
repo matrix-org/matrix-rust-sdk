@@ -206,6 +206,36 @@ async fn test_reaction_redaction_timeline_filter() {
 }
 
 #[async_test]
+async fn test_redact_thread_reply_keeps_thread_root() {
+    let timeline = TestTimeline::new().await;
+    let mut stream = timeline.subscribe_events().await;
+
+    let f = &timeline.factory;
+
+    let root_id = event_id!("$root");
+    let reply_id = event_id!("$reply");
+
+    timeline.handle_live_event(f.text_msg("root").event_id(root_id).sender(&ALICE)).await;
+    let _ = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+
+    timeline
+        .handle_live_event(
+            f.text_msg("reply").event_id(reply_id).sender(&BOB).in_thread(root_id, root_id),
+        )
+        .await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    assert_eq!(item.content().thread_root().as_deref(), Some(root_id));
+
+    // The thread reply is redacted.
+    timeline.handle_live_event(f.redaction(reply_id).sender(&BOB)).await;
+
+    let item = assert_next_matches!(stream, VectorDiff::Set { index: 1, value } => value);
+    assert!(item.content().is_redacted());
+    // The redacted reply is still recognized as part of the thread.
+    assert_eq!(item.content().thread_root().as_deref(), Some(root_id));
+}
+
+#[async_test]
 async fn test_local_and_remote_echo_of_redaction() {
     let timeline = TestTimeline::new().await;
     let mut stream = timeline.subscribe_events().await;

@@ -440,7 +440,13 @@ impl TimelineItemContent {
 
     pub(in crate::timeline) fn redact(&self, rules: &RedactionRules) -> Self {
         match self {
-            Self::MsgLike(_) | Self::CallInvite | Self::RtcNotification { .. } => {
+            Self::MsgLike(msglike) => TimelineItemContent::MsgLike(MsgLikeContent {
+                kind: MsgLikeKind::Redacted,
+                reactions: Default::default(),
+                in_reply_to: None,
+                ..msglike.clone()
+            }),
+            Self::CallInvite | Self::RtcNotification { .. } => {
                 TimelineItemContent::MsgLike(MsgLikeContent::redacted())
             }
             Self::MembershipChange(ev) => Self::MembershipChange(ev.redact(rules)),

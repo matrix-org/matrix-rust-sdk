@@ -43,8 +43,8 @@ use ruma::{
         room::{
             ImageInfo,
             message::{
-                Relation, ReplacementMetadata, RoomMessageEventContent,
-                RoomMessageEventContentWithoutRelation,
+                RedactedRoomMessageEventContent, Relation, ReplacementMetadata,
+                RoomMessageEventContent, RoomMessageEventContentWithoutRelation,
             },
         },
         sticker::{StickerEventContent, StickerMediaSource},
@@ -304,6 +304,133 @@ async fn test_extract_bundled_thread_summary() {
 
     assert_let!(VectorDiff::PushFront { value } = &timeline_updates[1]);
     assert!(value.is_date_divider());
+
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_redact_thread_root_keeps_thread_summary() {
+    // Redacting the thread root must not hide the thread: the thread summary
+    // is preserved on the redacted item.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
+
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_event_id = event_id!("$thread_root");
+    let latest_event_id = event_id!("$latest_event");
+
+    // `with_bundled_thread_summary` expects `Raw<AnySyncMessageLikeEvent>`,
+    // so we cast from the more general `Raw<AnySyncTimelineEvent>`.
+    let reply_event = f
+        .text_msg("the last reply")
+        .event_id(latest_event_id)
+        .sender(&BOB)
+        .into_raw_sync()
+        .cast_unchecked();
+
+    // A thread root message, with a bundled thread summary.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("thread root").event_id(thread_event_id).with_bundled_thread_summary(
+                    reply_event,
+                    42,
+                    false,
+                ),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    // Message + day divider.
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    assert_eq!(summary.num_replies, 42);
+
+    // Redact the thread root.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(f.redaction(thread_event_id).sender(&ALICE)),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    assert_let!(VectorDiff::Set { index: 1, value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert!(event_item.content().is_redacted());
+    // The thread summary is preserved, so the thread stays accessible from the
+    // main timeline.
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    assert_eq!(summary.num_replies, 42);
+
+    assert_pending!(stream);
+}
+
+#[async_test]
+async fn test_already_redacted_thread_root_keeps_bundled_thread_summary() {
+    // A thread root that arrives in the timeline already redacted (e.g. after a
+    // fresh sync or pagination) must keep its bundled thread summary, so that
+    // the thread stays accessible from the main timeline.
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let room_id = room_id!("!a:b.c");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut stream) = timeline.subscribe().await;
+
+    let f = EventFactory::new().room(room_id).sender(&ALICE);
+    let thread_event_id = event_id!("$thread_root");
+    let latest_event_id = event_id!("$latest_event");
+
+    // `with_bundled_thread_summary` expects `Raw<AnySyncMessageLikeEvent>`,
+    // so we cast from the more general `Raw<AnySyncTimelineEvent>`.
+    let reply_event = f
+        .text_msg("the last reply")
+        .event_id(latest_event_id)
+        .sender(&BOB)
+        .into_raw_sync()
+        .cast_unchecked();
+
+    // An already-redacted thread root, still carrying its bundled thread
+    // summary in the unsigned section.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.redacted(&ALICE, RedactedRoomMessageEventContent::new())
+                    .event_id(thread_event_id)
+                    .with_bundled_thread_summary(reply_event, 42, false),
+            ),
+        )
+        .await;
+
+    assert_let_timeout!(Some(timeline_updates) = stream.next());
+    // Message + day divider.
+    assert_eq!(timeline_updates.len(), 2);
+
+    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
+    let event_item = value.as_event().unwrap();
+    assert!(event_item.content().is_redacted());
+    // The thread summary is preserved, so the thread stays accessible from the
+    // main timeline.
+    assert_let!(Some(summary) = event_item.content().thread_summary());
+    assert_eq!(summary.num_replies, 42);
 
     assert_pending!(stream);
 }
