@@ -807,7 +807,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_redacted_root_content_is_preserved() {
+    async fn test_redacted_root_still_listed_with_summary() {
         let server = MatrixMockServer::new().await;
         let client = server.client_builder().build().await;
         let room_id = room_id!("!a:b.c");
@@ -835,6 +835,8 @@ mod tests {
 
         let items = service.items();
         assert_eq!(items.len(), 1);
+        assert_eq!(items[0].root_event.event_id, root_id);
+        assert_eq!(items[0].num_replies, 3);
 
         // The redacted root is surfaced as a redacted message.
         assert!(matches!(
@@ -844,6 +846,7 @@ mod tests {
 
         // The plaintext latest reply is surfaced as a regular message.
         let latest = items[0].latest_event.as_ref().expect("should have latest_event");
+        assert_eq!(latest.event_id, reply_id);
         assert!(matches!(
             latest.content,
             Some(TimelineItemContent::MsgLike(MsgLikeContent {
