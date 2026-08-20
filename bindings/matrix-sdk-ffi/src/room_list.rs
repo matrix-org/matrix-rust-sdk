@@ -31,8 +31,8 @@ use matrix_sdk_ui::{
         BoxedFilterFn, RoomCategory, new_filter_all, new_filter_any, new_filter_category,
         new_filter_deduplicate_versions, new_filter_favourite, new_filter_fuzzy_match_room_name,
         new_filter_identifiers, new_filter_invite, new_filter_joined, new_filter_low_priority,
-        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
-        new_filter_not, new_filter_space, new_filter_unread,
+        new_filter_mentions, new_filter_non_left, new_filter_none,
+        new_filter_normalized_match_room_name, new_filter_not, new_filter_space, new_filter_unread,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -482,6 +482,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
     Joined,
     Unread,
+    Mentions,
     Favourite,
     LowPriority,
     NonLowPriority,
@@ -528,6 +529,7 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::NonLeft => Box::new(new_filter_non_left()),
             Kind::Joined => Box::new(new_filter_joined()),
             Kind::Unread => Box::new(new_filter_unread()),
+            Kind::Mentions => Box::new(new_filter_mentions()),
             Kind::Favourite => Box::new(new_filter_favourite()),
             Kind::LowPriority => Box::new(new_filter_low_priority()),
             Kind::NonLowPriority => Box::new(new_filter_not(Box::new(new_filter_low_priority()))),
