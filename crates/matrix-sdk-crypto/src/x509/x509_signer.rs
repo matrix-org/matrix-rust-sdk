@@ -12,9 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{pin::Pin, sync::Arc};
+use std::{pin::Pin, sync::Arc, time::Duration};
 
-use cms::cert::x509::der;
 use ruma::{DeviceKeyId, UserId, canonical_json::to_canonical_value};
 use thiserror::Error;
 use tracing::info;
@@ -120,7 +119,7 @@ impl X509Signer {
                     .iter()
                     .filter_map(|cert| match cert {
                         cms::cert::CertificateChoices::Certificate(c) => {
-                            Some(c.tbs_certificate.validity.not_after.to_date_time())
+                            Some(c.tbs_certificate.validity.not_after.to_unix_duration())
                         }
                         _ => None,
                     })
@@ -159,8 +158,9 @@ pub trait RawX509Signer: std::fmt::Debug + Send + Sync {
         message: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>>>>;
 
-    /// Return the "not after" time for the certificate's validity period.
-    fn validity_not_after(&self) -> Result<der::DateTime, ValidityError>;
+    /// Return the "not after" time for the certificate's validity period as a
+    /// duration since the unix epoch.
+    fn validity_not_after(&self) -> Result<Duration, ValidityError>;
 }
 
 /// Failure to get the validity period of the X.509 certificate.

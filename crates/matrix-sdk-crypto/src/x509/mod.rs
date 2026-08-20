@@ -113,7 +113,6 @@ mod raw_x509_signature;
 mod x509_signer;
 mod x509_verify;
 
-pub use cms::cert::x509::der::DateTime;
 pub use errors::{
     IntoX509SignatureError, X509SignatureSigningError, X509SignatureVerificationError,
 };
