@@ -1132,17 +1132,27 @@ impl Room {
             _ => true,
         };
 
+        let is_backup_configured = encryption.backups().state() == BackupState::Enabled;
+
         // Cached-only: this feeds UTD classification on rendering hot paths
         // (room-list latest events, timeline items), which must paint from
         // cache even when the network is down. Fetching here blocked the room
         // list's first paint behind a hung /room_keys/version request.
-        let backup_exists_on_server =
-            encryption.backups().cached_exists_on_server().unwrap_or(false);
+        //
+        // Nothing on a plain session restore asks the server for the backup
+        // version, so the cache is usually still empty when the first UTDs are
+        // classified. A backup this device is enabled on exists by definition;
+        // guessing `false` there mislabelled every pre-device UTD as
+        // "historical messages are not available on this device".
+        let backup_exists_on_server = encryption
+            .backups()
+            .cached_exists_on_server()
+            .unwrap_or(is_backup_configured);
 
         CryptoContextInfo {
             device_creation_ts: encryption.device_creation_timestamp().await,
             this_device_is_verified,
-            is_backup_configured: encryption.backups().state() == BackupState::Enabled,
+            is_backup_configured,
             backup_exists_on_server,
         }
     }

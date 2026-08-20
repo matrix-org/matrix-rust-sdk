@@ -804,6 +804,21 @@ impl Backups {
 
         self.maybe_resume_backups().await?;
 
+        // UTD classification reads the exists-on-server answer cached-only
+        // (see `Room::crypto_context_info`). When backups aren't enabled on
+        // this device nothing else would ever populate it, so warm it in the
+        // background: a hung /room_keys/version must not block rendering.
+        if self.state() != BackupState::Enabled
+            && self.client.inner.e2ee.backup_state.backup_exists_on_server().is_none()
+        {
+            let backups = self.clone();
+            matrix_sdk_common::executor::spawn(async move {
+                if let Err(e) = backups.fetch_exists_on_server().await {
+                    info!("Couldn't warm the backup exists-on-server cache: {e:?}");
+                }
+            });
+        }
+
         Ok(())
     }
 
