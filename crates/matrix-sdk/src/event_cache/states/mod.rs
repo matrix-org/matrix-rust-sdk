@@ -37,6 +37,7 @@ use super::{
         event_focused::{EventFocusedCacheKey, EventFocusedCacheState},
         pinned_events::PinnedEventsCacheState,
         room::{self, RoomEventCacheState},
+        specific_events::SpecificEventsCacheState,
         thread::ThreadEventCacheState,
     },
 };
@@ -55,6 +56,7 @@ pub(super) struct StateForRoom {
     threads: HashMap<OwnedEventId, ThreadEventCacheState>,
     pinned_events: Option<PinnedEventsCacheState>,
     event_focused: HashMap<EventFocusedCacheKey, EventFocusedCacheState>,
+    specific_events: HashMap<u64, SpecificEventsCacheState>,
 }
 
 /// State for the entire Event Cache.
@@ -489,8 +491,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         trace!("Reloading the state");
 
         // Iterate over all states and reload them.
-        for (room_id, StateForRoom { room, threads, pinned_events, event_focused }) in
-            self.state.by_room.iter_mut()
+        for (
+            room_id,
+            StateForRoom { room, threads, pinned_events, event_focused, specific_events },
+        ) in self.state.by_room.iter_mut()
         {
             // Room.
             if let Some(room_state) = room {
@@ -553,6 +557,21 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
 
                 let updates_as_vector_diffs = event_focused_state.reload(preprocessing).await?;
                 let _ = event_focused_state.update_sender.send(TimelineVectorDiffs {
+                    diffs: updates_as_vector_diffs,
+                    origin: EventsOrigin::Cache,
+                });
+            }
+
+            // Specific-events.
+            for specific_events_state in specific_events.values_mut() {
+                let mut specific_events_state = StateLockWriteGuard {
+                    state: StateLockWriteGuardKind::Reference(specific_events_state),
+                    store: self.store.clone(),
+                    _tracing_timer: None,
+                };
+
+                let updates_as_vector_diffs = specific_events_state.reload(preprocessing).await?;
+                let _ = specific_events_state.update_sender.send(TimelineVectorDiffs {
                     diffs: updates_as_vector_diffs,
                     origin: EventsOrigin::Cache,
                 });
