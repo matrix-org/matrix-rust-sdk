@@ -27,7 +27,7 @@ use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
 use reqwest::tls;
-use ruma::api::{IncomingResponse, OutgoingRequest, error::FromHttpResponseError};
+use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
 use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
@@ -152,6 +152,8 @@ impl HttpClient {
                     send_progress,
                 )
                 .await?;
+                let (parts, body) = response.into_parts();
+                let response: http::Response<&[u8]> = http::Response::from_parts(parts, &body);
                 R::IncomingResponse::try_from_http_response(response).map_err(HttpError::from)
             }
         };

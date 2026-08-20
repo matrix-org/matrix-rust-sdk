@@ -17,7 +17,7 @@ use ruma::{
     api::{
         EmptyBody, IncomingResponse, Metadata, OutgoingRequest,
         auth_scheme::NoAuthentication,
-        error::{FromHttpResponseError, IntoHttpError},
+        error::{DeserializationError, IntoHttpError},
         path_builder::PathBuilder,
     },
     exports::{
@@ -74,9 +74,9 @@ pub(crate) struct PublicServerKeyResponse {
 impl IncomingResponse for PublicServerKeyResponse {
     type EndpointError = RumaApiError;
 
-    fn try_from_http_response<T: AsRef<[u8]>>(
-        response: Response<T>,
-    ) -> Result<Self, FromHttpResponseError<Self::EndpointError>> {
-        Ok(serde_json::from_slice::<PublicServerKeyResponse>(response.body().as_ref())?)
+    fn try_from_http_response_inner(
+        response: Response<&[u8]>,
+    ) -> Result<Self, DeserializationError> {
+        Ok(serde_json::from_slice::<PublicServerKeyResponse>(response.body())?)
     }
 }
