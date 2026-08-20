@@ -151,7 +151,7 @@ impl MediaStore for IndexeddbMediaStore {
         };
 
         Ok(if let Some(lease) = lease {
-            transaction.put_lease(&lease).await?;
+            transaction.put_lease(&lease)?;
             transaction.commit().await?;
 
             Some(lease.generation)
@@ -185,7 +185,7 @@ impl MediaStore for IndexeddbMediaStore {
             // delete before adding, in case `from` and `to` generate the same key
             transaction.delete_media_metadata_by_id(from).await?;
             metadata.request_parameters = to.clone();
-            transaction.add_media_metadata(&metadata).await?;
+            transaction.add_media_metadata(&metadata)?;
             transaction.commit().await?;
         }
         Ok(())
@@ -312,7 +312,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
 
         let transaction =
             self.transaction(&[MediaRetentionPolicy::OBJECT_STORE], TransactionMode::Readwrite)?;
-        transaction.put_item(&policy).await?;
+        transaction.put_item(&policy)?;
         transaction.commit().await.map_err(Into::into)
     }
 
@@ -357,7 +357,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
             && metadata.ignore_policy != ignore_policy
         {
             metadata.ignore_policy = ignore_policy;
-            transaction.put_media_metadata(&metadata).await?;
+            transaction.put_media_metadata(&metadata)?;
             transaction.commit().await?;
         }
         Ok(())
@@ -463,7 +463,7 @@ impl MediaStoreInner for IndexeddbMediaStore {
             }
         }
 
-        transaction.put_media_cleanup_time(current_time).await?;
+        transaction.put_media_cleanup_time(current_time)?;
         transaction.commit().await.map_err(Into::into)
     }
 
