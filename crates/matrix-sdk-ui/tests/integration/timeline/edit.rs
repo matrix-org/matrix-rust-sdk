@@ -1112,3 +1112,159 @@ async fn test_send_edit_non_existing_item() {
         .unwrap();
     assert_matches!(error, Error::EventNotInTimeline(_));
 }
+
+#[async_test]
+async fn test_edit_revisions_unknown_event() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let revisions = timeline.edit_revisions(event_id!("$nonexistent")).await.unwrap();
+    assert!(revisions.is_empty());
+}
+
+#[async_test]
+async fn test_edit_revisions_no_edit() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let f = EventFactory::new();
+    let original_event_id = event_id!("$original");
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello, World!").sender(&ALICE).event_id(original_event_id),
+            ),
+        )
+        .await;
+
+    let revisions = timeline.edit_revisions(original_event_id).await.unwrap();
+    assert_eq!(revisions.len(), 1);
+
+    assert_let!(Some(msg) = revisions[0].content.as_message());
+    assert_eq!(msg.body(), "Hello, World!");
+}
+
+#[async_test]
+async fn test_edit_revisions_with_edit() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let f = EventFactory::new();
+    let original_event_id = event_id!("$original");
+    let edit_event_id = event_id!("$edit");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello, World!").sender(&ALICE).event_id(original_event_id),
+            ),
+        )
+        .await;
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("* Hello, Room!").sender(&ALICE).event_id(edit_event_id).edit(
+                    original_event_id,
+                    RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
+                ),
+            ),
+        )
+        .await;
+
+    let revisions = timeline.edit_revisions(original_event_id).await.unwrap();
+    assert_eq!(revisions.len(), 2);
+
+    assert_let!(Some(msg) = revisions[0].content.as_message());
+    assert_eq!(msg.body(), "Hello, World!");
+
+    assert_let!(Some(msg) = revisions[1].content.as_message());
+    assert_eq!(msg.body(), "Hello, Room!");
+}
+
+#[async_test]
+async fn test_edit_revisions_multiple_edits() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    let timeline = room.timeline().await.unwrap();
+
+    let f = EventFactory::new();
+    let original_event_id = event_id!("$original");
+    let edit1_event_id = event_id!("$edit1");
+    let edit2_event_id = event_id!("$edit2");
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello, World!").sender(&ALICE).event_id(original_event_id),
+            ),
+        )
+        .await;
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("* Hello, Room!").sender(&ALICE).event_id(edit1_event_id).edit(
+                    original_event_id,
+                    RoomMessageEventContentWithoutRelation::text_plain("Hello, Room!"),
+                ),
+            ),
+        )
+        .await;
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("* Hello, Everyone!").sender(&ALICE).event_id(edit2_event_id).edit(
+                    original_event_id,
+                    RoomMessageEventContentWithoutRelation::text_plain("Hello, Everyone!"),
+                ),
+            ),
+        )
+        .await;
+
+    let revisions = timeline.edit_revisions(original_event_id).await.unwrap();
+    assert_eq!(revisions.len(), 3);
+
+    assert_let!(Some(msg) = revisions[0].content.as_message());
+    assert_eq!(msg.body(), "Hello, World!");
+
+    assert_let!(Some(msg) = revisions[1].content.as_message());
+    assert_eq!(msg.body(), "Hello, Room!");
+
+    assert_let!(Some(msg) = revisions[2].content.as_message());
+    assert_eq!(msg.body(), "Hello, Everyone!");
+}
