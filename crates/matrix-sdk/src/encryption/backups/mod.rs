@@ -449,6 +449,31 @@ impl Backups {
         self.client.inner.e2ee.backup_state.backup_exists_on_server()
     }
 
+    /// Populate the [`Self::cached_exists_on_server`] answer in the background
+    /// if it is still unknown.
+    ///
+    /// Nothing on a plain session restore asks the server for the backup
+    /// version, so without this the cache stays empty for the whole process
+    /// and UTD classification keeps guessing. One request at a time: a burst
+    /// of classifications before the first answer lands must not fan out
+    /// into a burst of `/room_keys/version` requests. A failed fetch releases
+    /// the slot so a later call retries.
+    pub(crate) fn warm_exists_on_server_cache(&self) {
+        let state = &self.client.inner.e2ee.backup_state;
+
+        if state.backup_exists_on_server().is_some() || !state.claim_exists_on_server_fetch() {
+            return;
+        }
+
+        let backups = self.clone();
+        matrix_sdk_common::executor::spawn(async move {
+            if let Err(e) = backups.fetch_exists_on_server().await {
+                info!("Couldn't warm the backup exists-on-server cache: {e:?}");
+            }
+            backups.client.inner.e2ee.backup_state.release_exists_on_server_fetch();
+        });
+    }
+
     /// Subscribe to a stream that notifies when a room key for the specified
     /// room is downloaded from the key backup.
     pub fn room_keys_for_room_stream(
@@ -803,21 +828,6 @@ impl Backups {
         }
 
         self.maybe_resume_backups().await?;
-
-        // UTD classification reads the exists-on-server answer cached-only
-        // (see `Room::crypto_context_info`). When backups aren't enabled on
-        // this device nothing else would ever populate it, so warm it in the
-        // background: a hung /room_keys/version must not block rendering.
-        if self.state() != BackupState::Enabled
-            && self.client.inner.e2ee.backup_state.backup_exists_on_server().is_none()
-        {
-            let backups = self.clone();
-            matrix_sdk_common::executor::spawn(async move {
-                if let Err(e) = backups.fetch_exists_on_server().await {
-                    info!("Couldn't warm the backup exists-on-server cache: {e:?}");
-                }
-            });
-        }
 
         Ok(())
     }
@@ -1501,6 +1511,34 @@ mod test {
                 "If the /version endpoint returns a non-Matrix 404 error we should throw an error",
             );
         }
+    }
+
+    #[async_test]
+    async fn test_warming_the_exists_on_server_cache_fetches_once() {
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+
+        // Exactly one request, however many times the warm-up is asked for.
+        server.mock_room_keys_version().exists().expect(1).mount().await;
+
+        let backups = client.encryption().backups();
+        assert!(backups.cached_exists_on_server().is_none(), "Nothing should be cached yet");
+
+        backups.warm_exists_on_server_cache();
+        backups.warm_exists_on_server_cache();
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while backups.cached_exists_on_server().is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("The background fetch should populate the cache");
+
+        assert_eq!(backups.cached_exists_on_server(), Some(true));
+
+        // Once known, warming is a no-op (the mock's expectation is verified on drop).
+        backups.warm_exists_on_server_cache();
     }
 
     #[async_test]

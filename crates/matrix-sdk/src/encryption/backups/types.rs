@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use std::{
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -61,6 +64,10 @@ pub(crate) struct BackupClientState {
     /// on the server was changed by some other client, we will have a old
     /// value.
     pub(super) backup_exists_on_server: RwLock<Option<bool>>,
+
+    /// Whether a background fetch of [`Self::backup_exists_on_server`] is
+    /// in flight, see [`super::Backups::warm_exists_on_server_cache`].
+    pub(super) exists_on_server_fetch_in_flight: AtomicBool,
 }
 
 impl BackupClientState {
@@ -84,6 +91,17 @@ impl BackupClientState {
     pub(crate) fn clear_backup_exists_on_server(&self) {
         *self.backup_exists_on_server.write().unwrap() = None;
     }
+
+    /// Claim the single background exists-on-server fetch slot. Returns
+    /// `false` if a fetch is already in flight.
+    pub(crate) fn claim_exists_on_server_fetch(&self) -> bool {
+        !self.exists_on_server_fetch_in_flight.swap(true, Ordering::AcqRel)
+    }
+
+    /// Release the slot claimed by [`Self::claim_exists_on_server_fetch`].
+    pub(crate) fn release_exists_on_server_fetch(&self) {
+        self.exists_on_server_fetch_in_flight.store(false, Ordering::Release);
+    }
 }
 
 const DEFAULT_BACKUP_UPLOAD_DELAY: Duration = Duration::from_millis(100);
@@ -96,6 +114,7 @@ impl Default for BackupClientState {
             global_state: Default::default(),
             room_keys_broadcaster: broadcast::Sender::new(100),
             backup_exists_on_server: RwLock::new(None),
+            exists_on_server_fetch_in_flight: AtomicBool::new(false),
         }
     }
 }

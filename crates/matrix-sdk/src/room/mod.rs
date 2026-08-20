@@ -1143,11 +1143,18 @@ impl Room {
         // version, so the cache is usually still empty when the first UTDs are
         // classified. A backup this device is enabled on exists by definition;
         // guessing `false` there mislabelled every pre-device UTD as
-        // "historical messages are not available on this device".
-        let backup_exists_on_server = encryption
-            .backups()
-            .cached_exists_on_server()
-            .unwrap_or(is_backup_configured);
+        // "historical messages are not available on this device". When backups
+        // aren't enabled here the guess can be wrong either way, so ask the
+        // server off the render path and let the next classification know.
+        let backup_exists_on_server = match encryption.backups().cached_exists_on_server() {
+            Some(exists) => exists,
+            None => {
+                if !is_backup_configured {
+                    encryption.backups().warm_exists_on_server_cache();
+                }
+                is_backup_configured
+            }
+        };
 
         CryptoContextInfo {
             device_creation_ts: encryption.device_creation_timestamp().await,
