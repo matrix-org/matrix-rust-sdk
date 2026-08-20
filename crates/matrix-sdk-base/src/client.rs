@@ -69,7 +69,8 @@ use crate::{
     store::{
         AvatarCache, BaseStateStore, DynStateStore, MemoryStore, Result as StoreResult,
         RoomLoadSettings, StateChanges, StateStoreDataKey, StateStoreDataValue, StateStoreExt,
-        StoreConfig, ambiguity_map::AmbiguityCache,
+        StoreConfig,
+        ambiguity_map::{AmbiguityCache, is_member_active},
     },
     sync::{RoomUpdates, SyncResponse},
 };
@@ -924,6 +925,7 @@ impl BaseClient {
             }
 
             if let StateEvent::Original(e) = &member
+                && is_member_active(&e.content.membership)
                 && let Some(d) = &e.content.displayname
             {
                 let display_name = DisplayName::new(d);
@@ -1312,6 +1314,7 @@ mod tests {
         ProfileFieldValue, StatusProfileField, UserProfileChanges, UserProfileUpdate,
     };
     use ruma::{
+        RoomId,
         api::client::{self as api, sync::sync_events::v5},
         event_id,
         events::{StateEventType, room::member::MembershipState},
@@ -1804,6 +1807,77 @@ mod tests {
         assert_eq!(member.user_id(), user_id);
         assert_eq!(member.display_name().unwrap(), "Invited Alice");
         assert_eq!(member.avatar_url().unwrap().to_string(), "mxc://localhost/fewjilfewjil42");
+    }
+
+    async fn base_client_with_joined_room(room_id: &RoomId) -> BaseClient {
+        let client = logged_in_base_client(Some(user_id!("@alice:example.org"))).await;
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(matrix_sdk_test::JoinedRoomBuilder::new(room_id))
+            .build_sync_response();
+        client.receive_sync_response(response).await.unwrap();
+
+        client
+    }
+
+    #[async_test]
+    async fn test_inactive_members_do_not_make_a_display_name_ambiguous() {
+        let joined_user_id = user_id!("@bob:example.org");
+        let left_user_id = user_id!("@carol:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = base_client_with_joined_room(room_id).await;
+
+        // A joined member and a member who left share a display name.
+        let f = EventFactory::new().room(room_id);
+        let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
+        let response = api::membership::get_member_events::v3::Response::new(vec![
+            f.member(joined_user_id).display_name("Amandine").into_raw(),
+            f.member(left_user_id)
+                .display_name("Amandine")
+                .membership(MembershipState::Leave)
+                .into_raw(),
+        ]);
+
+        client.receive_all_members(room_id, &request, &response).await.unwrap();
+
+        let room = client.get_room(room_id).unwrap();
+        let member = room.get_member(joined_user_id).await.expect("ok").expect("exists");
+
+        assert_eq!(member.display_name().unwrap(), "Amandine");
+        assert!(!member.name_ambiguous());
+    }
+
+    #[async_test]
+    async fn test_active_members_make_a_display_name_ambiguous() {
+        let joined_user_id = user_id!("@bob:example.org");
+        let invited_user_id = user_id!("@carol:example.org");
+        let room_id = room_id!("!ithpyNKDtmhneaTQja:example.org");
+
+        let client = base_client_with_joined_room(room_id).await;
+
+        // A joined member and an invited member share a display name.
+        let f = EventFactory::new().room(room_id);
+        let request = api::membership::get_member_events::v3::Request::new(room_id.to_owned());
+        let response = api::membership::get_member_events::v3::Response::new(vec![
+            f.member(joined_user_id).display_name("Amandine").into_raw(),
+            f.member(invited_user_id)
+                .display_name("Amandine")
+                .membership(MembershipState::Invite)
+                .into_raw(),
+        ]);
+
+        client.receive_all_members(room_id, &request, &response).await.unwrap();
+
+        // Then both display names are ambiguous.
+        let room = client.get_room(room_id).unwrap();
+
+        let joined = room.get_member(joined_user_id).await.expect("ok").expect("exists");
+        assert!(joined.name_ambiguous());
+
+        let invited = room.get_member(invited_user_id).await.expect("ok").expect("exists");
+        assert!(invited.name_ambiguous());
     }
 
     #[cfg(feature = "unstable-msc4426")]
