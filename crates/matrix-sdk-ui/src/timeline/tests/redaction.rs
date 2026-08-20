@@ -220,7 +220,7 @@ async fn test_redact_thread_reply_keeps_thread_root() {
 
     timeline
         .handle_live_event(
-            f.text_msg("reply").event_id(reply_id).sender(&BOB).in_thread(root_id, reply_id),
+            f.text_msg("reply").event_id(reply_id).sender(&BOB).in_thread(root_id, root_id),
         )
         .await;
     let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
