@@ -118,6 +118,14 @@ pub struct BaseClient {
     #[cfg(feature = "e2e-encryption")]
     olm_machine: Arc<RwLock<Option<OlmMachine>>>,
 
+    /// Fires after [`BaseClient::regenerate_olm`] swapped in a new
+    /// `OlmMachine`. Streams taken from the old machine's store (room keys
+    /// received, withheld info) are dead from then on, and they only end once
+    /// every clone of the old machine is dropped, which long-lived holders
+    /// (identities, verification objects) may never do.
+    #[cfg(feature = "e2e-encryption")]
+    olm_machine_regenerated_sender: broadcast::Sender<()>,
+
     /// Observable of when a user is ignored/unignored.
     pub(crate) ignore_user_list_changes: SharedObservable<Vec<String>>,
 
@@ -213,6 +221,8 @@ impl BaseClient {
             crypto_store: config.crypto_store,
             #[cfg(feature = "e2e-encryption")]
             olm_machine: Default::default(),
+            #[cfg(feature = "e2e-encryption")]
+            olm_machine_regenerated_sender: broadcast::Sender::new(1),
             ignore_user_list_changes: Default::default(),
             global_profile_updates_sender: broadcast::Sender::new(16),
             #[cfg(feature = "e2e-encryption")]
@@ -255,6 +265,7 @@ impl BaseClient {
             //    or Olm sessions when they encrypt or decrypt messages.
             crypto_store: self.crypto_store.clone(),
             olm_machine: self.olm_machine.clone(),
+            olm_machine_regenerated_sender: self.olm_machine_regenerated_sender.clone(),
             ignore_user_list_changes: Default::default(),
             global_profile_updates_sender: broadcast::Sender::new(16),
             room_key_recipient_strategy: self.room_key_recipient_strategy.clone(),
@@ -431,7 +442,18 @@ impl BaseClient {
         let olm_machine = builder.build().await.map_err(OlmError::from)?;
 
         *self.olm_machine.write().await = Some(olm_machine);
+        // Ignore the result, it only fails when nobody is listening.
+        let _ = self.olm_machine_regenerated_sender.send(());
         Ok(())
+    }
+
+    /// Subscribe to [`BaseClient::regenerate_olm`] completions.
+    ///
+    /// Anything holding a stream obtained from the `OlmMachine`'s store must
+    /// re-obtain it from the new machine when this fires.
+    #[cfg(feature = "e2e-encryption")]
+    pub fn subscribe_to_olm_machine_regenerations(&self) -> broadcast::Receiver<()> {
+        self.olm_machine_regenerated_sender.subscribe()
     }
 
     /// Get the current, if any, sync token of the client.

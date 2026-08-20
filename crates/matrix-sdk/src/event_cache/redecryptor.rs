@@ -37,8 +37,12 @@
 //! events and updates the [`EncryptionInfo`] of an event.
 //!
 //! There's an additional gotcha: the [`OlmMachine`] might get recreated by
-//! calls to [`BaseClient::regenerate_olm()`]. When this happens, we will
-//! receive a `None` on the room keys stream and we need to re-listen to it.
+//! calls to [`BaseClient::regenerate_olm()`]. When this happens, the room keys
+//! stream belongs to the old machine's store and we need to re-listen to the
+//! new one. We can't wait for a `None` on the old stream: it only closes once
+//! every clone of the old machine is dropped, and long-lived identity or
+//! verification objects can pin it for the lifetime of the app, so we listen
+//! to [`BaseClient::subscribe_to_olm_machine_regenerations()`] instead.
 //!
 //! Another gotcha is that room keys might be received on another process if the
 //! [`Client`] is operating on a Apple iOS device. A separate process is used
@@ -866,6 +870,8 @@ impl Redecryptor {
     ) -> Self {
         let linked_chunk_stream = UnboundedReceiverStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
+        let olm_machine_regenerated_stream =
+            BroadcastStream::new(client.base_client().subscribe_to_olm_machine_regenerations());
 
         let task = client
             .task_monitor()
@@ -877,6 +883,7 @@ impl Redecryptor {
                     request_redecryption_stream,
                     linked_chunk_stream,
                     backup_state_stream,
+                    olm_machine_regenerated_stream,
                 )
                 .await;
             })
@@ -910,6 +917,9 @@ impl Redecryptor {
         events_stream: &mut Pin<&mut impl Stream<Item = RoomEventCacheLinkedChunkUpdate>>,
         backup_state_stream: &mut Pin<
             &mut impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
+        >,
+        olm_machine_regenerated_stream: &mut Pin<
+            &mut impl Stream<Item = Result<(), BroadcastStreamRecvError>>,
         >,
     ) -> bool {
         let Some((room_key_stream, withheld_stream)) =
@@ -1071,6 +1081,17 @@ impl Redecryptor {
                         }
                     }
                 }
+                // The `OlmMachine` was regenerated (e.g. another process bumped the
+                // crypto store generation). Our room key streams belong to the old
+                // machine's store and won't carry anything the new machine receives,
+                // so rebuild them. Waiting for the old streams to end is not enough:
+                // they only end once every clone of the old machine is dropped, and
+                // long-lived identity/verification objects can pin it forever.
+                // A lagged receiver still means at least one regeneration happened.
+                Some(_) = olm_machine_regenerated_stream.next() => {
+                    info!("The OlmMachine was regenerated, resubscribing to its room key streams");
+                    break true;
+                }
                 else => break false,
             }
         }
@@ -1081,6 +1102,7 @@ impl Redecryptor {
         decryption_request_stream: UnboundedReceiverStream<DecryptionRetryRequest>,
         events_stream: UnboundedReceiverStream<RoomEventCacheLinkedChunkUpdate>,
         backup_state_stream: impl Stream<Item = Result<BackupState, BroadcastStreamRecvError>>,
+        olm_machine_regenerated_stream: impl Stream<Item = Result<(), BroadcastStreamRecvError>>,
     ) {
         // We pin the decryption request stream here since that one doesn't need to be
         // recreated and we don't want to miss messages coming from the stream
@@ -1088,12 +1110,14 @@ impl Redecryptor {
         pin_mut!(decryption_request_stream);
         pin_mut!(events_stream);
         pin_mut!(backup_state_stream);
+        pin_mut!(olm_machine_regenerated_stream);
 
         while Self::redecryption_loop(
             &cache,
             &mut decryption_request_stream,
             &mut events_stream,
             &mut backup_state_stream,
+            &mut olm_machine_regenerated_stream,
         )
         .await
         {
@@ -1511,6 +1535,11 @@ mod tests {
 
         let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
         let mut generic_stream = event_cache.subscribe_to_room_generic_updates();
+
+        // Pin the old `OlmMachine`, like a long-lived `UserIdentity` held by an app
+        // would: the old room key stream must never end, so the redecryptor has to
+        // notice the regeneration by itself.
+        let _pinned_old_machine = bob.olm_machine().await.clone();
 
         // We regenerate the Olm machine to check if the room key stream is recreated to
         // correctly.
