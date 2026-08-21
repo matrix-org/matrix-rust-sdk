@@ -2277,6 +2277,8 @@ mod tests {
         matchers::{header, method, path_regex},
     };
 
+    #[cfg(feature = "sqlite")]
+    use crate::cross_process_lock::CrossProcessLockGuard;
     use crate::{
         Client, assert_next_matches_with_timeout,
         config::RequestConfig,
@@ -2339,13 +2341,29 @@ mod tests {
         room.send_raw("m.reaction", json!({})).await.expect("Sending the reaction should not fail");
     }
 
+    /// A dropped guard releases the lock from the lease-renewal task.
+    #[cfg(feature = "sqlite")]
+    async fn lock_store_eventually(client: &Client) -> CrossProcessLockGuard {
+        const ATTEMPTS: u32 = 100;
+        const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+        for _ in 0..ATTEMPTS {
+            if let Some(guard) = client.encryption().try_lock_store_once().await.unwrap() {
+                return guard;
+            }
+            tokio::time::sleep(POLL_INTERVAL).await;
+        }
+        panic!("the store lock was not released within {:?}", POLL_INTERVAL * ATTEMPTS);
+    }
+
     #[cfg(feature = "sqlite")]
     #[async_test]
     async fn test_generation_counter_invalidates_olm_machine() {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
-        let sqlite_path = std::env::temp_dir().join("generation_counter_sqlite.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("generation_counter_sqlite.db");
         let session = mock_matrix_session();
 
         let client1 = Client::builder()
@@ -2405,11 +2423,9 @@ mod tests {
 
         // Now have the first client release the lock,
         drop(acquired1);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // And re-take it.
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
-        assert!(acquired1.is_some());
+        let acquired1 = lock_store_eventually(&client1).await;
 
         // In that case, the Olm Machine shouldn't change.
         let olm_machine = client1.olm_machine().await.clone().expect("must have an olm machine");
@@ -2417,19 +2433,15 @@ mod tests {
 
         // Ok, release again.
         drop(acquired1);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Client2 can acquire the lock.
-        let acquired2 = client2.encryption().try_lock_store_once().await.unwrap();
-        assert!(acquired2.is_some());
+        let acquired2 = lock_store_eventually(&client2).await;
 
         // And then release it.
         drop(acquired2);
-        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Client1 can acquire it again,
-        let acquired1 = client1.encryption().try_lock_store_once().await.unwrap();
-        assert!(acquired1.is_some());
+        let _acquired1 = lock_store_eventually(&client1).await;
 
         // But now its olm machine has been invalidated and thus regenerated!
         let olm_machine = client1.olm_machine().await.clone().expect("must have an olm machine");
@@ -2451,8 +2463,8 @@ mod tests {
         // Create two clients using the same sqlite database.
 
         use matrix_sdk_base::store::RoomLoadSettings;
-        let sqlite_path =
-            std::env::temp_dir().join("generation_counter_no_spurious_invalidations.db");
+        let tmp_dir = tempfile::tempdir().unwrap();
+        let sqlite_path = tmp_dir.path().join("generation_counter_no_spurious_invalidations.db");
         let session = mock_matrix_session();
 
         let client = Client::builder()
@@ -2501,12 +2513,10 @@ mod tests {
             assert!(guard.is_some());
 
             drop(guard);
-            tokio::time::sleep(Duration::from_millis(100)).await;
         }
 
         {
-            let acquired = client.encryption().try_lock_store_once().await.unwrap();
-            assert!(acquired.is_some());
+            let _acquired = lock_store_eventually(&client).await;
         }
 
         // Taking the lock the first time will update the olm machine.
