@@ -35,11 +35,14 @@ use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     deserialized_responses::TimelineEvent,
     event_cache::{Event, Gap},
-    linked_chunk::OwnedLinkedChunkId,
+    linked_chunk::{OwnedLinkedChunkId, Position},
 };
 use matrix_sdk_common::{linked_chunk::ChunkIdentifier, serde_helpers::extract_thread_root};
-use ruma::{OwnedEventId, UInt, api::Direction};
-use tokio::sync::broadcast::{Receiver, Sender};
+use ruma::{OwnedEventId, OwnedUserId, UInt, api::Direction};
+use tokio::sync::{
+    RwLock,
+    broadcast::{Receiver, Sender},
+};
 use tracing::{instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
@@ -120,6 +123,9 @@ pub struct EventFocusedCacheState {
 
     /// A sender for globally observable linked chunk updates.
     linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+
+    /// The list of ignored users, shared across all rooms.
+    ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
 }
 
 impl EventFocusedCacheState {
@@ -236,7 +242,7 @@ impl EventFocusedCacheState {
                 EventFocusedPaginationMode::Thread { thread_root: root_id.clone() };
 
             // Filter events to only include those in the thread.
-            let thread_events = result
+            let mut thread_events = result
                 .events
                 .iter()
                 .filter(|event| {
@@ -244,7 +250,10 @@ impl EventFocusedCacheState {
                         || event.event_id() == Some(&root_id)
                 })
                 .cloned()
-                .collect();
+                .collect::<Vec<_>>();
+
+            // Drop events coming from ignored users.
+            self.filter_out_ignored_events(&mut thread_events).await;
 
             // Determine backward token (only if we don't have the thread root).
             let backward_token = if includes_root {
@@ -269,7 +278,7 @@ impl EventFocusedCacheState {
 
             self.pagination_mode = EventFocusedPaginationMode::Room { hide_thread_events };
 
-            let events = if hide_thread_events {
+            let mut events = if hide_thread_events {
                 result
                     .events
                     .iter()
@@ -279,6 +288,9 @@ impl EventFocusedCacheState {
             } else {
                 result.events.clone()
             };
+
+            // Drop events coming from ignored users.
+            self.filter_out_ignored_events(&mut events).await;
 
             self.add_initial_events_with_gaps(events, backward_token, forward_token);
         }
@@ -332,6 +344,47 @@ impl EventFocusedCacheState {
         }
     }
 
+    /// Remove all the events sent by the given users, in-memory only.
+    ///
+    /// Returns the `VectorDiff`s to broadcast to the subscribers. The caller is
+    /// responsible for notifying the subscribers.
+    pub fn remove_events_of_users(&mut self, users: &[OwnedUserId]) -> Vec<VectorDiff<Event>> {
+        if users.is_empty() {
+            return Vec::new();
+        }
+
+        // Gather the events in memory.
+        let mut in_memory_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        for (position, event) in self.chunk.events() {
+            if let Some(event_id) = event.event_id()
+                && let Some(sender) = event.sender()
+                && users.iter().any(|user| user.as_str() == sender.as_str())
+            {
+                in_memory_events.push((event_id.to_owned(), position));
+            }
+        }
+
+        if in_memory_events.is_empty() {
+            return Vec::new();
+        }
+
+        // `remove_events_by_position` is responsible of sorting positions.
+        self.chunk
+            .remove_events_by_position(
+                in_memory_events.into_iter().map(|(_event_id, position)| position).collect(),
+            )
+            .expect("failed to remove an event");
+
+        self.propagate_changes();
+        self.chunk.updates_as_vector_diffs()
+    }
+
+    /// Filter out the events that are coming from ignored users, in-place.
+    async fn filter_out_ignored_events(&self, events: &mut Vec<Event>) {
+        let ignored_users = self.ignored_users.read().await;
+        super::super::retain_non_ignored_events(events, &ignored_users);
+    }
+
     /// Return the first chunk as a gap, if it's one.
     fn first_chunk_as_gap(&self) -> Option<(ChunkIdentifier, Gap)> {
         self.chunk.first_chunk_as_gap()
@@ -383,11 +436,14 @@ impl EventFocusedCacheState {
             EventFocusedPaginationMode::Thread { .. } => false,
         };
 
-        let events = if hide_thread_events {
+        let mut events = if hide_thread_events {
             events.into_iter().filter(|event| extract_thread_root(event.raw()).is_none()).collect()
         } else {
             events
         };
+
+        // Drop events coming from ignored users.
+        self.filter_out_ignored_events(&mut events).await;
 
         // Replace the gap and insert the new events.
         self.chunk.push_backwards_pagination_events(Some(gap_id), new_gap, &events);
@@ -491,11 +547,14 @@ impl EventFocusedCacheState {
             EventFocusedPaginationMode::Thread { .. } => false,
         };
 
-        let events = if hide_thread_events {
+        let mut events = if hide_thread_events {
             events.into_iter().filter(|event| extract_thread_root(event.raw()).is_none()).collect()
         } else {
             events
         };
+
+        // Drop events coming from ignored users.
+        self.filter_out_ignored_events(&mut events).await;
 
         // Replace the gap and insert new events.
         self.chunk.push_forwards_pagination_events(Some(gap_id), new_gap, &events);
@@ -574,6 +633,7 @@ impl EventFocusedCache {
         key: EventFocusedCacheKey,
         state: &StateLock,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
+        ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
     ) -> Result<Self> {
         let cache_state = state
             .try_insert_once_with(
@@ -590,12 +650,18 @@ impl EventFocusedCache {
                         thread_mode: EventFocusThreadMode::Automatic, // dummy value
                         update_sender: Sender::new(32),
                         linked_chunk_update_sender,
+                        ignored_users,
                     })
                 },
             )
             .await?;
 
         Ok(Self { inner: Arc::new(cache_state) })
+    }
+
+    /// Return a reference to the state.
+    pub(in super::super) fn state(&self) -> &CacheStateLock<EventFocusedStateSelector> {
+        &self.inner
     }
 
     /// Read all current events.
