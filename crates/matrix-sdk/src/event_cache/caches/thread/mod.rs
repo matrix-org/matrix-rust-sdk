@@ -42,7 +42,8 @@ use super::{
         states::{CacheStateLock, StateLock, selectors::ThreadStateSelector},
     },
     EventsOrigin, TimelineVectorDiffs,
-    room::{LinkedChunkUpdateFanout, RoomEventCacheGenericUpdate},
+    pagination::GapResolutionsInFlight,
+    room::{LinkedChunkUpdateFanout, RoomEventCacheGenericUpdate, TimelineGap},
     subscriber::{AutoShrinkMessage, Subscriber},
 };
 use crate::room::WeakRoom;
@@ -80,6 +81,10 @@ struct ThreadEventCacheInner {
 
     /// Update sender for this thread.
     update_sender: ThreadEventCacheUpdateSender,
+
+    /// Prev-batch tokens of the gaps currently being resolved by
+    /// [`ThreadEventCache::resolve_gap`].
+    gap_resolutions_in_flight: GapResolutionsInFlight,
 }
 
 impl fmt::Debug for ThreadEventCache {
@@ -133,6 +138,7 @@ impl ThreadEventCache {
                 pagination_batch_token_notifier: Notify::new(),
                 auto_shrink_sender,
                 update_sender,
+                gap_resolutions_in_flight: GapResolutionsInFlight::default(),
             }),
         };
 
@@ -191,6 +197,26 @@ impl ThreadEventCache {
         ThreadPagination::new(self.inner.clone())
     }
 
+    /// Return the current set of gaps in the loaded part of this thread's
+    /// timeline, in timeline order (oldest first).
+    ///
+    /// Observers are expected to pull this snapshot alongside every
+    /// [`TimelineVectorDiffs`] update they receive (the update may carry no
+    /// diff at all when only the gaps changed), and to reconcile their gap
+    /// markers against it. Gaps only get loaded (rather than resolved) by
+    /// [`ThreadPagination::run_backwards_once_from_storage`].
+    pub async fn timeline_gaps(&self) -> Result<Vec<TimelineGap>> {
+        Ok(self.inner.state.read().await?.timeline_gaps())
+    }
+
+    /// Resolve the gap identified by the given prev-batch token, with a single
+    /// `/relations` request to the server.
+    ///
+    /// See [`ThreadPagination::resolve_gap`].
+    pub async fn resolve_gap(&self, prev_token: String, batch_size: u16) -> Result<bool> {
+        self.pagination().resolve_gap(prev_token, batch_size).await
+    }
+
     /// Return a reference to the state.
     pub(in super::super) fn state(&self) -> &CacheStateLock<ThreadStateSelector> {
         &self.inner.state
@@ -209,13 +235,8 @@ impl ThreadEventCache {
         state.remove_events_by_senders(senders).await?;
 
         let diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
-        if !diffs.is_empty() {
-            state.update_sender.send(
-                TimelineVectorDiffs { diffs, origin: EventsOrigin::Cache },
-                // The room-level filtering emits the generic update.
-                None,
-            );
-        }
+        // The room-level filtering emits the generic update.
+        state.send_timeline_updates(diffs, EventsOrigin::Cache, None);
 
         Ok(())
     }
@@ -255,14 +276,9 @@ impl ThreadEventCache {
             self.inner.pagination_batch_token_notifier.notify_one();
         }
 
-        if !timeline_event_diffs.is_empty() {
-            state.update_sender.send(
-                TimelineVectorDiffs { diffs: timeline_event_diffs, origin: EventsOrigin::Sync },
-                // This function is part of the `RoomEventCache` flow. The generic update is
-                // handled by it.
-                None,
-            );
-        }
+        // This function is part of the `RoomEventCache` flow. The generic update is
+        // handled by it.
+        state.send_timeline_updates(timeline_event_diffs, EventsOrigin::Sync, None);
 
         Ok(())
     }
@@ -321,11 +337,9 @@ impl ThreadEventCache {
             if let Some(timeline_event_diffs) = timeline_event_diffs
                 && !timeline_event_diffs.is_empty()
             {
-                state.update_sender.send(
-                    TimelineVectorDiffs {
-                        diffs: timeline_event_diffs,
-                        origin: EventsOrigin::Cache,
-                    },
+                state.send_timeline_updates(
+                    timeline_event_diffs,
+                    EventsOrigin::Cache,
                     Some(RoomEventCacheGenericUpdate {
                         room_id: self.inner.room_id.clone(),
                         origin: EventsOrigin::Cache,

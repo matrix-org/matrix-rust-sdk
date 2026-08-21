@@ -35,11 +35,10 @@ use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
 use super::super::super::redecryptor::ResolvedUtd;
-use super::super::room::LinkedChunkUpdateFanout;
 use super::{
     super::{
         super::{
-            EventCacheError, Result,
+            EventCacheError, EventsOrigin, Result, TimelineVectorDiffs,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::{
                 find_event, find_event_with_relations, load_linked_chunk_metadata,
@@ -49,6 +48,7 @@ use super::{
         },
         EventLocation,
         event_linked_chunk::{EventLinkedChunk, sort_positions_descending},
+        room::{LinkedChunkUpdateFanout, RoomEventCacheGenericUpdate, TimelineGap},
         subscriber::SubscribersHandle,
     },
     ThreadEventCacheUpdateSender,
@@ -88,6 +88,17 @@ pub struct ThreadEventCacheState {
     /// the first time we try to run backward pagination. We reset
     /// that upon clearing the timeline events.
     waited_for_initial_prev_token: bool,
+
+    /// Whether observers have been told about timeline gaps, i.e. whether a
+    /// storage-only pagination has run on this thread. From then on, a change
+    /// of gaps that comes with no event diff is announced too; see
+    /// [`StateLockWriteGuard::send_timeline_updates`].
+    gaps_announced: bool,
+
+    /// The timeline-gaps snapshot as of the last update sent to observers (who
+    /// pull the snapshot alongside every update they receive), to detect
+    /// changes.
+    last_sent_timeline_gaps: Vec<TimelineGap>,
 
     /// A handle for subscribers.
     subscribers_handle: SubscribersHandle,
@@ -173,6 +184,8 @@ impl ThreadEventCacheState {
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
+            gaps_announced: false,
+            last_sent_timeline_gaps: Vec::new(),
             subscribers_handle: SubscribersHandle::default(),
         })
     }
@@ -252,6 +265,14 @@ impl ThreadEventCacheState {
         let updates = self.thread_linked_chunk.store_updates().take();
 
         self.send_updates_to_store(updates, store).await
+    }
+
+    /// Compute the current set of timeline gaps from the in-memory thread
+    /// linked chunk, in timeline order (oldest first).
+    ///
+    /// See [`EventLinkedChunk::timeline_gaps`].
+    pub fn timeline_gaps(&self) -> Vec<TimelineGap> {
+        self.thread_linked_chunk.timeline_gaps()
     }
 
     async fn send_updates_to_store(
@@ -414,13 +435,41 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Get the `waited_for_initial_prev_token` value.
-    pub fn waited_for_initial_prev_token(&self) -> bool {
-        self.state.waited_for_initial_prev_token
-    }
-
-    /// Get the `waited_for_initial_prev_token` value.
     pub fn waited_for_initial_prev_token_mut(&mut self) -> &mut bool {
         &mut self.state.waited_for_initial_prev_token
+    }
+
+    /// Mark that observers are being told about timeline gaps (a storage-only
+    /// pagination ran), so that gap changes without event diffs get announced
+    /// from now on.
+    pub fn announce_timeline_gaps(&mut self) {
+        self.state.gaps_announced = true;
+    }
+
+    /// Send `diffs` to observers, as a [`TimelineVectorDiffs`] update.
+    ///
+    /// Observers pull the gaps snapshot
+    /// ([`ThreadEventCacheState::timeline_gaps`]) alongside every update
+    /// they receive, so this is also the place where a change of gaps that
+    /// comes with no event diff at all (a gap chunk loaded from the storage,
+    /// a gap resolved to already-known events only) gets announced, as an
+    /// empty update; only once observers have been told about gaps, see
+    /// [`Self::announce_timeline_gaps`].
+    pub fn send_timeline_updates(
+        &mut self,
+        diffs: Vec<VectorDiff<Event>>,
+        origin: EventsOrigin,
+        generic_update: Option<RoomEventCacheGenericUpdate>,
+    ) {
+        let gaps = self.state.thread_linked_chunk.timeline_gaps();
+        let gaps_changed = gaps != self.state.last_sent_timeline_gaps;
+        self.state.last_sent_timeline_gaps = gaps;
+
+        if diffs.is_empty() && !(gaps_changed && self.state.gaps_announced) {
+            return;
+        }
+
+        self.state.update_sender.send(TimelineVectorDiffs { diffs, origin }, generic_update);
     }
 
     /// Reload the thread: only the last events will be reloaded, shrinking the

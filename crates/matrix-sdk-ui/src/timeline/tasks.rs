@@ -236,7 +236,23 @@ pub(in crate::timeline) async fn thread_updates_task(
 
         let has_diffs = !update.diffs.is_empty();
 
-        timeline_controller.handle_remote_events_with_diffs(update.diffs, origin).await;
+        // A thread event cache doesn't push its gaps: observers pull the
+        // snapshot alongside every update (an update may carry no diff at
+        // all, when only the gaps changed), and apply both in one transaction
+        // (see `handle_live_remote_events_with_diffs` for why).
+        let gaps = if timeline_controller.settings.storage_only_pagination {
+            event_cache.timeline_gaps().await.ok()
+        } else {
+            None
+        };
+
+        if has_diffs {
+            timeline_controller
+                .handle_remote_events_with_diffs_and_gaps(update.diffs, origin, gaps)
+                .await;
+        } else if let Some(gaps) = gaps {
+            timeline_controller.handle_timeline_gaps(gaps).await;
+        }
 
         if has_diffs && matches!(origin, RemoteEventOrigin::Cache) {
             timeline_controller.retry_event_decryption(None).await;

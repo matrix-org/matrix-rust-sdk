@@ -654,11 +654,9 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
                 };
 
                 let updates_as_vector_diffs = thread_state.reload(preprocessing).await?;
-                thread_state.update_sender.send(
-                    TimelineVectorDiffs {
-                        diffs: updates_as_vector_diffs,
-                        origin: EventsOrigin::Cache,
-                    },
+                thread_state.send_timeline_updates(
+                    updates_as_vector_diffs,
+                    EventsOrigin::Cache,
                     Some(room::RoomEventCacheGenericUpdate {
                         room_id: room_id.clone(),
                         origin: EventsOrigin::Cache,

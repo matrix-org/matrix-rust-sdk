@@ -56,11 +56,35 @@ impl super::Timeline {
                 Ok(event_cache.paginate_backwards(num_events).await?.hit_end_of_timeline)
             }
 
-            TimelineFocusKind::Thread { event_cache, .. } => Ok(event_cache
-                .pagination()
-                .run_backwards_once(num_events)
-                .await
-                .map(|outcome| outcome.reached_start)?),
+            TimelineFocusKind::Thread { event_cache, .. } => {
+                // Same deal as `live_paginate_backwards`: in storage-only mode,
+                // the cached thread is served first, gaps become gap items
+                // resolved on demand with [`Self::resolve_gap`], and the
+                // network is only reached once the storage is exhausted.
+                let storage_only = self.controller.settings.storage_only_pagination;
+                let pagination = event_cache.pagination();
+
+                loop {
+                    let outcome = if storage_only {
+                        pagination.run_backwards_once_from_storage(num_events).await?
+                    } else {
+                        pagination.run_backwards_once(num_events).await?
+                    };
+
+                    if outcome.reached_start {
+                        return Ok(true);
+                    }
+
+                    if !outcome.events.is_empty() {
+                        return Ok(false);
+                    }
+
+                    // As a special contract, restart a pagination that
+                    // returned 0 events (a page of already-known events, a
+                    // gap chunk loaded from the storage…): each run makes
+                    // progress towards the start of the thread.
+                }
+            }
 
             TimelineFocusKind::PinnedEvents { .. } => Err(Error::PaginationError(NotSupported)),
 
@@ -189,7 +213,7 @@ impl super::Timeline {
     /// first runs, the others return `false` immediately. So it's fine to
     /// call this whenever a gap item is visible, repeatedly.
     ///
-    /// Only supported on live timelines.
+    /// Supported on live, thread and message-type filtered timelines.
     ///
     /// [`VirtualTimelineItem::Gap`]: crate::timeline::VirtualTimelineItem::Gap
     pub async fn resolve_gap(&self, prev_token: String, batch_size: u16) -> Result<bool, Error> {
@@ -209,9 +233,15 @@ impl super::Timeline {
                 Ok(event_cache.resolve_gap(prev_token, batch_size).await?)
             }
 
-            TimelineFocusKind::Event { .. }
-            | TimelineFocusKind::Thread { .. }
-            | TimelineFocusKind::PinnedEvents { .. } => Err(Error::PaginationError(NotSupported)),
+            TimelineFocusKind::Thread { event_cache, .. } => {
+                // Same as live: the events update carries the gaps snapshot
+                // (pulled by the thread updates task) in the same transaction.
+                Ok(event_cache.resolve_gap(prev_token, batch_size).await?)
+            }
+
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
+                Err(Error::PaginationError(NotSupported))
+            }
         }
     }
 

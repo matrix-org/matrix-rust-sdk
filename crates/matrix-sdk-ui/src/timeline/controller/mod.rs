@@ -1901,6 +1901,15 @@ impl TimelineController {
             .await;
         }
 
+        // And the gaps already loaded in memory, if this timeline renders them
+        // (e.g. a gap inserted by a limited sync before this timeline was
+        // opened); subsequent changes come with the updates.
+        if self.settings.storage_only_pagination
+            && let Ok(gaps) = event_cache.timeline_gaps().await
+        {
+            self.handle_timeline_gaps(gaps).await;
+        }
+
         Ok((has_events, subscriber))
     }
 

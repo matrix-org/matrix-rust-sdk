@@ -33,6 +33,7 @@ use matrix_sdk_common::linked_chunk::{
 };
 use tracing::{instrument, trace};
 
+use super::room::TimelineGap;
 #[cfg(feature = "e2e-encryption")]
 use crate::event_cache::redecryptor::ResolvedUtd;
 
@@ -322,6 +323,43 @@ impl EventLinkedChunk {
         self.chunks().find_map(
             |chunk| as_variant!(chunk.content(), ChunkContent::Gap(gap) => gap.token.clone()),
         )
+    }
+
+    /// Compute the current set of timeline gaps of this linked chunk, in
+    /// timeline order (oldest first), as exposed to timeline consumers.
+    ///
+    /// Each gap is anchored to the first event following it in the linked
+    /// chunk, if any. Trailing gaps (no event after them at all) are
+    /// dropped: there's nothing to anchor them to.
+    pub fn timeline_gaps(&self) -> Vec<TimelineGap> {
+        let mut gaps = Vec::new();
+
+        // Tokens of the gaps that haven't found their anchor yet; they get
+        // the first event ID encountered after them.
+        let mut pending_tokens: Vec<String> = Vec::new();
+
+        for chunk in self.chunks() {
+            match chunk.content() {
+                ChunkContent::Gap(gap) => {
+                    pending_tokens.push(gap.token.clone());
+                }
+
+                ChunkContent::Items(events) => {
+                    if pending_tokens.is_empty() {
+                        continue;
+                    }
+
+                    if let Some(event_id) = events.iter().find_map(|event| event.event_id()) {
+                        gaps.extend(pending_tokens.drain(..).map(|prev_token| TimelineGap {
+                            prev_token,
+                            following_event_id: Some(event_id.to_owned()),
+                        }));
+                    }
+                }
+            }
+        }
+
+        gaps
     }
 
     /// Add a gap (i.e. pagination token) to the end of the linked chunk.

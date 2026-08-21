@@ -6,7 +6,7 @@ use imbl::Vector;
 use matrix_sdk::{
     Client, ThreadingSupport, assert_let_timeout,
     deserialized_responses::TimelineEvent,
-    event_cache::{RoomEventCacheUpdate, Subscriber, TimelineVectorDiffs},
+    event_cache::{RoomEventCacheUpdate, Subscriber, TimelineGap, TimelineVectorDiffs},
     sleep::sleep,
     test_utils::{
         assert_event_matches_msg,
@@ -1157,4 +1157,247 @@ async fn test_thread_summary_latest_reply_survives_aggregation_only_chunk() {
     let summary = root.thread_summary.summary().unwrap();
     assert_eq!(summary.latest_reply.as_ref(), Some(&thread_resp2));
     assert_eq!(summary.num_replies, 2);
+}
+
+/// Apply the diffs of the next update on the stream to `events`, returning the
+/// update's diffs too.
+async fn apply_next_update(
+    events: &mut Vector<TimelineEvent>,
+    stream: &mut broadcast::Receiver<TimelineVectorDiffs>,
+) -> Vec<VectorDiff<TimelineEvent>> {
+    assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = stream.recv());
+    for diff in &diffs {
+        diff.clone().apply(events);
+    }
+    diffs
+}
+
+fn event_ids(events: &Vector<TimelineEvent>) -> Vec<OwnedEventId> {
+    events.iter().filter_map(|event| event.event_id().map(ToOwned::to_owned)).collect()
+}
+
+#[async_test]
+async fn test_storage_only_pagination_serves_stored_events_past_gaps() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    let thread_root = event_id!("$thread_root");
+    let reply = |event_id: &ruma::EventId, body: &str| {
+        f.text_msg(body).in_thread(thread_root, thread_root).event_id(event_id).into_raw_timeline()
+    };
+    let (r1, r2, r2b, r3) =
+        (event_id!("$r1"), event_id!("$r2"), event_id!("$r2b"), event_id!("$r3"));
+
+    // Two limited syncs, each carrying a thread reply: the thread's linked chunk
+    // ends up as [gap t1][r1, r2][gap t2][r3] in the store, with only the last
+    // chunk loaded in memory.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("t1")
+                .add_timeline_bulk(vec![reply(r1, "one").cast(), reply(r2, "two").cast()]),
+        )
+        .await;
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("t2")
+                .add_timeline_bulk(vec![reply(r3, "three").cast()]),
+        )
+        .await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root).await.unwrap();
+    let (events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+    let mut events = Vector::from(wait_for_initial_events(events, &mut thread_stream).await);
+    assert_eq!(event_ids(&events), vec![r3.to_owned()]);
+    assert!(thread_event_cache.timeline_gaps().await.unwrap().is_empty());
+
+    // No `/relations` mock is mounted: any network request would fail the
+    // pagination. A storage-only pagination walks past the gap t2 and serves
+    // [r1, r2] from the store.
+    let outcome = thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    assert!(!outcome.reached_start);
+    assert_eq!(
+        outcome.events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>(),
+        vec![r2.to_owned(), r1.to_owned()]
+    );
+
+    // Observers got told about the gap (an update without any diff: the gap
+    // chunk loaded from the store has none), then about the events.
+    let diffs = apply_next_update(&mut events, &mut thread_stream).await;
+    assert!(diffs.is_empty());
+    apply_next_update(&mut events, &mut thread_stream).await;
+    assert_eq!(event_ids(&events), vec![r1.to_owned(), r2.to_owned(), r3.to_owned()]);
+    assert_eq!(
+        thread_event_cache.timeline_gaps().await.unwrap(),
+        vec![TimelineGap { prev_token: "t2".to_owned(), following_event_id: Some(r3.to_owned()) }]
+    );
+    assert!(thread_stream.is_empty());
+
+    // The next storage-only pagination loads the gap t1, exhausts the store, and
+    // only then reaches the network: the oldest remaining gap (t1) is resolved,
+    // which brings the thread root.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.to_owned())
+        .match_from("t1")
+        .ok(RoomRelationsResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Thread root").event_id(thread_root).into())
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    // A gap (t2) remains: the start of the thread isn't claimed yet.
+    assert!(!outcome.reached_start);
+    assert_eq!(outcome.events.len(), 1);
+
+    // The gap t1 got announced (no diff), then resolved into the thread root.
+    let diffs = apply_next_update(&mut events, &mut thread_stream).await;
+    assert!(diffs.is_empty());
+    apply_next_update(&mut events, &mut thread_stream).await;
+    assert_eq!(
+        event_ids(&events),
+        vec![thread_root.to_owned(), r1.to_owned(), r2.to_owned(), r3.to_owned()]
+    );
+    assert_eq!(
+        thread_event_cache.timeline_gaps().await.unwrap(),
+        vec![TimelineGap { prev_token: "t2".to_owned(), following_event_id: Some(r3.to_owned()) }]
+    );
+
+    // Resolving the gap t2 on demand: the server returns everything before t2
+    // (r2b, which was missed, then the known r2 and r1), which replaces the gap
+    // in place. The known events are relocated, and the root too since the
+    // response says there's nothing older.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.to_owned())
+        .match_from("t2")
+        .ok(RoomRelationsResponseTemplate::default().events(vec![
+            reply(r2b, "two and a half"),
+            reply(r2, "two"),
+            reply(r1, "one"),
+        ]))
+        .mock_once()
+        .mount()
+        .await;
+
+    assert!(thread_event_cache.resolve_gap("t2".to_owned(), 10).await.unwrap());
+    apply_next_update(&mut events, &mut thread_stream).await;
+    assert_eq!(
+        event_ids(&events),
+        vec![thread_root.to_owned(), r1.to_owned(), r2.to_owned(), r2b.to_owned(), r3.to_owned()]
+    );
+    assert!(thread_event_cache.timeline_gaps().await.unwrap().is_empty());
+
+    // And now the start of the thread is known.
+    let outcome = thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    assert!(outcome.reached_start);
+    assert!(outcome.events.is_empty());
+}
+
+#[async_test]
+async fn test_pagination_from_the_end_progresses_past_known_events() {
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    let thread_root = event_id!("$thread_root");
+    let reply = |event_id: &ruma::EventId, body: &str| {
+        f.text_msg(body).in_thread(thread_root, thread_root).event_id(event_id).into_raw_timeline()
+    };
+    let (r0, r1, r2, r3) = (event_id!("$r0"), event_id!("$r1"), event_id!("$r2"), event_id!("$r3"));
+
+    // A thread whose three newest replies arrived live (no gap), and whose root
+    // and first reply predate the cache.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_bulk(vec![
+                reply(r1, "one").cast(),
+                reply(r2, "two").cast(),
+                reply(r3, "three").cast(),
+            ]),
+        )
+        .await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root).await.unwrap();
+    let (events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+    let mut events = Vector::from(wait_for_initial_events(events, &mut thread_stream).await);
+    assert_eq!(event_ids(&events), vec![r1.to_owned(), r2.to_owned(), r3.to_owned()]);
+
+    // Paginating from the end of the thread with a small batch only returns known
+    // events, along with a token for more.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.to_owned())
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![reply(r3, "three"), reply(r2, "two")])
+            .next_batch("nb1"))
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = thread_event_cache.pagination().run_backwards_once(2).await.unwrap();
+    // That's not the start of the thread: the token is kept, parked in front of
+    // the oldest known event, for the next pagination to follow.
+    assert!(!outcome.reached_start);
+    assert!(outcome.events.is_empty());
+    assert!(thread_stream.is_empty());
+    assert_eq!(
+        thread_event_cache.timeline_gaps().await.unwrap(),
+        vec![TimelineGap { prev_token: "nb1".to_owned(), following_event_id: Some(r1.to_owned()) }]
+    );
+
+    // The next page brings the missing reply, and the end of the thread, so the
+    // root gets fetched.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.to_owned())
+        .match_from("nb1")
+        .ok(RoomRelationsResponseTemplate::default()
+            .events(vec![reply(r1, "one"), reply(r0, "zero")]))
+        .mock_once()
+        .mount()
+        .await;
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("Thread root").event_id(thread_root).into())
+        .mock_once()
+        .mount()
+        .await;
+
+    let outcome = thread_event_cache.pagination().run_backwards_once(2).await.unwrap();
+    assert!(outcome.reached_start);
+
+    apply_next_update(&mut events, &mut thread_stream).await;
+    assert_eq!(
+        event_ids(&events),
+        vec![thread_root.to_owned(), r0.to_owned(), r1.to_owned(), r2.to_owned(), r3.to_owned()]
+    );
+    assert!(thread_event_cache.timeline_gaps().await.unwrap().is_empty());
 }

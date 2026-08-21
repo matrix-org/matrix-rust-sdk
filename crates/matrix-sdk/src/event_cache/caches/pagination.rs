@@ -14,7 +14,12 @@
 
 //! The logic to paginate a cache (room, thread…) over the disk or the network.
 
-use std::{pin::Pin, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    pin::Pin,
+    sync::{Arc, Mutex as StdMutex},
+    time::Duration,
+};
 
 use eyeball::{ObservableWriteGuard, SharedObservable};
 use eyeball_im::VectorDiff;
@@ -434,6 +439,39 @@ pub enum PaginationStatus {
 
     /// Pagination is already running in the background.
     Paginating,
+}
+
+/// Prev-batch tokens of the gaps currently being resolved by a cache's
+/// `resolve_gap`, to deduplicate concurrent resolutions of the same gap (the
+/// UI typically retriggers a resolution as long as a gap remains visible).
+#[derive(Debug, Default)]
+pub(in super::super) struct GapResolutionsInFlight(StdMutex<HashSet<String>>);
+
+impl GapResolutionsInFlight {
+    /// Register `prev_token` as being resolved, or return `None` if it already
+    /// is.
+    ///
+    /// The returned guard deregisters the token on drop, however the
+    /// resolution ends (success, error, or cancellation of the calling task).
+    pub fn begin(&self, prev_token: &str) -> Option<GapResolutionGuard<'_>> {
+        if !self.0.lock().unwrap().insert(prev_token.to_owned()) {
+            return None;
+        }
+
+        Some(GapResolutionGuard { set: &self.0, prev_token: prev_token.to_owned() })
+    }
+}
+
+/// See [`GapResolutionsInFlight::begin`].
+pub(in super::super) struct GapResolutionGuard<'a> {
+    set: &'a StdMutex<HashSet<String>>,
+    prev_token: String,
+}
+
+impl Drop for GapResolutionGuard<'_> {
+    fn drop(&mut self) {
+        self.set.lock().unwrap().remove(&self.prev_token);
+    }
 }
 
 /// Small RAII guard to reset the pagination status on drop, if not disarmed in
