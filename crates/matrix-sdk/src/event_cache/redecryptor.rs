@@ -61,7 +61,7 @@
 //! subscribes to [`RedecryptorReport`] stream.
 //!
 //! ```markdown
-//!
+//! 
 //!      .----------------------.
 //!     |                        |
 //!     |      Beeb, boop!       |
@@ -121,6 +121,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     pin::Pin,
     sync::Weak,
+    time::Duration,
 };
 
 use as_variant::as_variant;
@@ -140,6 +141,7 @@ use matrix_sdk_base::{
 };
 #[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
+use matrix_sdk_common::sleep::sleep;
 use ruma::{
     OwnedEventId, OwnedRoomId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
@@ -298,6 +300,107 @@ impl EventCache {
         }
 
         utds
+    }
+
+    /// Read every persisted UTD of a room straight from the store, WITHOUT
+    /// instantiating the room's in-memory event cache.
+    ///
+    /// This is what makes the store-backed sweep affordable on a large
+    /// account: it must be able to look at thousands of rooms without pulling
+    /// each one into memory. Only a room that turns out to have a *decryptable*
+    /// UTD gets its cache instantiated later, when the decrypted event is
+    /// written back in [`Self::on_resolved_utds`].
+    async fn persisted_utds_for_room(
+        &self,
+        room_id: &RoomId,
+    ) -> Result<Vec<EventIdAndUtd>, EventCacheError> {
+        let state = self.inner.state.read().await?;
+
+        Ok(state
+            .store
+            .get_room_events(room_id, Some("m.room.encrypted"), None)
+            .await?
+            .into_iter()
+            .filter_map(filter_timeline_event_to_utd)
+            .collect())
+    }
+
+    /// Sweep persisted UTDs across all encrypted rooms and retry decrypting
+    /// them against the current crypto store.
+    ///
+    /// Unlike the room-key stream (which only carries keys *this* process's
+    /// `OlmMachine` receives) and the regeneration path (which retries only
+    /// in-memory events), this reaches UTDs that were persisted while their
+    /// room was in the background and whose room key later became available
+    /// out of band, typically imported by the notification process (the iOS
+    /// NSE) while the app itself was not running. Without it, such a room keeps
+    /// showing a "waiting for decryption" latest-event preview until it is
+    /// opened, even though the key is already in the store.
+    ///
+    /// Each room is read straight from the store (see
+    /// [`Self::persisted_utds_for_room`]) so the sweep does not instantiate
+    /// every room's cache; only rooms with a decryptable UTD get instantiated,
+    /// when the decrypted event is written back. Rooms are processed in batches
+    /// with a pause between them so a large account's sweep stays in the
+    /// background instead of monopolising the store lock.
+    async fn retry_persisted_events(&self) {
+        // ponytail: fixed batch + pause. Fine for a background sweep that runs
+        // at startup and on cross-process key imports; make it adaptive only if
+        // it ever shows up in a profile.
+        const ROOMS_PER_BATCH: usize = 20;
+        const PAUSE_BETWEEN_BATCHES: Duration = Duration::from_millis(20);
+
+        let Ok(client) = self.inner.client() else { return };
+
+        let rooms = client.rooms();
+        let total = rooms.len();
+        let mut rooms_with_utds = 0usize;
+        let mut rooms_healed = 0usize;
+
+        for (batch_index, chunk) in rooms.chunks(ROOMS_PER_BATCH).enumerate() {
+            for room in chunk {
+                if !room.encryption_state().is_encrypted() {
+                    continue;
+                }
+
+                let room_id = room.room_id();
+
+                let utds = match self.persisted_utds_for_room(room_id).await {
+                    Ok(utds) => utds,
+                    Err(error) => {
+                        warn!(%room_id, ?error, "Failed to read persisted UTDs during sweep");
+                        continue;
+                    }
+                };
+
+                if utds.is_empty() {
+                    continue;
+                }
+
+                rooms_with_utds += 1;
+
+                // `retry_decryption_for_events` only instantiates the room's
+                // cache (via `on_resolved_utds`) if at least one UTD actually
+                // decrypted, so a room whose key is still missing stays out of
+                // memory.
+                match self.retry_decryption_for_events(room_id, utds).await {
+                    Ok(()) => rooms_healed += 1,
+                    Err(error) => {
+                        warn!(%room_id, ?error, "Failed to retry persisted UTDs during sweep")
+                    }
+                }
+            }
+
+            // Yield the store lock and the CPU between batches. Skip the pause
+            // after the final batch.
+            if (batch_index + 1) * ROOMS_PER_BATCH < total {
+                sleep(PAUSE_BETWEEN_BATCHES).await;
+            }
+        }
+
+        if rooms_with_utds != 0 {
+            info!(total, rooms_with_utds, rooms_healed, "Swept persisted UTDs for redecryption");
+        }
     }
 
     async fn all_decrypted_events(
@@ -842,6 +945,16 @@ async fn send_report_and_retry_memory_events(
     };
 
     cache.retry_in_memory_events().await;
+
+    // A `Lagging` report means we may have missed room keys, typically because
+    // another process (the NSE) imported them into the shared crypto store and
+    // bumped its generation. Those keys never reached our room-key stream, and
+    // the in-memory retry above doesn't cover UTDs that were shrunk out to the
+    // store, so sweep the persisted UTDs too.
+    if matches!(report, RedecryptorReport::Lagging) {
+        cache.retry_persisted_events().await;
+    }
+
     let _ = cache.inner.redecryption_channels.utd_reporter.send(report);
 
     Ok(())
@@ -868,7 +981,8 @@ impl Redecryptor {
         receiver: UnboundedReceiver<DecryptionRetryRequest>,
         linked_chunk_update_sender: &LinkedChunkUpdateFanout,
     ) -> Self {
-        let linked_chunk_stream = UnboundedReceiverStream::new(linked_chunk_update_sender.subscribe());
+        let linked_chunk_stream =
+            UnboundedReceiverStream::new(linked_chunk_update_sender.subscribe());
         let backup_state_stream = client.encryption().backups().state_stream();
         let olm_machine_regenerated_stream =
             BroadcastStream::new(client.base_client().subscribe_to_olm_machine_regenerations());
@@ -1111,6 +1225,15 @@ impl Redecryptor {
         pin_mut!(events_stream);
         pin_mut!(backup_state_stream);
         pin_mut!(olm_machine_regenerated_stream);
+
+        // On startup, sweep persisted UTDs once. Keys may have been imported by
+        // another process (the NSE) while the app wasn't running: they never
+        // reach our room-key stream (a fresh `OlmMachine` only streams keys it
+        // receives from here on), and no regeneration necessarily follows, so
+        // nothing else would retry the UTDs sitting in the store.
+        if let Some(cache) = upgrade_event_cache(&cache) {
+            cache.retry_persisted_events().await;
+        }
 
         while Self::redecryption_loop(
             &cache,
@@ -1513,6 +1636,79 @@ mod tests {
         let room_key = room_key.await;
 
         (event, room_key)
+    }
+
+    #[async_test]
+    async fn test_persisted_utd_sweep_heals_out_of_band_key() {
+        // Reproduces the "room preview stuck on Waiting for message" report: a
+        // UTD is persisted in the event cache, its room key later becomes
+        // available, but the redecryptor's in-memory-only retry never touches
+        // the persisted event. `retry_persisted_events` (the store-backed
+        // sweep) must find it and decrypt it.
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
+
+        let (event, room_key) =
+            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+
+        let event_cache = bob.event_cache();
+        let (room_cache, _) = event_cache
+            .room(room_id)
+            .await
+            .expect("We should be able to get to the event cache for a specific room");
+        let (_, mut subscriber) = room_cache.subscribe().await.unwrap();
+
+        // The encrypted event lands while we still lack the room key: it is
+        // stored as a UTD.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+            })
+            .await;
+
+        assert_let_timeout!(
+            Ok(RoomEventCacheUpdate::UpdateTimelineEvents(TimelineVectorDiffs { diffs, .. })) =
+                subscriber.recv()
+        );
+        assert_eq!(diffs.len(), 1);
+        assert_matches!(&diffs[0], VectorDiff::Append { values });
+        assert_matches!(&values[0].kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // The store-backed enumeration the sweep relies on sees exactly this
+        // one persisted UTD, read straight from the store.
+        let persisted = event_cache
+            .persisted_utds_for_room(room_id)
+            .await
+            .expect("We should be able to read persisted UTDs");
+        assert_eq!(persisted.len(), 1, "the persisted UTD should be enumerable from the store");
+
+        // The room key now arrives. (In the real bug it was imported by another
+        // process; here we just make it available, then drive the sweep.)
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(
+                    room_key
+                        .deserialize_as()
+                        .expect("We should be able to deserialize the room key"),
+                );
+            })
+            .await;
+
+        // Drain any update the room-key stream may have produced, then run the
+        // sweep explicitly and confirm the persisted UTD is gone.
+        let _ = subscriber.recv().await;
+
+        event_cache.retry_persisted_events().await;
+
+        let persisted = event_cache
+            .persisted_utds_for_room(room_id)
+            .await
+            .expect("We should be able to read persisted UTDs");
+        assert!(persisted.is_empty(), "the persisted UTD should have been decrypted");
     }
 
     #[async_test]
