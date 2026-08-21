@@ -288,7 +288,7 @@ impl<'a> IntoFuture for GrantLoginWithScannedQrCode<'a> {
             let secrets_bundle = export_secrets_bundle(self.client).await?;
 
             let mut channel = EstablishedSecureChannel::from_qr_code(
-                self.client.inner.http_client.inner.clone(),
+                self.client.inner.http_client.reqwest(),
                 self.qr_code_data,
                 QrCodeIntent::Reciprocate,
             )

@@ -334,7 +334,7 @@ impl<'a> LoginWithQrCode<'a> {
     async fn establish_secure_channel(
         &self,
     ) -> Result<EstablishedSecureChannel, SecureChannelError> {
-        let http_client = self.client.inner.http_client.inner.clone();
+        let http_client = self.client.inner.http_client.reqwest();
 
         let channel = EstablishedSecureChannel::from_qr_code(
             http_client,
@@ -675,7 +675,7 @@ mod test {
         let qr_code_data = qr_receiver.await.expect("Alice should receive the QR code");
 
         let mut channel = EstablishedSecureChannel::from_qr_code(
-            alice.inner.http_client.inner.clone(),
+            alice.inner.http_client.reqwest(),
             &qr_code_data,
             QrCodeIntent::Reciprocate,
         )

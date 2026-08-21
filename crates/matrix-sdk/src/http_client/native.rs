@@ -76,7 +76,7 @@ impl HttpClient {
             backoff
         }
         async fn send_request_inner(
-            http_client: &reqwest::Client,
+            http_client: &HttpClient,
             request: &http::Request<Bytes>,
             timeout: Option<Duration>,
             retry_count: &AtomicU64,
@@ -87,12 +87,29 @@ impl HttpClient {
             debug!(num_attempt, "Sending request");
             let before = ruma::time::Instant::now();
 
-            traffic.request_count.fetch_add(1, Ordering::Relaxed);
-            traffic
-                .uploaded_bytes
-                .fetch_add(request.body().len().try_into().unwrap_or(0), Ordering::Relaxed);
+            let mut network_change = http_client.subscribe_network_change();
 
-            let response = execute_request(http_client, request, timeout, send_progress).await?;
+            let response = loop {
+                traffic.request_count.fetch_add(1, Ordering::Relaxed);
+                traffic
+                    .uploaded_bytes
+                    .fetch_add(request.body().len().try_into().unwrap_or(0), Ordering::Relaxed);
+
+                // Only react to changes that happen while this attempt is in
+                // flight; anything earlier is already reflected in the client
+                // we're about to pick.
+                network_change.mark_unchanged();
+                let client = http_client.reqwest();
+
+                tokio::select! {
+                    result = execute_request(&client, request, timeout, send_progress.clone()) => {
+                        break result?;
+                    }
+                    Ok(()) = network_change.changed() => {
+                        debug!("Network path changed, re-sending the in-flight request");
+                    }
+                }
+            };
 
             traffic
                 .downloaded_bytes
@@ -158,7 +175,7 @@ impl HttpClient {
             let send_progress = send_progress.clone();
             async {
                 let response = send_request_inner(
-                    &self.inner,
+                    self,
                     &request,
                     config.timeout,
                     &retry_count,

@@ -596,8 +596,23 @@ impl Client {
     }
 
     /// The underlying HTTP client.
-    pub fn http_client(&self) -> &reqwest::Client {
-        &self.inner.http_client.inner
+    ///
+    /// This is a snapshot: the client is replaced after
+    /// [`Client::notify_network_change`], so don't cache it.
+    pub fn http_client(&self) -> reqwest::Client {
+        self.inner.http_client.reqwest()
+    }
+
+    /// Tell the client that the OS network path changed (e.g. Wi-Fi to
+    /// cellular, or an interface came up or went away).
+    ///
+    /// Connections bound to the old interface are often black-holed rather
+    /// than closed, so requests in flight would otherwise sit there until their
+    /// timeout fires and only then retry. This drops the HTTP connection pool
+    /// and makes every in-flight request re-send itself immediately on a fresh
+    /// connection, without consuming one of its retry attempts.
+    pub fn notify_network_change(&self) {
+        self.inner.http_client.handle_network_change();
     }
 
     /// Cumulative HTTP traffic (body bytes, per attempt) since this client was

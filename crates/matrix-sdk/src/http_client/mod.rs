@@ -18,7 +18,7 @@ use std::{
     fmt::Debug,
     num::NonZeroUsize,
     sync::{
-        Arc,
+        Arc, RwLock as StdRwLock,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -35,8 +35,8 @@ use ruma::api::{
     error::{FromHttpResponseError, IntoHttpError},
     path_builder,
 };
-use tokio::sync::{Semaphore, SemaphorePermit};
-use tracing::{Instrument, debug, error, field::debug, trace};
+use tokio::sync::{Semaphore, SemaphorePermit, watch};
+use tracing::{Instrument, debug, error, field::debug, trace, warn};
 
 use crate::{HttpResult, config::RequestConfig, error::HttpError};
 
@@ -107,7 +107,18 @@ impl TrafficCounters {
 
 #[derive(Clone, Debug)]
 pub(crate) struct HttpClient {
-    pub(crate) inner: reqwest::Client,
+    /// The underlying `reqwest` client. Swapped for a fresh one (new
+    /// connection pool) on [`HttpClient::handle_network_change`], so always go
+    /// through [`HttpClient::reqwest`] rather than caching a clone.
+    inner: Arc<StdRwLock<reqwest::Client>>,
+    /// The settings the client was built from, if any, used to rebuild it on a
+    /// network change. `None` when the caller supplied its own `reqwest`
+    /// client.
+    #[cfg(not(target_family = "wasm"))]
+    settings: Option<HttpSettings>,
+    /// Bumped on every network change; in-flight requests race against it and
+    /// re-send themselves on the fresh connection pool.
+    network_change: watch::Sender<u64>,
     pub(crate) request_config: RequestConfig,
     pub(crate) traffic: Arc<TrafficCounters>,
     concurrent_request_semaphore: MaybeSemaphore,
@@ -117,7 +128,10 @@ pub(crate) struct HttpClient {
 impl HttpClient {
     pub(crate) fn new(inner: reqwest::Client, request_config: RequestConfig) -> Self {
         HttpClient {
-            inner,
+            inner: Arc::new(StdRwLock::new(inner)),
+            #[cfg(not(target_family = "wasm"))]
+            settings: None,
+            network_change: watch::Sender::new(0),
             request_config,
             traffic: Arc::new(TrafficCounters::default()),
             concurrent_request_semaphore: MaybeSemaphore::new(
@@ -125,6 +139,47 @@ impl HttpClient {
             ),
             next_request_id: AtomicU64::new(0).into(),
         }
+    }
+
+    /// Remember the settings the `reqwest` client was built from, so it can be
+    /// rebuilt on a network change.
+    #[cfg(not(target_family = "wasm"))]
+    pub(crate) fn with_settings(mut self, settings: Option<HttpSettings>) -> Self {
+        self.settings = settings;
+        self
+    }
+
+    /// The current underlying `reqwest` client.
+    pub(crate) fn reqwest(&self) -> reqwest::Client {
+        self.inner.read().unwrap().clone()
+    }
+
+    /// The OS reported that the network path changed (e.g. Wi-Fi to cellular).
+    ///
+    /// Connections bound to the old interface may be black-holed rather than
+    /// closed, so nothing would notice until the request timeout fires. Drop
+    /// the connection pool by rebuilding the `reqwest` client (when we know how
+    /// it was built), then wake every in-flight request so it re-sends itself
+    /// immediately on a fresh connection, without consuming a retry attempt.
+    pub(crate) fn handle_network_change(&self) {
+        #[cfg(not(target_family = "wasm"))]
+        if let Some(settings) = &self.settings {
+            match settings.make_client() {
+                Ok(client) => *self.inner.write().unwrap() = client,
+                Err(err) => {
+                    warn!("Failed to rebuild the HTTP client after a network change: {err}")
+                }
+            }
+        }
+
+        self.network_change.send_modify(|generation| *generation += 1);
+        debug!("Network change: in-flight requests will be re-sent");
+    }
+
+    /// Subscribe to network-change notifications, for racing an in-flight
+    /// request against them.
+    pub(super) fn subscribe_network_change(&self) -> watch::Receiver<u64> {
+        self.network_change.subscribe()
     }
 
     fn get_request_id(&self) -> String {
@@ -503,5 +558,54 @@ mod tests {
 
         assert_eq!(counter.load(Ordering::SeqCst), 254, "Not all requests passed through");
         bg_task.abort();
+    }
+
+    #[async_test]
+    async fn test_network_change_resends_in_flight_request() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let client = client_builder.build().await.unwrap();
+
+        set_client_session(&client).await;
+
+        let counter = Arc::new(AtomicU8::new(0));
+        let inner_counter = counter.clone();
+
+        // The first attempt is black-holed (it would only answer long after the
+        // request timeout)...
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/account/whoami"))
+            .respond_with(move |_req: &Request| {
+                inner_counter.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(200).set_delay(Duration::from_secs(60))
+            })
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        // ...while the re-send after the network change is answered at once.
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/account/whoami"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "user_id": "@joe:example.org" })),
+            )
+            .mount(&server)
+            .await;
+
+        let bg_client = client.clone();
+        let bg_task = spawn(async move { bg_client.whoami().await });
+
+        // Let the first attempt get in flight, then flip the network.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(counter.load(Ordering::SeqCst), 1, "The first attempt should be in flight");
+
+        client.notify_network_change();
+
+        let response = tokio::time::timeout(Duration::from_secs(5), bg_task)
+            .await
+            .expect("the in-flight request must be re-sent right away, not wait for its timeout")
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.user_id, "@joe:example.org");
     }
 }

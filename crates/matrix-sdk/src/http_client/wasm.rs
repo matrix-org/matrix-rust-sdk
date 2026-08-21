@@ -39,7 +39,7 @@ impl HttpClient {
 
         let before = ruma::time::Instant::now();
 
-        let response = response_to_http_response(self.inner.execute(request).await?).await?;
+        let response = response_to_http_response(self.reqwest().execute(request).await?).await?;
 
         let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
         let status_code = response.status();

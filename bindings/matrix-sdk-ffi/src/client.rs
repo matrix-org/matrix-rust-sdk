@@ -960,6 +960,16 @@ impl Client {
         self.inner.send_queue().set_enabled(enable).await;
     }
 
+    /// Tell the client that the OS network path changed (e.g. Wi-Fi to
+    /// cellular, or an interface came up or went away).
+    ///
+    /// Drops the HTTP connection pool and re-sends every in-flight request
+    /// immediately on a fresh connection, instead of letting requests bound to
+    /// a black-holed interface sit there until their timeout fires.
+    pub fn notify_network_change(&self) {
+        self.inner.notify_network_change();
+    }
+
     /// Cumulative HTTP traffic since this client was built: body bytes and
     /// request count, counted per attempt (retries cost bandwidth each time).
     /// For launch/bandwidth instrumentation.

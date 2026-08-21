@@ -145,7 +145,7 @@ impl Channel {
     ) -> Result<InboundChannelCreationResult, HttpError> {
         // Receive the initial message, which should be empty. But we need the ETAG to
         // fully establish the rendezvous channel.
-        let response = Self::receive_message_impl(&client.inner, None, rendezvous_url).await?;
+        let response = Self::receive_message_impl(&client.reqwest(), None, rendezvous_url).await?;
 
         let etag = response.etag.clone();
 
@@ -176,7 +176,7 @@ impl Channel {
 
         let request = self
             .client
-            .inner
+            .reqwest()
             .request(Method::PUT, self.rendezvous_url().to_owned())
             .body(message)
             .header(IF_MATCH, etag)
@@ -282,7 +282,7 @@ impl Channel {
         let etag = Some(self.etag.clone());
 
         let RendezvousGetResponse { status_code, etag, content_type, body, .. } =
-            Self::receive_message_impl(&self.client.inner, etag, &self.rendezvous_url).await?;
+            Self::receive_message_impl(&self.client.reqwest(), etag, &self.rendezvous_url).await?;
 
         // We received a response with an ETAG, put it into the copy of our etag.
         self.etag = etag;

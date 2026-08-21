@@ -183,7 +183,6 @@ use oauth2::{
     basic::BasicClient as OAuthClient,
 };
 pub use oauth2::{ClientId, CsrfToken};
-use oauth2_reqwest::ReqwestClient;
 use ruma::{
     DeviceId, OwnedDeviceId,
     api::client::discovery::get_authorization_server_metadata::{
@@ -285,7 +284,7 @@ pub struct OAuth {
 impl OAuth {
     pub(crate) fn new(client: Client) -> Self {
         let http_client = OAuthHttpClient {
-            inner: ReqwestClient::from(client.inner.http_client.inner.clone()),
+            inner: client.inner.http_client.clone(),
             #[cfg(test)]
             insecure_rewrite_https_to_http: false,
         };
