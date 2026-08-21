@@ -78,6 +78,7 @@ ruma = { git = "https://github.com/ruma/ruma", rev = "0908aaa9847093ecb32bc6edf0
     "compat-encrypted-stickers",
     "compat-lax-room-create-deser",
     "compat-lax-room-topic-deser",
+    "unstable-msc1763",
     "unstable-msc3230",
     "unstable-msc3401",
     "unstable-msc3417",

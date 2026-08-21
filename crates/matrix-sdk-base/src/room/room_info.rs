@@ -47,6 +47,7 @@ use ruma::{
                 PossiblyRedactedRoomPinnedEventsEventContent, RoomPinnedEventsEventContent,
             },
             redaction::SyncRoomRedactionEvent,
+            retention::RoomRetentionEventContent,
             tombstone::PossiblyRedactedRoomTombstoneEventContent,
             topic::PossiblyRedactedRoomTopicEventContent,
         },
@@ -199,6 +200,8 @@ pub struct BaseRoomInfo {
     pub(crate) member_hints: Option<MinimalStateEvent<PossiblyRedactedMemberHintsEventContent>>,
     /// The `m.room.name` of this room.
     pub(crate) name: Option<MinimalStateEvent<PossiblyRedactedRoomNameEventContent>>,
+    /// The message retention policy of this room.
+    pub(crate) retention: Option<MinimalStateEvent<RoomRetentionEventContent>>,
     /// The `m.room.tombstone` event content of this room.
     pub(crate) tombstone: Option<MinimalStateEvent<PossiblyRedactedRoomTombstoneEventContent>>,
     /// The topic of this room.
@@ -317,6 +320,17 @@ impl BaseRoomInfo {
                 } else {
                     // Remove the previous content if the new content is unknown.
                     self.history_visibility.take().is_some()
+                }
+            }
+            (StateEventType::RoomRetention, "") => {
+                if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
+                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomRetention)
+                }) {
+                    self.retention = Some(event);
+                    true
+                } else {
+                    // Remove the previous content if the new content is unknown.
+                    self.retention.take().is_some()
                 }
             }
             (StateEventType::RoomGuestAccess, "") => {
@@ -511,6 +525,10 @@ impl BaseRoomInfo {
             && ev.event_id.as_deref() == Some(redacts)
         {
             ev.redact(&redaction_rules);
+        } else if let Some(ev) = &mut self.retention
+            && ev.event_id.as_deref() == Some(redacts)
+        {
+            ev.redact(&redaction_rules);
         } else if let Some(ev) = &mut self.tombstone
             && ev.event_id.as_deref() == Some(redacts)
         {
@@ -554,6 +572,7 @@ impl Default for BaseRoomInfo {
             join_rules: None,
             max_power_level: DEFAULT_MAX_POWER_LEVEL,
             name: None,
+            retention: None,
             tombstone: None,
             topic: None,
             rtc_member_events: BTreeMap::new(),
@@ -1070,6 +1089,13 @@ impl RoomInfo {
         self.history_visibility().unwrap_or(&HistoryVisibility::Shared)
     }
 
+    /// Returns the message retention policy for this room.
+    ///
+    /// Returns `None` if the event was never seen during sync.
+    pub fn retention(&self) -> Option<&RoomRetentionEventContent> {
+        self.base_info.retention.as_ref().map(|e| &e.content)
+    }
+
     /// Return the join rule for this room, if the `m.room.join_rules` event is
     /// available.
     pub fn join_rule(&self) -> Option<&JoinRule> {
@@ -1500,7 +1526,9 @@ mod tests {
         assign,
         events::{
             AnyRoomAccountDataEvent,
-            room::pinned_events::RoomPinnedEventsEventContent,
+            room::{
+                pinned_events::RoomPinnedEventsEventContent, retention::RoomRetentionEventContent,
+            },
             tag::{TagInfo, TagName, Tags, UserTagName},
         },
         owned_event_id, owned_mxc_uri, owned_user_id, room_id,
@@ -1597,6 +1625,7 @@ mod tests {
                 "max_power_level": 100,
                 "member_hints": null,
                 "name": null,
+                "retention": null,
                 "tombstone": null,
                 "topic": null,
                 "pinned_events": {
@@ -2201,5 +2230,29 @@ mod tests {
                 .expect("task completes successfully")
                 .expect("update and save room info");
         });
+    }
+
+    #[test]
+    fn test_retention_stored_on_handle_state_event() {
+        let mut info = RoomInfo::new(room_id!("!gda78o:server.tld"), RoomState::Joined);
+        assert!(info.retention().is_none(), "retention should be absent before any event");
+
+        let max_lifetime = Duration::from_secs(86_400); // 1 day
+        let content = RoomRetentionEventContent::new().at_most(max_lifetime).unwrap();
+
+        let mut raw = RawStateEventWithKeys::try_from_raw_state_event(
+            EventFactory::new()
+                .sender(user_id!("@alice:example.org"))
+                .event(content)
+                .state_key("")
+                .into_raw_sync_state(),
+        )
+        .expect("retention state event should be constructable");
+
+        info.handle_state_event(&mut raw);
+
+        let retention = info.retention().expect("retention should be set after event");
+        assert_eq!(retention.max_lifetime(), Some(max_lifetime));
+        assert!(retention.min_lifetime().is_none());
     }
 }
