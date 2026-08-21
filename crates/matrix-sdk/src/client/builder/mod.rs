@@ -74,6 +74,7 @@ use crate::{
     media::{DefaultMediaFetcher, MediaFetcher},
     send_queue::SendQueueData,
     sliding_sync::VersionBuilder as SlidingSyncVersionBuilder,
+    sync::SyncResponseHook,
 };
 
 /// Builder that allows creating and configuring various parts of a [`Client`].
@@ -145,6 +146,7 @@ pub struct ClientBuilder {
     x509_verifier: Option<Arc<dyn RawX509Verifier>>,
     dm_room_definition: DmRoomDefinition,
     media_fetcher: Arc<dyn MediaFetcher>,
+    sync_response_hook: Option<Arc<dyn SyncResponseHook>>,
 }
 
 impl ClientBuilder {
@@ -188,6 +190,7 @@ impl ClientBuilder {
             x509_verifier: None,
             dm_room_definition: DmRoomDefinition::MatrixSpec,
             media_fetcher: Arc::new(DefaultMediaFetcher),
+            sync_response_hook: None,
         }
     }
 
@@ -195,6 +198,15 @@ impl ClientBuilder {
     /// server.
     pub fn media_fetcher(mut self, media_fetcher: Arc<dyn MediaFetcher>) -> Self {
         self.media_fetcher = media_fetcher.clone();
+        self
+    }
+
+    /// Sets a hook that runs before each decoded classic `/sync` response is
+    /// processed.
+    ///
+    /// See [`SyncResponseHook`] for ordering, retry, and scope guarantees.
+    pub fn sync_response_hook(mut self, hook: Arc<dyn SyncResponseHook>) -> Self {
+        self.sync_response_hook = Some(hook);
         self
     }
 
@@ -755,6 +767,7 @@ impl ClientBuilder {
             search_index,
             thread_subscriptions_catchup,
             self.media_fetcher.clone(),
+            self.sync_response_hook,
         )
         .await;
 

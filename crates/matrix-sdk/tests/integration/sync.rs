@@ -1,17 +1,32 @@
-use std::collections::BTreeSet;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error as _,
+    io,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
 
 use assert_matches2::assert_matches;
 use matrix_sdk::{
+    BoxFuture, Error, MemoryStore, StateStore,
+    config::{RequestConfig, StoreConfig, SyncSettings, SyncToken},
     deserialized_responses::RawSyncOrStrippedState,
+    store::{StateStoreDataKey, StateStoreDataValue},
+    sync::{SyncResponseHook, SyncResponseHookError},
     test_utils::mocks::{AnyRoomBuilder, MatrixMockServer},
 };
-use matrix_sdk_base::RoomMemberships;
+use matrix_sdk_base::{RoomMemberships, sync::RoomUpdates};
+use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_test::{
-    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, async_test,
-    event_factory::EventFactory,
+    InvitedRoomBuilder, JoinedRoomBuilder, KnockedRoomBuilder, SyncResponseBuilder, async_test,
+    event_factory::EventFactory, stripped_state_event,
 };
 use ruma::{
-    EventEncryptionAlgorithm, MilliSecondsSinceUnixEpoch, RoomVersionId, event_id,
+    EventEncryptionAlgorithm, Int, MilliSecondsSinceUnixEpoch, RoomVersionId,
+    api::client::sync::sync_events,
+    event_id,
     events::{
         AnyStrippedStateEvent, AnySyncStateEvent, SyncStateEvent,
         room::{
@@ -23,7 +38,7 @@ use ruma::{
             history_visibility::{HistoryVisibility, RoomHistoryVisibilityEventContent},
             join_rules::RoomJoinRulesEventContent,
             member::RoomMemberEvent,
-            name::RoomNameEventContent,
+            name::{RoomNameEventContent, StrippedRoomNameEvent},
             pinned_events::RoomPinnedEventsEventContent,
             power_levels::RoomPowerLevelsEventContent,
             tombstone::RoomTombstoneEventContent,
@@ -38,6 +53,249 @@ use ruma::{
 };
 use serde_json::json;
 use stream_assert::{assert_pending, assert_ready};
+use wiremock::{
+    Mock, ResponseTemplate,
+    matchers::{method, path_regex},
+};
+
+#[derive(Debug)]
+struct RecordingSyncResponseHook {
+    store: Arc<MemoryStore>,
+    calls: AtomicUsize,
+    fail_next: AtomicBool,
+    journal: Mutex<BTreeSet<String>>,
+    observed_tokens: Mutex<Vec<Option<String>>>,
+}
+
+impl RecordingSyncResponseHook {
+    fn new(store: Arc<MemoryStore>, fail_next: bool) -> Self {
+        Self {
+            store,
+            calls: AtomicUsize::new(0),
+            fail_next: AtomicBool::new(fail_next),
+            journal: Mutex::new(BTreeSet::new()),
+            observed_tokens: Mutex::new(Vec::new()),
+        }
+    }
+}
+
+impl SyncResponseHook for RecordingSyncResponseHook {
+    fn on_sync_response<'a>(
+        &'a self,
+        response: &'a sync_events::v3::Response,
+    ) -> BoxFuture<'a, Result<(), SyncResponseHookError>> {
+        Box::pin(async move {
+            let token = self
+                .store
+                .get_kv_data(StateStoreDataKey::SyncToken)
+                .await
+                .map_err(SyncResponseHookError::new)?
+                .and_then(StateStoreDataValue::into_sync_token);
+            self.observed_tokens.lock().unwrap().push(token);
+            self.journal.lock().unwrap().insert(response.next_batch.clone());
+            self.calls.fetch_add(1, Ordering::SeqCst);
+
+            if self.fail_next.swap(false, Ordering::SeqCst) {
+                Err(SyncResponseHookError::new(io::Error::other("journal unavailable")))
+            } else {
+                Ok(())
+            }
+        })
+    }
+}
+
+fn invite_sync_response() -> (serde_json::Value, String) {
+    let room_id = room_id!("!hook:localhost");
+    let mut users = BTreeMap::new();
+    users.insert(owned_user_id!("@example:localhost"), Int::new(100).unwrap());
+    users.insert(owned_user_id!("@bob:localhost"), Int::new(0).unwrap());
+
+    let f = EventFactory::new().room(room_id).sender(user_id!("@bob:localhost"));
+    let power_levels_event: Raw<AnyStrippedStateEvent> = f.power_levels(&mut users).into();
+    let invited_room = InvitedRoomBuilder::new(room_id).add_state_bulk([
+        power_levels_event,
+        stripped_state_event!({
+            "content": {
+                "membership": "join"
+            },
+            "sender": "@bob:localhost",
+            "state_key": "@bob:localhost",
+            "type": "m.room.member",
+        }),
+        stripped_state_event!({
+            "content": {
+                "displayname": "example",
+                "membership": "invite"
+            },
+            "sender": "@bob:localhost",
+            "state_key": "@example:localhost",
+            "type": "m.room.member",
+        }),
+        stripped_state_event!({
+            "content": {
+                "name": "Hook test"
+            },
+            "sender": "@bob:localhost",
+            "state_key": "",
+            "type": "m.room.name",
+        }),
+    ]);
+
+    let mut builder = SyncResponseBuilder::new();
+    builder.add_invited_room(invited_room);
+    let response = builder.build_json_sync_response();
+    let next_batch = response["next_batch"].as_str().unwrap().to_owned();
+    (response, next_batch)
+}
+
+async fn stored_sync_token(store: &MemoryStore) -> Option<String> {
+    store
+        .get_kv_data(StateStoreDataKey::SyncToken)
+        .await
+        .unwrap()
+        .and_then(StateStoreDataValue::into_sync_token)
+}
+
+#[async_test]
+async fn test_classic_sync_without_hook_preserves_normal_processing() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    let room_id = room_id!("!no-hook:localhost");
+
+    server
+        .mock_sync()
+        .ok(|builder| {
+            builder.add_joined_room(JoinedRoomBuilder::new(room_id));
+        })
+        .mock_once()
+        .mount()
+        .await;
+
+    let response = client.sync_once(SyncSettings::default()).await.unwrap();
+
+    assert!(client.get_room(room_id).is_some());
+    assert!(!response.next_batch.is_empty());
+}
+
+#[async_test]
+async fn test_classic_sync_hook_failure_is_atomic_and_response_can_be_replayed() {
+    let server = MatrixMockServer::new().await;
+    let store = Arc::new(MemoryStore::default());
+    let hook = Arc::new(RecordingSyncResponseHook::new(store.clone(), true));
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder
+                .store_config(
+                    StoreConfig::new(CrossProcessLockConfig::SingleProcess)
+                        .state_store(store.clone()),
+                )
+                .sync_response_hook(hook.clone())
+        })
+        .build()
+        .await;
+
+    let room_id = room_id!("!hook:localhost");
+    let event_handler_calls = Arc::new(AtomicUsize::new(0));
+    client.add_event_handler({
+        let calls = event_handler_calls.clone();
+        move |_event: StrippedRoomNameEvent| {
+            let calls = calls.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+
+    let notification_handler_calls = Arc::new(AtomicUsize::new(0));
+    client
+        .register_notification_handler({
+            let calls = notification_handler_calls.clone();
+            move |_notification, _room, _client| {
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        })
+        .await;
+
+    let mut room_updates = client.subscribe_to_room_updates(room_id);
+    let mut all_room_updates = client.subscribe_to_all_room_updates();
+    let (response, next_batch) = invite_sync_response();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/(r0|v3)/sync$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&response))
+        .mount(server.server())
+        .await;
+
+    let error =
+        client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap_err();
+    let Error::SyncResponseHook(hook_error) = &error else {
+        panic!("unexpected error: {error}");
+    };
+    assert_eq!(error.to_string(), "classic sync response hook failed: journal unavailable");
+    assert_eq!(hook_error.source().unwrap().to_string(), "journal unavailable");
+    assert_eq!(stored_sync_token(&store).await, None);
+    assert!(client.get_room(room_id).is_none());
+    assert_eq!(event_handler_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(notification_handler_calls.load(Ordering::SeqCst), 0);
+    assert!(room_updates.try_recv().is_err());
+    assert!(all_room_updates.try_recv().is_err());
+
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+
+    assert_eq!(stored_sync_token(&store).await.as_deref(), Some(next_batch.as_str()));
+    assert!(client.get_room(room_id).is_some());
+    assert_eq!(event_handler_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(notification_handler_calls.load(Ordering::SeqCst), 1);
+    assert!(room_updates.try_recv().is_ok());
+    let RoomUpdates { invited, .. } = all_room_updates.try_recv().unwrap();
+    assert!(invited.contains_key(room_id));
+    assert_eq!(hook.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(hook.journal.lock().unwrap().len(), 1);
+    assert_eq!(&*hook.observed_tokens.lock().unwrap(), &[None, None]);
+}
+
+#[async_test]
+async fn test_classic_sync_http_retry_invokes_hook_only_for_decoded_response() {
+    let server = MatrixMockServer::new().await;
+    let store = Arc::new(MemoryStore::default());
+    let hook = Arc::new(RecordingSyncResponseHook::new(store, false));
+    let client = server
+        .client_builder()
+        .on_builder(|builder| {
+            builder
+                .request_config(RequestConfig::new().retry_limit(2))
+                .sync_response_hook(hook.clone())
+        })
+        .build()
+        .await;
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let response = SyncResponseBuilder::new().build_json_sync_response();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/_matrix/client/(r0|v3)/sync$"))
+        .respond_with({
+            let attempts = attempts.clone();
+            move |_request: &wiremock::Request| {
+                if attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ResponseTemplate::new(500)
+                        .set_body_json(json!({"errcode": "M_UNKNOWN", "error": "temporary"}))
+                } else {
+                    ResponseTemplate::new(200).set_body_json(&response)
+                }
+            }
+        })
+        .expect(2)
+        .mount(server.server())
+        .await;
+
+    client.sync_once(SyncSettings::default().token(SyncToken::NoToken)).await.unwrap();
+
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert_eq!(hook.calls.load(Ordering::SeqCst), 1);
+}
 
 #[async_test]
 async fn test_receive_room_encryption_event_via_sync() {
