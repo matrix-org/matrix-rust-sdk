@@ -126,6 +126,7 @@ impl Channel {
                     features: Default::default(),
                 }),
                 Default::default(),
+                Default::default(),
             )
             .await?;
 

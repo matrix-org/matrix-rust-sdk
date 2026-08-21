@@ -20,7 +20,7 @@ use std::{
 };
 
 use backon::{ExponentialBuilder, Retryable};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
 use http::header::CONTENT_LENGTH;
@@ -43,6 +43,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<R::IncomingResponse>
     where
         R: OutgoingRequest + Debug,
@@ -78,12 +79,15 @@ impl HttpClient {
             timeout: Option<Duration>,
             retry_count: &AtomicU64,
             send_progress: SharedObservable<TransmissionProgress>,
+            recv_progress: SharedObservable<TransmissionProgress>,
         ) -> HttpResult<http::Response<Bytes>> {
             let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
             debug!(num_attempt, "Sending request");
             let before = ruma::time::Instant::now();
 
-            let response = execute_request(http_client, request, timeout, send_progress).await?;
+            let response =
+                execute_request(http_client, request, timeout, send_progress, recv_progress)
+                    .await?;
 
             let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
 
@@ -143,6 +147,7 @@ impl HttpClient {
 
         let send_request = || {
             let send_progress = send_progress.clone();
+            let recv_progress = recv_progress.clone();
             async {
                 let response = send_request_inner(
                     &self.inner,
@@ -150,6 +155,7 @@ impl HttpClient {
                     config.timeout,
                     &retry_count,
                     send_progress,
+                    recv_progress,
                 )
                 .await?;
                 let (parts, body) = response.into_parts();
@@ -241,6 +247,7 @@ pub(super) async fn execute_request(
     request: &http::Request<Bytes>,
     timeout: Option<Duration>,
     send_progress: SharedObservable<TransmissionProgress>,
+    recv_progress: SharedObservable<TransmissionProgress>,
 ) -> Result<http::Response<Bytes>, HttpError> {
     use std::convert::Infallible;
 
@@ -281,8 +288,33 @@ pub(super) async fn execute_request(
         request
     };
 
-    let response = client.execute(request).await?;
-    Ok(response_to_http_response(response).await?)
+    let mut response = client.execute(request).await?;
+
+    if recv_progress.subscriber_count() == 0 {
+        return Ok(response_to_http_response(response).await?);
+    }
+
+    // Read the content length before draining the headers below.
+    let content_length = response.content_length().unwrap_or(0) as usize;
+
+    let status = response.status();
+    let mut http_builder = http::Response::builder().status(status);
+    let headers = http_builder.headers_mut().expect("Can't get the response builder headers");
+    for (k, v) in response.headers_mut().drain() {
+        if let Some(key) = k {
+            headers.insert(key, v);
+        }
+    }
+
+    recv_progress.update(|p| p.total += content_length);
+
+    let mut body = BytesMut::new();
+    while let Some(chunk) = response.chunk().await? {
+        recv_progress.update(|p| p.current += chunk.len());
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(http_builder.body(body.freeze()).expect("Can't construct a response using the given body"))
 }
 
 struct BytesChunks {
