@@ -140,8 +140,9 @@ impl<'a> RoomPrivacySettings<'a> {
 
     /// Update the message retention policy for this room.
     ///
-    /// Requires the caller to have a power level sufficient to send the
-    /// `m.room.retention` state event (typically room admin, power level 50).
+    /// The caller must have a power level sufficient to send the
+    /// `m.room.retention` state event (typically power level 50). The
+    /// server will reject the request if the power level is insufficient.
     ///
     /// The `content` must satisfy `max_lifetime >= min_lifetime`; use
     /// [`RoomRetentionEventContent`]'s builder methods to construct a valid
@@ -426,6 +427,9 @@ mod tests {
         server
             .mock_room_send_state()
             .for_type(StateEventType::RoomRetention)
+            .body_matches_partial_json(serde_json::json!({
+                "max_lifetime": Duration::from_secs(86_400).as_millis() as u64,
+            }))
             .ok(event_id!("$a:b.c"))
             .mock_once()
             .mount()
