@@ -65,7 +65,7 @@ impl DisplayNameUsers {
     }
 }
 
-fn is_member_active(membership: &MembershipState) -> bool {
+pub(crate) fn is_member_active(membership: &MembershipState) -> bool {
     use MembershipState::*;
     matches!(membership, Join | Invite | Knock)
 }
