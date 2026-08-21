@@ -291,6 +291,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         };
 
         let chunk_content = new_first_chunk.content.clone();
+        let loaded_chunk_id = new_first_chunk.identifier;
 
         // We've reached the start on disk, if and only if, there was no chunk prior to
         // the one we just loaded.
@@ -325,6 +326,37 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // ⚠️ Let's not propagate the updates to the store! We already have these data
         // in the store! Let's drain them.
         let _ = state.thread_linked_chunk_mut().store_updates().take();
+
+        // A gap that sits before the thread root is provably empty: nothing
+        // precedes a thread's root event. If we just loaded such a gap while the
+        // root already leads the known events, drop it (and persist the drop,
+        // healing the stored chunk) instead of surfacing a spinner before the
+        // root and issuing a doomed `/relations` to resolve it. Without this, a
+        // thread that was fully loaded once shows a spinner before its root on
+        // every reopen, and burns a `/relations` round-trip on it.
+        if matches!(chunk_content, ChunkContent::Gap(_))
+            && root_leads(state.thread_linked_chunk(), &self.cache.thread_id)
+        {
+            trace!("dropping a gap that sits before the thread root");
+
+            if let Err(err) = state.thread_linked_chunk_mut().remove_gap_at(loaded_chunk_id) {
+                // Non-fatal: fall through to the normal path (surface the gap),
+                // which is what would have happened without this shortcut.
+                error!(?err, "failed to drop the gap before the thread root");
+            } else {
+                // Persist the removal so the stored chunk is healed for next
+                // time, then drain the resulting update (nothing was announced
+                // for this gap, so observers need no diff).
+                state.state.propagate_changes(&state.store).await?;
+                let _ = state.thread_linked_chunk_mut().store_updates().take();
+
+                return Ok(LoadMoreEventsBackwardsOutcome::Events {
+                    events: Vec::new(),
+                    timeline_event_diffs: Vec::new(),
+                    reached_start: true,
+                });
+            }
+        }
 
         // Announce the reloaded events to observers; in storage-only mode,
         // observers render the gaps too, and a reloaded gap chunk has no event

@@ -1329,6 +1329,81 @@ async fn test_storage_only_pagination_serves_stored_events_past_gaps() {
 }
 
 #[async_test]
+async fn test_storage_only_pagination_drops_a_gap_before_the_thread_root() {
+    // Regression: a thread whose root arrived in a limited room sync ends up
+    // stored as [gap][root, replies] (the room's prev-batch stamped before the
+    // root). A gap older than the thread root is provably empty, but on reopen
+    // the storage walk surfaced it as a spinner before the root and burned a
+    // `/relations` resolving it. The storage-only pagination must drop it.
+    let server = MatrixMockServer::new().await;
+    let client = client_with_threading_support(&server).await;
+
+    let event_cache = client.event_cache();
+    event_cache.subscribe().unwrap();
+
+    let room_id = room_id!("!omelette:fromage.fr");
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+
+    let thread_root = event_id!("$thread_root");
+    let (r1, r2) = (event_id!("$r1"), event_id!("$r2"));
+    let reply = |event_id: &ruma::EventId, body: &str| {
+        f.text_msg(body).in_thread(thread_root, thread_root).event_id(event_id).into_raw_timeline()
+    };
+
+    // The root and its replies all arrive in one *limited* sync: the thread
+    // chunk starts empty, so the room's prev-batch is stamped as a gap that
+    // lands before the root (the oldest thread event) — [gap t1][root, r1, r2].
+    let root_ev = f
+        .text_msg("root")
+        .in_thread(thread_root, thread_root)
+        .event_id(thread_root)
+        .into_raw_timeline();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("t1")
+                .add_timeline_bulk(vec![
+                    root_ev.cast(),
+                    reply(r1, "one").cast(),
+                    reply(r2, "two").cast(),
+                ]),
+        )
+        .await;
+
+    let (thread_event_cache, _drop_handles) =
+        event_cache.thread(room_id, thread_root).await.unwrap();
+    let (events, mut thread_stream) = thread_event_cache.subscribe().await.unwrap();
+    let mut events = Vector::from(wait_for_initial_events(events, &mut thread_stream).await);
+
+    // The root and its replies are all known.
+    assert_eq!(event_ids(&events), vec![thread_root.to_owned(), r1.to_owned(), r2.to_owned()]);
+
+    // No `/relations` mock is mounted: if the pagination tried to resolve the
+    // gap before the root, the request would fail the test. A storage-only
+    // pagination reaches the start of the thread and drops the spurious gap.
+    let outcome =
+        thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    assert!(outcome.reached_start, "the root leads, so the thread start is reached");
+    assert!(outcome.events.is_empty());
+
+    // No gap remains before the root (nothing is left to render as a spinner).
+    assert!(thread_event_cache.timeline_gaps().await.unwrap().is_empty());
+
+    // Draining any updates leaves the same three events, root first.
+    while let Ok(diffs) =
+        tokio::time::timeout(Duration::from_millis(200), thread_stream.recv()).await
+    {
+        let Ok(TimelineVectorDiffs { diffs, .. }) = diffs else { break };
+        for diff in diffs {
+            diff.apply(&mut events);
+        }
+    }
+    assert_eq!(event_ids(&events), vec![thread_root.to_owned(), r1.to_owned(), r2.to_owned()]);
+}
+
+#[async_test]
 async fn test_pagination_from_the_end_progresses_past_known_events() {
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
