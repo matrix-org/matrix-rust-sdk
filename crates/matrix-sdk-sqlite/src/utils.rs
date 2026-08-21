@@ -539,33 +539,90 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
         &self,
         mut secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
+        let fast_key = fast_open_key(&secret);
+
+        if let Some(key) = &fast_key
+            && let Some(encrypted) =
+                self.get_kv("cipher_fast").await.map_err(OpenStoreError::LoadCipher)?
+            && let Ok(cipher) = StoreCipher::import_with_key(key, &encrypted)
+        {
+            // A stale or corrupt copy falls through to the slow path, which rewrites it.
+            secret.zeroize();
+            return Ok(cipher);
+        }
+
         let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            match secret {
-                Secret::PassPhrase(ref passphrase) => StoreCipher::import(passphrase, &encrypted)?,
-                Secret::Key(ref key) => StoreCipher::import_with_key(key, &encrypted)?,
-            }
+            import_cipher(&secret, &encrypted)?
         } else {
             let cipher = StoreCipher::new()?;
-            let export = match secret {
-                Secret::PassPhrase(ref passphrase) => {
-                    #[cfg(not(test))]
-                    {
-                        cipher.export(passphrase)
-                    }
-                    #[cfg(test)]
-                    {
-                        cipher._insecure_export_fast_for_testing(passphrase)
-                    }
-                }
-                Secret::Key(ref key) => cipher.export_with_key(key),
-            };
-            self.set_kv("cipher", export?).await.map_err(OpenStoreError::SaveCipher)?;
+            self.set_kv("cipher", export_cipher(&cipher, &secret)?)
+                .await
+                .map_err(OpenStoreError::SaveCipher)?;
             cipher
         };
+
+        if let Some(key) = &fast_key {
+            let export = cipher.export_with_key(key)?;
+            self.set_kv("cipher_fast", export).await.map_err(OpenStoreError::SaveCipher)?;
+        }
+
         secret.zeroize();
         Ok(cipher)
+    }
+}
+
+/// Derive the key wrapping the `cipher_fast` copy of the store cipher.
+///
+/// Only [`Secret::HighEntropyPassPhrase`] gets as a human-chosen passphrase
+/// would lose its brute-force protection and a [`Secret::Key`] already opens
+/// without key derivation.
+fn fast_open_key(secret: &Secret) -> Option<Box<[u8; 32]>> {
+    let Secret::HighEntropyPassPhrase(passphrase) = secret else {
+        return None;
+    };
+
+    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, passphrase.as_bytes());
+    let mut key = Box::new([0u8; 32]);
+    hkdf.expand(b"matrix-sdk-sqlite.store-cipher.fast-open.v1", key.as_mut_slice())
+        .expect("32 bytes is a valid HKDF-SHA256 output length");
+
+    Some(key)
+}
+
+/// Unwrap the `cipher` entry. Both passphrase variants use the same wrapping,
+/// which is what makes them interchangeable on an existing store.
+fn import_cipher(
+    secret: &Secret,
+    encrypted: &[u8],
+) -> Result<StoreCipher, matrix_sdk_store_encryption::Error> {
+    match secret {
+        Secret::Key(key) => StoreCipher::import_with_key(key, encrypted),
+        Secret::PassPhrase(passphrase) | Secret::HighEntropyPassPhrase(passphrase) => {
+            StoreCipher::import(passphrase, encrypted)
+        }
+    }
+}
+
+/// Wrap the `cipher` entry. Both passphrase variants use the same wrapping,
+/// which is what makes them interchangeable on an existing store.
+fn export_cipher(
+    cipher: &StoreCipher,
+    secret: &Secret,
+) -> Result<Vec<u8>, matrix_sdk_store_encryption::Error> {
+    match secret {
+        Secret::Key(key) => cipher.export_with_key(key),
+        Secret::PassPhrase(passphrase) | Secret::HighEntropyPassPhrase(passphrase) => {
+            #[cfg(not(test))]
+            {
+                cipher.export(passphrase)
+            }
+            #[cfg(test)]
+            {
+                cipher._insecure_export_fast_for_testing(passphrase)
+            }
+        }
     }
 }
 
