@@ -1226,7 +1226,8 @@ async fn test_storage_only_pagination_serves_stored_events_past_gaps() {
     // No `/relations` mock is mounted: any network request would fail the
     // pagination. A storage-only pagination walks past the gap t2 and serves
     // [r1, r2] from the store.
-    let outcome = thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    let outcome =
+        thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
     assert!(!outcome.reached_start);
     assert_eq!(
         outcome.events.iter().map(|event| event.event_id().unwrap()).collect::<Vec<_>>(),
@@ -1245,9 +1246,29 @@ async fn test_storage_only_pagination_serves_stored_events_past_gaps() {
     );
     assert!(thread_stream.is_empty());
 
-    // The next storage-only pagination loads the gap t1, exhausts the store, and
-    // only then reaches the network: the oldest remaining gap (t1) is resolved,
-    // which brings the thread root.
+    // The next storage-only pagination loads the gap t1 and exhausts the store.
+    // A gap leads: as far as the storage is concerned that's the start of the
+    // thread, and the gap is left to its gap item (no network from here, the
+    // pagination indicator would double the gap's spinner).
+    let outcome =
+        thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    assert!(outcome.reached_start);
+    assert!(outcome.events.is_empty());
+
+    // The gap t1 got announced (no diff).
+    let diffs = apply_next_update(&mut events, &mut thread_stream).await;
+    assert!(diffs.is_empty());
+    assert_eq!(event_ids(&events), vec![r1.to_owned(), r2.to_owned(), r3.to_owned()]);
+    assert_eq!(
+        thread_event_cache.timeline_gaps().await.unwrap(),
+        vec![
+            TimelineGap { prev_token: "t1".to_owned(), following_event_id: Some(r1.to_owned()) },
+            TimelineGap { prev_token: "t2".to_owned(), following_event_id: Some(r3.to_owned()) },
+        ]
+    );
+    assert!(thread_stream.is_empty());
+
+    // Resolving the leading gap t1 on demand brings the thread root.
     server
         .mock_room_relations()
         .match_target_event(thread_root.to_owned())
@@ -1264,14 +1285,7 @@ async fn test_storage_only_pagination_serves_stored_events_past_gaps() {
         .mount()
         .await;
 
-    let outcome = thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
-    // A gap (t2) remains: the start of the thread isn't claimed yet.
-    assert!(!outcome.reached_start);
-    assert_eq!(outcome.events.len(), 1);
-
-    // The gap t1 got announced (no diff), then resolved into the thread root.
-    let diffs = apply_next_update(&mut events, &mut thread_stream).await;
-    assert!(diffs.is_empty());
+    assert!(thread_event_cache.resolve_gap("t1".to_owned(), 10).await.unwrap());
     apply_next_update(&mut events, &mut thread_stream).await;
     assert_eq!(
         event_ids(&events),
@@ -1308,7 +1322,8 @@ async fn test_storage_only_pagination_serves_stored_events_past_gaps() {
     assert!(thread_event_cache.timeline_gaps().await.unwrap().is_empty());
 
     // And now the start of the thread is known.
-    let outcome = thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
+    let outcome =
+        thread_event_cache.pagination().run_backwards_once_from_storage(10).await.unwrap();
     assert!(outcome.reached_start);
     assert!(outcome.events.is_empty());
 }

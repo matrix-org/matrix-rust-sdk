@@ -234,7 +234,19 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             Ok(None) => {
                 // No previous chunk in the store: the linked chunk is fully loaded.
                 //
-                // A gap anywhere means some of the thread is still unknown: resolve
+                // A leading gap is resolved on demand through its gap item, like
+                // the room's: as far as the storage is concerned this is the start
+                // of the thread. Resolving it from here as well put a second
+                // spinner on screen (the pagination indicator above the gap item,
+                // round 33). Storage-only mode only: in the historical mode, the
+                // `rgap` early-return above fires first.
+                if state.thread_linked_chunk().first_chunk_as_gap().is_some() {
+                    trace!("thread chunk is fully loaded with a leading gap: reached_start=true");
+
+                    return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
+                }
+
+                // A gap anywhere else means some of the thread is still unknown: resolve
                 // the oldest one first (storage-only mode walked past it; in the
                 // historical mode, the `rgap` early-return above fires first).
                 // Redundant gaps get dropped on the strength of another gap
