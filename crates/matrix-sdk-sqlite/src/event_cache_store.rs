@@ -88,6 +88,11 @@ const ROOM_MESSAGE_EVENT_TYPE: &str = "m.room.message";
 /// rows predating them.
 const ROOM_EVENT_SIZES_READY_KEY: &str = "room_event_sizes_ready";
 
+/// The kv key set once the `msgtype` of the room message rows predating the
+/// column was filled in, see
+/// [`SqliteEventCacheStore::backfill_legacy_msgtypes`].
+const MSGTYPES_BACKFILLED_KEY: &str = "msgtypes_backfilled";
+
 /// The `mxc://` URIs found anywhere in a media message's content (file,
 /// thumbnail, gallery items).
 fn media_uris_of(event: &TimelineEvent) -> Vec<ruma::OwnedMxcUri> {
@@ -801,15 +806,25 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
 
 impl SqliteEventCacheStore {
     /// Fill in the `msgtype` of the room message rows predating the column
-    /// (NULL), across all rooms, decoding them once; a no-op once done. See
+    /// (NULL), across all rooms, decoding them once. See
     /// [`Self::find_events_by_message_types`] for the per-room variant.
+    ///
+    /// Done once ever, recorded under [`MSGTYPES_BACKFILLED_KEY`]: finding the
+    /// legacy rows is a scan of the whole `events` table (no index leads with
+    /// `event_type`), seconds on a large store, and rows written since the
+    /// column exists are indexed on write.
     async fn backfill_legacy_msgtypes(&self) -> Result<()> {
+        if self.read().await?.get_kv(MSGTYPES_BACKFILLED_KEY).await?.is_some() {
+            return Ok(());
+        }
+
         let hashed_message_type = self.encryption.encode_key(keys::EVENTS, ROOM_MESSAGE_EVENT_TYPE);
         let encryption = self.encryption.clone();
 
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<()> {
+                let _timer = timer!("backfilling the msgtype of legacy rows");
                 let legacy: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = txn
                     .prepare(
                         "SELECT room_id, event_id, content FROM events \
@@ -818,11 +833,7 @@ impl SqliteEventCacheStore {
                     .query((&hashed_message_type,))?
                     .mapped(|row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
                     .collect::<rusqlite::Result<_>>()?;
-                if legacy.is_empty() {
-                    return Ok(());
-                }
 
-                let _timer = timer!("backfilling the msgtype of legacy rows");
                 debug!(num_rows = legacy.len(), "Backfilling the `msgtype` of legacy rows");
                 let mut statement = txn
                     .prepare("UPDATE events SET msgtype = ? WHERE event_id = ? AND room_id = ?")?;
@@ -835,6 +846,7 @@ impl SqliteEventCacheStore {
                         room_id,
                     ))?;
                 }
+                txn.set_kv(MSGTYPES_BACKFILLED_KEY, b"1")?;
                 Ok(())
             })
             .await
@@ -2231,12 +2243,11 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     async fn load_events_by_refs(
         &self,
-        room_id: &RoomId,
+        _room_id: &RoomId,
         refs: &[StoredEventRef],
     ) -> Result<Vec<(StoredEventRef, Event)>, Self::Error> {
         let _timer = timer!("method");
 
-        let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
         let encryption = self.encryption.clone();
         let refs = refs.to_vec();
 
@@ -2246,14 +2257,18 @@ impl EventCacheStore for SqliteEventCacheStore {
                 let mut events = Vec::with_capacity(refs.len());
                 // Below SQLite's default parameter limit.
                 for chunk in refs.chunks(500) {
+                    // The refs are primary keys: look them up as such. With a
+                    // `room_id = ?` term added, the planner (once `ANALYZE`
+                    // stats exist) prefers walking the room's index entries
+                    // over the `IN` list, i.e. the whole room for a page of
+                    // events: seconds in a large room.
                     let query = format!(
-                        "SELECT event_id, content FROM events WHERE room_id = ? AND event_id IN ({})",
+                        "SELECT event_id, content FROM events WHERE event_id IN ({})",
                         repeat_vars(chunk.len())
                     );
-                    let parameters = params_from_iter(
-                        once(hashed_room_id.to_sql().expect("a key converts to a SQLite value"))
-                            .chain(chunk.iter().map(|event_ref| event_ref.to_sql().expect("bytes convert to a SQLite value"))),
-                    );
+                    let parameters = params_from_iter(chunk.iter().map(|event_ref| {
+                        event_ref.to_sql().expect("bytes convert to a SQLite value")
+                    }));
                     let rows = txn
                         .prepare(&query)?
                         .query_map(parameters, |row| {
@@ -2702,8 +2717,11 @@ mod tests {
     use ruma::{OwnedEventId, RoomId, event_id};
     use tempfile::{TempDir, tempdir};
 
-    use super::{SqliteEventCacheStore, keys};
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use super::{MSGTYPES_BACKFILLED_KEY, SqliteEventCacheStore, keys};
+    use crate::{
+        SqliteStoreConfig,
+        utils::{SqliteAsyncConnExt, SqliteKeyValueStoreAsyncConnExt},
+    };
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2970,6 +2988,88 @@ mod tests {
 
         let found = store.find_events_by_message_types(room_id, &["m.image"]).await.unwrap();
         assert_eq!(found.len(), 1);
+    }
+
+    #[async_test]
+    async fn test_find_event_refs_by_message_types_backfills_legacy_rows_once() {
+        use matrix_sdk_base::linked_chunk::Position;
+        use matrix_sdk_test::{ALICE, event_factory::EventFactory};
+        use ruma::owned_mxc_uri;
+
+        let store = get_event_cache_store().await.expect("creating cache store failed");
+
+        let room_id = *DEFAULT_TEST_ROOM_ID;
+        let f = EventFactory::new().room(room_id).sender(*ALICE);
+        let image = f.image("a.png".to_owned(), owned_mxc_uri!("mxc://example.org/a")).into_event();
+        let text = f.text_msg("hello").into_event();
+
+        store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(0),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(0), 0),
+                        items: vec![image.clone(), text],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let count_unknown = |store: SqliteEventCacheStore| async move {
+            store
+                .read()
+                .await
+                .unwrap()
+                .with_transaction(|txn| {
+                    txn.query_row("SELECT COUNT(*) FROM events WHERE msgtype IS NULL", (), |row| {
+                        row.get::<_, u64>(0)
+                    })
+                })
+                .await
+                .unwrap()
+        };
+        let unindex_all = |store: SqliteEventCacheStore| async move {
+            store
+                .write()
+                .await
+                .unwrap()
+                .with_transaction(|txn| txn.execute("UPDATE events SET msgtype = NULL", ()))
+                .await
+                .unwrap();
+        };
+
+        // Simulate rows written before the `msgtype` column existed: the first
+        // index query backfills them, store-wide.
+        unindex_all(store.clone()).await;
+        assert_eq!(count_unknown(store.clone()).await, 2);
+        let refs = store.find_event_refs_by_message_types(room_id, &["m.image"]).await.unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(count_unknown(store.clone()).await, 0);
+
+        // The backfill is a whole-table scan: it's done once ever, rows written
+        // since the column exists being indexed on write.
+        assert!(
+            store.read().await.unwrap().get_kv(MSGTYPES_BACKFILLED_KEY).await.unwrap().is_some()
+        );
+        unindex_all(store.clone()).await;
+        assert!(
+            store.find_event_refs_by_message_types(room_id, &["m.image"]).await.unwrap().is_empty()
+        );
+        assert_eq!(count_unknown(store.clone()).await, 2);
+
+        // The refs resolve to their events.
+        let refs = vec![
+            store.encryption.encode_event_id(keys::EVENTS, image.event_id().unwrap()).to_vec(),
+        ];
+        let loaded = store.load_events_by_refs(room_id, &refs).await.unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].1.event_id(), image.event_id());
     }
 
     #[async_test]
