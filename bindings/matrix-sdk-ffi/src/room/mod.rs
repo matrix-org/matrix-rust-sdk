@@ -311,6 +311,10 @@ impl Room {
                                     Some(AnyMessageLikeEventContent::RoomMessage(content)) => {
                                         types.contains(&content.msgtype.into())
                                     }
+                                    // Not decrypted yet: may well be one of them, and a viewer
+                                    // walking the timeline needs to know there is something
+                                    // unresolved there. Filtered again once decrypted.
+                                    Some(AnyMessageLikeEventContent::RoomEncrypted(_)) => true,
                                     _ => false,
                                 }
                             }
