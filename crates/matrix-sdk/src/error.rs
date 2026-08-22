@@ -228,14 +228,15 @@ impl RetryKind {
     /// if we received an error from a reverse proxy while the Matrix
     /// homeserver is down.
     fn from_status_code(status_code: StatusCode) -> Self {
-        if status_code.as_u16() == 520 {
-            // Cloudflare or some other proxy server sent this, meaning the actual
-            // homeserver sent some unknown error back
-            RetryKind::Permanent
-        } else if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
-            // If the status code is 429, this is requesting a retry in HTTP, without the
-            // custom `errcode`. Treat that as a retriable request with no specified
-            // retry_after delay.
+        // If the status code is 429, this is requesting a retry in HTTP, without the
+        // custom `errcode`. Treat that as a retriable request with no specified
+        // retry_after delay.
+        //
+        // All 5xx errors are considered transient, including non-standard ones like
+        // 520 ("web server returned an unknown error", from Cloudflare or another
+        // reverse proxy): they reflect the state of the server at the time of the
+        // request, and the request may well succeed when retried later.
+        if status_code == StatusCode::TOO_MANY_REQUESTS || status_code.is_server_error() {
             RetryKind::Transient { retry_after: None }
         } else {
             RetryKind::Permanent
