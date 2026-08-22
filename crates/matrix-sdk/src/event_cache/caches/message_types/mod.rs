@@ -45,6 +45,7 @@ use matrix_sdk_base::{
     linked_chunk::{ChunkIdentifier, OrderTracker, OwnedLinkedChunkId, Position, Update},
     task_monitor::BackgroundTaskHandle,
 };
+use matrix_sdk_common::deserialized_responses::TimelineEventKind;
 use ruma::{OwnedEventId, OwnedRoomId, RoomId};
 use tokio::sync::{
     RwLock,
@@ -305,8 +306,15 @@ impl State {
     }
 
     /// Whether an event is one of the room messages this view is about.
+    ///
+    /// An undecryptable event may turn out to be one once its key arrives (a
+    /// back-pagination often fetches events ahead of their keys): it is
+    /// shown meanwhile, so that a viewer walking back knows there is
+    /// something unresolved between the events it does show, rather than
+    /// stepping past it. The decryption replaces it in place, or removes it.
     fn matches(&self, event: &Event, msgtypes: &[String]) -> bool {
-        event.kind.msgtype().is_some_and(|msgtype| msgtypes.contains(&msgtype))
+        matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. })
+            || event.kind.msgtype().is_some_and(|msgtype| msgtypes.contains(&msgtype))
     }
 
     /// Apply one linked chunk update.

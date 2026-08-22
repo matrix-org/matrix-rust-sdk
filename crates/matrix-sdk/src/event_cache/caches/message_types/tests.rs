@@ -572,6 +572,74 @@ async fn test_redaction_removes_the_event() {
     assert_eq!(ids(&events), [event_id!("$img1"), event_id!("$img2")]);
 }
 
+#[cfg(feature = "e2e-encryption")]
+#[async_test]
+async fn test_undecryptable_events_show_until_decrypted() {
+    let room_id = room_id!("!galette:saucisse.bzh");
+    let f = EventFactory::new().room(room_id);
+
+    let store = Arc::new(MemoryStore::new());
+    prefill_store(&store, room_id, &f).await;
+
+    let server = MatrixMockServer::new().await;
+    let client = client_with_store(&server, store).await;
+    let (room_event_cache, view) = room_caches(&client, room_id).await;
+
+    let (events, _, mut updates) = view.subscribe().await;
+    assert_eq!(events.len(), 3);
+
+    // Two events we have no key for: both show up, as "maybe an image".
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .add_timeline_event(
+                    f.encrypted("c1", "sender_key", "DEVICEID", "session1")
+                        .sender(*ALICE)
+                        .event_id(event_id!("$utd1")),
+                )
+                .add_timeline_event(
+                    f.encrypted("c2", "sender_key", "DEVICEID", "session2")
+                        .sender(*ALICE)
+                        .event_id(event_id!("$utd2")),
+                ),
+        )
+        .await;
+
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert_eq!(diffs.len(), 2);
+    assert_matches!(&diffs[0], VectorDiff::Insert { index: 3, value } => {
+        assert_eq!(value.event_id(), Some(event_id!("$utd1")));
+    });
+    assert_matches!(&diffs[1], VectorDiff::Insert { index: 4, value } => {
+        assert_eq!(value.event_id(), Some(event_id!("$utd2")));
+    });
+
+    // Decrypted (as the redecryptor does it): an image stays, in place; a
+    // text goes.
+    {
+        let mut state = room_event_cache.state().write().await.unwrap();
+        let (location, _) = state.find_event(event_id!("$utd1")).await.unwrap().unwrap();
+        state.replace_event_at(location, image(&f, event_id!("$utd1"))).await.unwrap();
+        let (location, _) = state.find_event(event_id!("$utd2")).await.unwrap().unwrap();
+        state.replace_event_at(location, text(&f, event_id!("$utd2"))).await.unwrap();
+    }
+
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert_matches!(diffs.as_slice(), [VectorDiff::Set { index: 3, value }] => {
+        assert_eq!(value.event_id(), Some(event_id!("$utd1")));
+        assert!(value.kind.msgtype().is_some());
+    });
+    assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = updates.recv());
+    assert_matches!(diffs.as_slice(), [VectorDiff::Remove { index: 4 }]);
+
+    let (events, _) = view.events_and_gaps().await;
+    assert_eq!(
+        ids(&events),
+        [event_id!("$img1"), event_id!("$img2"), event_id!("$img3"), event_id!("$utd1")]
+    );
+}
+
 #[async_test]
 async fn test_clearing_the_cache_empties_the_view() {
     let room_id = room_id!("!galette:saucisse.bzh");
