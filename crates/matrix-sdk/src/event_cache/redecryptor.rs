@@ -120,7 +120,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     pin::Pin,
-    sync::Weak,
+    sync::{Arc, Weak, atomic::Ordering},
     time::Duration,
 };
 
@@ -343,12 +343,30 @@ impl EventCache {
     /// when the decrypted event is written back. Rooms are processed in batches
     /// with a pause between them so a large account's sweep stays in the
     /// background instead of monopolising the store lock.
+    /// Run [`Self::retry_persisted_events`] in the background, one sweep at a
+    /// time: a request made while one runs re-runs it once (keys may have
+    /// landed meanwhile), further requests coalesce. The redecryptor loop
+    /// must not await the sweep itself: on a large account it takes seconds,
+    /// during which the room-key stream it should be draining lags again.
+    pub(super) fn request_persisted_sweep(&self) {
+        self.inner.persisted_sweep_requested.store(true, Ordering::SeqCst);
+        let weak = Arc::downgrade(&self.inner);
+        matrix_sdk_common::executor::spawn(async move {
+            let Some(inner) = weak.upgrade() else { return };
+            let cache = EventCache { inner };
+            let _guard = cache.inner.persisted_sweep_lock.lock().await;
+            while cache.inner.persisted_sweep_requested.swap(false, Ordering::SeqCst) {
+                cache.retry_persisted_events().await;
+            }
+        });
+    }
+
     async fn retry_persisted_events(&self) {
         // ponytail: fixed batch + pause. Fine for a background sweep that runs
         // at startup and on cross-process key imports; make it adaptive only if
         // it ever shows up in a profile.
-        const ROOMS_PER_BATCH: usize = 20;
-        const PAUSE_BETWEEN_BATCHES: Duration = Duration::from_millis(20);
+        const ROOMS_PER_BATCH: usize = 50;
+        const PAUSE_BETWEEN_BATCHES: Duration = Duration::from_millis(10);
 
         let Ok(client) = self.inner.client() else { return };
 
@@ -952,7 +970,7 @@ async fn send_report_and_retry_memory_events(
     // the in-memory retry above doesn't cover UTDs that were shrunk out to the
     // store, so sweep the persisted UTDs too.
     if matches!(report, RedecryptorReport::Lagging) {
-        cache.retry_persisted_events().await;
+        cache.request_persisted_sweep();
     }
 
     let _ = cache.inner.redecryption_channels.utd_reporter.send(report);
@@ -1232,7 +1250,7 @@ impl Redecryptor {
         // receives from here on), and no regeneration necessarily follows, so
         // nothing else would retry the UTDs sitting in the store.
         if let Some(cache) = upgrade_event_cache(&cache) {
-            cache.retry_persisted_events().await;
+            cache.request_persisted_sweep();
         }
 
         while Self::redecryption_loop(

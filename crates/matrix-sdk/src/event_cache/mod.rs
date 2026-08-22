@@ -274,6 +274,10 @@ impl EventCache {
                 linked_chunk_update_sender,
                 #[cfg(feature = "e2e-encryption")]
                 redecryption_channels,
+                #[cfg(feature = "e2e-encryption")]
+                persisted_sweep_requested: Default::default(),
+                #[cfg(feature = "e2e-encryption")]
+                persisted_sweep_lock: Default::default(),
                 enable_automatic_back_pagination,
                 back_pagination_queue: OnceLock::new(),
                 thread_subscriber_sender,
@@ -697,6 +701,13 @@ struct EventCacheInner {
 
     #[cfg(feature = "e2e-encryption")]
     redecryption_channels: redecryptor::RedecryptorChannels,
+
+    /// Coalescing state for the background sweep of persisted UTDs, see
+    /// `EventCacheInner::request_persisted_sweep`.
+    #[cfg(feature = "e2e-encryption")]
+    persisted_sweep_requested: std::sync::atomic::AtomicBool,
+    #[cfg(feature = "e2e-encryption")]
+    persisted_sweep_lock: tokio::sync::Mutex<()>,
 
     /// Whether to spawn the [`BackPaginationQueue`] at subscription time; set
     /// once, at construction, via

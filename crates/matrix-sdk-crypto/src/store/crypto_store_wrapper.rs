@@ -60,7 +60,11 @@ pub(crate) struct CryptoStoreWrapper {
 
 impl CryptoStoreWrapper {
     pub(crate) fn new(user_id: &UserId, device_id: &DeviceId, store: impl IntoCryptoStore) -> Self {
-        let room_keys_received_sender = broadcast::Sender::new(10);
+        // Room keys arrive in bursts of single-session updates (on-demand backup
+        // downloads save one session per request); at 10 a burst of a few dozen
+        // lags the event cache's redecryptor, which then falls back to a sweep of
+        // every room's persisted UTDs instead of the per-key retry.
+        let room_keys_received_sender = broadcast::Sender::new(1024);
         let room_keys_withheld_received_sender = broadcast::Sender::new(10);
         let secrets_broadcaster = broadcast::Sender::new(10);
         // The identities broadcaster is responsible for user identities as well as
