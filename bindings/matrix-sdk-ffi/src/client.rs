@@ -33,7 +33,7 @@ use matrix_sdk::{
         ClientId, OAuthAuthorizationData, OAuthError as SdkOAuthError, OAuthSession,
     },
     deserialized_responses::RawAnySyncOrStrippedTimelineEvent,
-    executor::AbortOnDrop,
+    executor::{AbortHandle, AbortOnDrop, JoinHandle},
     media::{
         DefaultMediaFetcher, MediaFormat, MediaRequestParameters, MediaRetentionPolicy,
         MediaThumbnailSettings,
@@ -1337,48 +1337,79 @@ impl Client {
         temp_dir: Option<String>,
         progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let source = (*media_source).clone();
-            let mime_type: mime::Mime = mime_type.parse()?;
+        self.download_media_file(
+            media_source,
+            filename,
+            mime_type,
+            use_cache,
+            temp_dir,
+            progress_watcher,
+        )
+        .join()
+        .await
+    }
 
-            let recv_progress = SharedObservable::new(matrix_sdk::TransmissionProgress::default());
-            if let Some(progress_watcher) = progress_watcher {
-                let mut subscriber = recv_progress.subscribe();
-                get_runtime_handle().spawn(async move {
-                    while let Some(progress) = subscriber.next().await {
-                        progress_watcher.transmission_progress(progress.into());
-                    }
-                });
+    /// Like [`Self::get_media_file`], but returns at once with a handle to
+    /// wait for the download on, or to cancel it (a viewer swiped away from a
+    /// large video shouldn't keep fetching it: cancelling the foreign future
+    /// doesn't reach the Rust one).
+    pub fn download_media_file(
+        &self,
+        media_source: Arc<MediaSource>,
+        filename: Option<String>,
+        mime_type: String,
+        use_cache: bool,
+        temp_dir: Option<String>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
+    ) -> Arc<MediaFileDownloadHandle> {
+        let client = self.inner.clone();
+        MediaFileDownloadHandle::new(get_runtime_handle().spawn(async move {
+            #[cfg(not(target_family = "wasm"))]
+            {
+                let source = (*media_source).clone();
+                let mime_type: mime::Mime = mime_type.parse()?;
+
+                let recv_progress =
+                    SharedObservable::new(matrix_sdk::TransmissionProgress::default());
+                if let Some(progress_watcher) = progress_watcher {
+                    let mut subscriber = recv_progress.subscribe();
+                    get_runtime_handle().spawn(async move {
+                        while let Some(progress) = subscriber.next().await {
+                            progress_watcher.transmission_progress(progress.into());
+                        }
+                    });
+                }
+
+                let handle = client
+                    .media()
+                    .get_media_file_with_progress(
+                        &MediaRequestParameters {
+                            source: source.media_source,
+                            format: MediaFormat::File,
+                        },
+                        filename,
+                        &mime_type,
+                        use_cache,
+                        temp_dir,
+                        recv_progress,
+                    )
+                    .await?;
+
+                Ok(Arc::new(MediaFileHandle::new(handle)))
             }
 
-            let handle = self
-                .inner
-                .media()
-                .get_media_file_with_progress(
-                    &MediaRequestParameters {
-                        source: source.media_source,
-                        format: MediaFormat::File,
-                    },
-                    filename,
-                    &mime_type,
-                    use_cache,
-                    temp_dir,
-                    recv_progress,
-                )
-                .await?;
-
-            Ok(Arc::new(MediaFileHandle::new(handle)))
-        }
-
-        /// MediaFileHandle uses SdkMediaFileHandle which requires an
-        /// intermediate TempFile which is not available on wasm
-        /// platforms due to lack of an accessible file system.
-        #[cfg(target_family = "wasm")]
-        Err(ClientError::Generic {
-            msg: "get_media_file is not supported on wasm platforms".to_owned(),
-            details: None,
-        })
+            // MediaFileHandle uses SdkMediaFileHandle which requires an
+            // intermediate TempFile which is not available on wasm
+            // platforms due to lack of an accessible file system.
+            #[cfg(target_family = "wasm")]
+            {
+                let _ = (media_source, filename, mime_type, use_cache, temp_dir, progress_watcher);
+                Err(ClientError::Generic {
+                    msg: "get_media_file is not supported on wasm platforms".to_owned(),
+                    details: None,
+                })
+            }
+        }))
     }
 
     pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
@@ -3386,6 +3417,49 @@ impl<'a> From<&'a AccountManagementAction> for AccountManagementActionData<'a> {
 #[matrix_sdk_ffi_macros::export]
 fn gen_transaction_id() -> String {
     TransactionId::new().to_string()
+}
+
+/// A media file download in flight: wait for it with [`Self::join`], or stop
+/// it with [`Self::cancel`].
+#[derive(uniffi::Object)]
+pub struct MediaFileDownloadHandle {
+    join_handle: tokio::sync::Mutex<JoinHandle<Result<Arc<MediaFileHandle>, ClientError>>>,
+    abort_handle: AbortHandle,
+}
+
+impl MediaFileDownloadHandle {
+    fn new(join_handle: JoinHandle<Result<Arc<MediaFileHandle>, ClientError>>) -> Arc<Self> {
+        let abort_handle = join_handle.abort_handle();
+        Arc::new(Self { join_handle: tokio::sync::Mutex::new(join_handle), abort_handle })
+    }
+}
+
+#[matrix_sdk_ffi_macros::export]
+impl MediaFileDownloadHandle {
+    /// Wait for the download: the file, or an error (one reading "cancelled"
+    /// if it was).
+    pub async fn join(&self) -> Result<Arc<MediaFileHandle>, ClientError> {
+        let mut join_handle = self.join_handle.lock().await;
+        match (&mut *join_handle).await {
+            Ok(result) => result,
+            Err(err) if err.is_cancelled() => Err(ClientError::Generic {
+                msg: "The media download was cancelled".to_owned(),
+                details: None,
+            }),
+            Err(err) => {
+                error!("media download task panicked! resuming panic from here.");
+                #[cfg(not(target_family = "wasm"))]
+                std::panic::resume_unwind(err.into_panic());
+                #[cfg(target_family = "wasm")]
+                panic!("media download task panicked! {err}");
+            }
+        }
+    }
+
+    /// Stop the download; nothing is kept of what had been fetched.
+    pub fn cancel(&self) {
+        self.abort_handle.abort();
+    }
 }
 
 /// A file handle that takes ownership of a media file on disk. When the handle
