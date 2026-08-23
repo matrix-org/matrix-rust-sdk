@@ -2225,7 +2225,12 @@ impl Encryption {
 
             let send_result = self
                 .client
-                .send_inner(ruma_request, Some(RequestConfig::short_retry()), Default::default())
+                .send_inner(
+                    ruma_request,
+                    Some(RequestConfig::short_retry()),
+                    Default::default(),
+                    Default::default(),
+                )
                 .await;
 
             // If the sending failed we need to collect the failures to report them

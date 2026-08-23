@@ -81,8 +81,12 @@ impl Client {
         let room_state = self.state_store().storage_usage(&room_ids).await?;
         let events = self.locked_event_cache_store().await?.storage_usage(&room_ids).await?;
 
-        let with_events: Vec<OwnedRoomId> =
-            events.per_room.iter().filter(|(_, bytes)| **bytes > 0).map(|(id, _)| id.clone()).collect();
+        let with_events: Vec<OwnedRoomId> = events
+            .per_room
+            .iter()
+            .filter(|(_, bytes)| **bytes > 0)
+            .map(|(id, _)| id.clone())
+            .collect();
         let room_media =
             self.locked_event_cache_store().await?.media_uris_by_room(&with_events).await?;
         let media = if room_media.is_empty() {

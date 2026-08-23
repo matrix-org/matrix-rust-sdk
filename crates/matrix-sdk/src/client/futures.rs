@@ -45,9 +45,31 @@ pub struct SendRequest<R> {
     pub(crate) request: R,
     pub(crate) config: Option<RequestConfig>,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
+    pub(crate) recv_progress: SharedObservable<TransmissionProgress>,
 }
 
 impl<R> SendRequest<R> {
+    /// Replace the default `SharedObservable` used for tracking download
+    /// progress (the response body, with the `Content-Length` as the total
+    /// when the server sends one).
+    ///
+    /// Note that any subscribers obtained from
+    /// [`subscribe_to_recv_progress`][Self::subscribe_to_recv_progress]
+    /// will be invalidated by this.
+    pub fn with_recv_progress_observable(
+        mut self,
+        recv_progress: SharedObservable<TransmissionProgress>,
+    ) -> Self {
+        self.recv_progress = recv_progress;
+        self
+    }
+
+    /// Get a subscriber to observe the progress of receiving the response
+    /// body.
+    pub fn subscribe_to_recv_progress(&self) -> Subscriber<TransmissionProgress> {
+        self.recv_progress.subscribe()
+    }
+
     /// Replace the default `SharedObservable` used for tracking upload
     /// progress.
     ///
@@ -162,16 +184,22 @@ where
             }
         }
 
-        let Self { client, request, config, send_progress } = self;
+        let Self { client, request, config, send_progress, recv_progress } = self;
 
         Box::pin(async move {
-            let res =
-                Box::pin(client.send_inner(request.clone(), config, send_progress.clone())).await;
+            let res = Box::pin(client.send_inner(
+                request.clone(),
+                config,
+                send_progress.clone(),
+                recv_progress.clone(),
+            ))
+            .await;
 
             if let Err(e) = &res
                 && let RetryRequest::Yes = handle_unknown_token_error(e, &client).await?
             {
-                return Box::pin(client.send_inner(request, config, send_progress)).await;
+                return Box::pin(client.send_inner(request, config, send_progress, recv_progress))
+                    .await;
             }
 
             res

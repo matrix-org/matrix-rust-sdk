@@ -21,6 +21,7 @@ use std::{
 };
 
 use anyhow::{Context as _, anyhow};
+use eyeball::SharedObservable;
 use futures_util::pin_mut;
 #[cfg(feature = "sqlite")]
 use matrix_sdk::STATE_STORE_DATABASE_NAME;
@@ -1312,6 +1313,10 @@ impl Client {
     /// Retrieves a media file from the media source
     ///
     /// Not available on Wasm platforms, due to lack of accessible file system.
+    ///
+    /// `progress_watcher` is told how much of the file has been downloaded
+    /// (with the `Content-Length` as the total when the server sends one); a
+    /// cached file arrives without any progress update.
     pub async fn get_media_file(
         &self,
         media_source: Arc<MediaSource>,
@@ -1319,16 +1324,27 @@ impl Client {
         mime_type: String,
         use_cache: bool,
         temp_dir: Option<String>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
     ) -> Result<Arc<MediaFileHandle>, ClientError> {
         #[cfg(not(target_family = "wasm"))]
         {
             let source = (*media_source).clone();
             let mime_type: mime::Mime = mime_type.parse()?;
 
+            let recv_progress = SharedObservable::new(matrix_sdk::TransmissionProgress::default());
+            if let Some(progress_watcher) = progress_watcher {
+                let mut subscriber = recv_progress.subscribe();
+                get_runtime_handle().spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        progress_watcher.transmission_progress(progress.into());
+                    }
+                });
+            }
+
             let handle = self
                 .inner
                 .media()
-                .get_media_file(
+                .get_media_file_with_progress(
                     &MediaRequestParameters {
                         source: source.media_source,
                         format: MediaFormat::File,
@@ -1337,6 +1353,7 @@ impl Client {
                     &mime_type,
                     use_cache,
                     temp_dir,
+                    recv_progress,
                 )
                 .await?;
 

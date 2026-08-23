@@ -3680,6 +3680,7 @@ name = "matrix-sdk-contentscanner"
 version = "0.18.0"
 dependencies = [
  "assert_matches2",
+ "eyeball",
  "matrix-sdk",
  "matrix-sdk-crypto",
  "matrix-sdk-test",
@@ -3789,6 +3790,7 @@ dependencies = [
  "chrono",
  "console_error_panic_hook",
  "extension-trait",
+ "eyeball",
  "eyeball-im",
  "futures-executor",
  "futures-util",

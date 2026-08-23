@@ -1,4 +1,6 @@
+use eyeball::SharedObservable;
 use matrix_sdk::{
+    TransmissionProgress,
     media::{MediaFormat, MediaRequestParameters, MediaThumbnailSettings},
     test_utils::mocks::MatrixMockServer,
 };
@@ -86,6 +88,37 @@ async fn test_get_media_content_no_auth() {
             expected_content
         );
     }
+}
+
+#[async_test]
+async fn test_get_media_content_reports_download_progress() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+    let expected_content = b"Hello, World!";
+
+    server.mock_versions().with_versions(vec!["v1.1"]).ok().expect(1).mount().await;
+    server.mock_media_download().ok_plain_text().expect(1).mount().await;
+
+    let request = MediaRequestParameters {
+        source: MediaSource::Plain(owned_mxc_uri!("mxc://localhost/textfile")),
+        format: MediaFormat::File,
+    };
+
+    let progress = SharedObservable::new(TransmissionProgress::default());
+    // The body is only streamed (and counted) while someone is subscribed.
+    let subscriber = progress.subscribe();
+
+    let content = client
+        .media()
+        .get_media_content_with_progress(&request, false, progress.clone())
+        .await
+        .unwrap();
+    assert_eq!(content, expected_content);
+
+    let final_progress = progress.get();
+    assert_eq!(final_progress.current, expected_content.len());
+    assert_eq!(final_progress.total, expected_content.len());
+    drop(subscriber);
 }
 
 #[async_test]

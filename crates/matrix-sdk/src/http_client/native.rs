@@ -46,6 +46,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<R::IncomingResponse>
     where
         R: OutgoingRequest + Debug,
@@ -81,6 +82,7 @@ impl HttpClient {
             timeout: Option<Duration>,
             retry_count: &AtomicU64,
             send_progress: SharedObservable<TransmissionProgress>,
+            recv_progress: SharedObservable<TransmissionProgress>,
             traffic: &TrafficCounters,
         ) -> HttpResult<http::Response<Bytes>> {
             let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
@@ -102,7 +104,7 @@ impl HttpClient {
                 let client = http_client.reqwest();
 
                 tokio::select! {
-                    result = execute_request(&client, request, timeout, send_progress.clone()) => {
+                    result = execute_request(&client, request, timeout, send_progress.clone(), recv_progress.clone()) => {
                         break result?;
                     }
                     Ok(()) = network_change.changed() => {
@@ -173,6 +175,7 @@ impl HttpClient {
 
         let send_request = || {
             let send_progress = send_progress.clone();
+            let recv_progress = recv_progress.clone();
             async {
                 let response = send_request_inner(
                     self,
@@ -180,6 +183,7 @@ impl HttpClient {
                     config.timeout,
                     &retry_count,
                     send_progress,
+                    recv_progress,
                     &self.traffic,
                 )
                 .await?;
@@ -272,6 +276,7 @@ pub(super) async fn execute_request(
     request: &http::Request<Bytes>,
     timeout: Option<Duration>,
     send_progress: SharedObservable<TransmissionProgress>,
+    recv_progress: SharedObservable<TransmissionProgress>,
 ) -> Result<http::Response<Bytes>, HttpError> {
     use std::convert::Infallible;
 
@@ -313,7 +318,7 @@ pub(super) async fn execute_request(
     };
 
     let response = client.execute(request).await?;
-    Ok(response_to_http_response(response).await?)
+    Ok(response_to_http_response(response, recv_progress).await?)
 }
 
 struct BytesChunks {

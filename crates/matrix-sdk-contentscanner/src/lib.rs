@@ -25,8 +25,9 @@ use api::{
     },
     public_server_key::PublicServerKeyRequest,
 };
+use eyeball::SharedObservable;
 use matrix_sdk::{
-    BoxFuture, Client, Error, IdParseError,
+    BoxFuture, Client, Error, IdParseError, TransmissionProgress,
     encryption::vodozemac::pk_encryption::Message,
     locks::Mutex,
     media::{MediaFetcher, MediaRequestParameters},
@@ -215,6 +216,8 @@ impl MediaFetcher for ContentScannerMediaFetcher {
         &'a self,
         client: &'a Client,
         request: &'a MediaRequestParameters,
+        // The scanner proxies the download; its progress isn't reported (yet).
+        _recv_progress: SharedObservable<TransmissionProgress>,
     ) -> BoxFuture<'a, matrix_sdk::Result<Vec<u8>, Error>> {
         Box::pin(async move {
             let content = self.content_scanner.get_media(client, &request.source).await?.content;

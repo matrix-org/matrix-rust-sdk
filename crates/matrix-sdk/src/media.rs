@@ -166,10 +166,17 @@ pub enum MediaError {
 pub trait MediaFetcher: SendOutsideWasm + SyncOutsideWasm + fmt::Debug {
     /// Fetches the media content for the given [`MediaRequestParameters`].
     /// Returns either a byte array or an [`crate::Error`].
+    ///
+    /// `recv_progress` reports the download when it has subscribers (see
+    /// [`SendRequest::with_recv_progress_observable`]); a fetcher that can't
+    /// report it may ignore it.
+    ///
+    /// [`SendRequest::with_recv_progress_observable`]: crate::SendRequest::with_recv_progress_observable
     fn fetch_media_content<'a>(
         &'a self,
         client: &'a Client,
         request: &'a MediaRequestParameters,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>>;
 }
 
@@ -360,7 +367,31 @@ impl Media {
         use_cache: bool,
         temp_dir: Option<String>,
     ) -> Result<MediaFileHandle> {
-        let data = self.get_media_content(request, use_cache).await?;
+        self.get_media_file_with_progress(
+            request,
+            filename,
+            content_type,
+            use_cache,
+            temp_dir,
+            Default::default(),
+        )
+        .await
+    }
+
+    /// Like [`get_media_file`](Self::get_media_file), reporting the download
+    /// to `recv_progress` while the content is fetched from the server (a
+    /// cached or local media completes without any progress update).
+    #[cfg(not(target_family = "wasm"))]
+    pub async fn get_media_file_with_progress(
+        &self,
+        request: &MediaRequestParameters,
+        filename: Option<String>,
+        content_type: &Mime,
+        use_cache: bool,
+        temp_dir: Option<String>,
+        recv_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<MediaFileHandle> {
+        let data = self.get_media_content_with_progress(request, use_cache, recv_progress).await?;
 
         let inferred_extension = mime2ext::mime2ext(content_type);
 
@@ -432,6 +463,18 @@ impl Media {
         request: &MediaRequestParameters,
         use_cache: bool,
     ) -> Result<Vec<u8>> {
+        self.get_media_content_with_progress(request, use_cache, Default::default()).await
+    }
+
+    /// Like [`get_media_content`](Self::get_media_content), reporting the
+    /// download to `recv_progress` while the content is fetched from the
+    /// server (a cached or local media completes without any progress update).
+    pub async fn get_media_content_with_progress(
+        &self,
+        request: &MediaRequestParameters,
+        use_cache: bool,
+        recv_progress: SharedObservable<TransmissionProgress>,
+    ) -> Result<Vec<u8>> {
         // Ignore request parameters for local medias, notably those pending in the send
         // queue.
         if let Some(uri) = Self::as_local_uri(&request.source) {
@@ -452,7 +495,7 @@ impl Media {
             .media_fetcher
             .read()
             .await
-            .fetch_media_content(&self.client, request)
+            .fetch_media_content(&self.client, request, recv_progress)
             .await?;
 
         if use_cache {
@@ -736,6 +779,7 @@ impl MediaFetcher for DefaultMediaFetcher {
         &'a self,
         client: &'a Client,
         request: &'a MediaRequestParameters,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> BoxFuture<'a, Result<Vec<u8>, Error>> {
         Box::pin(async move {
             let request_config = client
@@ -755,11 +799,21 @@ impl MediaFetcher for DefaultMediaFetcher {
                     let content = if use_auth {
                         let request =
                             authenticated_media::get_content::v1::Request::from_uri(&file.url)?;
-                        client.send(request).with_request_config(request_config).await?.file
+                        client
+                            .send(request)
+                            .with_request_config(request_config)
+                            .with_recv_progress_observable(recv_progress.clone())
+                            .await?
+                            .file
                     } else {
                         #[allow(deprecated)]
                         let request = media::get_content::v3::Request::from_url(&file.url)?;
-                        client.send(request).with_request_config(request_config).await?.file
+                        client
+                            .send(request)
+                            .with_request_config(request_config)
+                            .with_recv_progress_observable(recv_progress.clone())
+                            .await?
+                            .file
                     };
 
                     #[cfg(feature = "e2e-encryption")]
@@ -795,7 +849,12 @@ impl MediaFetcher for DefaultMediaFetcher {
                             request.method = Some(settings.method.clone());
                             request.animated = Some(settings.animated);
 
-                            Ok(client.send(request).with_request_config(request_config).await?.file)
+                            Ok(client
+                                .send(request)
+                                .with_request_config(request_config)
+                                .with_recv_progress_observable(recv_progress.clone())
+                                .await?
+                                .file)
                         } else {
                             #[allow(deprecated)]
                             let request = {
@@ -810,15 +869,30 @@ impl MediaFetcher for DefaultMediaFetcher {
                                 request
                             };
 
-                            Ok(client.send(request).with_request_config(request_config).await?.file)
+                            Ok(client
+                                .send(request)
+                                .with_request_config(request_config)
+                                .with_recv_progress_observable(recv_progress.clone())
+                                .await?
+                                .file)
                         }
                     } else if use_auth {
                         let request = authenticated_media::get_content::v1::Request::from_uri(uri)?;
-                        Ok(client.send(request).with_request_config(request_config).await?.file)
+                        Ok(client
+                            .send(request)
+                            .with_request_config(request_config)
+                            .with_recv_progress_observable(recv_progress.clone())
+                            .await?
+                            .file)
                     } else {
                         #[allow(deprecated)]
                         let request = media::get_content::v3::Request::from_url(uri)?;
-                        Ok(client.send(request).with_request_config(request_config).await?.file)
+                        Ok(client
+                            .send(request)
+                            .with_request_config(request_config)
+                            .with_recv_progress_observable(recv_progress.clone())
+                            .await?
+                            .file)
                     }
                 }
             }

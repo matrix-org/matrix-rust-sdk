@@ -2030,74 +2030,75 @@ impl QueueStorage {
                 })
             });
 
-        let reactions_and_medias =
-            store.load_dependent_queued_requests(&self.room_id).await?.into_iter().filter_map(
-                |dep| match dep.kind {
-                    DependentQueuedRequestKind::EditEvent { .. }
-                    | DependentQueuedRequestKind::RedactEvent => {
-                        // TODO: reflect local edits/redacts too?
-                        None
-                    }
+        let reactions_and_medias = store
+            .load_dependent_queued_requests(&self.room_id)
+            .await?
+            .into_iter()
+            .filter_map(|dep| match dep.kind {
+                DependentQueuedRequestKind::EditEvent { .. }
+                | DependentQueuedRequestKind::RedactEvent => {
+                    // TODO: reflect local edits/redacts too?
+                    None
+                }
 
-                    DependentQueuedRequestKind::ReactEvent { key } => Some(LocalEcho {
-                        transaction_id: dep.own_transaction_id.clone().into(),
-                        content: LocalEchoContent::React {
-                            key,
-                            send_handle: SendReactionHandle {
-                                room: room.clone(),
-                                transaction_id: dep.own_transaction_id,
-                            },
-                            applies_to: dep.parent_transaction_id,
+                DependentQueuedRequestKind::ReactEvent { key } => Some(LocalEcho {
+                    transaction_id: dep.own_transaction_id.clone().into(),
+                    content: LocalEchoContent::React {
+                        key,
+                        send_handle: SendReactionHandle {
+                            room: room.clone(),
+                            transaction_id: dep.own_transaction_id,
                         },
-                    }),
+                        applies_to: dep.parent_transaction_id,
+                    },
+                }),
 
-                    DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
-                        // Don't reflect these: only the associated event is interesting to observers.
-                        None
-                    }
+                DependentQueuedRequestKind::UploadFileOrThumbnail { .. } => {
+                    // Don't reflect these: only the associated event is interesting to observers.
+                    None
+                }
 
-                    DependentQueuedRequestKind::FinishUpload {
-                        local_echo,
-                        file_upload,
-                        thumbnail_info,
-                        extra_content,
-                    } => {
-                        // Materialize as an event local echo.
-                        Some(LocalEcho {
-                            transaction_id: dep.own_transaction_id.clone().into(),
-                            content: LocalEchoContent::Event {
-                                serialized_event: upload::merge_extra_content(
-                                    SerializableEventContent::new(&(*local_echo).into()).ok()?,
-                                    extra_content,
-                                )
-                                .ok()?,
-                                send_handle: SendHandle {
-                                    room: room.clone(),
-                                    transaction_id: dep.own_transaction_id.into(),
-                                    media_handles: vec![MediaHandles {
-                                        upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
-                                        upload_file_txn: file_upload,
-                                    }],
-                                    created_at: dep.created_at,
-                                },
-                                send_error: None,
+                DependentQueuedRequestKind::FinishUpload {
+                    local_echo,
+                    file_upload,
+                    thumbnail_info,
+                    extra_content,
+                } => {
+                    // Materialize as an event local echo.
+                    Some(LocalEcho {
+                        transaction_id: dep.own_transaction_id.clone().into(),
+                        content: LocalEchoContent::Event {
+                            serialized_event: upload::merge_extra_content(
+                                SerializableEventContent::new(&(*local_echo).into()).ok()?,
+                                extra_content,
+                            )
+                            .ok()?,
+                            send_handle: SendHandle {
+                                room: room.clone(),
+                                transaction_id: dep.own_transaction_id.into(),
+                                media_handles: vec![MediaHandles {
+                                    upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
+                                    upload_file_txn: file_upload,
+                                }],
+                                created_at: dep.created_at,
                             },
-                        })
-                    }
+                            send_error: None,
+                        },
+                    })
+                }
 
-                    #[cfg(feature = "unstable-msc4274")]
-                    DependentQueuedRequestKind::FinishGallery { local_echo, item_infos } => {
-                        // Materialize as an event local echo.
-                        self.create_gallery_local_echo(
-                            dep.own_transaction_id,
-                            room,
-                            dep.created_at,
-                            local_echo,
-                            item_infos,
-                        )
-                    }
-                },
-            );
+                #[cfg(feature = "unstable-msc4274")]
+                DependentQueuedRequestKind::FinishGallery { local_echo, item_infos } => {
+                    // Materialize as an event local echo.
+                    self.create_gallery_local_echo(
+                        dep.own_transaction_id,
+                        room,
+                        dep.created_at,
+                        local_echo,
+                        item_infos,
+                    )
+                }
+            });
 
         Ok(local_requests.chain(reactions_and_medias).collect())
     }

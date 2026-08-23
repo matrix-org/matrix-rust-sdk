@@ -28,6 +28,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         _config: RequestConfig,
         _send_progress: SharedObservable<TransmissionProgress>,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,
@@ -39,7 +40,9 @@ impl HttpClient {
 
         let before = ruma::time::Instant::now();
 
-        let response = response_to_http_response(self.reqwest().execute(request).await?).await?;
+        let response =
+            response_to_http_response(self.reqwest().execute(request).await?, recv_progress)
+                .await?;
 
         let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
         let status_code = response.status();

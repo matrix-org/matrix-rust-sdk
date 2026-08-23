@@ -16,6 +16,7 @@ rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs"]
 
 [dependencies]
 assert_matches2.workspace = true
+eyeball.workspace = true
 matrix-sdk = { workspace = true, features = ["e2e-encryption", "testing"] }
 matrix-sdk-crypto.workspace = true
 ruma = { workspace = true, features = ["client-api"] }

@@ -230,6 +230,7 @@ impl HttpClient {
         access_token: Option<&str>,
         path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
         send_progress: SharedObservable<TransmissionProgress>,
+        recv_progress: SharedObservable<TransmissionProgress>,
     ) -> impl Future<Output = Result<R::IncomingResponse, HttpError>>
     where
         R: OutgoingRequest + Debug,
@@ -304,7 +305,9 @@ impl HttpClient {
 
             // There's a bunch of state in send_request, factor out a pinned inner
             // future to reduce the size of futures that await this function.
-            match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
+            match Box::pin(self.send_request::<R>(request, config, send_progress, recv_progress))
+                .await
+            {
                 Ok(response) => {
                     log_got_response();
                     Ok(response)
@@ -328,8 +331,12 @@ pub struct TransmissionProgress {
     pub total: usize,
 }
 
+/// Reads the response body. On native, when `recv_progress` has subscribers,
+/// the body is streamed chunk by chunk so they see the download progress (the
+/// total is the `Content-Length` when the server sends one).
 async fn response_to_http_response(
     mut response: reqwest::Response,
+    recv_progress: SharedObservable<TransmissionProgress>,
 ) -> Result<http::Response<Bytes>, reqwest::Error> {
     let status = response.status();
 
@@ -342,7 +349,25 @@ async fn response_to_http_response(
         }
     }
 
-    let body = response.bytes().await?;
+    #[cfg(not(target_family = "wasm"))]
+    let body = if recv_progress.subscriber_count() != 0 {
+        if let Some(length) = response.content_length() {
+            recv_progress.update(|p| p.total += length.try_into().unwrap_or(usize::MAX));
+        }
+        let mut body = BytesMut::new();
+        while let Some(chunk) = response.chunk().await? {
+            recv_progress.update(|p| p.current += chunk.len());
+            body.extend_from_slice(&chunk);
+        }
+        body.freeze()
+    } else {
+        response.bytes().await?
+    };
+    #[cfg(target_family = "wasm")]
+    let body = {
+        let _ = recv_progress;
+        response.bytes().await?
+    };
 
     Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
 }

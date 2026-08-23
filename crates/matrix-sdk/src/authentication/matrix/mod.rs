@@ -530,7 +530,8 @@ impl MatrixAuth {
         };
 
         let request = refresh_token::v3::Request::new(refresh_token);
-        let res = self.client.send_inner(request, None, Default::default()).await;
+        let res =
+            self.client.send_inner(request, None, Default::default(), Default::default()).await;
 
         match res {
             Ok(res) => {
