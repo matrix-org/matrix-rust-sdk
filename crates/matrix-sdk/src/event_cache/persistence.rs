@@ -221,8 +221,11 @@ pub(super) async fn send_updates_to_store(
     .expect("joining failed")?;
 
     // Forward that the store got updated to observers.
-    let _ = linked_chunk_update_sender
-        .send(RoomEventCacheLinkedChunkUpdate { linked_chunk_id, updates });
+    let _ = linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+        linked_chunk_id,
+        updates,
+        replaced_events: Vec::new(),
+    });
 
     Ok(())
 }

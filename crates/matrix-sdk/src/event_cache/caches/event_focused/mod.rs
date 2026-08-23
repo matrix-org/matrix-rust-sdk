@@ -300,6 +300,7 @@ impl EventFocusedCacheState {
                     self.room.room_id().to_owned(),
                     self.focused_event_id.clone(),
                 ),
+                replaced_events: Vec::new(),
             });
         }
     }

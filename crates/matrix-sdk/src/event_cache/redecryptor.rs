@@ -137,6 +137,7 @@ use matrix_sdk_base::{
     },
     deserialized_responses::{DecryptedRoomEvent, TimelineEvent, TimelineEventKind},
     latest_event::LatestEventValue,
+    linked_chunk::OwnedLinkedChunkId,
     locks::Mutex,
     task_monitor::BackgroundTaskHandle,
     timer,
@@ -577,6 +578,10 @@ impl EventCache {
             let mut state = room_cache.state().write().await?;
 
             let mut maybe_resolved_in_memory_events = Vec::new();
+            // The resolved events living in the store only, for the linked
+            // chunk observers (see below): no linked chunk update replaces
+            // those, so they go by event ID.
+            let mut store_only_resolved_events = Vec::new();
 
             // One lookup for the whole chunk rather than one per event: a room
             // key resolves hundreds of UTDs, most of them in the store.
@@ -598,6 +603,8 @@ impl EventCache {
                     // It is an in-memory event, let's keep it apart to replace in-memory UTDs.
                     if matches!(location, EventLocation::Memory(_)) {
                         maybe_resolved_in_memory_events.push(maybe_resolved_event.clone());
+                    } else if let Some(event) = maybe_resolved_event.as_resolved() {
+                        store_only_resolved_events.push(event.clone());
                     }
 
                     // Even is known, let's keep it for later, even if unresolved.
@@ -621,10 +628,24 @@ impl EventCache {
                 .await?;
 
             // Now, replace the in-memory events.
-            let timeline_event_diffs = state
+            let (timeline_event_diffs, linked_chunk_updates) = state
                 .replace_in_memory_utds(&maybe_resolved_in_memory_events)
                 .await?
                 .unwrap_or_default();
+
+            // Tell the linked chunk observers: a message-type filtered view (the
+            // media viewer's timeline) shows an undecryptable event until told
+            // it's been replaced, and a redecryption otherwise only reaches the
+            // store (silently) and the in-memory linked chunk (whose updates
+            // were drained above). The in-memory replacements go as the
+            // `ReplaceItem`s they are, the store-only ones by event ID.
+            if !linked_chunk_updates.is_empty() || !store_only_resolved_events.is_empty() {
+                self.inner.linked_chunk_update_sender.send(RoomEventCacheLinkedChunkUpdate {
+                    linked_chunk_id: OwnedLinkedChunkId::Room(room_id.to_owned()),
+                    updates: linked_chunk_updates,
+                    replaced_events: store_only_resolved_events,
+                });
+            }
 
             if !timeline_event_diffs.is_empty() {
                 state.update_sender.send(
@@ -1438,8 +1459,8 @@ mod tests {
         Client, assert_let_timeout,
         encryption::EncryptionSettings,
         event_cache::{
-            DecryptionRetryRequest, RoomEventCacheGenericUpdate, RoomEventCacheUpdate,
-            TimelineVectorDiffs,
+            DecryptionRetryRequest, MessageTypesCacheUpdate, RoomEventCacheGenericUpdate,
+            RoomEventCacheUpdate, TimelineVectorDiffs,
         },
         test_utils::mocks::MatrixMockServer,
     };
@@ -1948,6 +1969,56 @@ mod tests {
         );
         assert_eq!(expected_room_id, room_id);
         assert!(generic_stream.is_empty());
+    }
+
+    #[async_test]
+    async fn test_redecryption_reaches_a_message_types_view() {
+        // A message-type filtered view (the media viewer's timeline) shows an
+        // undecryptable event as "maybe one of mine". The redecryptor writes
+        // the decrypted event to the store silently and drains the in-memory
+        // linked chunk updates, so the view never heard of the replacement
+        // and kept the UTD until it was rebuilt. It must get a `Set`.
+        let room_id = room_id!("!test:localhost");
+
+        let event_factory = EventFactory::new().room(room_id);
+        let (alice, bob, matrix_mock_server, _) = set_up_clients(room_id, true, false).await;
+
+        let (event, room_key) =
+            prepare_room(&matrix_mock_server, &event_factory, &alice, &bob, room_id).await;
+
+        let event_cache = bob.event_cache();
+        let (_room_cache, _) = event_cache.room(room_id).await.unwrap();
+        let (view, _) =
+            event_cache.message_types(room_id, vec!["m.text".to_owned()], None).await.unwrap();
+        let (events, _, mut view_updates) = view.subscribe().await;
+        assert!(events.is_empty());
+
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_joined_room(JoinedRoomBuilder::new(room_id).add_timeline_event(event));
+            })
+            .await;
+
+        // The UTD shows in the view.
+        assert_let_timeout!(Ok(MessageTypesCacheUpdate { diffs, .. }) = view_updates.recv());
+        assert_matches!(diffs.as_slice(), [VectorDiff::Insert { index: 0, value }]);
+        assert_matches!(&value.kind, TimelineEventKind::UnableToDecrypt { .. });
+
+        // The room key arrives: the view's UTD is replaced by the decrypted event.
+        matrix_mock_server
+            .mock_sync()
+            .ok_and_run(&bob, |builder| {
+                builder.add_to_device_event(room_key.deserialize_as().unwrap());
+            })
+            .await;
+
+        assert_let_timeout!(
+            Duration::from_secs(1),
+            Ok(MessageTypesCacheUpdate { diffs, .. }) = view_updates.recv()
+        );
+        assert_matches!(diffs.as_slice(), [VectorDiff::Set { index: 0, value }]);
+        assert_matches!(&value.kind, TimelineEventKind::Decrypted { .. });
     }
 
     #[async_test]

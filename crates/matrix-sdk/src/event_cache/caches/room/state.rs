@@ -1336,11 +1336,13 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     pub(in super::super::super) async fn replace_in_memory_utds(
         &mut self,
         resolved_events: &[MaybeResolvedEvent],
-    ) -> Result<Option<Vec<VectorDiff<Event>>>, EventCacheError> {
+    ) -> Result<Option<(Vec<VectorDiff<Event>>, Vec<Update<Event, Gap>>)>, EventCacheError> {
         Ok(if self.room_linked_chunk_mut().replace_utds(resolved_events) {
             // Drain the updates to the store, events have already been updated with
-            // `save_events`!
-            let _ = self.room_linked_chunk_mut().store_updates().take();
+            // `save_events`! They're returned for the linked chunk observers (a
+            // message-type filtered view shows an undecryptable event until told
+            // it's been replaced), to forward without a store write.
+            let updates = self.room_linked_chunk_mut().store_updates().take();
 
             self.post_process_upserted_events(
                 resolved_events.iter().filter_map(|resolved_event| resolved_event.as_resolved()),
@@ -1355,7 +1357,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             )
             .await?;
 
-            Some(self.room_linked_chunk_mut().updates_as_vector_diffs())
+            Some((self.room_linked_chunk_mut().updates_as_vector_diffs(), updates))
         } else {
             None
         })

@@ -420,6 +420,38 @@ impl State {
             }
         }
     }
+
+    /// Apply an event replaced in place by ID (a redecryption of an event that
+    /// isn't loaded in memory, so has no position here): like
+    /// `Update::ReplaceItem` for an event the view shows, without the insertion
+    /// case (an unknown event has no position to insert at; the view finds it
+    /// in the store, decrypted, when it pages there).
+    fn apply_replaced(
+        &mut self,
+        replaced: &Event,
+        msgtypes: &[String],
+        diffs: &mut Vec<VectorDiff<Event>>,
+    ) {
+        let Some(event_id) = replaced.event_id() else { return };
+        let Some(index) = self.entries.iter().position(|entry| {
+            matches!(entry, Entry::Event { event, .. } if event.event_id().as_deref() == Some(&*event_id))
+        }) else {
+            return;
+        };
+        let Entry::Event { position, .. } = self.entries[index] else { return };
+        if self.matches(replaced, msgtypes) {
+            if (self.exposed_from..self.exposed_to).contains(&index) {
+                diffs.push(VectorDiff::Set {
+                    index: self.event_index(index),
+                    value: replaced.clone(),
+                });
+            }
+            self.entries[index] = Entry::Event { position, event: replaced.clone() };
+        } else {
+            // Decrypted into something this view isn't about.
+            self.remove(index, diffs);
+        }
+    }
 }
 
 impl MessageTypesEventCache {
@@ -874,6 +906,9 @@ async fn update_task(
         let mut diffs = Vec::new();
         for update in &update.updates {
             state.apply(update, &inner.msgtypes, &mut diffs);
+        }
+        for replaced in &update.replaced_events {
+            state.apply_replaced(replaced, &inner.msgtypes, &mut diffs);
         }
 
         // Even without diffs, the gaps may have changed (a gap resolved into

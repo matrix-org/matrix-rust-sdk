@@ -129,6 +129,13 @@ pub struct RoomEventCacheLinkedChunkUpdate {
     /// A vector of all the linked chunk updates that happened during this event
     /// cache update.
     pub updates: Vec<linked_chunk::Update<Event, Gap>>,
+
+    /// Events replaced in place in the store, by event ID, without a linked
+    /// chunk update: a redecryption of events that aren't loaded in memory
+    /// (those in memory are replaced through `updates`). Observers keyed on
+    /// the linked chunk (a message-type filtered view) would otherwise keep
+    /// showing the undecryptable event.
+    pub replaced_events: Vec<Event>,
 }
 
 impl RoomEventCacheLinkedChunkUpdate {
@@ -136,25 +143,29 @@ impl RoomEventCacheLinkedChunkUpdate {
     /// order.
     pub fn events(self) -> impl DoubleEndedIterator<Item = Event> {
         use itertools::Either;
-        self.updates.into_iter().flat_map(|update| match update {
-            linked_chunk::Update::PushItems { items, .. } => {
-                Either::Left(Either::Left(items.into_iter()))
-            }
-            linked_chunk::Update::ReplaceItem { item, .. } => {
-                Either::Left(Either::Right(std::iter::once(item)))
-            }
-            linked_chunk::Update::RemoveItem { .. }
-            | linked_chunk::Update::DetachLastItems { .. }
-            | linked_chunk::Update::StartReattachItems
-            | linked_chunk::Update::EndReattachItems
-            | linked_chunk::Update::NewItemsChunk { .. }
-            | linked_chunk::Update::NewGapChunk { .. }
-            | linked_chunk::Update::RemoveChunk(..)
-            | linked_chunk::Update::Clear => {
-                // All these updates don't contain any new event.
-                Either::Right(std::iter::empty())
-            }
-        })
+        let Self { updates, replaced_events, .. } = self;
+        updates
+            .into_iter()
+            .flat_map(|update| match update {
+                linked_chunk::Update::PushItems { items, .. } => {
+                    Either::Left(Either::Left(items.into_iter()))
+                }
+                linked_chunk::Update::ReplaceItem { item, .. } => {
+                    Either::Left(Either::Right(std::iter::once(item)))
+                }
+                linked_chunk::Update::RemoveItem { .. }
+                | linked_chunk::Update::DetachLastItems { .. }
+                | linked_chunk::Update::StartReattachItems
+                | linked_chunk::Update::EndReattachItems
+                | linked_chunk::Update::NewItemsChunk { .. }
+                | linked_chunk::Update::NewGapChunk { .. }
+                | linked_chunk::Update::RemoveChunk(..)
+                | linked_chunk::Update::Clear => {
+                    // All these updates don't contain any new event.
+                    Either::Right(std::iter::empty())
+                }
+            })
+            .chain(replaced_events)
     }
 }
 
@@ -245,6 +256,7 @@ mod tests {
                 new: ChunkIdentifier::new(0),
                 next: None,
             }],
+            replaced_events: Vec::new(),
         }
     }
 
