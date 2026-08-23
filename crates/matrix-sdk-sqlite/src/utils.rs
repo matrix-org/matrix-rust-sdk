@@ -202,26 +202,7 @@ pub(crate) trait SqliteAsyncConnExt {
     async fn vacuum(&self) -> Result<()> {
         // Truncate the WAL file before vacuuming so it has room to grow.
         self.wal_checkpoint().await;
-        // Bring an existing 4 KB database up to the 16 KB page size new ones are
-        // created with: page_size only takes on the next VACUUM, and only outside
-        // WAL, so drop to a rollback journal for the VACUUM and restore WAL after.
-        // Best-effort: any step failing leaves the size unchanged, not the mode.
-        let page_size: u32 = self
-            .query_row("PRAGMA page_size;", (), |row| row.get(0))
-            .await
-            .unwrap_or(TARGET_PAGE_SIZE);
-        let converting = page_size != TARGET_PAGE_SIZE;
-        if converting {
-            let _ = self.execute_batch("PRAGMA journal_mode = DELETE;").await;
-            let _ = self
-                .execute_batch(format!("PRAGMA page_size = {TARGET_PAGE_SIZE};"))
-                .await;
-        }
-        let vacuum_result = self.execute_batch("VACUUM").await;
-        if converting {
-            let _ = self.execute_batch("PRAGMA journal_mode = wal;").await;
-        }
-        if let Err(error) = vacuum_result {
+        if let Err(error) = self.execute_batch("VACUUM").await {
             // Since this is an optimisation step, do not propagate the error
             // but log it.
             #[cfg(not(any(test, debug_assertions)))]
@@ -732,9 +713,6 @@ const COMPRESS_THRESHOLD: usize = 256;
 /// zstd level: 3 (the library default) is ~500 MB/s and gives most of the ratio;
 /// the stores are not CPU-bound on this.
 const ZSTD_LEVEL: i32 = 3;
-
-/// The page size new databases are created with (see the note in `vacuum`).
-const TARGET_PAGE_SIZE: u32 = 16384;
 
 /// Compresses the value if it's big enough and actually shrinks (incompressible
 /// data, e.g. already-compressed media, is kept raw). The zstd frame's own magic
