@@ -2394,6 +2394,44 @@ impl EventCacheStore for SqliteEventCacheStore {
                 .push(ruma::OwnedMxcUri::from(str::from_utf8(&decoded)?));
         }
 
+        // DIAG: per-room media clears found no URIs on device for rooms with viewed
+        // media; says whether the room has rows at all, how many are still stored
+        // encrypted, and whether the index has anything for it.
+        if tracing::level_enabled!(tracing::Level::DEBUG) && room_ids.len() <= 8 {
+            let hashed_encrypted_type =
+                self.encryption.encode_key(keys::EVENTS, "m.room.encrypted");
+            for room_id in room_ids {
+                let key = self.encryption.encode_room_id(keys::EVENTS, room_id);
+                let key_vec = key.to_vec();
+                let hashed_encrypted_type = hashed_encrypted_type.to_vec();
+                let stats: Option<(u64, u64, u64)> = self
+                    .read()
+                    .await?
+                    .with_transaction(move |txn| -> Result<_> {
+                        let total: u64 = txn.query_row(
+                            "SELECT COUNT(*) FROM events WHERE room_id = ?",
+                            (&key_vec,),
+                            |row| row.get(0),
+                        )?;
+                        let encrypted: u64 = txn.query_row(
+                            "SELECT COUNT(*) FROM events WHERE room_id = ? AND event_type = ?",
+                            (&key_vec, &hashed_encrypted_type),
+                            |row| row.get(0),
+                        )?;
+                        let media: u64 = txn.query_row(
+                            "SELECT COUNT(*) FROM event_media WHERE room_id = ?",
+                            (&key_vec,),
+                            |row| row.get(0),
+                        )?;
+                        Ok(Some((total, encrypted, media)))
+                    })
+                    .await?;
+                if let Some((total, encrypted, media)) = stats {
+                    debug!(%room_id, stored_events = total, stored_encrypted = encrypted, indexed_media_uris = media, index_rooms = by_hashed_room.len(), "media_uris_by_room: room stats");
+                }
+            }
+        }
+
         Ok(room_ids
             .iter()
             .filter_map(|room_id| {
