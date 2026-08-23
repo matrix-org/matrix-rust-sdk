@@ -3932,6 +3932,23 @@ impl Client {
         Ok(())
     }
 
+    /// Vacuum the event cache store, so that its file shrinks after rooms'
+    /// events were removed from it (SQLite keeps the freed pages otherwise).
+    /// Skipped while another process holds the store dirty.
+    pub async fn optimize_event_cache_store(&self) -> Result<()> {
+        if let Some(clean_lock) = self.event_cache_store().lock().await?.as_clean() {
+            clean_lock.optimize().await?;
+        }
+        Ok(())
+    }
+
+    /// Vacuum the media store, so that its file shrinks after media contents
+    /// were removed from it.
+    pub async fn optimize_media_store(&self) -> Result<()> {
+        self.media_store().lock().await?.optimize().await?;
+        Ok(())
+    }
+
     /// Returns the sizes of the existing stores, if known.
     pub async fn get_store_sizes(&self) -> Result<StoreSizes> {
         #[cfg(feature = "e2e-encryption")]

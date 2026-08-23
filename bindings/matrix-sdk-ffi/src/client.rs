@@ -532,6 +532,17 @@ impl Client {
         Ok(self.inner.optimize_stores().await?)
     }
 
+    /// Vacuum the event cache store so its file shrinks after rooms' events
+    /// were cleared; can take a while on a big store.
+    pub async fn optimize_event_cache_store(&self) -> Result<(), ClientError> {
+        Ok(self.inner.optimize_event_cache_store().await?)
+    }
+
+    /// Vacuum the media store so its file shrinks after media was cleared.
+    pub async fn optimize_media_store(&self) -> Result<(), ClientError> {
+        Ok(self.inner.optimize_media_store().await?)
+    }
+
     /// Pause the client for background suspension.
     ///
     /// This method:
