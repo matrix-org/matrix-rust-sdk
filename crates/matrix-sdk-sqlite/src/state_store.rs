@@ -1261,14 +1261,14 @@ trait SqliteObjectStateStoreExt: SqliteAsyncConnExt {
         &self,
         room_id: Key,
         receipt_type: Key,
-        thread: Key,
+        receipt_thread: Key,
         user_id: Key,
     ) -> Result<Option<Vec<u8>>> {
         Ok(self
             .query_row(
                 "SELECT data FROM receipt
                  WHERE room_id = ? AND receipt_type = ? AND thread = ? and user_id = ?",
-                (room_id, receipt_type, thread, user_id),
+                (room_id, receipt_type, receipt_thread, user_id),
                 |row| row.get(0),
             )
             .await
@@ -2102,19 +2102,20 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         user_id: &UserId,
     ) -> Result<Option<(OwnedEventId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
         // string representation.
-        let thread = self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(&thread)?);
+        let receipt_thread =
+            self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(receipt_thread)?);
         let user_id = self.encode_key(keys::RECEIPT, user_id);
 
         self.read()
             .await?
-            .get_user_receipt(room_id, receipt_type, thread, user_id)
+            .get_user_receipt(room_id, receipt_type, receipt_thread, user_id)
             .await?
             .map(|value| {
                 self.deserialize_json::<ReceiptData>(&value).map(|d| (d.event_id, d.receipt))
@@ -2126,19 +2127,20 @@ impl StateStore for SqliteStateStore {
         &self,
         room_id: &RoomId,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &ReceiptThread,
         event_id: &EventId,
     ) -> Result<Vec<(OwnedUserId, Receipt)>> {
         let room_id = self.encode_key(keys::RECEIPT, room_id);
         let receipt_type = self.encode_key(keys::RECEIPT, receipt_type.to_string());
         // We cannot have a NULL primary key so we rely on serialization instead of the
         // string representation.
-        let thread = self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(&thread)?);
+        let receipt_thread =
+            self.encode_key(keys::RECEIPT, rmp_serde::to_vec_named(receipt_thread)?);
         let event_id = self.encode_key(keys::RECEIPT, event_id);
 
         self.read()
             .await?
-            .get_event_receipts(room_id, receipt_type, thread, event_id)
+            .get_event_receipts(room_id, receipt_type, receipt_thread, event_id)
             .await?
             .iter()
             .map(|value| {

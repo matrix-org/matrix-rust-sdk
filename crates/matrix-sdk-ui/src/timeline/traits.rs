@@ -114,7 +114,7 @@ pub(super) trait RoomDataProvider:
     fn load_user_receipt<'a>(
         &'a self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        thread: &'a ReceiptThread,
         user_id: &'a UserId,
     ) -> impl Future<Output = Option<(OwnedEventId, Receipt)>> + SendOutsideWasm + 'a;
 
@@ -122,16 +122,18 @@ pub(super) trait RoomDataProvider:
     fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
-        receipt_thread: ReceiptThread,
+        receipt_thread: &'a ReceiptThread,
     ) -> impl Future<Output = IndexMap<OwnedUserId, Receipt>> + SendOutsideWasm + 'a;
 
     /// Load the current fully-read event id, from storage.
     fn load_fully_read_marker(&self) -> impl Future<Output = Option<OwnedEventId>> + '_;
 
-    /// Send an event to that room.
+    /// Send an event to that room, merging `extra_content`'s fields into the
+    /// outgoing event's content, if provided.
     fn send(
         &self,
         content: AnyMessageLikeEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
     ) -> impl Future<Output = Result<(), super::Error>> + SendOutsideWasm + '_;
 
     /// Redact an event from that room.
@@ -175,15 +177,15 @@ impl RoomDataProvider for Room {
     async fn load_user_receipt<'a>(
         &'a self,
         receipt_type: ReceiptType,
-        thread: ReceiptThread,
+        receipt_thread: &'a ReceiptThread,
         user_id: &'a UserId,
     ) -> Option<(OwnedEventId, Receipt)> {
-        match self.load_user_receipt(receipt_type.clone(), thread.clone(), user_id).await {
+        match self.load_user_receipt(receipt_type.clone(), receipt_thread, user_id).await {
             Ok(receipt) => receipt,
             Err(e) => {
                 error!(
                     ?receipt_type,
-                    ?thread,
+                    ?receipt_thread,
                     ?user_id,
                     "Failed to get read receipt for user: {e}"
                 );
@@ -195,9 +197,9 @@ impl RoomDataProvider for Room {
     async fn load_event_receipts<'a>(
         &'a self,
         event_id: &'a EventId,
-        receipt_thread: ReceiptThread,
+        receipt_thread: &'a ReceiptThread,
     ) -> IndexMap<OwnedUserId, Receipt> {
-        match self.load_event_receipts(ReceiptType::Read, receipt_thread.clone(), event_id).await {
+        match self.load_event_receipts(ReceiptType::Read, receipt_thread, event_id).await {
             Ok(receipts) => receipts.into_iter().collect(),
             Err(e) => {
                 error!(?event_id, ?receipt_thread, "Failed to get read receipts for event: {e}");
@@ -223,8 +225,18 @@ impl RoomDataProvider for Room {
         }
     }
 
-    async fn send(&self, content: AnyMessageLikeEventContent) -> Result<(), super::Error> {
-        let _ = self.send_queue().send(content).await?;
+    async fn send(
+        &self,
+        content: AnyMessageLikeEventContent,
+        extra_content: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<(), super::Error> {
+        let queue = self.send_queue();
+        let send = queue.send(content);
+        let send = match extra_content {
+            Some(extra_content) => send.with_extra_content(extra_content),
+            None => send,
+        };
+        let _ = send.await?;
         Ok(())
     }
 

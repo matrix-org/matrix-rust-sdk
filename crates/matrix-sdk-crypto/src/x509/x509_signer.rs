@@ -12,14 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc, time::Duration};
 
 use ruma::{DeviceKeyId, UserId, canonical_json::to_canonical_value};
+use thiserror::Error;
+use tracing::info;
 
 use crate::{
     SignatureError,
     olm::utility::to_signable_json,
-    types::{CrossSigningKey, X509_SIGNATURE_ALGORITHM},
+    types::{CrossSigningKey, Signature, Signatures, X509_SIGNATURE_ALGORITHM},
     x509::raw_x509_signature::RawX509Signature,
 };
 
@@ -47,21 +49,21 @@ impl X509Signer {
 
     /// Add a signature to the given cross-signing key using our private X.509
     /// key.
-    pub(crate) fn sign_cross_signing_key(
+    pub(crate) async fn sign_cross_signing_key(
         &self,
         signing_user_id: &UserId,
         cross_signing_key: &mut CrossSigningKey,
     ) -> Result<(), SignatureError> {
         let json = to_signable_json(to_canonical_value(&cross_signing_key)?)?;
 
-        // We use the authority key identifier as a device ID because it yields
-        // a unique signature per CA, which is what we want.
-        let (authority_key_identifier, signature) = self
-            .x509_sign
-            .sign(json.as_bytes())?
+        let signing_result = self.x509_sign.sign(json.into_bytes()).await;
+
+        let (authority_key_identifier, signature) = signing_result?
             .into_x509_signature()
             .map_err(|e| SignatureError::X509SigningError(e.into()))?;
 
+        // We use the authority key identifier as a device ID because it yields
+        // a unique signature per CA, which is what we want.
         cross_signing_key.signatures.add_signature(
             signing_user_id.to_owned(),
             DeviceKeyId::from_parts(X509_SIGNATURE_ALGORITHM.into(), &authority_key_identifier),
@@ -70,32 +72,122 @@ impl X509Signer {
 
         Ok(())
     }
+
+    /// Check if the signer's certificates have a later expiry than the
+    /// certificates in the provided signatures.
+    ///
+    /// Returns `true` if no X.509 signatures are found.  Returns `false` if the
+    /// expiry is the same.  Only the validity period is checked -- no other
+    /// verification or validation is done.
+    pub fn has_later_expiry_than(&self, user_id: &UserId, signatures: &Signatures) -> bool {
+        let Some(this_user_sigs) = signatures.get(user_id) else {
+            info!("X509: has_later_expiry_than(): no signatures on object");
+            return true;
+        };
+
+        let Ok(signer_validity_not_after) = self.x509_sign.validity_not_after() else {
+            // If we can't get our own signer's validity period, we return
+            // `false` which will result in the signer not being used to re-sign
+            // any key.
+            info!("X509: has_later_expiry_than(): signer has invalid validity period");
+            return false;
+        };
+
+        // We check all the available X.509 signatures.  If any of them has a
+        // later or equal expiry, then we return `false`.  Otherwise, all of
+        // them have a strictly earlier expiry, so we return `true`.
+        for sig in this_user_sigs.values() {
+            if let Ok(Signature::X509(sig)) = sig {
+                // We get the earliest expiry date from all the certificates in the signature.
+                let data: cms::signed_data::SignedData =
+                    match sig.get_signature().content.decode_as() {
+                        Ok(res) => res,
+                        Err(e) => {
+                            tracing::warn!(
+                                "X509: has_later_expiry_than(): unable to parse X509 signature: {}",
+                                e
+                            );
+                            continue;
+                        }
+                    };
+                let Some(certificate_set) = data.certificates else {
+                    tracing::warn!("X509: has_later_expiry_than(): no certificates found");
+                    continue;
+                };
+                let Some(validity_not_after) = certificate_set
+                    .0
+                    .iter()
+                    .filter_map(|cert| match cert {
+                        cms::cert::CertificateChoices::Certificate(c) => {
+                            Some(c.tbs_certificate.validity.not_after.to_unix_duration())
+                        }
+                        _ => None,
+                    })
+                    .min()
+                else {
+                    tracing::warn!("X509: has_later_expiry_than(): no certificates found");
+                    continue;
+                };
+
+                if validity_not_after >= signer_validity_not_after {
+                    // We found a signature with a certificate that has a
+                    // later-or-equal validity period.
+                    return false;
+                }
+            }
+        }
+        true
+    }
 }
 
 /// A low-level interface for signing messages with a private key. We have Rust
 /// and platform-specific implementations.
 pub trait RawX509Signer: std::fmt::Debug + Send + Sync {
     /// Create a signature for the given message using our private key
-    ///
-    /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError>;
+    #[cfg(not(target_family = "wasm"))]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>>;
+
+    // (On WASM this is identical except the return value is not Send)
+    /// Create a signature for the given message using our private key
+    #[cfg(target_family = "wasm")]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>>>>;
+
+    /// Return the "not after" time for the certificate's validity period as a
+    /// duration since the unix epoch.
+    fn validity_not_after(&self) -> Result<Duration, ValidityError>;
 }
+
+/// Failure to get the validity period of the X.509 certificate.
+#[derive(Error, Debug)]
+#[error("Failed to get X.509 certificate validity period")]
+pub struct ValidityError;
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
     use assert_matches::assert_matches;
+    use matrix_sdk_test::async_test;
+    use rcgen::{CertificateParams, KeyPair};
     use ruma::{DeviceKeyAlgorithm, DeviceKeyId, encryption::KeyUsage, user_id};
     use vodozemac::Ed25519SecretKey;
 
     use crate::{
         types::{CrossSigningKey, Signature, SigningKeys},
-        x509::{X509Signer, rust_raw_x509_signer::RustRawX509Signer},
+        x509::{
+            X509Signer, rust_raw_x509_signer::RustRawX509Signer,
+            tests::subject_key_identifier_extension,
+        },
     };
 
-    #[test]
-    fn test_can_sign() {
+    #[async_test]
+    async fn test_can_sign() {
         let x509_signer = {
             let rust_raw_x509_signer =
                 RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
@@ -118,7 +210,7 @@ mod tests {
             CrossSigningKey::new(user_id.clone(), vec![KeyUsage::Master], keys, Default::default())
         };
 
-        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).unwrap();
+        x509_signer.sign_cross_signing_key(&user_id, &mut cross_signing_key).await.unwrap();
 
         let self_sigs = cross_signing_key.signatures.get(&user_id).unwrap();
 
@@ -133,6 +225,56 @@ mod tests {
                 .unwrap(),
             Ok(Signature::X509(_))
         );
+    }
+
+    #[async_test]
+    async fn test_can_compare_validity() {
+        let signing_key = KeyPair::from_pem(TEST_CERT_KEY).unwrap();
+
+        let mut cert_params = CertificateParams::default();
+        cert_params.use_authority_key_identifier_extension = true;
+        cert_params.custom_extensions.push(subject_key_identifier_extension(&signing_key));
+
+        // We create three signers with different validity dates: an "old" signer, a
+        // "current" signer, and a "new" signer.
+        let (x509_signer_old, x509_signer_current, x509_signer_new) =
+            crate::x509::tests::signers_with_different_validity();
+
+        // We sign something with the current signer.
+        let user_id = user_id!("@user:localhost");
+        let signatures = {
+            let mut cross_signing_key = {
+                let secret_key = Ed25519SecretKey::new();
+                let public_key = secret_key.public_key();
+                let keys = SigningKeys::from([(
+                    DeviceKeyId::from_parts(
+                        DeviceKeyAlgorithm::Ed25519,
+                        public_key.to_base64().as_str().into(),
+                    ),
+                    public_key.into(),
+                )]);
+
+                CrossSigningKey::new(
+                    user_id.to_owned(),
+                    vec![KeyUsage::Master],
+                    keys,
+                    Default::default(),
+                )
+            };
+
+            x509_signer_current
+                .sign_cross_signing_key(user_id, &mut cross_signing_key)
+                .await
+                .unwrap();
+
+            cross_signing_key.signatures
+        };
+
+        // The signers should be able to determine whether they have a later
+        // expiry than the certificate in the signature.
+        assert!(!x509_signer_old.has_later_expiry_than(user_id, &signatures));
+        assert!(!x509_signer_current.has_later_expiry_than(user_id, &signatures));
+        assert!(x509_signer_new.has_later_expiry_than(user_id, &signatures));
     }
 
     /// A leaf and intermediate CA cert, generated with openssl

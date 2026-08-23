@@ -239,9 +239,12 @@ impl LatestEvent {
                 // If at least one is `None`, yes.
                 (_, LatestEventValue::None) | (LatestEventValue::None, _) => true,
 
-                // The new value has no event ID if it's a local echo. Let's always
-                // update so the newer ones move to the top.
-                (_, new) if new.event_id().is_none() => true,
+                // A new local latest event is created, or the local event
+                // cannot be sent, yes.
+                (
+                    _,
+                    LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_),
+                ) => true,
 
                 // If the event IDs are identical, only a change of decryption
                 // state matters: an unable-to-decrypt placeholder must be

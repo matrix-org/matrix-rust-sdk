@@ -578,7 +578,11 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         let reached_start =
             reached_start && root_leads(state.thread_linked_chunk(), &self.cache.thread_id);
 
+        // Update the store.
         state.state.propagate_changes(&state.store).await?;
+
+        // Post-process newly inserted events.
+        state.post_process_upserted_events(topo_ordered_events.iter()).await?;
 
         // Notify observers about the updates.
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();

@@ -238,8 +238,12 @@ impl TimelineAction {
         let redaction_rules = room_data_provider.room_version_rules().redaction;
 
         let redacted_message_or_none = |event_type: MessageLikeEventType| {
-            (event_type != MessageLikeEventType::Reaction)
-                .then_some(TimelineItemContent::MsgLike(MsgLikeContent::redacted()))
+            (event_type != MessageLikeEventType::Reaction).then_some(TimelineItemContent::MsgLike(
+                MsgLikeContent {
+                    thread_summary: thread_summary.clone(),
+                    ..MsgLikeContent::redacted()
+                },
+            ))
         };
 
         match event {

@@ -85,7 +85,7 @@ pub struct State {
 }
 
 #[derive(Default)]
-struct StateForRoom {
+pub(super) struct StateForRoom {
     room: Option<RoomEventCacheState>,
     threads: HashMap<OwnedEventId, ThreadEventCacheState>,
     pinned_events: Option<PinnedEventsCacheState>,
@@ -144,10 +144,7 @@ impl HolderRegistry {
         let owner =
             tracing::Span::current().metadata().map(|metadata| metadata.name()).unwrap_or("?");
 
-        self.holders
-            .lock()
-            .unwrap()
-            .insert(id, HolderInfo { kind, owner, since: Instant::now() });
+        self.holders.lock().unwrap().insert(id, HolderInfo { kind, owner, since: Instant::now() });
 
         HolderTicket { registry: self.clone(), id }
     }
@@ -161,7 +158,9 @@ impl HolderRegistry {
 
         let mut holders = holders
             .values()
-            .map(|info| format!("{} held by `{}` for {:?}", info.kind, info.owner, info.since.elapsed()))
+            .map(|info| {
+                format!("{} held by `{}` for {:?}", info.kind, info.owner, info.since.elapsed())
+            })
             .collect::<Vec<_>>();
         holders.sort();
         holders.join("; ")
@@ -305,10 +304,10 @@ impl StateLock {
                 trace!("Lock acquired (from clean)");
 
                 StateLockReadGuard {
-                    state: state_guard,
+                    state: StateLockReadGuardKind::Owned(state_guard),
                     store: store_guard,
-                    tracing_timer,
-                    _holder: holder,
+                    tracing_timer: Some(tracing_timer),
+                    _holder: Some(holder),
                 }
             }
             EventCacheStoreLockState::Dirty(store_guard) => {
@@ -414,8 +413,9 @@ impl StateLock {
         let tracing_timer = timer!("`clear_and_reload` lock");
         let holders = &self.inner.holders;
 
-        let state_guard =
-            holders.wait_attributed("state (clear_and_reload)", self.inner.locked_state.write()).await;
+        let state_guard = holders
+            .wait_attributed("state (clear_and_reload)", self.inner.locked_state.write())
+            .await;
         let holder = holders.register("state (clear_and_reload)");
 
         let mut guard = match holders
@@ -467,7 +467,7 @@ impl StateLock {
 
         cache_state_selector
             .insert_once(&mut state.state, cache_state)
-            .then(|| CacheStateLock { cache_state_selector, state_lock: self.clone() })
+            .then(|| CacheStateLock::new(cache_state_selector, self.clone()))
             .ok_or_else(|| EventCacheError::CacheStateAlreadyExists)
     }
 }
@@ -481,17 +481,18 @@ impl fmt::Debug for StateLock {
 /// The read lock guard returned by [`StateLock::read`].
 pub struct StateLockReadGuard<'state, S> {
     /// The per-thread read lock guard over the state `S`.
-    pub state: RwLockReadGuard<'state, S>,
+    pub state: StateLockReadGuardKind<'state, S>,
 
     /// The cross-process lock guard over the store.
     pub store: EventCacheStoreLockGuard,
 
     /// The [`timer!`] value, used to compute the time the lock is live.
-    tracing_timer: TracingTimer,
+    tracing_timer: Option<TracingTimer>,
 
     /// Registration of this guard in the holder registry, for stalled
-    /// acquisition reports.
-    _holder: HolderTicket,
+    /// acquisition reports. `None` for guards mapped by reference from
+    /// another guard (which holds the registration).
+    _holder: Option<HolderTicket>,
 }
 
 impl<'state> StateLockReadGuard<'state, State> {
@@ -509,11 +510,60 @@ impl<'state> StateLockReadGuard<'state, State> {
         EventCacheError: From<&'selector Selector>,
     {
         Ok(StateLockReadGuard {
-            state: RwLockReadGuard::try_map(self.state, |state| cache_state_selector.select(state))
-                .map_err(|_| EventCacheError::from(cache_state_selector))?,
+            state: match self.state {
+                StateLockReadGuardKind::Reference(state) => StateLockReadGuardKind::Reference(
+                    cache_state_selector
+                        .select(state)
+                        .ok_or_else(|| EventCacheError::from(cache_state_selector))?,
+                ),
+
+                StateLockReadGuardKind::Owned(state) => StateLockReadGuardKind::Owned(
+                    RwLockReadGuard::try_map(state, |state| cache_state_selector.select(state))
+                        .map_err(|_| EventCacheError::from(cache_state_selector))?,
+                ),
+            },
             store: self.store,
             tracing_timer: self.tracing_timer,
             _holder: self._holder,
+        })
+    }
+}
+
+impl<'state> StateLockReadGuard<'state, StateForRoom> {
+    /// Project the current read lock guard onto the room cache state.
+    pub(super) fn room(&'state self) -> Option<StateLockReadGuard<'state, RoomEventCacheState>> {
+        self.state.room.as_ref().map(|room| StateLockReadGuard {
+            state: StateLockReadGuardKind::Reference(room),
+            store: self.store.clone(),
+            tracing_timer: None,
+            _holder: None,
+        })
+    }
+
+    /// Project the current read lock guard onto all thread cache states.
+    pub(super) fn threads(
+        &'state self,
+    ) -> StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>> {
+        StateLockReadGuard {
+            state: StateLockReadGuardKind::Reference(&self.state.threads),
+            store: self.store.clone(),
+            tracing_timer: None,
+            _holder: None,
+        }
+    }
+}
+
+impl<'state> StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>> {
+    /// Project the current read lock guard onto all thread cache states via an
+    /// iterator.
+    pub(super) fn values(
+        &'state self,
+    ) -> impl Iterator<Item = StateLockReadGuard<'state, ThreadEventCacheState>> {
+        self.state.values().map(|item| StateLockReadGuard {
+            state: StateLockReadGuardKind::Reference(item),
+            store: self.store.clone(),
+            tracing_timer: None,
+            _holder: None,
         })
     }
 }
@@ -523,6 +573,32 @@ impl<'state, S> Deref for StateLockReadGuard<'state, S> {
 
     fn deref(&self) -> &Self::Target {
         &self.state
+    }
+}
+
+/// The kind of guard [`StateLockReadGuard`] owns.
+pub enum StateLockReadGuardKind<'state, S> {
+    /// A read lock over the state is acquired, and this is a reference to a
+    /// cache (sub-)state.
+    ///
+    /// This is useful if one needs to run operations over multiple cache
+    /// (sub-)states without mapping the read lock guard over the state
+    /// (because it would consume it).
+    Reference(&'state S),
+
+    /// The read lock over the state `S` is acquired, and this is a mapped
+    /// guard to a cache (sub-)state.
+    Owned(RwLockReadGuard<'state, S>),
+}
+
+impl<'state, S> Deref for StateLockReadGuardKind<'state, S> {
+    type Target = S;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Reference(state) => state,
+            Self::Owned(state) => state.deref(),
+        }
     }
 }
 
@@ -564,7 +640,7 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
         EventCacheError: From<&'selector Selector>,
     {
         Ok(StateLockWriteGuard {
-            state: StateLockWriteGuardKind::MappedGuard(
+            state: StateLockWriteGuardKind::Owned(
                 RwLockWriteGuard::try_map(self.state, |state| {
                     cache_state_selector.select_mut(state)
                 })
@@ -585,10 +661,10 @@ impl<'state> ReloadableStateLockWriteGuard<'state> {
     /// state and to the store when dropped.
     fn downgrade(self) -> StateLockReadGuard<'state, State> {
         StateLockReadGuard {
-            state: self.state.downgrade(),
+            state: StateLockReadGuardKind::Owned(self.state.downgrade()),
             store: self.store,
-            tracing_timer: self.tracing_timer,
-            _holder: self._holder,
+            tracing_timer: Some(self.tracing_timer),
+            _holder: Some(self._holder),
         }
     }
 
@@ -743,7 +819,7 @@ pub enum StateLockWriteGuardKind<'state, S> {
 
     /// The write lock over the state `S` is acquired, and this is a mapped
     /// guard to a cache (sub-)state.
-    MappedGuard(RwLockMappedWriteGuard<'state, S>),
+    Owned(RwLockMappedWriteGuard<'state, S>),
 }
 
 impl<'state, S> Deref for StateLockWriteGuardKind<'state, S> {
@@ -752,7 +828,7 @@ impl<'state, S> Deref for StateLockWriteGuardKind<'state, S> {
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Reference(state) => state,
-            Self::MappedGuard(state) => state.deref(),
+            Self::Owned(state) => state.deref(),
         }
     }
 }
@@ -761,21 +837,28 @@ impl<'state, S> DerefMut for StateLockWriteGuardKind<'state, S> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         match self {
             Self::Reference(state) => state,
-            Self::MappedGuard(state) => state.deref_mut(),
+            Self::Owned(state) => state.deref_mut(),
         }
     }
 }
 
 /// A wrapper around [`State`] with a [`CacheStateSelector`], facilitating the
 /// embedding of these API in a single type.
-pub struct CacheStateLock<Selector>
-where
-    Selector: selectors::CacheState,
-{
+pub struct CacheStateLock<Selector> {
     cache_state_selector: Selector,
     state_lock: StateLock,
 }
 
+impl<Selector> CacheStateLock<Selector>
+where
+    Selector: selectors::CacheState,
+{
+    pub(super) fn new(cache_state_selector: Selector, state_lock: StateLock) -> Self {
+        Self { cache_state_selector, state_lock }
+    }
+}
+
+// Fallible methods.
 impl<Selector> CacheStateLock<Selector>
 where
     Selector: selectors::CacheState,

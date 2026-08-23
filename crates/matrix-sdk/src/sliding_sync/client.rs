@@ -41,10 +41,6 @@ impl Version {
 /// An error when building a version.
 #[derive(thiserror::Error, Debug)]
 pub enum VersionBuilderError {
-    /// The `.well-known` response is not set.
-    #[error("`.well-known` is not set")]
-    WellKnownNotSet,
-
     /// The `/versions` response is not set.
     #[error("The `/versions` response is not set")]
     MissingVersionsResponse,
@@ -112,7 +108,7 @@ impl Client {
     /// Be careful: This method may hit the store and will send new requests for
     /// each call. It can be costly to call it repeatedly.
     ///
-    /// If `.well-known` or `/versions` is unreachable, it will simply move
+    /// If `/versions` is unreachable, it will simply move
     /// potential sliding sync versions aside. No error will be reported.
     pub async fn available_sliding_sync_versions(&self) -> Vec<Version> {
         let supported_versions = self.supported_versions().await.ok();

@@ -92,17 +92,11 @@ pub struct RoomListService {
 #[matrix_sdk_ffi_macros::export]
 impl RoomListService {
     fn state(&self, listener: Box<dyn RoomListServiceStateListener>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.state();
+        let mut state_stream = self.inner.state();
+
+        listener.on_update(state_stream.next_now().into());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(state_stream);
-
-            // Replay the current state first: the sync may already be running by the
-            // time the client attaches this listener (e.g. a sync service started
-            // before the observers exist), and a changes-only stream would then never
-            // report the running state.
-            listener.on_update(state_stream.next_now().into());
-
             while let Some(state) = state_stream.next().await {
                 listener.on_update(state.into());
             }

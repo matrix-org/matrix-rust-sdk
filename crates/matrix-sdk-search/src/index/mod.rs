@@ -41,7 +41,7 @@ use crate::{
 ///
 /// Produced by the matrix-sdk layer, which knows how to extract searchable text
 /// from each event type. This crate stays agnostic to Matrix event content.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IndexableEvent {
     /// The event's own id (primary key).
     pub(crate) event_id: OwnedEventId,
@@ -58,6 +58,18 @@ pub struct IndexableEvent {
     pub(crate) timestamp: Option<MilliSecondsSinceUnixEpoch>,
     /// The text to index for this event.
     pub(crate) body: String,
+}
+
+impl fmt::Debug for IndexableEvent {
+    /// Don't log bodies
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("IndexableEvent")
+            .field("event_id", &self.event_id)
+            .field("original_event_id", &self.original_event_id)
+            .field("sender", &self.sender)
+            .field("timestamp", &self.timestamp)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Maximum value for the timestamp to not overflow when converted to

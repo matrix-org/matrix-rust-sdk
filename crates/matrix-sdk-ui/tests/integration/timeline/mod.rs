@@ -48,6 +48,7 @@ mod decryption;
 mod echo;
 mod edit;
 mod focus_event;
+mod location;
 mod media;
 mod message_types;
 mod pagination;

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+use std::{future::ready, pin::Pin, sync::Arc, time::Duration};
 
+use cms::cert::x509::{Certificate, der};
 use rustls::{
     SignatureScheme,
     crypto::ring,
@@ -25,7 +26,7 @@ use thiserror::Error;
 use crate::{
     SignatureError,
     x509::{
-        X509SignatureSigningError,
+        ValidityError, X509SignatureSigningError,
         raw_x509_signature::{RawX509Signature, X509SignatureScheme},
         x509_signer::RawX509Signer,
     },
@@ -42,6 +43,13 @@ pub struct RustRawX509Signer {
 
     /// The private signing key for this device.
     signing_key: Arc<dyn SigningKey>,
+
+    /// The "not after" time for the certificate's validity period (as a
+    /// duration since the unix epoch).
+    ///
+    /// We pre-calculate this on creation to avoid needing to re-parse the
+    /// certificate chain every time.
+    validity_not_after: Duration,
 }
 
 /// An enum of possible errors that can occur while instantiating
@@ -50,7 +58,7 @@ pub struct RustRawX509Signer {
 pub enum RustX509SignError {
     /// There was an error parsing the certificate chain.
     #[error("failed to parse certificate chain {0}")]
-    CertificateParse(rustls::pki_types::pem::Error),
+    CertificateParse(#[from] der::Error),
 
     /// No certificates were found.
     #[error("no certificates found in chain")]
@@ -80,15 +88,24 @@ impl RustRawX509Signer {
             .load_private_key(private_key)
             .map_err(RustX509SignError::PrivateKeyLoad)?;
 
-        Ok(Self { certificate_chain: certificate_chain_pem.to_owned(), signing_key })
-    }
-}
+        let cert_chain = Certificate::load_pem_chain(certificate_chain_pem.as_bytes())?;
 
-impl RawX509Signer for RustRawX509Signer {
-    /// Create a signature for the given message using our private key
-    ///
-    /// Returns (key ID, signature)
-    fn sign(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
+        // Pick the minimum "not after" date in the certificate chain, since the
+        // chain itself will not be valid after that time.
+        let validity_not_after = cert_chain
+            .into_iter()
+            .map(|cert| cert.tbs_certificate.validity.not_after.to_unix_duration())
+            .min()
+            .ok_or(RustX509SignError::CertificateNotFound)?;
+
+        Ok(Self {
+            certificate_chain: certificate_chain_pem.to_owned(),
+            signing_key,
+            validity_not_after,
+        })
+    }
+
+    fn sign_impl(&self, message: &[u8]) -> Result<RawX509Signature, SignatureError> {
         let signer = self
             .signing_key
             .choose_scheme(&[SignatureScheme::RSA_PSS_SHA512])
@@ -106,6 +123,37 @@ impl RawX509Signer for RustRawX509Signer {
     }
 }
 
+impl RawX509Signer for RustRawX509Signer {
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    #[cfg(not(target_family = "wasm"))]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>> + Send>> {
+        let ret = self.sign_impl(&message);
+        Box::pin(ready(ret))
+    }
+
+    // (On WASM this is identical except the return value is not Send)
+    /// Create a signature for the given message using our private key
+    ///
+    /// Returns (key ID, signature)
+    #[cfg(target_family = "wasm")]
+    fn sign(
+        &self,
+        message: Vec<u8>,
+    ) -> Pin<Box<dyn Future<Output = Result<RawX509Signature, SignatureError>>>> {
+        let ret = self.sign_impl(&message);
+        Box::pin(ready(ret))
+    }
+
+    fn validity_not_after(&self) -> Result<Duration, ValidityError> {
+        Ok(self.validity_not_after)
+    }
+}
+
 impl std::fmt::Debug for RustRawX509Signer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RustRawX509Signer")
@@ -117,21 +165,35 @@ impl std::fmt::Debug for RustRawX509Signer {
 
 #[cfg(test)]
 mod tests {
+    use cms::cert::x509::der;
+    use matrix_sdk_test::async_test;
+
     use crate::x509::{
         RawX509Signer, raw_x509_signature::X509SignatureScheme,
         rust_raw_x509_signer::RustRawX509Signer,
     };
 
-    #[test]
-    fn test_can_sign() {
+    #[async_test]
+    async fn test_can_sign() {
         let x509_sign =
             RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
 
-        let sig = x509_sign.sign(b"hello world").unwrap();
+        let sig = x509_sign.sign(b"hello world".to_vec()).await.unwrap();
 
         assert_eq!(sig.certificate_chain, TEST_CERT_CHAIN);
         assert_eq!(sig.signature_scheme, X509SignatureScheme::RsaPssSha512);
         assert_eq!(sig.signature_bytes.len(), 256);
+    }
+
+    #[test]
+    fn test_can_get_validity() {
+        let x509_sign =
+            RustRawX509Signer::new_from_pem_data(TEST_CERT_CHAIN, TEST_CERT_KEY).unwrap();
+
+        assert_eq!(
+            x509_sign.validity_not_after,
+            der::DateTime::new(2027, 6, 5, 15, 2, 16).unwrap().unix_duration()
+        );
     }
 
     /// A leaf and intermediate CA cert, generated with openssl

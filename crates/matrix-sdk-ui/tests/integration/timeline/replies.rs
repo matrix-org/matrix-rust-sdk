@@ -746,6 +746,51 @@ async fn test_send_reply() {
 }
 
 #[async_test]
+async fn test_send_reply_can_be_aborted() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    client.send_queue().set_enabled(false).await;
+
+    let timeline = room.timeline().await.unwrap();
+    let (_, mut timeline_stream) =
+        timeline.subscribe_filter_map(|item| item.as_event().cloned()).await;
+
+    let event_id_from_bob = event_id!("$event_from_bob");
+    let f = EventFactory::new();
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("Hello from Bob").sender(&BOB).event_id(event_id_from_bob),
+            ),
+        )
+        .await;
+
+    assert_next_matches!(timeline_stream, VectorDiff::PushBack { .. });
+
+    let handle = timeline
+        .send_reply(
+            RoomMessageEventContentWithoutRelation::text_plain("Replying to Bob"),
+            event_id_from_bob.into(),
+        )
+        .await
+        .unwrap();
+
+    assert_let_timeout!(Some(VectorDiff::PushBack { value: reply_item }) = timeline_stream.next());
+    assert_matches!(reply_item.send_state(), Some(EventSendState::NotSentYet { progress: None }));
+
+    assert!(handle.abort().await.unwrap());
+
+    assert_let_timeout!(Some(VectorDiff::Remove { index: 1 }) = timeline_stream.next());
+}
+
+#[async_test]
 async fn test_send_reply_to_self() {
     let server = MatrixMockServer::new().await;
     let client = server.client_builder().build().await;

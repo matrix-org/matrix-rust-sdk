@@ -651,7 +651,8 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
                 })
                 .cloned()
                 .collect::<Vec<_>>();
-            state.post_process_new_events(new_events, None).await?;
+            state.propagate_changes().await?;
+            state.post_process_upserted_events(new_events.iter(), None).await?;
 
             send_pagination_updates(self, &mut state);
 
@@ -718,6 +719,9 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
             &topo_ordered_events,
         );
 
+        // Update the store.
+        state.propagate_changes().await?;
+
         // A back-pagination can't include new read receipt events, as those are
         // ephemeral events not included in /messages responses, so we can
         // safely set the receipt event to None here.
@@ -727,8 +731,8 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         // receipt.
         let receipt_event = None;
 
-        // Note: this flushes updates to the store.
-        state.post_process_new_events(topo_ordered_events, receipt_event).await?;
+        // Post-process newly inserted events.
+        state.post_process_upserted_events(topo_ordered_events.iter(), receipt_event).await?;
 
         send_pagination_updates(self, &mut state);
 

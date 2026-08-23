@@ -1063,8 +1063,8 @@ impl fmt::Debug for TimelineEventKind {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
 /// A successfully-decrypted encrypted event.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DecryptedRoomEvent {
     /// The decrypted event.
     ///

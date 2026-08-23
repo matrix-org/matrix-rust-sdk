@@ -87,7 +87,7 @@
 //! chunk ordering which does.
 //!
 //! Once we have a new *better active receipt*, we'll save it in the
-//! [`RoomReadReceipts`] data (stored in [`RoomInfo`]), and we'll compute the
+//! [`ReadReceipts`] data (stored in [`RoomInfo`]), and we'll compute the
 //! counts, starting from the event the better active receipt was referring to.
 //!
 //! If we *don't* have a better active receipt, that means that all the events
@@ -99,10 +99,10 @@
 //! [`RoomEventCache`]: super::room::RoomEventCache
 //! [`ThreadEventCache`]: super::thread::ThreadEventCache
 
-use std::collections::HashSet;
+use std::{collections::HashSet, ops::ControlFlow};
 
 use matrix_sdk_base::{
-    read_receipts::{LatestReadReceipt, RoomReadReceipts},
+    read_receipts::{LatestReadReceipt, ReadReceipts},
     serde_helpers::extract_relation,
     store::DynStateStore,
 };
@@ -121,15 +121,13 @@ use ruma::{
 };
 use tracing::{debug, instrument, trace, warn};
 
-use std::ops::ControlFlow;
-
 use super::{
     super::back_pagination_queue::BackPaginationQueue, event_linked_chunk::EventLinkedChunk,
     pagination::BackPaginationOutcome,
 };
 
-trait RoomReadReceiptsExt {
-    /// Update the [`RoomReadReceipts`] unread counts according to the new
+trait ReadReceiptsExt {
+    /// Update the [`ReadReceipts`] unread counts according to the new
     /// event.
     ///
     /// Returns whether a new event triggered a new unread/notification/mention.
@@ -153,8 +151,8 @@ trait RoomReadReceiptsExt {
     ) -> bool;
 }
 
-impl RoomReadReceiptsExt for RoomReadReceipts {
-    /// Update the [`RoomReadReceipts`] unread counts according to the new
+impl ReadReceiptsExt for ReadReceipts {
+    /// Update the [`ReadReceipts`] unread counts according to the new
     /// event.
     ///
     /// Returns whether a new event triggered a new unread/notification/mention.
@@ -349,7 +347,7 @@ fn select_best_receipt(
 }
 
 /// Try to find extra read receipts that were in the store but never saved in
-/// the [`RoomReadReceipts`] data structure.
+/// the [`ReadReceipts`] data structure.
 ///
 /// Doesn't return a `Result`, because this is entirely optional; if the store
 /// fails to load these receipts, the worst that can happen is incorrect unread
@@ -358,7 +356,7 @@ async fn try_find_store_receipts(
     store: &DynStateStore,
     user_id: &UserId,
     room_id: &RoomId,
-    read_receipts: &mut RoomReadReceipts,
+    read_receipts: &mut ReadReceipts,
 ) {
     for receipt_type in ALL_RECEIPT_TYPES {
         // Implementation note: we want to prioritize an `Unthreaded` receipt over a
@@ -368,7 +366,7 @@ async fn try_find_store_receipts(
                 .get_user_room_receipt_event(
                     room_id,
                     receipt_type.clone(),
-                    receipt_thread.clone(),
+                    &receipt_thread,
                     user_id,
                 )
                 .await
@@ -376,13 +374,12 @@ async fn try_find_store_receipts(
                 trace!(%event_id, ?receipt_type, ?receipt_thread, "Found a dormant receipt in the store");
 
                 if read_receipts.latest_active.is_none() {
-                    read_receipts.latest_active =
-                        Some(LatestReadReceipt { event_id: event_id.clone() });
+                    read_receipts.latest_active = Some(LatestReadReceipt { event_id });
                 } else {
                     // This loop has already flagged a read receipt as the new `latest_active`.
                     // Extra read receipts can go to the pending receipts list, as they're lower
                     // priority, by the implementation notes above.
-                    read_receipts.pending.push(event_id.clone());
+                    read_receipts.pending.push(event_id);
                 }
             }
         }
@@ -390,7 +387,7 @@ async fn try_find_store_receipts(
 }
 
 /// Given a set of events coming from sync, for a _timeline_, update the
-/// [`RoomReadReceipts`]'s counts of unread messages, notifications and
+/// [`ReadReceipts`]'s counts of unread messages, notifications and
 /// highlights' in place.
 ///
 /// See this module's documentation for more information.
@@ -401,7 +398,7 @@ pub(crate) async fn compute_unread_counts(
     room_id: &RoomId,
     receipt_event: Option<&ReceiptEventContent>,
     linked_chunk: &EventLinkedChunk,
-    read_receipts: &mut RoomReadReceipts,
+    read_receipts: &mut ReadReceipts,
     with_threading_support: bool,
     back_pagination_queue: Option<&BackPaginationQueue>,
     state_store: &DynStateStore,
@@ -409,7 +406,7 @@ pub(crate) async fn compute_unread_counts(
     debug!(?read_receipts, "Starting");
 
     // If we don't have a latest active receipt for this timeline, try to reload one
-    // from the state store into the `RoomReadReceipts`.
+    // from the state store into the `ReadReceipts`.
     if read_receipts.latest_active.is_none() {
         try_find_store_receipts(state_store, user_id, room_id, read_receipts).await;
     }
@@ -546,9 +543,9 @@ fn marks_as_unread(event: &Raw<AnySyncTimelineEvent>, user_id: &UserId) -> bool 
 /// - one of the receipt `targets` (the exact counts can be computed from it),
 /// - or an event sent by us (an implicit read receipt, same effect),
 /// - or any event that [`marks_as_unread`]: the room is then provably unread,
-///   and the counts computed from the cached events are a lower bound, which
-///   is all the UI needs (a hunt for the exact count could paginate
-///   arbitrarily far into rooms the user hasn't read in a long time).
+///   and the counts computed from the cached events are a lower bound, which is
+///   all the UI needs (a hunt for the exact count could paginate arbitrarily
+///   far into rooms the user hasn't read in a long time).
 ///
 /// Threaded events are skipped when threading support is enabled: they affect
 /// their thread's unread-ness, not the room's.
@@ -578,7 +575,7 @@ pub(crate) fn stop_for_read_receipt_hunt(
 mod tests {
     use std::{num::NonZeroUsize, ops::Not as _};
 
-    use matrix_sdk_base::read_receipts::RoomReadReceipts;
+    use matrix_sdk_base::read_receipts::ReadReceipts;
     use matrix_sdk_common::{deserialized_responses::TimelineEvent, ring_buffer::RingBuffer};
     use matrix_sdk_test::{ALICE, event_factory::EventFactory};
     use ruma::{
@@ -593,10 +590,10 @@ mod tests {
     };
 
     use super::{marks_as_unread, stop_for_read_receipt_hunt};
-    use crate::event_cache::caches::pagination::BackPaginationOutcome;
     use crate::event_cache::caches::{
         event_linked_chunk::EventLinkedChunk,
-        read_receipts::{RoomReadReceiptsExt as _, select_best_receipt},
+        pagination::BackPaginationOutcome,
+        read_receipts::{ReadReceiptsExt as _, select_best_receipt},
     };
 
     #[test]
@@ -698,7 +695,7 @@ mod tests {
 
         // An interesting event from oneself doesn't count as a new unread message.
         let event = make_event(user_id, Vec::new());
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_mentions, 0);
@@ -706,7 +703,7 @@ mod tests {
 
         // An interesting event from someone else does count as a new unread message.
         let event = make_event(user_id!("@bob:example.org"), Vec::new());
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
@@ -714,7 +711,7 @@ mod tests {
 
         // Push actions computed beforehand are respected.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify]);
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
@@ -724,7 +721,7 @@ mod tests {
             user_id!("@bob:example.org"),
             vec![Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes))],
         );
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
@@ -734,7 +731,7 @@ mod tests {
             user_id!("@bob:example.org"),
             vec![Action::SetTweak(Tweak::Highlight(HighlightTweakValue::Yes)), Action::Notify],
         );
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 1);
@@ -743,7 +740,7 @@ mod tests {
         // Technically this `push_actions` set would be a bug somewhere else, but let's
         // make sure to resist against it.
         let event = make_event(user_id!("@bob:example.org"), vec![Action::Notify, Action::Notify]);
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         receipts.process_event(&event, user_id, threading_support);
         assert_eq!(receipts.num_unread, 1);
         assert_eq!(receipts.num_mentions, 0);
@@ -758,7 +755,7 @@ mod tests {
 
         // When provided with no events, we report not finding the event to which the
         // receipt relates.
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
         assert!(receipts.find_and_process_events(ev0, user_id, &[], thread_support).not());
         assert_eq!(receipts.num_unread, 0);
         assert_eq!(receipts.num_notifications, 0);
@@ -774,7 +771,7 @@ mod tests {
                 .into()
         }
 
-        let mut receipts = RoomReadReceipts {
+        let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
             num_mentions: 37,
@@ -797,7 +794,7 @@ mod tests {
         // When provided with one event that's the receipt target, we find it, reset the
         // count, and since there's nothing else, we stop there and end up with
         // zero counts.
-        let mut receipts = RoomReadReceipts {
+        let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
             num_mentions: 37,
@@ -810,7 +807,7 @@ mod tests {
 
         // When provided with multiple events and not the receipt event, we do not count
         // anything..
-        let mut receipts = RoomReadReceipts {
+        let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
             num_mentions: 37,
@@ -836,7 +833,7 @@ mod tests {
 
         // When provided with multiple events including one that's the receipt event, we
         // find it and count from it.
-        let mut receipts = RoomReadReceipts {
+        let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
             num_mentions: 37,
@@ -858,7 +855,7 @@ mod tests {
         assert_eq!(receipts.num_mentions, 0);
 
         // Even if duplicates are present in the new events list, the count is correct.
-        let mut receipts = RoomReadReceipts {
+        let mut receipts = ReadReceipts {
             num_unread: 42,
             num_notifications: 13,
             num_mentions: 37,
@@ -892,7 +889,7 @@ mod tests {
                 .into_event()
         }
 
-        let mut receipts = RoomReadReceipts::default();
+        let mut receipts = ReadReceipts::default();
 
         let own_alice = user_id!("@alice:example.org");
         let bob = user_id!("@bob:example.org");

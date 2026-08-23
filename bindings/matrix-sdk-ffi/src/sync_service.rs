@@ -14,7 +14,6 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use futures_util::pin_mut;
 use matrix_sdk::Client;
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
@@ -80,14 +79,11 @@ impl SyncService {
     }
 
     pub fn state(&self, listener: Box<dyn SyncServiceStateObserver>) -> Arc<TaskHandle> {
-        let state_stream = self.inner.state();
+        let mut state_stream = self.inner.state();
+
+        listener.on_update(state_stream.next_now().into());
 
         Arc::new(TaskHandle::new(get_runtime_handle().spawn(async move {
-            pin_mut!(state_stream);
-
-            // Replay the current state first - see RoomListService::state.
-            listener.on_update(state_stream.next_now().into());
-
             while let Some(state) = state_stream.next().await {
                 listener.on_update(state.into());
             }

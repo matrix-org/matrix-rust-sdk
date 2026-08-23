@@ -21,26 +21,20 @@ use matrix_sdk_base::{
 use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
 
 use super::{
-    super::{
-        Result,
-        states::{CacheStateLock, selectors::RoomStateSelector},
-    },
-    thread::ThreadEventCache,
+    super::{Result, states::StateLockReadGuard},
+    room::RoomEventCacheState,
+    thread::ThreadEventCacheState,
 };
 
 pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
     timeline
 }
 
-pub async fn aggregate_timeline_for_threads(
-    timeline: &Timeline,
-    existing_threads: &HashMap<OwnedEventId, ThreadEventCache>,
-    // Deliberately the lock, not a guard: `ThreadEventCache::find_event` below
-    // re-acquires the same shared state lock, and holding a read guard across
-    // that acquisition deadlocks as soon as a writer is queued in between (the
-    // state lock is write-preferring).
-    room_state: &CacheStateLock<RoomStateSelector>,
-    redaction_rules: &RedactionRules,
+pub async fn aggregate_timeline_for_threads<'sync, 'state>(
+    timeline: &'sync Timeline,
+    existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
+    maybe_room: Option<StateLockReadGuard<'state, RoomEventCacheState>>,
+    redaction_rules: &'sync RedactionRules,
 ) -> Result<HashMap<OwnedEventId, Timeline>> {
     let mut new_events_by_thread = HashMap::new();
 
@@ -83,13 +77,14 @@ pub async fn aggregate_timeline_for_threads(
 
                         // Not in `timeline`, okay, look for the related event in the `room` as it
                         // knows about all the events, and then extract its thread root.
-                        None => {
-                            room_state.read().await?.find_event(&related_event_id).await?.and_then(
+                        None => match &maybe_room {
+                            Some(room) => room.find_event(&related_event_id).await?.and_then(
                                 |(_location, related_event)| {
                                     extract_thread_root(related_event.raw())
                                 },
-                            )
-                        }
+                            ),
+                            None => None,
+                        },
                     } {
                         new_events_by_thread
                             .entry(thread_root)
@@ -116,26 +111,26 @@ pub async fn aggregate_timeline_for_threads(
                 // Otherwise, this event might be a redaction that applies to a thread.
                 else if let Some(redaction_target) =
                     extract_redaction_target(event.raw(), redaction_rules)
-                    // The read guard is a temporary of this chain operand, so
-                    // (edition 2024) it is dropped before the block runs:
-                    // `thread.find_event` below re-acquires the shared state
-                    // lock and must not run under this guard.
-                    && room_state.read().await?.find_event(&redaction_target).await?.is_some()
+                    && match &maybe_room {
+                        Some(room) => room.find_event(&redaction_target).await?.is_some(),
+                        None => false,
+                    }
                 {
-                    // The redacted event exists (in the room, because it contains _all_ the
-                    // events) **but** the event has been redacted (in
-                    // the room). It's no more possible to extract its
-                    // thread root (because this information has been removed).
+                    // The redacted event exists (in the room, because it
+                    // contains _all_ the events) **but** the event has been
+                    // redacted (in the room). It's no more possible to extract
+                    // its thread root (because this information has been
+                    // removed).
                     //
-                    // But we need to know if the event is part of a thread to apply the
-                    // redaction in the thread too. No other choice than
-                    // doing a full search…
+                    // But we need to know if the event is part of a thread to
+                    // apply the redaction in the thread too. No other choice
+                    // than doing a full search…
 
                     let mut associated_thread_root = None;
 
-                    for (thread_root, thread) in existing_threads {
+                    for thread in existing_threads.values() {
                         if thread.find_event(&redaction_target).await?.is_some() {
-                            associated_thread_root = Some(thread_root.clone());
+                            associated_thread_root = Some(thread.thread_id.clone());
                             break;
                         }
                     }

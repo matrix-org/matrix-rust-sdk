@@ -858,7 +858,8 @@ impl Account {
             self,
             #[cfg(feature = "experimental-x509-identity-verification")]
             x509_signer.as_ref(),
-        )?;
+        )
+        .await?;
 
         let signature_request = identity.sign_account(self.static_data()).await?;
 

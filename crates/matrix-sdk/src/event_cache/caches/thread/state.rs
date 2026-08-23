@@ -34,7 +34,7 @@ use ruma::{
 use tracing::{debug, error, instrument, trace};
 
 #[cfg(feature = "e2e-encryption")]
-use super::super::super::redecryptor::ResolvedUtd;
+use super::super::super::redecryptor::MaybeResolvedEvent;
 use super::{
     super::{
         super::{
@@ -399,7 +399,7 @@ impl<'a> StateLockReadGuard<'a, ThreadEventCacheState> {
     }
 
     /// See documentation of [`find_event`].
-    pub(super) async fn find_event(
+    pub(in super::super) async fn find_event(
         &self,
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>> {
@@ -549,7 +549,11 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             &events,
         );
 
+        // Update the store.
         self.state.propagate_changes(&self.store).await?;
+
+        // Post-process newly inserted events.
+        self.post_process_upserted_events(events.iter()).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -560,20 +564,27 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
             self.state.shrink_to_last_reloaded_chunk(&self.store).await?;
         }
 
-        // Do stuff for each event.
-        for event in events {
-            // Handle redaction.
-            self.maybe_apply_new_redaction(&event).await?;
-
-            // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = event.bundled_latest_thread_event {
-                self.save_events([*bundled_thread]).await?;
-            }
-        }
-
         let timeline_event_diffs = self.state.thread_linked_chunk.updates_as_vector_diffs();
 
         Ok((has_new_gap, timeline_event_diffs))
+    }
+
+    /// Post-process newly inserted or updated events.
+    pub(super) async fn post_process_upserted_events<'i, I>(&mut self, events: I) -> Result<()>
+    where
+        I: Iterator<Item = &'i Event>,
+    {
+        for event in events {
+            // Handle redaction.
+            self.maybe_apply_new_redaction(event).await?;
+
+            // Save a bundled thread event, if there was one.
+            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
+                self.save_events([*bundled_thread.clone()]).await?;
+            }
+        }
+
+        Ok(())
     }
 
     /// If the given event is a redaction, try to retrieve the
@@ -727,7 +738,8 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         &mut self,
         senders: &BTreeSet<OwnedUserId>,
     ) -> Result<()> {
-        let sender_of = |event: &Event| event.raw().get_field::<OwnedUserId>("sender").ok().flatten();
+        let sender_of =
+            |event: &Event| event.raw().get_field::<OwnedUserId>("sender").ok().flatten();
 
         // In-memory matches; removing those propagates to the store too.
         let mut in_memory = Vec::new();
@@ -805,17 +817,15 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     }
 
     /// Try to locate the events in the linked chunk corresponding to the given
-    /// list of decrypted events, and replace them, while alerting observers
+    /// list of resolved events, and replace them, while alerting observers
     /// about the update.
     #[cfg(feature = "e2e-encryption")]
     #[must_use = "Propagate `VectorDiff` updates via `TimelineVectorDiffs`"]
-    pub(in super::super) async fn replace_utds(
+    pub(in super::super) fn replace_in_memory_utds(
         &mut self,
-        events: &[ResolvedUtd],
+        resolved_events: &[MaybeResolvedEvent],
     ) -> Result<Option<Vec<VectorDiff<Event>>>> {
-        Ok(if self.thread_linked_chunk_mut().replace_utds(events) {
-            self.state.propagate_changes(&self.store).await?;
-
+        Ok(if self.thread_linked_chunk_mut().replace_utds(resolved_events) {
             Some(self.thread_linked_chunk_mut().updates_as_vector_diffs())
         } else {
             None

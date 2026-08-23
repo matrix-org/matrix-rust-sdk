@@ -52,7 +52,7 @@ fn get_header(
     Ok(header)
 }
 
-fn response_to_error(status: StatusCode, body: Vec<u8>) -> HttpError {
+fn response_to_error(status: StatusCode, body: &[u8]) -> HttpError {
     match http::Response::builder().status(status).body(body).map_err(IntoHttpError::from) {
         Ok(response) => {
             let error = FromHttpResponseError::<RumaApiError>::Server(RumaApiError::MatrixError(
@@ -198,7 +198,7 @@ impl Channel {
             Ok(())
         } else {
             let body = response.bytes().await?;
-            let error = response_to_error(status, body.to_vec());
+            let error = response_to_error(status, &body);
 
             return Err(error);
         }
@@ -230,7 +230,7 @@ impl Channel {
                 sleep::sleep(POLL_TIMEOUT).await;
                 continue;
             } else {
-                let error = response_to_error(message.status_code, message.body);
+                let error = response_to_error(message.status_code, &message.body);
 
                 return Err(error);
             }
@@ -256,7 +256,7 @@ impl Channel {
         let status_code = response.status();
 
         if status_code.is_client_error() {
-            return Err(response_to_error(status_code, response.bytes().await?.to_vec()));
+            return Err(response_to_error(status_code, &response.bytes().await?));
         }
 
         let headers = response.headers();

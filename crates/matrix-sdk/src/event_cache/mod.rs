@@ -880,7 +880,9 @@ impl EventCacheInner {
         }
 
         // Invited rooms.
-        // TODO: we don't anything with `updates.invite` at this point.
+        //
+        // We don't handle `updates.invite` because they contain stripped-state events,
+        // which is not handled by the Event Cache for the moment.
 
         Ok(())
     }

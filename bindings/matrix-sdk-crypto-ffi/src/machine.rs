@@ -25,7 +25,7 @@ use ruma::{
     DeviceKeyAlgorithm, EventId, OneTimeKeyAlgorithm, OwnedTransactionId, OwnedUserId, RoomId,
     UserId,
     api::{
-        IncomingResponse,
+        IncomingResponseExt as _,
         client::{
             backup::add_backup_keys::v3::Response as KeysBackupResponse,
             keys::{

@@ -811,7 +811,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             room_data_provider
                 .load_user_receipt(
                     ReceiptType::Read,
-                    ReceiptThread::Thread(event_id.to_owned()),
+                    &ReceiptThread::Thread(event_id.to_owned()),
                     &self.meta.own_user_id,
                 )
                 .await
@@ -824,7 +824,7 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
             room_data_provider
                 .load_user_receipt(
                     ReceiptType::ReadPrivate,
-                    ReceiptThread::Thread(event_id.to_owned()),
+                    &ReceiptThread::Thread(event_id.to_owned()),
                     &self.meta.own_user_id,
                 )
                 .await
