@@ -139,11 +139,10 @@ use matrix_sdk_base::{
     task_monitor::BackgroundTaskHandle,
     timer,
 };
-#[cfg(doc)]
 use matrix_sdk_common::deserialized_responses::EncryptionInfo;
 use matrix_sdk_common::sleep::sleep;
 use ruma::{
-    OwnedEventId, OwnedRoomId, RoomId,
+    OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
     push::Action,
     serde::Raw,
@@ -760,10 +759,26 @@ impl EventCache {
         // Let's attempt to update their encryption info.
         let mut updated_events = Vec::with_capacity(events.len());
 
+        // The encryption info only depends on the session and its sender, and
+        // every event of a session shares both: one crypto store lookup per
+        // session, not one per event (a session easily covers a hundred
+        // messages, and this runs for every room key received).
+        let mut infos_by_session: BTreeMap<(String, OwnedUserId), Option<Arc<EncryptionInfo>>> =
+            BTreeMap::new();
+
         for (event_id, mut event) in events {
             if let Some(session_id) = event.encryption_info.session_id() {
-                let new_encryption_info =
-                    room.get_encryption_info(session_id, &event.encryption_info.sender).await;
+                let key = (session_id.to_owned(), event.encryption_info.sender.clone());
+                let new_encryption_info = match infos_by_session.get(&key) {
+                    Some(info) => info.clone(),
+                    None => {
+                        let info = room
+                            .get_encryption_info(session_id, &event.encryption_info.sender)
+                            .await;
+                        infos_by_session.insert(key, info.clone());
+                        info
+                    }
+                };
 
                 // Only create a replacement if the encryption info actually changed.
                 if let Some(new_encryption_info) = new_encryption_info
