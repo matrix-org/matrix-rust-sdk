@@ -40,6 +40,14 @@ use crate::{
     error::{HttpError, RetryKind},
 };
 
+/// How long a byte-counted transfer gets, after a network change, to show it
+/// is still moving before its in-flight request is re-sent from scratch.
+///
+/// Progress is counted as reqwest pulls the body, so a socket the kernel is
+/// still buffering into can look alive for a moment; the menu's Retry (another
+/// network-change notification) re-checks once that buffer is full.
+pub(super) const NETWORK_CHANGE_STALL_GRACE: Duration = Duration::from_secs(2);
+
 impl HttpClient {
     pub(super) async fn send_request<R>(
         &self,
@@ -91,7 +99,7 @@ impl HttpClient {
 
             let mut network_change = http_client.subscribe_network_change();
 
-            let response = loop {
+            let response = 'attempts: loop {
                 traffic.request_count.fetch_add(1, Ordering::Relaxed);
                 traffic
                     .uploaded_bytes
@@ -103,12 +111,51 @@ impl HttpClient {
                 network_change.mark_unchanged();
                 let client = http_client.reqwest();
 
-                tokio::select! {
-                    result = execute_request(&client, request, timeout, send_progress.clone(), recv_progress.clone()) => {
-                        break result?;
-                    }
-                    Ok(()) = network_change.changed() => {
-                        debug!("Network path changed, re-sending the in-flight request");
+                let attempt = execute_request(
+                    &client,
+                    request,
+                    timeout,
+                    send_progress.clone(),
+                    recv_progress.clone(),
+                );
+                tokio::pin!(attempt);
+
+                loop {
+                    tokio::select! {
+                        result = &mut attempt => {
+                            break 'attempts result?;
+                        }
+                        Ok(()) = network_change.changed() => {
+                            // A transfer whose bytes are being counted (an upload or
+                            // download with a progress watcher) may well still be
+                            // flowing over the old path, e.g. Wi-Fi joining while on
+                            // cellular: only give it up if it makes no progress within
+                            // the grace period. Anything without that signal (a sync
+                            // long-poll, a small request) is re-sent right away.
+                            let tracked = send_progress.subscriber_count() != 0
+                                || recv_progress.subscriber_count() != 0;
+                            if tracked {
+                                let before = (send_progress.get(), recv_progress.get());
+                                tokio::select! {
+                                    result = &mut attempt => {
+                                        break 'attempts result?;
+                                    }
+                                    _ = tokio::time::sleep(NETWORK_CHANGE_STALL_GRACE) => {}
+                                }
+                                if (send_progress.get(), recv_progress.get()) != before {
+                                    debug!("Network path changed but the transfer is still progressing, keeping it");
+                                    continue;
+                                }
+                                debug!("Network path changed and the transfer stalled, re-sending the request");
+                                // The body goes out again from its first byte: restart
+                                // the transfer progress too, or it ends short of its total.
+                                send_progress.set(Default::default());
+                                recv_progress.set(Default::default());
+                            } else {
+                                debug!("Network path changed, re-sending the in-flight request");
+                            }
+                            continue 'attempts;
+                        }
                     }
                 }
             };

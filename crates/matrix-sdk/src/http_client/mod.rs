@@ -323,7 +323,7 @@ impl HttpClient {
 }
 
 /// Progress of sending or receiving a payload.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TransmissionProgress {
     /// How many bytes were already transferred.
     pub current: usize,
@@ -485,7 +485,7 @@ mod tests {
             Arc,
             atomic::{AtomicU8, Ordering},
         },
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use matrix_sdk_common::executor::spawn;
@@ -632,5 +632,68 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(response.user_id, "@joe:example.org");
+    }
+
+    #[async_test]
+    async fn test_network_change_resends_tracked_transfer_only_once_stalled() {
+        let (client_builder, server) = test_client_builder_with_server().await;
+        let client = client_builder.build().await.unwrap();
+
+        set_client_session(&client).await;
+
+        let counter = Arc::new(AtomicU8::new(0));
+        let inner_counter = counter.clone();
+
+        // The first attempt is black-holed...
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/account/whoami"))
+            .respond_with(move |_req: &Request| {
+                inner_counter.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(200).set_delay(Duration::from_secs(60))
+            })
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        // ...while the re-send is answered at once.
+        Mock::given(method("GET"))
+            .and(path("_matrix/client/r0/account/whoami"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({ "user_id": "@joe:example.org" })),
+            )
+            .mount(&server)
+            .await;
+
+        // A request whose transfer is being watched (like an upload with a
+        // progress bar) gets the stall grace before it's given up on.
+        let progress = eyeball::SharedObservable::new(super::TransmissionProgress::default());
+        let _watcher = progress.subscribe();
+        let bg_client = client.clone();
+        let bg_task = spawn(async move {
+            bg_client
+                .send(ruma::api::client::account::whoami::v3::Request::new())
+                .with_send_progress_observable(progress)
+                .await
+        });
+
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(counter.load(Ordering::SeqCst), 1, "The first attempt should be in flight");
+
+        let flipped_at = Instant::now();
+        client.notify_network_change();
+
+        let response = tokio::time::timeout(Duration::from_secs(5), bg_task)
+            .await
+            .expect(
+                "the stalled transfer must be re-sent after the grace, not wait for its timeout",
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.user_id, "@joe:example.org");
+        assert!(
+            flipped_at.elapsed() >= super::native::NETWORK_CHANGE_STALL_GRACE,
+            "a watched transfer must be given the grace period before being re-sent"
+        );
     }
 }
