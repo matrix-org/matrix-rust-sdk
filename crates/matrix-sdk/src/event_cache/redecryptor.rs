@@ -139,8 +139,7 @@ use matrix_sdk_base::{
     task_monitor::BackgroundTaskHandle,
     timer,
 };
-use matrix_sdk_common::deserialized_responses::EncryptionInfo;
-use matrix_sdk_common::sleep::sleep;
+use matrix_sdk_common::{deserialized_responses::EncryptionInfo, sleep::sleep};
 use ruma::{
     OwnedEventId, OwnedRoomId, OwnedUserId, RoomId,
     events::{AnySyncTimelineEvent, room::encrypted::OriginalSyncRoomEncryptedEvent},
@@ -487,9 +486,21 @@ impl EventCache {
             let mut state = room_cache.state().write().await?;
 
             let mut new_events = Vec::with_capacity(events.len());
+            let mut replacements = Vec::with_capacity(events.len());
+
+            // One lookup and one store write for the whole chunk, rather than
+            // one of each per event: a room key resolves hundreds of UTDs.
+            let mut found: BTreeMap<_, _> = state
+                .find_events(&event_ids.iter().cloned().collect::<Vec<_>>())
+                .await?
+                .into_iter()
+                .filter_map(|(location, event)| {
+                    Some((event.event_id()?.to_owned(), (location, event)))
+                })
+                .collect();
 
             for (event_id, decrypted, actions) in &events {
-                if let Some((location, mut target_event)) = state.find_event(event_id).await?
+                if let Some((location, mut target_event)) = found.remove(event_id)
                     && (
                         // There is a race between the multiple sources of updates. It's possible
                         // that two sources trigger a decryption for the same event (for example,
@@ -511,12 +522,12 @@ impl EventCache {
                         target_event.set_push_actions(actions.clone());
                     }
 
-                    // TODO: `replace_event_at()` propagates changes to the store for every
-                    // event, we should probably have a bulk version of this?
-                    state.replace_event_at(location, target_event.clone()).await?;
+                    replacements.push((location, target_event.clone()));
                     new_events.push(target_event);
                 }
             }
+
+            state.replace_events(replacements).await?;
 
             // Read receipt events aren't encrypted, so we can't have decrypted a new
             // one here. As a result, we don't have any new receipt events to

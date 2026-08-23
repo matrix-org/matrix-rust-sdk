@@ -191,6 +191,24 @@ pub trait EventCacheStore: AsyncTraitDeps {
         event_id: &EventId,
     ) -> Result<Option<Event>, Self::Error>;
 
+    /// Find several events by ID (the ones found; in no particular order).
+    ///
+    /// Same contract as [`Self::find_event`]; stores should override it with
+    /// a single query.
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: &[OwnedEventId],
+    ) -> Result<Vec<Event>, Self::Error> {
+        let mut events = Vec::with_capacity(event_ids.len());
+        for event_id in event_ids {
+            if let Some(event) = self.find_event(room_id, event_id).await? {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
     /// Find all the events (alongside their position in the room's linked
     /// chunk, if available) that relate to a given event.
     ///
@@ -377,6 +395,17 @@ pub trait EventCacheStore: AsyncTraitDeps {
     /// without causing an error.
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error>;
 
+    /// Save several events out-of-band, see [`Self::save_event`].
+    ///
+    /// Stores should override it with a single transaction: the redecryptor
+    /// replaces events by the hundred.
+    async fn save_events(&self, room_id: &RoomId, events: Vec<Event>) -> Result<(), Self::Error> {
+        for event in events {
+            self.save_event(room_id, event).await?;
+        }
+        Ok(())
+    }
+
     /// Close the store, releasing all held resources (database connections,
     /// file descriptors, file locks).
     ///
@@ -499,6 +528,14 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
         self.0.find_event(room_id, event_id).await.map_err(Into::into)
     }
 
+    async fn find_events(
+        &self,
+        room_id: &RoomId,
+        event_ids: &[OwnedEventId],
+    ) -> Result<Vec<Event>, Self::Error> {
+        self.0.find_events(room_id, event_ids).await.map_err(Into::into)
+    }
+
     async fn find_event_relations(
         &self,
         room_id: &RoomId,
@@ -561,6 +598,10 @@ impl<T: EventCacheStore> EventCacheStore for EraseEventCacheStoreError<T> {
 
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
         self.0.save_event(room_id, event).await.map_err(Into::into)
+    }
+
+    async fn save_events(&self, room_id: &RoomId, events: Vec<Event>) -> Result<(), Self::Error> {
+        self.0.save_events(room_id, events).await.map_err(Into::into)
     }
 
     async fn close(&self) -> Result<(), Self::Error> {

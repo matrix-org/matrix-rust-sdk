@@ -47,7 +47,7 @@ use super::{
             back_pagination_queue::BackPaginationQueue,
             deduplicator::{DeduplicationOutcome, filter_duplicate_events},
             persistence::{
-                find_event, find_event_relations, find_event_with_relations,
+                find_event, find_event_relations, find_event_with_relations, find_events,
                 load_linked_chunk_metadata, send_updates_to_store,
             },
             states::{ReloadPreprocessing, StateLockReadGuard, StateLockWriteGuard},
@@ -413,6 +413,14 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         event_id: &EventId,
     ) -> Result<Option<(EventLocation, Event)>, EventCacheError> {
         find_event(event_id, &self.room_id, &self.room_linked_chunk, &self.store).await
+    }
+
+    /// See documentation of [`find_events`].
+    pub async fn find_events(
+        &self,
+        event_ids: &[OwnedEventId],
+    ) -> Result<Vec<(EventLocation, Event)>, EventCacheError> {
+        find_events(event_ids, &self.room_id, &self.room_linked_chunk, &self.store).await
     }
 
     /// Reload the room: only the last events will be reloaded, shrinking the
@@ -1275,6 +1283,31 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         Ok(())
     }
 
+    /// Replaces several events at once, see [`Self::replace_event_at`]: one
+    /// store write for the in-memory ones, one for the store-only ones.
+    pub async fn replace_events(
+        &mut self,
+        events: Vec<(EventLocation, Event)>,
+    ) -> Result<(), EventCacheError> {
+        let mut in_store = Vec::new();
+
+        for (location, event) in events {
+            match location {
+                EventLocation::Memory(position) => {
+                    // Stale positions: see `replace_event_at`.
+                    if let Err(err) = self.state.room_linked_chunk.replace_event_at(position, event)
+                    {
+                        error!(?err, "replace_events: stale position; skipping the replacement");
+                    }
+                }
+                EventLocation::Store => in_store.push(event),
+            }
+        }
+
+        self.propagate_changes().await?;
+        self.save_events(in_store).await
+    }
+
     /// If the given event is a redaction, try to retrieve the
     /// to-be-redacted event in the chunk, and replace it by the
     /// redacted form.
@@ -1328,15 +1361,14 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         let room_id = self.state.room_id.clone();
         let events = events.into_iter().collect::<Vec<_>>();
 
+        if events.is_empty() {
+            return Ok(());
+        }
+
         // Spawn a task so the save is uninterrupted by task cancellation.
-        spawn(async move {
-            for event in events {
-                store.save_event(&room_id, event).await?;
-            }
-            super::Result::Ok(())
-        })
-        .await
-        .expect("joining failed")?;
+        spawn(async move { store.save_events(&room_id, events).await })
+            .await
+            .expect("joining failed")?;
 
         Ok(())
     }

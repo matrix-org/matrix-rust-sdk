@@ -235,6 +235,10 @@ pub trait EventCacheStoreIntegrationTests {
     /// Test that saving an event works as expected.
     async fn test_save_event(&self);
 
+    /// Test that saving several events in one go, then finding them in one go,
+    /// behaves like the single-event methods.
+    async fn test_save_events_and_find_events(&self);
+
     /// Test that finding the room messages of some `msgtype`s, with their
     /// positions, works as expected.
     async fn test_find_events_by_message_types(&self);
@@ -2355,6 +2359,42 @@ impl EventCacheStoreIntegrationTests for DynEventCacheStore {
         );
     }
 
+    async fn test_save_events_and_find_events(&self) {
+        let room_id = room_id!("!r0:matrix.org");
+        let another_room_id = room_id!("!r1:matrix.org");
+
+        let event_comte = make_test_event(room_id, "comté");
+        let event_gruyere = make_test_event(room_id, "gruyère");
+        let event_brie = make_test_event(another_room_id, "brie");
+        let unknown = make_test_event(room_id, "unknown");
+        let id = |event: &TimelineEvent| event.event_id().unwrap().to_owned();
+
+        self.save_events(room_id, vec![event_comte.clone(), event_gruyere.clone()]).await.unwrap();
+        self.save_events(another_room_id, vec![event_brie.clone()]).await.unwrap();
+
+        // Saved events are found, unknown ones are left out, in one query.
+        let found: BTreeSet<_> = self
+            .find_events(room_id, &[id(&event_comte), id(&event_gruyere), id(&unknown)])
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|event| id(&event))
+            .collect();
+        assert_eq!(found, BTreeSet::from([id(&event_comte), id(&event_gruyere)]));
+
+        // And so are events saved one by one.
+        let found = self.find_events(another_room_id, &[id(&event_brie)]).await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].event_id(), event_brie.event_id());
+
+        // Nothing asked, nothing found (and no query error).
+        assert!(self.find_events(room_id, &[]).await.unwrap().is_empty());
+
+        // Saving again replaces, it doesn't duplicate.
+        self.save_events(room_id, vec![event_comte.clone()]).await.unwrap();
+        assert_eq!(self.find_events(room_id, &[id(&event_comte)]).await.unwrap().len(), 1);
+    }
+
     async fn test_save_event_updates_event_in_room_and_thread(&self) {
         let room_id = *DEFAULT_TEST_ROOM_ID;
         let thread_root = event_id!("$thread_root");
@@ -2804,6 +2844,13 @@ macro_rules! event_cache_store_integration_tests {
                 let event_cache_store =
                     get_event_cache_store().await.unwrap().into_event_cache_store();
                 event_cache_store.test_save_event().await;
+            }
+
+            #[async_test]
+            async fn test_save_events_and_find_events() {
+                let event_cache_store =
+                    get_event_cache_store().await.unwrap().into_event_cache_store();
+                event_cache_store.test_save_events_and_find_events().await;
             }
 
             #[async_test]

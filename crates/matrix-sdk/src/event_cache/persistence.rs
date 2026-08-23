@@ -20,13 +20,14 @@ use matrix_sdk_base::{
     executor::spawn,
     linked_chunk::{ChunkMetadata, LinkedChunkId, OwnedLinkedChunkId, Update},
 };
-use ruma::{EventId, RoomId, events::relation::RelationType, serde::Raw};
+use ruma::{EventId, OwnedEventId, RoomId, events::relation::RelationType, serde::Raw};
 use tracing::trace;
 
 use super::{
     EventCacheError, Result,
     caches::{
-        EventLocation, event_linked_chunk::EventLinkedChunk,
+        EventLocation,
+        event_linked_chunk::EventLinkedChunk,
         room::{LinkedChunkUpdateFanout, RoomEventCacheLinkedChunkUpdate},
     },
 };
@@ -287,6 +288,40 @@ pub async fn find_event(
     }
 
     Ok(store.find_event(room_id, event_id).await?.map(|event| (EventLocation::Store, event)))
+}
+
+/// Find several events, first in-memory, then in-store: one pass over the
+/// in-memory linked chunk and one store query, whatever the count. The
+/// events found, in no particular order.
+pub async fn find_events(
+    event_ids: &[OwnedEventId],
+    room_id: &RoomId,
+    event_linked_chunk: &EventLinkedChunk,
+    store: &EventCacheStoreLockGuard,
+) -> Result<Vec<(EventLocation, Event)>> {
+    let mut wanted: HashSet<&EventId> = event_ids.iter().map(AsRef::as_ref).collect();
+    let mut found = Vec::with_capacity(event_ids.len());
+
+    for (position, event) in event_linked_chunk.revents() {
+        if let Some(event_id) = event.event_id()
+            && wanted.remove(&event_id)
+        {
+            found.push((EventLocation::Memory(position), event.clone()));
+        }
+    }
+
+    if !wanted.is_empty() {
+        let remaining: Vec<_> = wanted.into_iter().map(ToOwned::to_owned).collect();
+        found.extend(
+            store
+                .find_events(room_id, &remaining)
+                .await?
+                .into_iter()
+                .map(|event| (EventLocation::Store, event)),
+        );
+    }
+
+    Ok(found)
 }
 
 /// Find an event and all its relations in the persisted storage.

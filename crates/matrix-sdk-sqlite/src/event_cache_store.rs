@@ -1967,6 +1967,49 @@ impl EventCacheStore for SqliteEventCacheStore {
             .await
     }
 
+    async fn find_events(
+        &self,
+        _room_id: &RoomId,
+        event_ids: &[OwnedEventId],
+    ) -> Result<Vec<Event>, Self::Error> {
+        let _timer = timer!("method");
+
+        let encryption = self.encryption.clone();
+        let hashed_event_ids = event_ids
+            .iter()
+            .map(|event_id| self.encryption.encode_event_id(keys::EVENTS, event_id))
+            .collect::<Vec<_>>();
+
+        self.read()
+            .await?
+            .with_transaction(move |txn| -> Result<_> {
+                let mut events = Vec::with_capacity(hashed_event_ids.len());
+                // Below SQLite's default parameter limit. No `room_id = ?`
+                // term: event ids are primary keys, and the extra term makes
+                // the planner walk the room instead (see `load_events_by_refs`).
+                for chunk in hashed_event_ids.chunks(500) {
+                    let query = format!(
+                        "SELECT content FROM events WHERE event_id IN ({})",
+                        repeat_vars(chunk.len())
+                    );
+                    let parameters = params_from_iter(
+                        chunk
+                            .iter()
+                            .map(|id| id.to_sql().expect("a key converts to a SQLite value")),
+                    );
+                    let contents = txn
+                        .prepare(&query)?
+                        .query_map(parameters, |row| row.get::<_, Vec<u8>>(0))?
+                        .collect::<rusqlite::Result<Vec<_>>>()?;
+                    for content in contents {
+                        events.push(encryption.decode_event(&content)?);
+                    }
+                }
+                Ok(events)
+            })
+            .await
+    }
+
     #[instrument(skip(self, event_id, filters))]
     async fn find_event_relations(
         &self,
@@ -2448,43 +2491,65 @@ impl EventCacheStore for SqliteEventCacheStore {
 
     #[instrument(skip(self, event))]
     async fn save_event(&self, room_id: &RoomId, event: Event) -> Result<(), Self::Error> {
+        self.save_events(room_id, vec![event]).await
+    }
+
+    async fn save_events(&self, room_id: &RoomId, events: Vec<Event>) -> Result<(), Self::Error> {
         let _timer = timer!("method");
 
-        let Some(event_id) = event.event_id() else {
-            error!("Trying to save an event with no ID");
-            return Ok(());
-        };
-
-        let Some(event_type) = event.kind.event_type() else {
-            error!(%event_id, "Trying to save an event with no event type");
-            return Ok(());
-        };
-
-        let hashed_event_type = self.encryption.encode_key(keys::EVENTS, &event_type);
-        let hashed_session_id =
-            event.kind.session_id().map(|s| self.encryption.encode_key(keys::EVENTS, s));
-
         let hashed_room_id = self.encryption.encode_room_id(keys::EVENTS, room_id);
-        let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
-        let encoded_event = self.encryption.encode_event(&event, &event_type)?;
 
+        let mut encoded_events = Vec::with_capacity(events.len());
+        for event in events {
+            let Some(event_id) = event.event_id() else {
+                error!("Trying to save an event with no ID");
+                continue;
+            };
+
+            let Some(event_type) = event.kind.event_type() else {
+                error!(%event_id, "Trying to save an event with no event type");
+                continue;
+            };
+
+            let hashed_event_type = self.encryption.encode_key(keys::EVENTS, &event_type);
+            let hashed_session_id =
+                event.kind.session_id().map(|s| self.encryption.encode_key(keys::EVENTS, s));
+            let hashed_event_id = self.encryption.encode_event_id(keys::EVENTS, event_id);
+            let encoded_event = self.encryption.encode_event(&event, &event_type)?;
+
+            encoded_events.push((
+                hashed_event_id,
+                hashed_event_type,
+                hashed_session_id,
+                encoded_event,
+            ));
+        }
+
+        if encoded_events.is_empty() {
+            return Ok(());
+        }
+
+        // One transaction for the lot: the redecryptor saves events by the
+        // hundred, and a transaction (WAL write) per event dominated its cost.
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<_> {
-                txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, msgtype) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        &hashed_room_id,
-                        &hashed_event_id,
-                        hashed_event_type,
-                        hashed_session_id,
-                        encoded_event.content,
-                        encoded_event.relates_to,
-                        encoded_event.rel_type,
-                        encoded_event.msgtype,
-                    )
-                )?;
-                txn.insert_event_media(&hashed_room_id, &hashed_event_id, &encoded_event.media_uris)?;
+                for (hashed_event_id, hashed_event_type, hashed_session_id, encoded_event) in encoded_events {
+                    txn.execute(
+                        "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, msgtype) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            &hashed_room_id,
+                            &hashed_event_id,
+                            hashed_event_type,
+                            hashed_session_id,
+                            encoded_event.content,
+                            encoded_event.relates_to,
+                            encoded_event.rel_type,
+                            encoded_event.msgtype,
+                        )
+                    )?;
+                    txn.insert_event_media(&hashed_room_id, &hashed_event_id, &encoded_event.media_uris)?;
+                }
 
                 Ok(())
             })
