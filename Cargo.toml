@@ -101,6 +101,7 @@ serde = { version = "1.0.229", default-features = false, features = ["std", "rc"
 serde_bytes = { version = "0.11.19", default-features = false, features = ["std"] }
 serde_html_form = { version = "0.4.1", default-features = false }
 serde_json = { version = "1.0.151", default-features = false, features = ["std"] }
+zstd = { version = "0.13.2", default-features = false }
 sha2 = "0.11.0"
 similar-asserts = { version = "2.0.0", default-features = false }
 stream_assert = { version = "0.1.1", default-features = false }

@@ -61,7 +61,7 @@
 //! subscribes to [`RedecryptorReport`] stream.
 //!
 //! ```markdown
-//! 
+//!
 //!      .----------------------.
 //!     |                        |
 //!     |      Beeb, boop!       |

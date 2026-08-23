@@ -281,6 +281,10 @@ pub(crate) async fn initialize_store(conn: &SqliteAsyncConn, version: u8) -> Res
         debug!("Creating database");
         // First turn on WAL mode, this can't be done in the transaction, it fails with
         // the error message: "cannot change into wal mode from within a transaction".
+        // A 16 KB page keeps rows that would spill a 4 KB page (most event/state rows
+        // exceed ~1 KB) in-page, roughly halving the file. Set before WAL and any table,
+        // the only time it takes effect on a fresh database.
+        conn.execute_batch("PRAGMA page_size = 16384;").await?;
         conn.execute_batch("PRAGMA journal_mode = wal;").await?;
         conn.with_transaction(|txn| {
             txn.execute_batch(include_str!("../migrations/crypto_store/001_init.sql"))?;

@@ -202,7 +202,26 @@ pub(crate) trait SqliteAsyncConnExt {
     async fn vacuum(&self) -> Result<()> {
         // Truncate the WAL file before vacuuming so it has room to grow.
         self.wal_checkpoint().await;
-        if let Err(error) = self.execute_batch("VACUUM").await {
+        // Bring an existing 4 KB database up to the 16 KB page size new ones are
+        // created with: page_size only takes on the next VACUUM, and only outside
+        // WAL, so drop to a rollback journal for the VACUUM and restore WAL after.
+        // Best-effort: any step failing leaves the size unchanged, not the mode.
+        let page_size: u32 = self
+            .query_row("PRAGMA page_size;", (), |row| row.get(0))
+            .await
+            .unwrap_or(TARGET_PAGE_SIZE);
+        let converting = page_size != TARGET_PAGE_SIZE;
+        if converting {
+            let _ = self.execute_batch("PRAGMA journal_mode = DELETE;").await;
+            let _ = self
+                .execute_batch(format!("PRAGMA page_size = {TARGET_PAGE_SIZE};"))
+                .await;
+        }
+        let vacuum_result = self.execute_batch("VACUUM").await;
+        if converting {
+            let _ = self.execute_batch("PRAGMA journal_mode = wal;").await;
+        }
+        if let Err(error) = vacuum_result {
             // Since this is an optimisation step, do not propagate the error
             // but log it.
             #[cfg(not(any(test, debug_assertions)))]
@@ -700,6 +719,50 @@ fn fast_open_key(passphrase: &str) -> Box<[u8; 32]> {
     key
 }
 
+/// The magic bytes at the start of a zstd frame (little-endian 0xFD2FB528). A
+/// stored value that begins with these was compressed by [`maybe_compress`];
+/// one that doesn't (a small value, or a row written before compression was
+/// added) is passed through untouched, so the change needs no migration.
+const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+
+/// Values below this aren't worth compressing (the frame overhead dominates and
+/// they already fit comfortably within a page).
+const COMPRESS_THRESHOLD: usize = 256;
+
+/// zstd level: 3 (the library default) is ~500 MB/s and gives most of the ratio;
+/// the stores are not CPU-bound on this.
+const ZSTD_LEVEL: i32 = 3;
+
+/// The page size new databases are created with (see the note in `vacuum`).
+const TARGET_PAGE_SIZE: u32 = 16384;
+
+/// Compresses the value if it's big enough and actually shrinks (incompressible
+/// data, e.g. already-compressed media, is kept raw). The zstd frame's own magic
+/// marks a compressed value; a raw value never starts with it (msgpack maps,
+/// JSON and UTF-8 strings all begin with other bytes).
+fn maybe_compress(value: Vec<u8>) -> Vec<u8> {
+    if value.len() < COMPRESS_THRESHOLD {
+        return value;
+    }
+    match zstd::stream::encode_all(value.as_slice(), ZSTD_LEVEL) {
+        Ok(compressed) if compressed.len() < value.len() => compressed,
+        _ => value,
+    }
+}
+
+/// Reverses [`maybe_compress`]: decompresses when the value is a zstd frame,
+/// borrows it otherwise. A false-positive magic on incompressible raw data that
+/// happens to start with the frame bytes fails to decompress and is returned as-is.
+fn maybe_decompress(value: &[u8]) -> Result<Cow<'_, [u8]>> {
+    if value.len() >= 4 && value[..4] == ZSTD_MAGIC {
+        match zstd::stream::decode_all(value) {
+            Ok(decompressed) => return Ok(Cow::Owned(decompressed)),
+            Err(_) => return Ok(Cow::Borrowed(value)),
+        }
+    }
+    Ok(Cow::Borrowed(value))
+}
+
 /// Trait for a store that can encrypt its values, based on the presence of a
 /// cipher or not.
 ///
@@ -728,11 +791,15 @@ pub(crate) trait EncryptableStore {
     where
         V: EncryptableValue + Into<Vec<u8>>,
     {
+        // Compress before encrypting (ciphertext is incompressible). Event JSON and
+        // msgpack shrink 3-5x; the store's rows are mostly > 1 KB, so most cross the
+        // page's overflow threshold and cost extra pages without this.
+        let value = maybe_compress(value.into());
         if let Some(key) = self.get_cypher() {
             let encrypted = key.encrypt_value_data(value)?;
             Ok(rmp_serde::to_vec_named(&encrypted)?)
         } else {
-            Ok(value.into())
+            Ok(value)
         }
     }
 
@@ -740,9 +807,9 @@ pub(crate) trait EncryptableStore {
         if let Some(key) = self.get_cypher() {
             let encrypted = rmp_serde::from_slice(value)?;
             let decrypted = key.decrypt_value_data(encrypted)?;
-            Ok(Cow::Owned(decrypted))
+            Ok(Cow::Owned(maybe_decompress(&decrypted)?.into_owned()))
         } else {
-            Ok(Cow::Borrowed(value))
+            maybe_decompress(value)
         }
     }
 
@@ -818,5 +885,29 @@ mod unit_tests {
 
         // Fallback value on overflow.
         assert_eq!(time_to_timestamp(SystemTime::UNIX_EPOCH - Duration::from_secs(60)), 0);
+    }
+
+    #[test]
+    fn test_compress_roundtrip_and_passthrough() {
+        // Compressible payload over the threshold: shrinks, gets the zstd magic, round-trips.
+        let big = "the lazy dog. ".repeat(200).into_bytes();
+        let encoded = maybe_compress(big.clone());
+        assert!(encoded.len() < big.len());
+        assert_eq!(encoded[..4], ZSTD_MAGIC);
+        assert_eq!(maybe_decompress(&encoded).unwrap().as_ref(), big.as_slice());
+
+        // Small payload: kept raw (no magic), still round-trips.
+        let small = b"hi".to_vec();
+        let encoded = maybe_compress(small.clone());
+        assert_eq!(encoded, small);
+        assert_eq!(maybe_decompress(&encoded).unwrap().as_ref(), small.as_slice());
+
+        // Incompressible payload over the threshold: kept raw rather than grown.
+        let noise: Vec<u8> = (0..1024u32).map(|i| i.wrapping_mul(2654435761).to_le_bytes()[0]).collect();
+        assert!(maybe_compress(noise.clone()).len() <= noise.len() + 4);
+
+        // A pre-compression row (raw msgpack/JSON, no magic) passes through untouched.
+        let legacy = br#"{"body":"hello"}"#.to_vec();
+        assert_eq!(maybe_decompress(&legacy).unwrap().as_ref(), legacy.as_slice());
     }
 }
