@@ -358,13 +358,6 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             }
         }
 
-        // Announce the reloaded events to observers; in storage-only mode,
-        // observers render the gaps too, and a reloaded gap chunk has no event
-        // diff of its own (see `send_timeline_updates`).
-        if mode == PaginationMode::StorageOnly {
-            state.announce_timeline_gaps();
-        }
-
         let timeline_event_diffs = state.thread_linked_chunk_mut().updates_as_vector_diffs();
 
         state.send_timeline_updates(

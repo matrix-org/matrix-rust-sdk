@@ -299,7 +299,11 @@ async fn test_deduplication() {
 
     thread_event_cache.pagination().run_backwards_once(42).await.unwrap();
 
-    // The events were already known, so the stream is still empty.
+    // The events were already known, so no event diff; but parking the token
+    // in front of the oldest known event changed the gaps snapshot, which is
+    // announced as an empty update for observers to pull.
+    assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+    assert!(diffs.is_empty());
     assert!(thread_stream.is_empty());
 }
 
@@ -1453,9 +1457,12 @@ async fn test_pagination_from_the_end_progresses_past_known_events() {
 
     let outcome = thread_event_cache.pagination().run_backwards_once(2).await.unwrap();
     // That's not the start of the thread: the token is kept, parked in front of
-    // the oldest known event, for the next pagination to follow.
+    // the oldest known event, for the next pagination to follow. No event
+    // diff, but the new parked gap is announced as an empty update.
     assert!(!outcome.reached_start);
     assert!(outcome.events.is_empty());
+    assert_let_timeout!(Ok(TimelineVectorDiffs { diffs, .. }) = thread_stream.recv());
+    assert!(diffs.is_empty());
     assert!(thread_stream.is_empty());
     assert_eq!(
         thread_event_cache.timeline_gaps().await.unwrap(),

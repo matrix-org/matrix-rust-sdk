@@ -89,12 +89,6 @@ pub struct ThreadEventCacheState {
     /// that upon clearing the timeline events.
     waited_for_initial_prev_token: bool,
 
-    /// Whether observers have been told about timeline gaps, i.e. whether a
-    /// storage-only pagination has run on this thread. From then on, a change
-    /// of gaps that comes with no event diff is announced too; see
-    /// [`StateLockWriteGuard::send_timeline_updates`].
-    gaps_announced: bool,
-
     /// The timeline-gaps snapshot as of the last update sent to observers (who
     /// pull the snapshot alongside every update they receive), to detect
     /// changes.
@@ -184,7 +178,6 @@ impl ThreadEventCacheState {
             update_sender,
             linked_chunk_update_sender,
             waited_for_initial_prev_token: false,
-            gaps_announced: false,
             last_sent_timeline_gaps: Vec::new(),
             subscribers_handle: SubscribersHandle::default(),
         })
@@ -439,13 +432,6 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         &mut self.state.waited_for_initial_prev_token
     }
 
-    /// Mark that observers are being told about timeline gaps (a storage-only
-    /// pagination ran), so that gap changes without event diffs get announced
-    /// from now on.
-    pub fn announce_timeline_gaps(&mut self) {
-        self.state.gaps_announced = true;
-    }
-
     /// Send `diffs` to observers, as a [`TimelineVectorDiffs`] update.
     ///
     /// Observers pull the gaps snapshot
@@ -453,8 +439,10 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
     /// they receive, so this is also the place where a change of gaps that
     /// comes with no event diff at all (a gap chunk loaded from the storage,
     /// a gap resolved to already-known events only) gets announced, as an
-    /// empty update; only once observers have been told about gaps, see
-    /// [`Self::announce_timeline_gaps`].
+    /// empty update. Always: observers learn about gaps by pulling the
+    /// snapshot (a storage-only timeline pulls it at init), so a rendered
+    /// gap item can go stale on any suppressed change; observers that don't
+    /// render gaps no-op on an empty update.
     pub fn send_timeline_updates(
         &mut self,
         diffs: Vec<VectorDiff<Event>>,
@@ -465,7 +453,7 @@ impl<'a> StateLockWriteGuard<'a, ThreadEventCacheState> {
         let gaps_changed = gaps != self.state.last_sent_timeline_gaps;
         self.state.last_sent_timeline_gaps = gaps;
 
-        if diffs.is_empty() && !(gaps_changed && self.state.gaps_announced) {
+        if diffs.is_empty() && !gaps_changed {
             return;
         }
 
