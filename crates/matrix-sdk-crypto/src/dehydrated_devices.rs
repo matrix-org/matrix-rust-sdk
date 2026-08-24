@@ -193,7 +193,24 @@ impl DehydratedDevices {
             dehydrated_device_pickle_key: Some(dehydrated_device_pickle_key.clone()),
             ..Default::default()
         };
-        Ok(self.inner.store().save_changes(changes).await?)
+        self.inner.store().save_changes(changes).await?;
+
+        // Gossip the dehydration key to our other verified devices so they converge on
+        // it without having to re-read Secret Storage (element-meta#2753).
+        // Best-effort: a failure here (e.g. no verified devices) must not fail
+        // the save.
+        #[cfg(feature = "experimental-push-secrets")]
+        if let Err(error) = self
+            .inner
+            .push_secret_to_verified_devices(ruma::events::secret::request::SecretName::from(
+                DEHYDRATED_DEVICE_PICKLE_KEY_SECRET_NAME,
+            ))
+            .await
+        {
+            tracing::warn!(?error, "Failed to gossip the dehydration key to verified devices");
+        }
+
+        Ok(())
     }
 
     /// Deletes the previously stored dehydrated device pickle key.
