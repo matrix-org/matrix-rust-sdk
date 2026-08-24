@@ -154,6 +154,14 @@ where
     /// This must only be used when the updates do not affect the observed
     /// linked chunk, but would affect the fully-loaded collection.
     pub fn map_updates(&mut self, updates: &[Update<Item, Gap>]) {
+        // Synchronize with the in-band updates first: the given out-of-band
+        // updates may refer to chunks which have been created by in-band
+        // updates that haven't been consumed yet (e.g. a chunk created by a
+        // sync, while the tracker is only flushed on ordering queries and
+        // shrinks). Mapping onto a stale mapper panics with "The chunk is not
+        // found". See https://github.com/matrix-org/matrix-rust-sdk/issues/5416.
+        self.flush_updates(false);
+
         let _ = self.mapper.map(updates);
     }
 
@@ -539,6 +547,45 @@ mod tests {
             assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 0)), None);
             assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(3), 0)), None);
         }
+    }
+
+    /// Regression test for the single-process variant of
+    /// https://github.com/matrix-org/matrix-rust-sdk/issues/5416.
+    ///
+    /// [`OrderTracker::map_updates`] is used by the event cache to apply
+    /// store-only updates (e.g. removals of deduplicated events living in the
+    /// store) to the ordering tracker. If the linked chunk received in-band
+    /// updates which created a new chunk since the last flush, and a
+    /// store-only update refers to that chunk, the mapper doesn't know the
+    /// chunk yet and panicked with "The chunk is not found" (as_vector.rs).
+    #[async_test]
+    async fn test_map_updates_with_pending_unflushed_updates() {
+        let mut linked_chunk = LinkedChunk::<3, char, ()>::new_with_update_history();
+
+        // The tracker is created while the linked chunk is empty: it only
+        // knows the initial empty chunk 0.
+        let mut tracker = linked_chunk.order_tracker(None).unwrap();
+
+        // In-band updates: push items across the chunk capacity, creating
+        // chunk 1. Those updates are pushed to the tracker's reader queue, but
+        // NOT flushed: in the event cache, flushes only happen on ordering
+        // queries, `updates_as_vector_diffs`, or a shrink.
+        linked_chunk.push_items_back(['a', 'b', 'c', 'd']);
+
+        // Now, apply a store-only update referring to chunk 1, the chunk
+        // created by the yet-unflushed updates. This mimics
+        // `RoomEventCacheState::apply_store_only_updates` mapping a
+        // `RemoveItem` for a deduplicated event. This must not panic.
+        tracker.map_updates(&[Update::RemoveItem {
+            at: Position::new(ChunkIdentifier::new(1), 0),
+        }]);
+
+        // The ordering must reflect both the in-band updates and the
+        // out-of-band removal: 'a', 'b', 'c' are still there, 'd' is gone.
+        tracker.flush_updates(false);
+        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 0)), Some(0));
+        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(0), 2)), Some(2));
+        assert_eq!(tracker.ordering(Position::new(ChunkIdentifier::new(1), 0)), None);
     }
 
     #[async_test]
