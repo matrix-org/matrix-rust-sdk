@@ -19,13 +19,20 @@ use eyeball_im::VectorDiff;
 use futures_util::{FutureExt, StreamExt as _};
 use matrix_sdk_test::{ALICE, BOB, async_test};
 use ruma::{
-    events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
+    events::{
+        AnyMessageLikeEventContent,
+        receipt::{ReceiptThread, ReceiptType},
+        room::message::RoomMessageEventContent,
+    },
     owned_event_id,
 };
 use stream_assert::assert_next_matches;
 
-use super::TestTimeline;
-use crate::timeline::{VirtualTimelineItem, traits::RoomDataProvider as _};
+use super::{TestTimeline, TestTimelineBuilder};
+use crate::timeline::{
+    TimelineReadReceiptTracking, VirtualTimelineItem, controller::TimelineSettings,
+    traits::RoomDataProvider as _,
+};
 
 #[async_test]
 async fn test_date_divider() {
@@ -225,7 +232,80 @@ async fn test_update_read_marker() {
     // Timeline: [date-divider, A, B, C, D,  E, F, G, read-marker, H].
     //                     fully read --^
     let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 8, value } => value);
+
     assert!(marker.is_read_marker());
 
+    assert!(stream.next().now_or_never().is_none());
+}
+
+#[async_test]
+async fn test_read_marker_follows_own_read_receipt() {
+    let timeline = TestTimelineBuilder::new()
+        .settings(TimelineSettings {
+            track_read_receipts: TimelineReadReceiptTracking::AllEvents,
+            ..Default::default()
+        })
+        .build()
+        .await;
+    let mut stream = timeline.subscribe().await;
+
+    let own_user = timeline.controller.room_data_provider.own_user_id().to_owned();
+
+    let f = &timeline.factory;
+
+    // Timeline: [date-divider, A].
+    timeline.handle_live_event(f.text_msg("A").sender(&BOB)).await;
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event_id_a = item.as_event().unwrap().event_id().unwrap().to_owned();
+    let date_divider = assert_next_matches!(stream, VectorDiff::PushFront { value } => value);
+    assert!(date_divider.is_date_divider());
+
+    // Marker would sit at the end, so it's not inserted yet.
+    timeline.controller.handle_fully_read_marker(event_id_a.clone()).await;
+    assert!(stream.next().now_or_never().is_none());
+
+    // Timeline: [date-divider, A, read-marker, B].
+    //            fully read --^
+    timeline.handle_live_event(f.text_msg("B").sender(&BOB)).await;
+    // Bob's implicit read receipt moves from A to B.
+    assert_next_matches!(stream, VectorDiff::Set { index: 1, .. });
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    let event_id_b = item.as_event().unwrap().event_id().unwrap().to_owned();
+    let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 2, value } => value);
+    assert!(marker.is_read_marker());
+
+    // Our own read receipt lands on B, e.g. sent by another client which doesn't
+    // maintain `m.fully_read`. The marker must advance even though `m.fully_read`
+    // still points at A; since B is the last event, it's removed.
+    // Timeline: [date-divider, A, B].
+    //                receipt --------^
+    timeline
+        .handle_read_receipts([(
+            event_id_b,
+            ReceiptType::Read,
+            own_user.clone(),
+            ReceiptThread::Unthreaded,
+        )])
+        .await;
+    assert_next_matches!(stream, VectorDiff::Remove { index: 2 });
+    assert!(stream.next().now_or_never().is_none());
+
+    // Timeline: [date-divider, A, B, read-marker, C].
+    //                receipt -----^
+    // A new event from Bob re-inserts the marker at the receipt's position, not at
+    // the stale fully-read position.
+    timeline.handle_live_event(f.text_msg("C").sender(&BOB)).await;
+    // Bob's implicit read receipt moves from B to C.
+    assert_next_matches!(stream, VectorDiff::Set { index: 2, .. });
+    let item = assert_next_matches!(stream, VectorDiff::PushBack { value } => value);
+    item.as_event().unwrap();
+    let marker = assert_next_matches!(stream, VectorDiff::Insert { index: 3, value } => value);
+    assert!(marker.is_read_marker());
+
+    // A stale own receipt (on A, older than the current position) must not move
+    // the marker backwards.
+    timeline
+        .handle_read_receipts([(event_id_a, ReceiptType::Read, own_user, ReceiptThread::Unthreaded)])
+        .await;
     assert!(stream.next().now_or_never().is_none());
 }

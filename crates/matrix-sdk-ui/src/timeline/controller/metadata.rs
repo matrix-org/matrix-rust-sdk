@@ -276,6 +276,24 @@ impl TimelineMetadata {
             (item.as_event()?.event_id() == Some(fully_read_event)).then_some(idx)
         });
 
+        // Our own read receipt may be more recent than the fully-read marker, e.g. if
+        // it was sent by another client which doesn't maintain `m.fully_read`. The
+        // marker should sit at whichever of the two is later.
+        let own_receipt_idx = self
+            .latest_read_receipt_visible_event_id(
+                &self.own_user_id,
+                items.all_remote_events(),
+            )
+            .and_then(|receipt_event_id| {
+                items.iter_remotes_region().rev().find_map(|(idx, item)| {
+                    (item.as_event()?.event_id() == Some(&receipt_event_id)).then_some(idx)
+                })
+            });
+        fully_read_event_idx = match (fully_read_event_idx, own_receipt_idx) {
+            (Some(fully_read), Some(receipt)) => Some(fully_read.max(receipt)),
+            (fully_read, receipt) => fully_read.or(receipt),
+        };
+
         if let Some(fully_read_event_idx) = &mut fully_read_event_idx {
             // The item at position `i` is the first item that's fully read, we're about to
             // insert a read marker just after it.

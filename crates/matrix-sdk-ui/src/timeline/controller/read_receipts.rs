@@ -638,6 +638,10 @@ impl<P: RoomDataProvider> TimelineStateTransaction<'_, P> {
                 }
             }
         }
+
+        // An updated own receipt may need to advance the read marker, since the marker
+        // sits at the later of `m.fully_read` and our own read receipt.
+        self.meta.update_read_marker(&mut self.items);
     }
 
     /// Load the read receipts from the store for the given event ID.
@@ -874,17 +878,32 @@ impl<P: RoomDataProvider> TimelineState<P> {
     ) -> Option<OwnedEventId> {
         // We only need to use the local map, since receipts for known events are
         // already loaded from the store.
-        let public_read_receipt = self.meta.read_receipts.get_latest(user_id, &ReceiptType::Read);
-        let private_read_receipt =
-            self.meta.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
+        self.meta.latest_read_receipt_visible_event_id(user_id, self.items.all_remote_events())
+    }
+}
 
-        // Let's assume that a private read receipt should be more recent than a public
-        // read receipt, otherwise there's no point in the private read receipt,
-        // and use it as default.
-        let (latest_receipt_id, _) = match TimelineMetadata::compare_optional_receipts(
+impl TimelineMetadata {
+    /// Get the ID of the visible timeline event holding the given user's
+    /// latest read receipt, from the in-memory receipt caches only.
+    ///
+    /// Used (with our own user) to make the read marker take our own read
+    /// receipt into account, so that a receipt sent by another client (which
+    /// may never update `m.fully_read`) still advances the marker.
+    pub(super) fn latest_read_receipt_visible_event_id(
+        &self,
+        user_id: &UserId,
+        all_remote_events: &AllRemoteEvents,
+    ) -> Option<OwnedEventId> {
+        let public_read_receipt = self.read_receipts.get_latest(user_id, &ReceiptType::Read);
+        let private_read_receipt =
+            self.read_receipts.get_latest(user_id, &ReceiptType::ReadPrivate);
+
+        // Assume a private read receipt is more recent than a public one (otherwise
+        // there's no point in the private read receipt), and use it as the default.
+        let (latest_receipt_id, _) = match Self::compare_optional_receipts(
             public_read_receipt,
             private_read_receipt,
-            self.items.all_remote_events(),
+            all_remote_events,
         ) {
             Ordering::Greater => public_read_receipt?,
             Ordering::Less => private_read_receipt?,
@@ -892,17 +911,14 @@ impl<P: RoomDataProvider> TimelineState<P> {
         };
 
         // Find the corresponding visible event.
-        self.items
-            .all_remote_events()
+        all_remote_events
             .iter()
             .rev()
             .skip_while(|ev| ev.event_id != *latest_receipt_id)
             .find(|ev| ev.visible && ev.can_show_read_receipts)
             .map(|ev| ev.event_id.clone())
     }
-}
 
-impl TimelineMetadata {
     /// Get the latest receipt of the given type for the given user in the
     /// timeline.
     ///
