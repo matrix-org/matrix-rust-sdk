@@ -18,10 +18,10 @@ use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
 use matrix_sdk_base::{
     event_cache::{Event, Gap},
-    linked_chunk::{ChunkContent, LinkedChunkId, Update},
+    linked_chunk::{ChunkContent, ChunkIdentifier, LinkedChunkId, Update},
 };
 use ruma::{EventId, api::Direction};
-use tracing::{error, trace};
+use tracing::{error, info, trace};
 
 use super::{
     super::{
@@ -136,7 +136,7 @@ impl ThreadPagination {
 
         // Deduplicate concurrent resolutions of the same gap.
         let Some(_in_flight) = wrapper.cache.gap_resolutions_in_flight.begin(&prev_token) else {
-            trace!("gap resolution already in flight, skipping");
+            info!("THREADPAG resolve: gap resolution already in flight, skipping");
             return Ok(false);
         };
 
@@ -152,7 +152,7 @@ impl ThreadPagination {
             .iter()
             .any(|gap| gap.prev_token == prev_token)
         {
-            trace!("gap is unknown (already resolved?), skipping");
+            info!("THREADPAG resolve: gap is unknown (already resolved?), skipping");
             return Ok(false);
         }
 
@@ -170,6 +170,20 @@ impl ThreadPagination {
             .await?
             .is_some())
     }
+}
+
+/// Whether the given gap chunk leads the loaded part of the thread, i.e. no
+/// event is loaded before it.
+fn gap_leads(thread_linked_chunk: &EventLinkedChunk, gap_id: ChunkIdentifier) -> bool {
+    for chunk in thread_linked_chunk.chunks() {
+        if chunk.identifier() == gap_id {
+            return true;
+        }
+        if matches!(chunk.content(), ChunkContent::Items(items) if !items.is_empty()) {
+            return false;
+        }
+    }
+    false
 }
 
 /// Whether the thread root leads the loaded part of the thread, i.e. is its
@@ -241,7 +255,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 // round 33). Storage-only mode only: in the historical mode, the
                 // `rgap` early-return above fires first.
                 if state.thread_linked_chunk().first_chunk_as_gap().is_some() {
-                    trace!("thread chunk is fully loaded with a leading gap: reached_start=true");
+                    info!("THREADPAG load: fully loaded with a leading gap: reached_start=true");
 
                     return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
                 }
@@ -254,7 +268,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 // start only once no gap is left (same rule as
                 // `push_backwards_pagination_events`' `!has_gaps`).
                 if let Some(prev_token) = state.thread_linked_chunk().first_gap_token() {
-                    trace!("thread chunk is fully loaded but a gap remains: resolving it");
+                    info!("THREADPAG load: fully loaded but a gap remains: resolving it");
 
                     return Ok(LoadMoreEventsBackwardsOutcome::ResolveGap { prev_token });
                 }
@@ -262,14 +276,15 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 // If the first in-memory event is the thread root, it's all good, we have
                 // effectively reached the start of the thread.
                 if root_leads(state.thread_linked_chunk(), &self.cache.thread_id) {
-                    trace!(
-                        "thread chunk is fully loaded and starts with the root: reached_start=true"
+                    info!(
+                        "THREADPAG load: fully loaded and starts with the root: reached_start=true"
                     );
 
                     return Ok(LoadMoreEventsBackwardsOutcome::StartOfTimeline);
                 }
 
                 // Otherwise, start back-pagination from the end of the thread.
+                info!("THREADPAG load: fully loaded, rootless and gap-free: paginating from the end");
                 return Ok(LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token: None,
                     waited_for_initial_prev_token,
@@ -337,7 +352,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         if matches!(chunk_content, ChunkContent::Gap(_))
             && root_leads(state.thread_linked_chunk(), &self.cache.thread_id)
         {
-            trace!("dropping a gap that sits before the thread root");
+            info!("THREADPAG load: dropping a gap that sits before the thread root");
 
             if let Err(err) = state.thread_linked_chunk_mut().remove_gap_at(loaded_chunk_id) {
                 // Non-fatal: fall through to the normal path (surface the gap),
@@ -371,7 +386,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
 
         Ok(match chunk_content {
             ChunkContent::Gap(gap) => {
-                trace!("reloaded chunk from disk (gap)");
+                info!("THREADPAG load: reloaded chunk from disk (gap)");
 
                 LoadMoreEventsBackwardsOutcome::Gap {
                     prev_token: Some(gap.token),
@@ -380,7 +395,7 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             }
 
             ChunkContent::Items(events) => {
-                trace!(?reached_start, "reloaded chunk from disk ({} items)", events.len());
+                info!(?reached_start, "THREADPAG load: reloaded chunk from disk ({} items)", events.len());
 
                 LoadMoreEventsBackwardsOutcome::Events {
                     events,
@@ -531,6 +546,28 @@ impl PaginatedCache for ThreadEventCacheWrapper {
             state
                 .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
                 .await?;
+        } else if prev_gap_id.is_some_and(|gap_id| gap_leads(state.thread_linked_chunk(), gap_id))
+            && !root_leads(state.thread_linked_chunk(), &self.cache.thread_id)
+        {
+            // All the events are duplicated, but the resolved gap LEADS the
+            // thread and the root doesn't: the overlap only proves the known
+            // events connect to the gap's position, not that the history
+            // behind the token has been seen - in particular the thread root,
+            // which `/relations` never returns and which is only fetched once
+            // a page comes back without a next-batch token. Ditching the gap
+            // here would strand the thread: the leading gap's item was the
+            // affordance for reaching the rest of the thread (clients stop
+            // paginating once the start was claimed), so nothing would ever
+            // fetch the root. Keep walking instead: migrate the duplicates
+            // into the gap's position (keeping their order) and follow the
+            // token; the final page brings the root to the head.
+            info!(
+                remaining_token = ?new_token,
+                "THREADPAG conclude: all-duplicates page on the leading gap, keeping the token"
+            );
+            state
+                .remove_events(in_memory_duplicated_event_ids, in_store_duplicated_event_ids)
+                .await?;
         } else {
             // All new events are duplicated, they can all be ignored.
             events.clear();
@@ -557,6 +594,15 @@ impl PaginatedCache for ThreadEventCacheWrapper {
         // `/relations` has been called with `dir=b` (backwards), so the events are in
         // the inverted order; reorder them.
         let topo_ordered_events = events.iter().rev().cloned().collect::<Vec<_>>();
+
+        info!(
+            ?prev_token,
+            ?new_token,
+            from_the_end,
+            all_duplicates,
+            num_events = events.len(),
+            "THREADPAG conclude: applying a network pagination"
+        );
 
         let new_gap = new_token.map(|prev_token| Gap { token: prev_token });
         let reached_start = state.thread_linked_chunk_mut().push_backwards_pagination_events(
@@ -588,6 +634,8 @@ impl PaginatedCache for ThreadEventCacheWrapper {
                 origin: EventsOrigin::Pagination,
             }),
         );
+
+        info!(reached_start, "THREADPAG conclude: done");
 
         Ok(Some(BackPaginationOutcome { reached_start, events }))
     }

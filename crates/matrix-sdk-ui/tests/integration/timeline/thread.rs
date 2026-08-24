@@ -252,12 +252,16 @@ async fn test_thread_backpagination() {
 }
 
 #[async_test]
-async fn test_thread_gap_resolving_to_known_events_removes_the_gap_item() {
-    // Regression test: a thread gap resolved entirely to already-known events
-    // changes the gaps snapshot without producing a single event diff. That
-    // change must still reach the timeline, or the rendered gap item goes
-    // stale: the client keeps resolving a token the cache no longer knows,
-    // spinning forever (dogfood round 70).
+async fn test_leading_thread_gap_keeps_walking_to_the_root() {
+    // Regression test (dogfood round 70): a leading thread gap resolved
+    // entirely to already-known events must not be ditched - the root (never
+    // returned by `/relations`) hasn't been seen, and the gap item is the
+    // client's only affordance for reaching it once the start was claimed
+    // (storage exhausted). The gap keeps walking, page by page, until a page
+    // without a next-batch token brings the root; only then does the timeline
+    // start item appear. Each gap change (even without event diffs) must
+    // reach the timeline, or the rendered gap item goes stale and the client
+    // re-resolves an unknown token forever.
 
     let server = MatrixMockServer::new().await;
     let client = client_with_threading_support(&server).await;
@@ -268,31 +272,30 @@ async fn test_thread_gap_resolving_to_known_events_removes_the_gap_item() {
 
     let f = EventFactory::new().room(room_id).sender(*ALICE);
 
-    // A first sync brings one thread reply: the thread chunk is `[$1]`.
+    // A first sync brings a thread reply with a prev-batch token: the thread
+    // chunk is `[gap "pb1"] [$1]` (threads inherit the room's token).
     let room = server
-        .sync_room(
-            &client,
-            JoinedRoomBuilder::new(room_id).add_timeline_event(
-                f.text_msg("first reply")
-                    .in_thread(&thread_root, &thread_root)
-                    .event_id(event_id!("$1")),
-            ),
-        )
-        .await;
-
-    // A second sync brings another reply with a prev-batch token: the thread
-    // chunk becomes `[$1] [gap "pb1"] [$2]` (threads inherit the room's
-    // token). Not limited, so nothing is shrunk to the last chunk.
-    server
         .sync_room(
             &client,
             JoinedRoomBuilder::new(room_id)
                 .add_timeline_event(
-                    f.text_msg("second reply")
-                        .in_thread(&thread_root, event_id!("$1"))
-                        .event_id(event_id!("$2")),
+                    f.text_msg("first reply")
+                        .in_thread(&thread_root, &thread_root)
+                        .event_id(event_id!("$1")),
                 )
                 .set_timeline_prev_batch("pb1".to_owned()),
+        )
+        .await;
+
+    // A second sync brings another reply: `[gap "pb1"] [$1] [$2]`.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("second reply")
+                    .in_thread(&thread_root, event_id!("$1"))
+                    .event_id(event_id!("$2")),
+            ),
         )
         .await;
 
@@ -305,8 +308,8 @@ async fn test_thread_gap_resolving_to_known_events_removes_the_gap_item() {
 
     let (mut items, mut timeline_stream) = timeline.subscribe().await;
 
-    // The gap between the two replies is rendered (possibly in a follow-up
-    // update: the initial gaps pull races the subscription).
+    // The leading gap is rendered (possibly in a follow-up update: the
+    // initial gaps pull races the subscription).
     while !items.iter().any(|item| item.is_gap()) {
         assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
         for update in timeline_updates {
@@ -314,11 +317,12 @@ async fn test_thread_gap_resolving_to_known_events_removes_the_gap_item() {
         }
     }
     assert_eq!(items.len(), 4, "{items:?}");
-    assert!(items[2].is_gap(), "{items:?}");
+    assert!(items.iter().all(|item| !item.is_timeline_start()), "{items:?}");
 
     // Resolving the gap returns only the already-known first reply, plus
-    // another token (which is dropped as redundant): the gap goes away with
-    // no event diff at all.
+    // another token: everything is deduplicated, but the root hasn't been
+    // seen, so the gap must keep walking with the new token instead of being
+    // ditched.
     server
         .mock_room_relations()
         .match_target_event(thread_root.clone())
@@ -338,13 +342,52 @@ async fn test_thread_gap_resolving_to_known_events_removes_the_gap_item() {
     let resolved = timeline.resolve_gap("pb1".to_owned(), 10).await.unwrap();
     assert!(resolved);
 
-    // The timeline hears about it and drops the gap item.
+    // The timeline hears about it: still exactly one gap item (now carrying
+    // the new token), both replies still there, still no timeline start.
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
     for update in timeline_updates {
         update.apply(&mut items);
     }
-    assert_eq!(items.len(), 3, "{items:?}");
-    assert!(items.iter().all(|item| !item.is_gap()), "{items:?}");
+    assert_eq!(items.iter().filter(|item| item.is_gap()).count(), 1, "{items:?}");
+    assert!(items.iter().all(|item| !item.is_timeline_start()), "{items:?}");
+    assert_eq!(items.iter().filter(|item| item.as_event().is_some()).count(), 2, "{items:?}");
+
+    // Following the kept token exhausts the thread: no more events, no more
+    // token, so the root is fetched and now leads the thread. The gap goes
+    // away and the timeline start appears.
+    server
+        .mock_room_relations()
+        .match_target_event(thread_root.clone())
+        .match_from("pb2")
+        .ok(RoomRelationsResponseTemplate::default())
+        .mock_once()
+        .mount()
+        .await;
+
+    server
+        .mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("the root").event_id(&thread_root).into())
+        .mock_once()
+        .mount()
+        .await;
+
+    let resolved = timeline.resolve_gap("pb2".to_owned(), 10).await.unwrap();
+    assert!(resolved);
+
+    while items.iter().any(|item| item.is_gap())
+        || !items.iter().any(|item| item.is_timeline_start())
+    {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+        }
+    }
+
+    // [timeline start] [date divider] [root] [$1] [$2].
+    assert_eq!(items.len(), 5, "{items:?}");
+    assert!(items[0].is_timeline_start(), "{items:?}");
+    assert_eq!(items[2].as_event().unwrap().event_id(), Some(&*thread_root));
 }
 
 #[async_test]

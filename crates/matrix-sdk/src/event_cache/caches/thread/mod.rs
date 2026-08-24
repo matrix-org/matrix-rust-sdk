@@ -171,8 +171,27 @@ impl ThreadEventCache {
     /// triggers side-effects.
     pub async fn subscribe(&self) -> Result<(Vec<Event>, Subscriber<TimelineVectorDiffs>)> {
         let state = self.inner.state.read().await?;
-        let events =
+        let events: Vec<Event> =
             state.thread_linked_chunk().events().map(|(_position, item)| item.clone()).collect();
+
+        // TODO: THREADDUMP diagnostics, strip before upstreaming.
+        for chunk in state.thread_linked_chunk().chunks() {
+            match chunk.content() {
+                matrix_sdk_base::linked_chunk::ChunkContent::Gap(gap) => {
+                    tracing::info!(
+                        room_id = %self.inner.room_id, thread_id = %self.inner.thread_id,
+                        "THREADDUMP memory chunk {:?}: gap {:?}", chunk.identifier(), gap.token
+                    );
+                }
+                matrix_sdk_base::linked_chunk::ChunkContent::Items(items) => {
+                    tracing::info!(
+                        room_id = %self.inner.room_id, thread_id = %self.inner.thread_id,
+                        "THREADDUMP memory chunk {:?}: {:?}", chunk.identifier(),
+                        items.iter().map(|event| event.event_id()).collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
 
         let subscribers_handle = state.subscribers_handle();
 
