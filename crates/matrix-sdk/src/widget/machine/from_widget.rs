@@ -62,9 +62,9 @@ pub(super) enum FromWidgetRequest {
     DownloadFile(DownloadFileRequest),
     #[serde(rename = "org.matrix.msc4515.get_rtc_transports")]
     GetRtcTransports {},
-    #[serde(rename = "org.matrix.msc4515.rtc_livekit_get_token")]
+    #[serde(rename = "org.matrix.msc4533.rtc_livekit_get_token")]
     RtcLivekitGetToken(RtcLivekitGetTokenRequest),
-    #[serde(rename = "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave")]
+    #[serde(rename = "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave")]
     RtcLivekitDelegateDelayedLeave(RtcLivekitDelegateDelayedLeaveRequest),
 }
 
@@ -134,6 +134,15 @@ struct FromWidgetError {
 }
 
 /// Serializable section of a widget response that represents a Matrix error.
+///
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533)
+/// (which relies on this to let a widget tell an unsupported endpoint apart
+/// from another kind of failure) specifies this envelope with two additional
+/// fields, `http_headers` and `url`, that are not implemented here. This
+/// applies to every widget action that can report a Matrix API error, not
+/// just the endpoints introduced by MSC4533. Missing `http_status` and
+/// `response.errcode` are already sufficient to detect an unsupported
+/// endpoint, so this is a known gap rather than a blocker.
 #[derive(Serialize)]
 struct FromWidgetMatrixErrorBody {
     /// Status code of the http response.
@@ -164,6 +173,7 @@ impl SupportedApiVersionsResponse {
                 ApiVersion::MSC3819,
                 ApiVersion::MSC4039,
                 ApiVersion::MSC4515,
+                ApiVersion::MSC4533,
             ],
         }
     }
@@ -218,6 +228,11 @@ pub(super) enum ApiVersion {
     /// Supports discovering the RTC transports advertised by the homeserver.
     #[serde(rename = "org.matrix.msc4515")]
     MSC4515,
+
+    /// Supports delegating the LiveKit `get_token` and
+    /// `delegate_delayed_leave` CS API endpoints to the client.
+    #[serde(rename = "org.matrix.msc4533")]
+    MSC4533,
 }
 
 #[derive(Deserialize, Debug)]
@@ -350,14 +365,14 @@ impl FromMatrixDriverResponse for RtcTransportsResponse {
 }
 
 /// Response for a `rtc_livekit_get_token` request. This is a 1:1 copy of the
-/// response body of `POST /_matrix/client/v1/rtc/livekit/get_token`.
-/// <https://github.com/matrix-org/matrix-spec-proposals/pull/4195>
+/// response body of `POST /_matrix/client/v1/rtc/livekit/get_token`
+/// ([MSC4195](https://github.com/matrix-org/matrix-spec-proposals/pull/4195)),
+/// forwarded verbatim as per the widget action defined in
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533).
 #[derive(Clone, Serialize, Debug)]
 pub(crate) struct RtcLivekitGetTokenResponse {
     /// The JWT token to use to authenticate with the LiveKit SFU.
     pub(crate) jwt: String,
-    /// The WebSocket URL of the LiveKit SFU.
-    pub(crate) url: String,
 }
 
 impl FromMatrixDriverResponse for RtcLivekitGetTokenResponse {
@@ -372,10 +387,11 @@ impl FromMatrixDriverResponse for RtcLivekitGetTokenResponse {
     }
 }
 
-/// Response for a `rtc_livekit_delegate_delayed_leave` request.
+/// Response for a `rtc_livekit_delegate_delayed_leave` request, as per the
+/// widget action defined in
+/// [MSC4533](https://github.com/matrix-org/matrix-spec-proposals/pull/4533).
 /// This is intentionally an empty tuple struct (not a unit struct), so that it
 /// serializes to `{}` instead of `Null` when returned to the widget as json.
-/// <https://github.com/matrix-org/matrix-spec-proposals/pull/4195>
 #[derive(Clone, Serialize, Debug)]
 pub(crate) struct RtcLivekitDelegateDelayedLeaveResponse {}
 

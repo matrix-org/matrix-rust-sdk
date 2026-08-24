@@ -67,13 +67,13 @@ pub struct Capabilities {
 
     /// This allows the widget to ask the client to obtain a LiveKit SFU
     /// access token on its behalf, via the
-    /// `/_matrix/client/v1/rtc/livekit/get_token` endpoint, as per MSC4515.
+    /// `/_matrix/client/v1/rtc/livekit/get_token` endpoint, as per MSC4533.
     pub rtc_livekit_get_token: bool,
 
     /// This allows the widget to ask the client to delegate management of a
     /// delayed leave event to the homeserver, via the
     /// `/_matrix/client/v1/rtc/livekit/delegate_delayed_leave` endpoint, as
-    /// per MSC4515.
+    /// per MSC4533.
     pub rtc_livekit_delegate_delayed_leave: bool,
 }
 
@@ -135,9 +135,9 @@ pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed
 pub(super) const DOWNLOAD_FILE: &str = "org.matrix.msc4039.download_file";
 
 pub(super) const RTC_TRANSPORTS: &str = "org.matrix.msc4515.rtc_transports";
-pub(super) const RTC_LIVEKIT_GET_TOKEN: &str = "org.matrix.msc4515.rtc_livekit_get_token";
+pub(super) const RTC_LIVEKIT_GET_TOKEN: &str = "org.matrix.msc4533.rtc_livekit_get_token";
 pub(super) const RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE: &str =
-    "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave";
+    "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave";
 
 impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -383,8 +383,8 @@ mod tests {
             "org.matrix.msc4157.update_delayed_event",
             "org.matrix.msc4039.download_file",
             "org.matrix.msc4515.rtc_transports",
-            "org.matrix.msc4515.rtc_livekit_get_token",
-            "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave"
+            "org.matrix.msc4533.rtc_livekit_get_token",
+            "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave"
         ]"#;
 
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();

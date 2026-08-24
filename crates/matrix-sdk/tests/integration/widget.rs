@@ -54,7 +54,7 @@ use serde_json::{Value as JsonValue, Value, json};
 use tracing::error;
 use wiremock::{
     Mock, Request, ResponseTemplate,
-    matchers::{method, path_regex},
+    matchers::{body_json, method, path_regex},
 };
 
 /// Create a JSON string from a [`json!`][serde_json::json] "literal".
@@ -2156,6 +2156,208 @@ async fn test_get_rtc_transports_falls_back_to_well_known() {
             ]
         })
     );
+}
+
+#[async_test]
+async fn test_rtc_livekit_get_token() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4533.rtc_livekit_get_token"]))
+        .await;
+
+    // The client forwards the widget's `data` verbatim as the request body.
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/unstable/io.element.msc4195/rtc/livekit/get_token$"))
+        .and(body_json(json!({
+            "server_name": "example.com",
+            "url": "ws://livekit.example.com",
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "jwt": "thejwt" })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "get-token",
+        "org.matrix.msc4533.rtc_livekit_get_token",
+        json!({
+            "server_name": "example.com",
+            "url": "ws://livekit.example.com",
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4533.rtc_livekit_get_token");
+    assert_eq!(response["requestId"], "get-token");
+    assert_eq!(response["response"], json!({ "jwt": "thejwt" }));
+}
+
+#[async_test]
+async fn test_rtc_livekit_get_token_without_server_name() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!(["org.matrix.msc4533.rtc_livekit_get_token"]))
+        .await;
+
+    // `server_name` is optional; when the widget omits it the homeserver uses
+    // its own, so it must not be sent as `null` either.
+    Mock::given(method("POST"))
+        .and(path_regex(r"^/_matrix/client/unstable/io.element.msc4195/rtc/livekit/get_token$"))
+        .and(body_json(json!({
+            "url": "ws://livekit.example.com",
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "jwt": "thejwt" })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "get-token",
+        "org.matrix.msc4533.rtc_livekit_get_token",
+        json!({
+            "url": "ws://livekit.example.com",
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["response"], json!({ "jwt": "thejwt" }));
+}
+
+#[async_test]
+async fn test_rtc_livekit_get_token_without_permission() {
+    let (_, _mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(&driver_handle, json!([])).await;
+
+    send_request(
+        &driver_handle,
+        "get-token",
+        "org.matrix.msc4533.rtc_livekit_get_token",
+        json!({
+            "url": "ws://livekit.example.com",
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["action"], "org.matrix.msc4533.rtc_livekit_get_token");
+    assert_eq!(
+        response["response"]["error"]["message"].as_str().unwrap(),
+        "Not allowed: missing the org.matrix.msc4533.rtc_livekit_get_token capability."
+    );
+}
+
+#[async_test]
+async fn test_rtc_livekit_delegate_delayed_leave() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc4533.rtc_livekit_delegate_delayed_leave"]),
+    )
+    .await;
+
+    Mock::given(method("POST"))
+        .and(path_regex(
+            r"^/_matrix/client/unstable/io.element.msc4195/rtc/livekit/delegate_delayed_leave$",
+        ))
+        .and(body_json(json!({
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+            "delay_id": "1234567890",
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "delegate",
+        "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave",
+        json!({
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+            "delay_id": "1234567890",
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["api"], "fromWidget");
+    assert_eq!(response["action"], "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave");
+    assert_eq!(response["requestId"], "delegate");
+    // An empty object, so that the action stays extensible.
+    assert_eq!(response["response"], json!({}));
+}
+
+#[async_test]
+async fn test_rtc_livekit_delegate_delayed_leave_endpoint_unsupported() {
+    let (_, mock_server, driver_handle) = run_test_driver(false, false).await;
+
+    negotiate_capabilities(
+        &driver_handle,
+        json!(["org.matrix.msc4533.rtc_livekit_delegate_delayed_leave"]),
+    )
+    .await;
+
+    // MSC4195 defines no fallback for homeservers that don't implement the
+    // endpoint, so the widget has to tell this case apart from other failures
+    // and keep refreshing the delayed leave event itself.
+    Mock::given(method("POST"))
+        .and(path_regex(
+            r"^/_matrix/client/unstable/io.element.msc4195/rtc/livekit/delegate_delayed_leave$",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+            "errcode": "M_UNRECOGNIZED",
+            "error": "Unrecognized request",
+        })))
+        .expect(1)
+        .mount(mock_server.server())
+        .await;
+
+    send_request(
+        &driver_handle,
+        "delegate",
+        "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave",
+        json!({
+            "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+            "slot_id": "the_id",
+            "member": { "id": "xyzABCDEF10123", "claimed_device_id": "DEVICEID" },
+            "delay_id": "1234567890",
+        }),
+    )
+    .await;
+
+    let response = recv_message(&driver_handle).await;
+    assert_eq!(response["action"], "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave");
+
+    let error = &response["response"]["error"];
+    assert!(error["message"].is_string());
+    assert_eq!(error["matrix_api_error"]["http_status"], 404);
+    assert_eq!(error["matrix_api_error"]["response"]["errcode"], "M_UNRECOGNIZED");
 }
 
 #[async_test]

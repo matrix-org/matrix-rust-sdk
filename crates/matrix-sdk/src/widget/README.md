@@ -9,7 +9,8 @@ following MSC's:
 - [MSC2762: Allowing widgets to send/receive events](https://github.com/matrix-org/matrix-spec-proposals/blob/travis/msc/widgets-send-receive-events/proposals/2762-widget-event-receiving.md)
 - [MSC4157: Delayed Events (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4157)
 - [MSC3819: Allowing widgets to send/receive to-device messages](https://github.com/matrix-org/matrix-spec-proposals/pull/3819)
-- [MSC4515: MatrixRTC-specific widget actions (RTC transports discovery, LiveKit CS API delegation)](https://github.com/matrix-org/matrix-spec-proposals/pull/4515)
+- [MSC4515: RTC transports discovery (widget api)](https://github.com/matrix-org/matrix-spec-proposals/pull/4515)
+- [MSC4533: MatrixRTC widget actions for authenticated LiveKit related endpoints](https://github.com/matrix-org/matrix-spec-proposals/pull/4533)
 
 It supports sending and reading events and provides some rudimentary client
 navigation features. There are some additional actions:

@@ -159,6 +159,7 @@ impl<'de> Deserialize<'de> for IncomingWidgetMessage {
 #[cfg(test)]
 mod tests {
     use assert_matches2::assert_let;
+    use ruma::server_name;
 
     use crate::widget::machine::{
         from_widget::FromWidgetRequest,
@@ -238,7 +239,7 @@ mod tests {
             "api": "fromWidget",
             "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
             "requestId": "generated-id-1234",
-            "action": "org.matrix.msc4515.rtc_livekit_get_token",
+            "action": "org.matrix.msc4533.rtc_livekit_get_token",
             "data": {
                 "server_name": "example.com",
                 "url": "ws://livekit.example.com",
@@ -257,11 +258,10 @@ mod tests {
                 serde_json::from_str::<IncomingWidgetMessage>(raw).unwrap().kind
         );
         assert_let!(
-            FromWidgetRequest::RtcLivekitGetToken(req) =
-                incoming_request.deserialize().unwrap()
+            FromWidgetRequest::RtcLivekitGetToken(req) = incoming_request.deserialize().unwrap()
         );
 
-        assert_eq!(req.server_name.as_deref(), Some("example.com"));
+        assert_eq!(req.server_name.as_deref(), Some(server_name!("example.com")));
         assert_eq!(req.url, "ws://livekit.example.com");
         assert_eq!(req.room_id, "!tDLCaLXijNtYcJZEey:example.com");
         assert_eq!(req.slot_id, "the_id");
@@ -276,7 +276,7 @@ mod tests {
             "api": "fromWidget",
             "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
             "requestId": "generated-id-1234",
-            "action": "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave",
+            "action": "org.matrix.msc4533.rtc_livekit_delegate_delayed_leave",
             "data": {
                 "room_id": "!tDLCaLXijNtYcJZEey:example.com",
                 "slot_id": "the_id",

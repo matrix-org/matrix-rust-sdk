@@ -30,6 +30,7 @@ use ruma::{
         account::request_openid_token::v3::{Request as OpenIdRequest, Response as OpenIdResponse},
         delayed_events::{self, update_delayed_event::UpdateAction},
         filter::RoomEventFilter,
+        rtc::livekit::{delegate_delayed_leave, get_token},
         to_device::send_event_to_device::v3::Request as RumaToDeviceRequest,
     },
     assign,
@@ -116,25 +117,26 @@ impl MatrixDriver {
     /// API `POST /_matrix/client/v1/rtc/livekit/get_token` endpoint
     /// ([MSC4195]).
     ///
+    /// The request body is forwarded verbatim, as required by [MSC4533]: the
+    /// homeserver, not the client, authorises the widget's request against the
+    /// user's actual room membership.
+    ///
     /// [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
-    // TODO: this endpoint is not yet implemented in ruma, so this always
-    // returns an error. Once ruma exposes a typed request/response for it,
-    // forward `req` to `self.room.client` like `get_rtc_transports` does.
-    #[allow(clippy::unused_async)]
+    /// [MSC4533]: https://github.com/matrix-org/matrix-spec-proposals/pull/4533
     pub(crate) async fn get_rtc_livekit_token(
         &self,
         req: RtcLivekitGetTokenRequest,
     ) -> Result<RtcLivekitGetTokenResponse> {
         let RtcLivekitGetTokenRequest { server_name, url, room_id, slot_id, member } = req;
-        Err(Error::UnknownError(
-            format!(
-                "the rtc/livekit/get_token endpoint is not yet supported by this client \
-                 (server_name: {server_name:?}, url: {url}, room_id: {room_id}, \
-                 slot_id: {slot_id}, member.id: {}, member.claimed_device_id: {})",
-                member.id, member.claimed_device_id
-            )
-            .into(),
-        ))
+
+        let request = assign!(get_token::v1::Request::new(url, room_id, slot_id, member.into()), {
+            server_name
+        });
+
+        let response =
+            self.room.client.send(request).await.map_err(|error| Error::Http(Box::new(error)))?;
+
+        Ok(RtcLivekitGetTokenResponse { jwt: response.jwt })
     }
 
     /// Delegates management of a delayed leave event to the homeserver on
@@ -142,25 +144,23 @@ impl MatrixDriver {
     /// /_matrix/client/v1/rtc/livekit/delegate_delayed_leave` endpoint
     /// ([MSC4195]).
     ///
+    /// As with [`Self::get_rtc_livekit_token`], the request body is forwarded
+    /// verbatim ([MSC4533]).
+    ///
     /// [MSC4195]: https://github.com/matrix-org/matrix-spec-proposals/pull/4195
-    // TODO: this endpoint is not yet implemented in ruma, so this always
-    // returns an error. Once ruma exposes a typed request/response for it,
-    // forward `req` to `self.room.client` like `get_rtc_transports` does.
-    #[allow(clippy::unused_async)]
+    /// [MSC4533]: https://github.com/matrix-org/matrix-spec-proposals/pull/4533
     pub(crate) async fn delegate_rtc_livekit_delayed_leave(
         &self,
         req: RtcLivekitDelegateDelayedLeaveRequest,
     ) -> Result<RtcLivekitDelegateDelayedLeaveResponse> {
         let RtcLivekitDelegateDelayedLeaveRequest { room_id, slot_id, member, delay_id } = req;
-        Err(Error::UnknownError(
-            format!(
-                "the rtc/livekit/delegate_delayed_leave endpoint is not yet supported by this \
-                 client (room_id: {room_id}, slot_id: {slot_id}, member.id: {}, \
-                 member.claimed_device_id: {}, delay_id: {delay_id})",
-                member.id, member.claimed_device_id
-            )
-            .into(),
-        ))
+
+        let request =
+            delegate_delayed_leave::v1::Request::new(room_id, slot_id, member.into(), delay_id);
+
+        self.room.client.send(request).await.map_err(|error| Error::Http(Box::new(error)))?;
+
+        Ok(RtcLivekitDelegateDelayedLeaveResponse {})
     }
 
     /// Reads the latest `limit` events of a given `event_type` from the room's

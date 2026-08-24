@@ -341,10 +341,10 @@ pub struct WidgetCapabilities {
     /// homeserver (MSC4515).
     pub rtc_transports: bool,
     /// This allows the widget to ask the client to obtain a LiveKit SFU
-    /// access token on its behalf (MSC4515).
+    /// access token on its behalf (MSC4533).
     pub rtc_livekit_get_token: bool,
     /// This allows the widget to ask the client to delegate management of a
-    /// delayed leave event to the homeserver (MSC4515).
+    /// delayed leave event to the homeserver (MSC4533).
     pub rtc_livekit_delegate_delayed_leave: bool,
 }
 
