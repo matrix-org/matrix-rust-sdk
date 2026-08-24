@@ -268,6 +268,8 @@ pub fn get_element_call_required_permissions(
         send_delayed_event: true,
         download_files: true,
         rtc_transports: true,
+        rtc_livekit_get_token: true,
+        rtc_livekit_delegate_delayed_leave: true,
     }
 }
 
@@ -338,6 +340,12 @@ pub struct WidgetCapabilities {
     /// This allows the widget to discover the RTC transports advertised by the
     /// homeserver (MSC4515).
     pub rtc_transports: bool,
+    /// This allows the widget to ask the client to obtain a LiveKit SFU
+    /// access token on its behalf (MSC4515).
+    pub rtc_livekit_get_token: bool,
+    /// This allows the widget to ask the client to delegate management of a
+    /// delayed leave event to the homeserver (MSC4515).
+    pub rtc_livekit_delegate_delayed_leave: bool,
 }
 
 impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
@@ -350,6 +358,8 @@ impl From<WidgetCapabilities> for matrix_sdk::widget::Capabilities {
             send_delayed_event: value.send_delayed_event,
             download_file: value.download_files,
             rtc_transports: value.rtc_transports,
+            rtc_livekit_get_token: value.rtc_livekit_get_token,
+            rtc_livekit_delegate_delayed_leave: value.rtc_livekit_delegate_delayed_leave,
         }
     }
 }
@@ -364,6 +374,8 @@ impl From<matrix_sdk::widget::Capabilities> for WidgetCapabilities {
             send_delayed_event: value.send_delayed_event,
             download_files: value.download_file,
             rtc_transports: value.rtc_transports,
+            rtc_livekit_get_token: value.rtc_livekit_get_token,
+            rtc_livekit_delegate_delayed_leave: value.rtc_livekit_delegate_delayed_leave,
         }
     }
 }

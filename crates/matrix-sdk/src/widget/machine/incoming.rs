@@ -28,7 +28,12 @@ use super::{
     from_widget::{FromWidgetRequest, SendEventResponse},
     to_widget::ToWidgetResponse,
 };
-use crate::widget::{Capabilities, machine::from_widget::DownloadFileResponse};
+use crate::widget::{
+    Capabilities,
+    machine::from_widget::{
+        DownloadFileResponse, RtcLivekitDelegateDelayedLeaveResponse, RtcLivekitGetTokenResponse,
+    },
+};
 
 /// Incoming message for the widget client side module that it must process.
 pub(crate) enum IncomingMessage {
@@ -92,6 +97,15 @@ pub(crate) enum MatrixDriverResponse {
     /// Client fetched the RTC transports advertised by the homeserver.
     /// A response to a [`MatrixDriverRequestData::GetRtcTransports`] command.
     RtcTransportsReceived(Vec<RtcTransport>),
+    /// Client obtained a LiveKit SFU access token.
+    /// A response to a [`MatrixDriverRequestData::GetRtcLivekitToken`]
+    /// command.
+    RtcLivekitTokenReceived(RtcLivekitGetTokenResponse),
+    /// Client delegated management of a delayed leave event to the
+    /// homeserver.
+    /// A response to a
+    /// [`MatrixDriverRequestData::DelegateRtcLivekitDelayedLeave`] command.
+    RtcLivekitDelayedLeaveDelegated(RtcLivekitDelegateDelayedLeaveResponse),
 }
 
 pub(super) struct IncomingWidgetMessage {
@@ -215,5 +229,79 @@ mod tests {
         assert_let!(
             FromWidgetRequest::GetRtcTransports {} = incoming_request.deserialize().unwrap()
         );
+    }
+
+    #[test]
+    fn parse_rtc_livekit_get_token_widget_action() {
+        let raw = r#"
+        {
+            "api": "fromWidget",
+            "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
+            "requestId": "generated-id-1234",
+            "action": "org.matrix.msc4515.rtc_livekit_get_token",
+            "data": {
+                "server_name": "example.com",
+                "url": "ws://livekit.example.com",
+                "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+                "slot_id": "the_id",
+                "member": {
+                    "id": "xyzABCDEF10123",
+                    "claimed_device_id": "DEVICEID"
+                }
+            }
+        }
+        "#;
+
+        assert_let!(
+            IncomingWidgetMessageKind::Request(incoming_request) =
+                serde_json::from_str::<IncomingWidgetMessage>(raw).unwrap().kind
+        );
+        assert_let!(
+            FromWidgetRequest::RtcLivekitGetToken(req) =
+                incoming_request.deserialize().unwrap()
+        );
+
+        assert_eq!(req.server_name.as_deref(), Some("example.com"));
+        assert_eq!(req.url, "ws://livekit.example.com");
+        assert_eq!(req.room_id, "!tDLCaLXijNtYcJZEey:example.com");
+        assert_eq!(req.slot_id, "the_id");
+        assert_eq!(req.member.id, "xyzABCDEF10123");
+        assert_eq!(req.member.claimed_device_id, "DEVICEID");
+    }
+
+    #[test]
+    fn parse_rtc_livekit_delegate_delayed_leave_widget_action() {
+        let raw = r#"
+        {
+            "api": "fromWidget",
+            "widgetId": "aGNStSuL3hhIISSCXgpt15j2",
+            "requestId": "generated-id-1234",
+            "action": "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave",
+            "data": {
+                "room_id": "!tDLCaLXijNtYcJZEey:example.com",
+                "slot_id": "the_id",
+                "member": {
+                    "id": "xyzABCDEF10123",
+                    "claimed_device_id": "DEVICEID"
+                },
+                "delay_id": "1234567890"
+            }
+        }
+        "#;
+
+        assert_let!(
+            IncomingWidgetMessageKind::Request(incoming_request) =
+                serde_json::from_str::<IncomingWidgetMessage>(raw).unwrap().kind
+        );
+        assert_let!(
+            FromWidgetRequest::RtcLivekitDelegateDelayedLeave(req) =
+                incoming_request.deserialize().unwrap()
+        );
+
+        assert_eq!(req.room_id, "!tDLCaLXijNtYcJZEey:example.com");
+        assert_eq!(req.slot_id, "the_id");
+        assert_eq!(req.member.id, "xyzABCDEF10123");
+        assert_eq!(req.member.claimed_device_id, "DEVICEID");
+        assert_eq!(req.delay_id, "1234567890");
     }
 }

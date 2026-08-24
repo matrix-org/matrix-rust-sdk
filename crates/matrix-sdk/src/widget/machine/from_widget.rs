@@ -38,7 +38,10 @@ use crate::{
     Error, HttpError, RumaApiError,
     widget::{
         StateKeySelector,
-        machine::driver_req::{DownloadFileRequest, FromMatrixDriverResponse},
+        machine::driver_req::{
+            DownloadFileRequest, FromMatrixDriverResponse, RtcLivekitDelegateDelayedLeaveRequest,
+            RtcLivekitGetTokenRequest,
+        },
     },
 };
 
@@ -59,6 +62,10 @@ pub(super) enum FromWidgetRequest {
     DownloadFile(DownloadFileRequest),
     #[serde(rename = "org.matrix.msc4515.get_rtc_transports")]
     GetRtcTransports {},
+    #[serde(rename = "org.matrix.msc4515.rtc_livekit_get_token")]
+    RtcLivekitGetToken(RtcLivekitGetTokenRequest),
+    #[serde(rename = "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave")]
+    RtcLivekitDelegateDelayedLeave(RtcLivekitDelegateDelayedLeaveRequest),
 }
 
 /// The full response a client sends to a [`FromWidgetRequest`] in case of an
@@ -334,6 +341,48 @@ impl FromMatrixDriverResponse for RtcTransportsResponse {
             MatrixDriverResponse::RtcTransportsReceived(rtc_transports) => {
                 Some(Self { rtc_transports })
             }
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
+/// Response for a `rtc_livekit_get_token` request. This is a 1:1 copy of the
+/// response body of `POST /_matrix/client/v1/rtc/livekit/get_token`.
+/// <https://github.com/matrix-org/matrix-spec-proposals/pull/4195>
+#[derive(Clone, Serialize, Debug)]
+pub(crate) struct RtcLivekitGetTokenResponse {
+    /// The JWT token to use to authenticate with the LiveKit SFU.
+    pub(crate) jwt: String,
+    /// The WebSocket URL of the LiveKit SFU.
+    pub(crate) url: String,
+}
+
+impl FromMatrixDriverResponse for RtcLivekitGetTokenResponse {
+    fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
+        match matrix_driver_response {
+            MatrixDriverResponse::RtcLivekitTokenReceived(response) => Some(response),
+            _ => {
+                error!("bug in MatrixDriver, received wrong event response");
+                None
+            }
+        }
+    }
+}
+
+/// Response for a `rtc_livekit_delegate_delayed_leave` request.
+/// This is intentionally an empty tuple struct (not a unit struct), so that it
+/// serializes to `{}` instead of `Null` when returned to the widget as json.
+/// <https://github.com/matrix-org/matrix-spec-proposals/pull/4195>
+#[derive(Clone, Serialize, Debug)]
+pub(crate) struct RtcLivekitDelegateDelayedLeaveResponse {}
+
+impl FromMatrixDriverResponse for RtcLivekitDelegateDelayedLeaveResponse {
+    fn from_response(matrix_driver_response: MatrixDriverResponse) -> Option<Self> {
+        match matrix_driver_response {
+            MatrixDriverResponse::RtcLivekitDelayedLeaveDelegated(response) => Some(response),
             _ => {
                 error!("bug in MatrixDriver, received wrong event response");
                 None

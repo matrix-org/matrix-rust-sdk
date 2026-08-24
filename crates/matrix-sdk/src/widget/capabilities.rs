@@ -64,6 +64,17 @@ pub struct Capabilities {
     /// This allows the widget to discover the RTC transports advertised by the
     /// homeserver as per MSC4515.
     pub rtc_transports: bool,
+
+    /// This allows the widget to ask the client to obtain a LiveKit SFU
+    /// access token on its behalf, via the
+    /// `/_matrix/client/v1/rtc/livekit/get_token` endpoint, as per MSC4515.
+    pub rtc_livekit_get_token: bool,
+
+    /// This allows the widget to ask the client to delegate management of a
+    /// delayed leave event to the homeserver, via the
+    /// `/_matrix/client/v1/rtc/livekit/delegate_delayed_leave` endpoint, as
+    /// per MSC4515.
+    pub rtc_livekit_delegate_delayed_leave: bool,
 }
 
 impl Capabilities {
@@ -124,6 +135,9 @@ pub(super) const UPDATE_DELAYED_EVENT: &str = "org.matrix.msc4157.update_delayed
 pub(super) const DOWNLOAD_FILE: &str = "org.matrix.msc4039.download_file";
 
 pub(super) const RTC_TRANSPORTS: &str = "org.matrix.msc4515.rtc_transports";
+pub(super) const RTC_LIVEKIT_GET_TOKEN: &str = "org.matrix.msc4515.rtc_livekit_get_token";
+pub(super) const RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE: &str =
+    "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave";
 
 impl Serialize for Capabilities {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -191,6 +205,12 @@ impl Serialize for Capabilities {
         if self.rtc_transports {
             seq.serialize_element(RTC_TRANSPORTS)?;
         }
+        if self.rtc_livekit_get_token {
+            seq.serialize_element(RTC_LIVEKIT_GET_TOKEN)?;
+        }
+        if self.rtc_livekit_delegate_delayed_leave {
+            seq.serialize_element(RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE)?;
+        }
         for filter in &self.read {
             let name = match filter {
                 Filter::MessageLike(_) => READ_EVENT,
@@ -223,6 +243,8 @@ impl<'de> Deserialize<'de> for Capabilities {
             SendDelayedEvent,
             DownloadFile,
             RtcTransports,
+            RtcLivekitGetToken,
+            RtcLivekitDelegateDelayedLeave,
             Read(Filter),
             Send(Filter),
             Unknown,
@@ -248,6 +270,12 @@ impl<'de> Deserialize<'de> for Capabilities {
                 }
                 if s == RTC_TRANSPORTS {
                     return Ok(Self::RtcTransports);
+                }
+                if s == RTC_LIVEKIT_GET_TOKEN {
+                    return Ok(Self::RtcLivekitGetToken);
+                }
+                if s == RTC_LIVEKIT_DELEGATE_DELAYED_LEAVE {
+                    return Ok(Self::RtcLivekitDelegateDelayedLeave);
                 }
 
                 match s.split_once(':') {
@@ -311,6 +339,10 @@ impl<'de> Deserialize<'de> for Capabilities {
                 Permission::SendDelayedEvent => capabilities.send_delayed_event = true,
                 Permission::DownloadFile => capabilities.download_file = true,
                 Permission::RtcTransports => capabilities.rtc_transports = true,
+                Permission::RtcLivekitGetToken => capabilities.rtc_livekit_get_token = true,
+                Permission::RtcLivekitDelegateDelayedLeave => {
+                    capabilities.rtc_livekit_delegate_delayed_leave = true
+                }
             }
         }
 
@@ -350,7 +382,9 @@ mod tests {
             "org.matrix.msc4157.send.delayed_event",
             "org.matrix.msc4157.update_delayed_event",
             "org.matrix.msc4039.download_file",
-            "org.matrix.msc4515.rtc_transports"
+            "org.matrix.msc4515.rtc_transports",
+            "org.matrix.msc4515.rtc_livekit_get_token",
+            "org.matrix.msc4515.rtc_livekit_delegate_delayed_leave"
         ]"#;
 
         let parsed = serde_json::from_str::<Capabilities>(capabilities_str).unwrap();
@@ -382,6 +416,8 @@ mod tests {
             send_delayed_event: true,
             download_file: true,
             rtc_transports: true,
+            rtc_livekit_get_token: true,
+            rtc_livekit_delegate_delayed_leave: true,
         };
 
         assert_eq!(parsed, expected);
@@ -414,6 +450,8 @@ mod tests {
             send_delayed_event: false,
             download_file: false,
             rtc_transports: true,
+            rtc_livekit_get_token: true,
+            rtc_livekit_delegate_delayed_leave: false,
         };
 
         let capabilities_str = serde_json::to_string(&capabilities).unwrap();
