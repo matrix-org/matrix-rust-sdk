@@ -1586,7 +1586,7 @@ impl<P: RoomDataProvider> TimelineController<P> {
     pub async fn insert_timeline_start_if_missing(&self) {
         let mut state = self.state.write().await;
         let mut txn = state.transaction();
-        txn.insert_timeline_start_if_missing();
+        txn.insert_timeline_start_if_missing(self.focus.thread_root());
         txn.commit();
     }
 
@@ -1631,11 +1631,15 @@ impl<P: RoomDataProvider> TimelineController<P> {
                 event_cache.pagination().status().get()
             && txn.meta.subscriber_skip_count.get() == 0
         {
-            txn.insert_timeline_start_if_missing();
+            txn.insert_timeline_start_if_missing(None);
         } else if let TimelineFocusKind::MessageTypes { event_cache } = self.focus()
             && event_cache.hit_start().await
         {
-            txn.insert_timeline_start_if_missing();
+            txn.insert_timeline_start_if_missing(None);
+        } else if let TimelineFocusKind::Thread { root_event_id, .. } = self.focus() {
+            // Guarded internally: only inserts once the thread root leads the
+            // known events.
+            txn.insert_timeline_start_if_missing(Some(root_event_id));
         }
         txn.commit();
     }
@@ -1908,7 +1912,11 @@ impl TimelineController {
         if self.settings.storage_only_pagination
             && let Ok(gaps) = event_cache.timeline_gaps().await
         {
+            // Also inserts the timeline start item, if the root already leads
+            // the cached thread.
             self.handle_timeline_gaps(gaps).await;
+        } else {
+            self.insert_timeline_start_if_missing().await;
         }
 
         Ok((has_events, subscriber))

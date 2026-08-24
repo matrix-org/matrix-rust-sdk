@@ -200,8 +200,9 @@ async fn test_thread_backpagination() {
     assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
 
     // Remove date separator and insert a new one plus the remaining threaded
-    // events and the thread root.
-    assert_eq!(timeline_updates.len(), 3);
+    // events and the thread root, followed by the timeline start item (the
+    // root now leads the thread).
+    assert_eq!(timeline_updates.len(), 4);
 
     // Check the timeline diffs
     assert_let!(VectorDiff::Insert { index: 1, value } = &timeline_updates[0]);
@@ -219,29 +220,33 @@ async fn test_thread_backpagination() {
     assert_eq!(event_item.event_id().unwrap(), event_id!("$2"));
     assert_matches!(event_item.content().in_reply_to(), None);
 
+    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
+    assert!(value.is_timeline_start());
+
     // Check the final items
     let items = timeline.items().await;
 
-    assert_eq!(items.len(), 6);
+    assert_eq!(items.len(), 7);
 
-    assert!(items[0].is_date_divider());
+    assert!(items[0].is_timeline_start());
+    assert!(items[1].is_date_divider());
 
-    assert_eq!(items[1].as_event().unwrap().content().as_message().unwrap().body(), "Thread root");
+    assert_eq!(items[2].as_event().unwrap().content().as_message().unwrap().body(), "Thread root");
 
     assert_eq!(
-        items[2].as_event().unwrap().content().as_message().unwrap().body(),
+        items[3].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 1"
     );
     assert_eq!(
-        items[3].as_event().unwrap().content().as_message().unwrap().body(),
+        items[4].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 2"
     );
     assert_eq!(
-        items[4].as_event().unwrap().content().as_message().unwrap().body(),
+        items[5].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 3"
     );
     assert_eq!(
-        items[5].as_event().unwrap().content().as_message().unwrap().body(),
+        items[6].as_event().unwrap().content().as_message().unwrap().body(),
         "Threaded event 4"
     );
 }
@@ -965,7 +970,7 @@ async fn test_thread_filtering_for_sync() {
     // event.
     {
         assert_let_timeout!(Some(timeline_updates) = thread_timeline_stream.next());
-        assert_eq!(timeline_updates.len(), 4);
+        assert_eq!(timeline_updates.len(), 5);
 
         assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
         let event_item = value.as_event().unwrap();
@@ -986,6 +991,11 @@ async fn test_thread_filtering_for_sync() {
 
         assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
         assert!(value.is_date_divider());
+
+        // And since the thread root leads the thread, the timeline start item
+        // shows up.
+        assert_let!(VectorDiff::PushFront { value } = &timeline_updates[4]);
+        assert!(value.is_timeline_start());
 
         assert_pending!(timeline_stream);
     }
@@ -1929,10 +1939,12 @@ async fn test_send_read_receipts() {
             )
             .await;
 
-        // The timeline receives an update for the read receipt, but it won't move it,
-        // since it doesn't signal our own read receipt.
-        yield_now().await;
-        assert_pending!(stream);
+        // The read marker follows our own read receipt: it moves after `$3`.
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 2);
+        assert_let!(VectorDiff::Remove { index: 3 } = &timeline_updates[0]);
+        assert_let!(VectorDiff::Insert { index: 4, value } = &timeline_updates[1]);
+        assert_matches!(value.as_virtual().unwrap(), VirtualTimelineItem::ReadMarker);
     }
 
     // And the user can mark the whole thread as read, which will send a read
@@ -1962,10 +1974,11 @@ async fn test_send_read_receipts() {
             )
             .await;
 
-        // The timeline receives an update for the read receipt, but it won't move it,
-        // since it doesn't signal our own read receipt.
-        yield_now().await;
-        assert_pending!(stream);
+        // The read marker follows our own read receipt onto the last event,
+        // where it's hidden.
+        assert_let_timeout!(Some(timeline_updates) = stream.next());
+        assert_eq!(timeline_updates.len(), 1);
+        assert_let!(VectorDiff::Remove { index: 4 } = &timeline_updates[0]);
     }
 
     // Trying to mark the thread as read again is a no-op.

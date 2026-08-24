@@ -1169,8 +1169,24 @@ impl<'a, P: RoomDataProvider> TimelineStateTransaction<'a, P> {
 
     /// Insert the timeline start item, unless it's there already, or a
     /// leading gap means the room's start hasn't actually been seen yet.
-    pub(super) fn insert_timeline_start_if_missing(&mut self) {
+    ///
+    /// For a thread timeline, pass the thread root's event ID: the start of a
+    /// thread is only reached once the root itself leads the known events
+    /// (nothing can precede a thread's root), so the item is refused until
+    /// then.
+    pub(super) fn insert_timeline_start_if_missing(&mut self, thread_root: Option<&EventId>) {
         if self.has_leading_gap() {
+            return;
+        }
+
+        if let Some(thread_root) = thread_root
+            && self
+                .items
+                .all_remote_events()
+                .iter()
+                .next()
+                .is_none_or(|event_meta| event_meta.event_id != thread_root)
+        {
             return;
         }
 

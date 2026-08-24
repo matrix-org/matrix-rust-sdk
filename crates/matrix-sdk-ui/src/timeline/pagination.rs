@@ -72,6 +72,9 @@ impl super::Timeline {
                     };
 
                     if outcome.reached_start {
+                        // The timeline start item is inserted by the thread
+                        // updates task, once the fetched events (ending with
+                        // the thread root) have been applied to the timeline.
                         return Ok(true);
                     }
 

@@ -250,6 +250,13 @@ pub(in crate::timeline) async fn thread_updates_task(
             timeline_controller
                 .handle_remote_events_with_diffs_and_gaps(update.diffs, origin, gaps)
                 .await;
+
+            // The start of a thread is provably reached as soon as the thread
+            // root leads the known events (nothing can precede a root):
+            // (re-)evaluate the timeline start item, which is guarded on
+            // exactly that (and on the freshly-applied gaps snapshot, in
+            // storage-only mode).
+            timeline_controller.insert_timeline_start_if_missing().await;
         } else if let Some(gaps) = gaps {
             timeline_controller.handle_timeline_gaps(gaps).await;
         }
