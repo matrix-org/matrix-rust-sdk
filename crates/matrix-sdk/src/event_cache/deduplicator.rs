@@ -18,6 +18,7 @@
 use std::collections::BTreeSet;
 
 use matrix_sdk_base::{
+    deserialized_responses::TimelineEventKind,
     event_cache::store::EventCacheStoreLockGuard,
     linked_chunk::{LinkedChunkId, Position},
 };
@@ -58,6 +59,55 @@ pub async fn filter_duplicate_events(
             new_events.iter().filter_map(|event| event.event_id().map(ToOwned::to_owned)).collect(),
         )
         .await?;
+
+    // A limited/gappy sync (or a pagination) can return raw, still-encrypted
+    // copies of events that were already decrypted and stored, possibly by
+    // another process (e.g. the NSE decrypting a push). Deduplication replaces
+    // the old copy with the new one; make sure that never downgrades a
+    // decrypted event back into a UTD by grafting the previously decrypted
+    // payload onto the incoming copy.
+    //
+    // This deliberately looks at every incoming UTD rather than only the
+    // duplicates of this linked chunk: the decrypted copy may have been stored
+    // via *another* chunk of the same room (e.g. the NSE stored it in the room
+    // chunk, and this is the thread chunk seeing the event for the first time).
+    {
+        let utd_duplicates = new_events
+            .iter()
+            .filter(|event| matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. }))
+            .filter_map(|event| event.event_id().map(ToOwned::to_owned))
+            .collect::<Vec<OwnedEventId>>();
+
+        if !utd_duplicates.is_empty() {
+            let mut decrypted_old_events = store_guard
+                .find_events(linked_chunk_id.room_id(), &utd_duplicates)
+                .await?
+                .into_iter()
+                .filter(|event| !matches!(event.kind, TimelineEventKind::UnableToDecrypt { .. }))
+                .filter_map(|event| Some((event.event_id()?.to_owned(), event)))
+                .collect::<std::collections::BTreeMap<_, _>>();
+
+            for event in new_events.iter_mut() {
+                let Some(old_event) =
+                    event.event_id().and_then(|event_id| decrypted_old_events.remove(event_id))
+                else {
+                    continue;
+                };
+
+                tracing::trace!(
+                    event_id = %old_event.event_id().expect("filtered on event id above"),
+                    "keeping the already-decrypted payload for a duplicate that came back encrypted"
+                );
+
+                if event.push_actions().is_none()
+                    && let Some(push_actions) = old_event.push_actions()
+                {
+                    event.set_push_actions(push_actions.to_vec());
+                }
+                event.kind = old_event.kind;
+            }
+        }
+    }
 
     // Separate duplicated events in two collections: ones that are in-memory, ones
     // that are in the store.
@@ -185,6 +235,103 @@ mod tests {
             .sender(user_id!("@mnt_io:matrix.org"))
             .event_id(event_id)
             .into_event()
+    }
+
+    #[async_test]
+    async fn test_incoming_utd_copy_does_not_downgrade_stored_decrypted_event() {
+        use std::sync::Arc;
+
+        use matrix_sdk_base::{
+            deserialized_responses::TimelineEventKind,
+            event_cache::store::{EventCacheStore, MemoryStore},
+            linked_chunk::Update,
+        };
+        use ruma::{
+            events::room::encrypted::{
+                EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+            },
+            room_id,
+        };
+
+        let user_id = user_id!("@user:example.com");
+        let room_id = room_id!("!fondue:raclette.ch");
+        let event_id_known = owned_event_id!("$known");
+        let event_id_new = owned_event_id!("$new");
+
+        let utd = |event_id: &EventId| {
+            EventFactory::new()
+                .event(RoomEncryptedEventContent::new(
+                    EncryptedEventScheme::MegolmV1AesSha2(
+                        MegolmV1AesSha2ContentInit {
+                            ciphertext: "AwgAEtABPRMavu".to_owned(),
+                            sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                            device_id: "NLAZCWIOCO".into(),
+                            session_id: "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU".into(),
+                        }
+                        .into(),
+                    ),
+                    None,
+                ))
+                .sender(user_id!("@mnt_io:matrix.org"))
+                .event_id(event_id)
+                .into_utd_sync_timeline_event()
+        };
+
+        // The store contains a decrypted (well, plaintext, which is
+        // indistinguishable for this purpose) copy of `$known`, e.g. written by
+        // the NSE after decrypting a push.
+        let decrypted_known = timeline_event(&event_id_known);
+
+        let event_cache_store = Arc::new(MemoryStore::new());
+        event_cache_store
+            .handle_linked_chunk_updates(
+                LinkedChunkId::Room(room_id),
+                vec![
+                    Update::NewItemsChunk {
+                        previous: None,
+                        new: ChunkIdentifier::new(42),
+                        next: None,
+                    },
+                    Update::PushItems {
+                        at: Position::new(ChunkIdentifier::new(42), 0),
+                        items: vec![decrypted_known.clone()],
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+        let event_cache_store = EventCacheStoreLock::new(
+            event_cache_store,
+            CrossProcessLockConfig::multi_process("hodor"),
+        );
+        let event_cache_store = event_cache_store.lock().await.unwrap();
+        let event_cache_store_guard = event_cache_store.as_clean().unwrap();
+
+        // A gappy sync returns a raw, encrypted copy of `$known`, plus a
+        // genuinely new UTD `$new`.
+        let outcome = filter_duplicate_events(
+            user_id,
+            event_cache_store_guard,
+            LinkedChunkId::Room(room_id),
+            &EventLinkedChunk::new(),
+            vec![utd(&event_id_known), utd(&event_id_new)],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.all_events.len(), 2);
+
+        // The known event kept its decrypted payload rather than being
+        // downgraded back into a UTD…
+        let known = &outcome.all_events[0];
+        assert_eq!(known.event_id().unwrap(), event_id_known);
+        assert!(!matches!(known.kind, TimelineEventKind::UnableToDecrypt { .. }));
+
+        // …while the unknown event stays a UTD.
+        let new = &outcome.all_events[1];
+        assert_eq!(new.event_id().unwrap(), event_id_new);
+        assert!(matches!(new.kind, TimelineEventKind::UnableToDecrypt { .. }));
     }
 
     #[async_test]
