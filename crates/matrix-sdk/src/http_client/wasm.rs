@@ -28,6 +28,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         _config: RequestConfig,
         _send_progress: SharedObservable<TransmissionProgress>,
+        _receive_progress: SharedObservable<TransmissionProgress>,
     ) -> Result<R::IncomingResponse, HttpError>
     where
         R: OutgoingRequest + Debug,

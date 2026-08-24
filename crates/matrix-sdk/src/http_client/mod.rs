@@ -142,6 +142,7 @@ impl HttpClient {
         access_token: Option<&str>,
         path_builder_input: <R::PathBuilder as path_builder::PathBuilder>::Input<'_>,
         send_progress: SharedObservable<TransmissionProgress>,
+        receive_progress: SharedObservable<TransmissionProgress>,
     ) -> impl Future<Output = Result<R::IncomingResponse, HttpError>>
     where
         R: OutgoingRequest + Debug,
@@ -216,7 +217,9 @@ impl HttpClient {
 
             // There's a bunch of state in send_request, factor out a pinned inner
             // future to reduce the size of futures that await this function.
-            match Box::pin(self.send_request::<R>(request, config, send_progress)).await {
+            match Box::pin(self.send_request::<R>(request, config, send_progress, receive_progress))
+                .await
+            {
                 Ok(response) => {
                     log_got_response();
                     Ok(response)
@@ -240,6 +243,7 @@ pub struct TransmissionProgress {
     pub total: usize,
 }
 
+#[cfg(target_family = "wasm")]
 async fn response_to_http_response(
     mut response: reqwest::Response,
 ) -> Result<http::Response<Bytes>, reqwest::Error> {

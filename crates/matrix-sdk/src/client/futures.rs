@@ -45,6 +45,7 @@ pub struct SendRequest<R> {
     pub(crate) request: R,
     pub(crate) config: Option<RequestConfig>,
     pub(crate) send_progress: SharedObservable<TransmissionProgress>,
+    pub(crate) receive_progress: SharedObservable<TransmissionProgress>,
 }
 
 impl<R> SendRequest<R> {
@@ -60,6 +61,26 @@ impl<R> SendRequest<R> {
     ) -> Self {
         self.send_progress = send_progress;
         self
+    }
+
+    /// Replace the default `SharedObservable` used for tracking download
+    /// progress.
+    ///
+    /// Note that any subscribers obtained from
+    /// [`subscribe_to_receive_progress`][Self::subscribe_to_receive_progress]
+    /// will be invalidated by this.
+    pub fn with_receive_progress_observable(
+        mut self,
+        receive_progress: SharedObservable<TransmissionProgress>,
+    ) -> Self {
+        self.receive_progress = receive_progress;
+        self
+    }
+
+    /// Get a subscriber to observe the progress of receiving the response
+    /// body.
+    pub fn subscribe_to_receive_progress(&self) -> Subscriber<TransmissionProgress> {
+        self.receive_progress.subscribe()
     }
 
     /// Use the given [`RequestConfig`] for this send request, instead of the
@@ -162,16 +183,27 @@ where
             }
         }
 
-        let Self { client, request, config, send_progress } = self;
+        let Self { client, request, config, send_progress, receive_progress } = self;
 
         Box::pin(async move {
-            let res =
-                Box::pin(client.send_inner(request.clone(), config, send_progress.clone())).await;
+            let res = Box::pin(client.send_inner(
+                request.clone(),
+                config,
+                send_progress.clone(),
+                receive_progress.clone(),
+            ))
+            .await;
 
             if let Err(e) = &res
                 && let RetryRequest::Yes = handle_unknown_token_error(e, &client).await?
             {
-                return Box::pin(client.send_inner(request, config, send_progress)).await;
+                return Box::pin(client.send_inner(
+                    request,
+                    config,
+                    send_progress,
+                    receive_progress,
+                ))
+                .await;
             }
 
             res

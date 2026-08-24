@@ -20,9 +20,10 @@ use std::{
 };
 
 use backon::{ExponentialBuilder, Retryable};
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use bytesize::ByteSize;
 use eyeball::SharedObservable;
+use futures_util::StreamExt;
 use http::header::CONTENT_LENGTH;
 #[cfg(not(target_family = "wasm"))]
 use reqwest::Certificate;
@@ -30,7 +31,7 @@ use reqwest::tls;
 use ruma::api::{IncomingResponseExt as _, OutgoingRequest, error::FromHttpResponseError};
 use tracing::{debug, info, warn};
 
-use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress, response_to_http_response};
+use super::{DEFAULT_REQUEST_TIMEOUT, HttpClient, TransmissionProgress};
 use crate::{
     HttpResult,
     config::RequestConfig,
@@ -43,6 +44,7 @@ impl HttpClient {
         request: http::Request<Bytes>,
         config: RequestConfig,
         send_progress: SharedObservable<TransmissionProgress>,
+        receive_progress: SharedObservable<TransmissionProgress>,
     ) -> HttpResult<R::IncomingResponse>
     where
         R: OutgoingRequest + Debug,
@@ -78,12 +80,15 @@ impl HttpClient {
             timeout: Option<Duration>,
             retry_count: &AtomicU64,
             send_progress: SharedObservable<TransmissionProgress>,
+            receive_progress: SharedObservable<TransmissionProgress>,
         ) -> HttpResult<http::Response<Bytes>> {
             let num_attempt = retry_count.fetch_add(1, Ordering::SeqCst);
             debug!(num_attempt, "Sending request");
             let before = ruma::time::Instant::now();
 
-            let response = execute_request(http_client, request, timeout, send_progress).await?;
+            let response =
+                execute_request(http_client, request, timeout, send_progress, receive_progress)
+                    .await?;
 
             let request_duration = ruma::time::Instant::now().saturating_duration_since(before);
 
@@ -143,6 +148,7 @@ impl HttpClient {
 
         let send_request = || {
             let send_progress = send_progress.clone();
+            let receive_progress = receive_progress.clone();
             async {
                 let response = send_request_inner(
                     &self.inner,
@@ -150,6 +156,7 @@ impl HttpClient {
                     config.timeout,
                     &retry_count,
                     send_progress,
+                    receive_progress,
                 )
                 .await?;
                 let (parts, body) = response.into_parts();
@@ -241,6 +248,7 @@ pub(super) async fn execute_request(
     request: &http::Request<Bytes>,
     timeout: Option<Duration>,
     send_progress: SharedObservable<TransmissionProgress>,
+    receive_progress: SharedObservable<TransmissionProgress>,
 ) -> Result<http::Response<Bytes>, HttpError> {
     use std::convert::Infallible;
 
@@ -281,8 +289,56 @@ pub(super) async fn execute_request(
         request
     };
 
+    if receive_progress.subscriber_count() != 0 {
+        receive_progress.update(|progress| *progress = TransmissionProgress::default());
+    }
     let response = client.execute(request).await?;
-    Ok(response_to_http_response(response).await?)
+    response_to_http_response(response, receive_progress).await
+}
+
+async fn response_to_http_response(
+    mut response: reqwest::Response,
+    receive_progress: SharedObservable<TransmissionProgress>,
+) -> Result<http::Response<Bytes>, HttpError> {
+    let status = response.status();
+    let content_length = response.content_length();
+    let mut http_builder = http::Response::builder().status(status);
+    let headers = http_builder.headers_mut().expect("Can't get the response builder headers");
+
+    for (key, value) in response.headers_mut().drain() {
+        if let Some(key) = key {
+            headers.insert(key, value);
+        }
+    }
+
+    let body = if receive_progress.subscriber_count() == 0 {
+        response.bytes().await?
+    } else {
+        let total = content_length.and_then(|n| n.try_into().ok()).unwrap_or(0);
+        receive_progress.update(|progress| {
+            progress.current = 0;
+            progress.total = total;
+        });
+
+        let mut body = BytesMut::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            body.extend_from_slice(&chunk);
+            receive_progress.update(|progress| advance_receive_progress(progress, chunk.len()));
+        }
+        body.freeze()
+    };
+
+    Ok(http_builder.body(body).expect("Can't construct a response using the given body"))
+}
+
+fn advance_receive_progress(progress: &mut TransmissionProgress, received: usize) {
+    progress.current = if progress.total == 0 {
+        progress.current.saturating_add(received)
+    } else {
+        progress.current.saturating_add(received).min(progress.total)
+    };
 }
 
 struct BytesChunks {
@@ -315,7 +371,21 @@ impl Iterator for BytesChunks {
 mod tests {
     use bytes::Bytes;
 
-    use super::BytesChunks;
+    use super::{BytesChunks, TransmissionProgress, advance_receive_progress};
+
+    #[test]
+    fn receive_progress_advances_and_clamps_to_known_total() {
+        let mut known = TransmissionProgress { current: 0, total: 5 };
+        advance_receive_progress(&mut known, 3);
+        assert_eq!(known.current, 3);
+        advance_receive_progress(&mut known, 4);
+        assert_eq!(known.current, 5);
+
+        let mut unknown = TransmissionProgress::default();
+        advance_receive_progress(&mut unknown, 3);
+        assert_eq!(unknown.current, 3);
+        assert_eq!(unknown.total, 0);
+    }
 
     #[test]
     fn test_bytes_chunks() {

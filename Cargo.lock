@@ -3788,6 +3788,7 @@ dependencies = [
  "chrono",
  "console_error_panic_hook",
  "extension-trait",
+ "eyeball",
  "eyeball-im",
  "futures-executor",
  "futures-util",

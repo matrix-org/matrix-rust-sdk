@@ -52,6 +52,7 @@ rustls-aws-lc-rs = ["matrix-sdk/rustls-aws-lc-rs", "matrix-sdk-ui/rustls-aws-lc-
 anyhow.workspace = true
 chrono.workspace = true
 extension-trait = "1.0.2"
+eyeball.workspace = true
 eyeball-im.workspace = true
 futures-util.workspace = true
 language-tags = "0.3.2"

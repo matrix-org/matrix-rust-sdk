@@ -210,6 +210,7 @@ async fn discover_homeserver(
             None,
             (),
             Default::default(),
+            Default::default(),
         )
         .await
         .map_err(|e| match e {
@@ -233,6 +234,7 @@ pub(super) async fn get_supported_versions(
             homeserver_url.to_string(),
             None,
             (),
+            Default::default(),
             Default::default(),
         )
         .await

@@ -1194,6 +1194,58 @@ impl Client {
         })
     }
 
+    /// Retrieves a media file and reports network receive progress.
+    pub async fn get_media_file_with_progress(
+        &self,
+        media_source: Arc<MediaSource>,
+        filename: Option<String>,
+        mime_type: String,
+        use_cache: bool,
+        temp_dir: Option<String>,
+        progress_watcher: Option<Box<dyn ProgressWatcher>>,
+    ) -> Result<Arc<MediaFileHandle>, ClientError> {
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let source = (*media_source).clone();
+            let mime_type: mime::Mime = mime_type.parse()?;
+            let receive_progress: eyeball::SharedObservable<matrix_sdk::TransmissionProgress> =
+                Default::default();
+
+            if let Some(progress_watcher) = progress_watcher {
+                let mut subscriber = receive_progress.subscribe();
+                get_runtime_handle().spawn(async move {
+                    while let Some(progress) = subscriber.next().await {
+                        progress_watcher.transmission_progress(progress.into());
+                    }
+                });
+            }
+
+            let handle = self
+                .inner
+                .media()
+                .get_media_file_with_progress(
+                    &MediaRequestParameters {
+                        source: source.media_source,
+                        format: MediaFormat::File,
+                    },
+                    filename,
+                    &mime_type,
+                    use_cache,
+                    temp_dir,
+                    receive_progress,
+                )
+                .await?;
+
+            Ok(Arc::new(MediaFileHandle::new(handle)))
+        }
+
+        #[cfg(target_family = "wasm")]
+        Err(ClientError::Generic {
+            msg: "get_media_file_with_progress is not supported on wasm platforms".to_owned(),
+            details: None,
+        })
+    }
+
     pub async fn set_display_name(&self, name: String) -> Result<(), ClientError> {
         #[cfg(not(target_family = "wasm"))]
         {
