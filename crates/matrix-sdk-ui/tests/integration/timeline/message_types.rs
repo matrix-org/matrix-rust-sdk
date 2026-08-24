@@ -339,3 +339,117 @@ async fn test_message_types_focus_shows_a_gap_in_a_room_with_no_cached_media() {
     assert!(timeline.paginate_backwards(10).await.unwrap());
     assert_pending!(timeline_stream);
 }
+
+#[async_test]
+async fn test_message_types_focus_shows_matching_local_echoes() {
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.image("existing.png".to_owned(), owned_mxc_uri!("mxc://example.org/img"))
+                    .event_id(event_id!("$img1")),
+            ),
+        )
+        .await;
+
+    let timeline = room
+        .timeline_builder()
+        .with_focus(TimelineFocus::MessageTypes {
+            msgtypes: vec!["m.image".to_owned()],
+            around_event: None,
+        })
+        .build()
+        .await
+        .unwrap();
+
+    let (mut items, mut timeline_stream) = timeline.subscribe().await;
+    assert_eq!(describe(&items), ["start", "divider", "$img1"], "{items:?}");
+
+    server.mock_room_state_encryption().plain().mount().await;
+    // Answers both sends; only the image's echo matters below.
+    server.mock_room_send().ok(event_id!("$img2")).mount().await;
+
+    // A text message is not this timeline's business: no local echo for it.
+    room.send_queue()
+        .send(
+            ruma::events::room::message::RoomMessageEventContent::text_plain("no thanks").into(),
+        )
+        .await
+        .unwrap();
+
+    // An unsent image shows up at the newest end right away.
+    room.send_queue()
+        .send(
+            ruma::events::room::message::RoomMessageEventContent::new(
+                ruma::events::room::message::MessageType::Image(
+                    ruma::events::room::message::ImageMessageEventContent::plain(
+                        "unsent.png".to_owned(),
+                        owned_mxc_uri!("mxc://example.org/unsent"),
+                    ),
+                ),
+            )
+            .into(),
+        )
+        .await
+        .unwrap();
+
+    let mut transaction_id = None;
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+        }
+        if let Some(txn_id) = items
+            .iter()
+            .filter_map(|item| item.as_event())
+            .find_map(|event| event.transaction_id())
+        {
+            transaction_id = Some(txn_id.to_owned());
+        }
+        // The local echo may enter as not-sent-yet and then be marked sent;
+        // wait for it to be there (a set-to-sent may follow, drained below).
+        if describe(&items).iter().any(|item| item == "local" || item == "$img2") {
+            break;
+        }
+    }
+    // Ignoring dividers: the factory events are at the epoch, the echo now.
+    let described: Vec<_> =
+        describe(&items).into_iter().filter(|item| item != "divider").collect();
+    assert_eq!(described[..2], ["start", "$img1"], "{items:?}");
+    assert!(described[2] == "local" || described[2] == "$img2", "{items:?}");
+    assert_eq!(described.len(), 3, "{items:?}");
+
+    // The remote echo replaces the local one: no duplicate.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.image("unsent.png".to_owned(), owned_mxc_uri!("mxc://example.org/unsent"))
+                    .sender(client.user_id().unwrap())
+                    .event_id(event_id!("$img2"))
+                    .unsigned_transaction_id(transaction_id.as_deref().unwrap()),
+            ),
+        )
+        .await;
+
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        for update in timeline_updates {
+            update.apply(&mut items);
+        }
+        if describe(&items).iter().filter(|item| *item == "$img2").count() == 1
+            && !describe(&items).iter().any(|item| item == "local")
+        {
+            break;
+        }
+    }
+    let described: Vec<_> =
+        describe(&items).into_iter().filter(|item| item != "divider").collect();
+    assert_eq!(described, ["start", "$img1", "$img2"], "{items:?}");
+}

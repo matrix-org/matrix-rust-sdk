@@ -182,12 +182,23 @@ impl<P: RoomDataProvider> TimelineState<P> {
             TimelineFocusKind::Thread { root_event_id, .. } => {
                 thread_root.as_ref().is_some_and(|r| r == root_event_id)
             }
-            TimelineFocusKind::Event { .. }
-            | TimelineFocusKind::PinnedEvents { .. }
-            | TimelineFocusKind::MessageTypes { .. } => {
+            TimelineFocusKind::Event { .. } | TimelineFocusKind::PinnedEvents { .. } => {
                 // Don't add new items to these timelines; aggregations are added independently
                 // of the `should_add_new_items` value.
                 false
+            }
+            TimelineFocusKind::MessageTypes { event_cache } => {
+                // A local echo of a matching message sits in the room's
+                // timeline, so this view browses it too — appended at the
+                // newest end, hence only once the window reaches it (held
+                // back appends catch it up otherwise, like any live update).
+                let matches = match &content {
+                    AnyMessageLikeEventContent::RoomMessage(message) => {
+                        event_cache.msgtypes().iter().any(|m| m == message.msgtype.msgtype())
+                    }
+                    _ => false,
+                };
+                matches && event_cache.hit_end().await
             }
         };
 

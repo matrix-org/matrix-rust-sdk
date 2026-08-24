@@ -583,6 +583,11 @@ impl MessageTypesEventCache {
         &self.inner.room_id
     }
 
+    /// The `msgtype`s this view is about.
+    pub fn msgtypes(&self) -> &[String] {
+        &self.inner.msgtypes
+    }
+
     /// The exposed events (oldest first) and the gaps to render, plus a
     /// receiver for subsequent updates.
     pub async fn subscribe(

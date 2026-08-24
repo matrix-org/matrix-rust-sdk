@@ -160,9 +160,9 @@ pub enum TimelineFocus {
     /// ([`Timeline::paginate_backwards`] exposes older ones,
     /// [`Timeline::paginate_forwards`] newer ones, from the store, never from
     /// the network), renders the room's gaps as [`VirtualTimelineItem::Gap`]
-    /// items (to be resolved with [`Timeline::resolve_gap`]), doesn't show
-    /// local echoes, and receives live updates once its window reaches the
-    /// newest event: new matching messages, redactions, redecryptions.
+    /// items (to be resolved with [`Timeline::resolve_gap`]), and receives
+    /// live updates once its window reaches the newest event: new matching
+    /// messages (their local echoes included), redactions, redecryptions.
     ///
     /// [`VirtualTimelineItem::Gap`]: crate::timeline::VirtualTimelineItem::Gap
     MessageTypes {
