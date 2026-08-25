@@ -245,14 +245,17 @@ impl BackPaginationQueue {
     pub(crate) fn enqueue(
         &self,
         request: BackPaginationRequest,
-    ) -> Result<BackPaginationHandle, QueueShutDown> {
+    ) -> Result<BackPaginationHandle, BackPaginationQueueError> {
         let key = (request.room_id.clone(), request.priority);
         let (token, guard) = cancellation_for(&self.inner.cancellations, key);
 
         let (completion_tx, completion_rx) = oneshot::channel();
         let submitted = SubmittedRequest { request, token, completion: completion_tx };
 
-        self.inner.sender.send(SchedulerEvent::Submitted(submitted)).map_err(|_| QueueShutDown)?;
+        self.inner
+            .sender
+            .send(SchedulerEvent::Submitted(submitted))
+            .map_err(|_| BackPaginationQueueError::ShutDown)?;
 
         Ok(BackPaginationHandle { guard, completion: Some(completion_rx) })
     }
@@ -287,11 +290,14 @@ fn cancellation_for(
     (token, guard)
 }
 
-/// The queue's executor isn't running anymore, so no new request can be
-/// enqueued.
+/// An error happening while interacting with the [`BackPaginationQueue`].
 #[derive(Debug, thiserror::Error)]
-#[error("the back-pagination queue executor is not running")]
-pub(crate) struct QueueShutDown;
+pub(crate) enum BackPaginationQueueError {
+    /// The queue's executor isn't running anymore, so no new request can be
+    /// enqueued.
+    #[error("the back-pagination queue executor is not running")]
+    ShutDown,
+}
 
 /// Everything the scheduler reacts to, on a single channel so it can wait on
 /// one `recv_many` rather than selecting over two receivers.
