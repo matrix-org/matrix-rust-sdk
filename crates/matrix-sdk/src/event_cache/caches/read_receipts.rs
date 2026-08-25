@@ -142,14 +142,14 @@ const READ_RECEIPT_MAX_BATCHES: usize = 20;
 fn paginate_for_read_receipt(
     queue: &BackPaginationQueue,
     room_id: &RoomId,
-    targets: &HashSet<OwnedEventId>,
+    targets: HashSet<OwnedEventId>,
 ) {
     debug!(%room_id, "started backfill request for read receipts");
 
     let request = BackPaginationRequest {
         room_id: room_id.to_owned(),
         priority: Priority::Normal,
-        stop: Box::new(stop_on_event_ids(targets.clone())),
+        stop: Box::new(stop_on_event_ids(targets)),
         batch_size: BATCH_SIZE,
         max_batches: Some(READ_RECEIPT_MAX_BATCHES),
     };
@@ -619,7 +619,7 @@ pub(crate) async fn compute_unread_counts<T>(
             .cloned()
             .chain(read_receipts.latest_active.as_ref().map(|receipt| receipt.event_id.clone()))
             .collect();
-        paginate_for_read_receipt(back_pagination_queue, event_filter.room_id(), &targets);
+        paginate_for_read_receipt(back_pagination_queue, event_filter.room_id(), targets);
     }
 
     // If we haven't returned at this point, it means we don't have any new "active"
