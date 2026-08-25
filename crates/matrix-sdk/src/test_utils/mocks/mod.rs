@@ -1566,6 +1566,20 @@ impl MatrixMockServer {
         self.mock_endpoint(mock, AuthedMediaDownloadEndpoint).expect_default_access_token()
     }
 
+    /// Create a prebuilt mock for the endpoint used to get a preview of a URL
+    /// without requiring authentication.
+    pub fn mock_media_preview(&self) -> MockEndpoint<'_, MediaPreviewEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/media/v3/preview_url"));
+        self.mock_endpoint(mock, MediaPreviewEndpoint)
+    }
+
+    /// Create a prebuilt mock for the endpoint used to get a preview of a URL
+    /// that requires authentication.
+    pub fn mock_authed_media_preview(&self) -> MockEndpoint<'_, AuthedMediaPreviewEndpoint> {
+        let mock = Mock::given(method("GET")).and(path("/_matrix/client/v1/media/preview_url"));
+        self.mock_endpoint(mock, AuthedMediaPreviewEndpoint).expect_default_access_token()
+    }
+
     /// Create a prebuilt mock for the endpoint used to download a thumbnail of
     /// a media file that requires authentication.
     pub fn mock_authed_media_thumbnail(
@@ -4697,6 +4711,58 @@ impl<'a> MockEndpoint<'a, MediaThumbnailEndpoint> {
         self.respond_with(
             ResponseTemplate::new(200).set_body_raw(b"binaryjpegthumbnaildata", "image/jpeg"),
         )
+    }
+}
+
+/// A prebuilt mock for `GET /media/v3/preview_url` requests.
+pub struct MediaPreviewEndpoint;
+
+impl<'a> MockEndpoint<'a, MediaPreviewEndpoint> {
+    /// Returns a successful response with OpenGraph-like data for the URL.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "og:title": "Matrix Blog Post",
+            "og:description": "This is a really cool blog post from matrix.org",
+            "og:image": "mxc://example.com/ascERGshawAWawugaAcauga",
+            "og:image:type": "image/png",
+            "og:image:height": 48,
+            "og:image:width": 48,
+            "matrix:image:size": 102_400,
+        })))
+    }
+
+    /// Returns a successful but empty response.
+    ///
+    /// Homeservers legitimately return an empty object when they could not
+    /// extract any metadata from the URL.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+    }
+}
+
+/// A prebuilt mock for `GET /client/v1/media/preview_url` requests.
+pub struct AuthedMediaPreviewEndpoint;
+
+impl<'a> MockEndpoint<'a, AuthedMediaPreviewEndpoint> {
+    /// Returns a successful response with OpenGraph-like data for the URL.
+    pub fn ok(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "og:title": "Matrix Blog Post",
+            "og:description": "This is a really cool blog post from matrix.org",
+            "og:image": "mxc://example.com/ascERGshawAWawugaAcauga",
+            "og:image:type": "image/png",
+            "og:image:height": 48,
+            "og:image:width": 48,
+            "matrix:image:size": 102_400,
+        })))
+    }
+
+    /// Returns a successful but empty response.
+    ///
+    /// Homeservers legitimately return an empty object when they could not
+    /// extract any metadata from the URL.
+    pub fn ok_empty(self) -> MatrixMock<'a> {
+        self.respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
     }
 }
 
