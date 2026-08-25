@@ -403,3 +403,47 @@ async fn test_get_media_preview_empty_response() {
     let json: serde_json::Value = serde_json::from_str(data.expect("some data").get()).unwrap();
     assert_eq!(json, serde_json::json!({}));
 }
+
+#[async_test]
+async fn test_get_media_preview_empty_response_no_auth() {
+    // Same empty-metadata case as above, but served by the deprecated endpoint
+    // on a pre-1.11 homeserver.
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+
+    server.mock_versions().with_versions(vec!["v1.1"]).ok().named("versions").mount().await;
+
+    let _guard = server
+        .mock_media_preview()
+        .ok_empty()
+        .named("get_media_preview_empty_no_auth")
+        .expect(1)
+        .mount_as_scoped()
+        .await;
+
+    let data = client.media().get_media_preview("https://matrix.org", None).await.unwrap();
+
+    let json: serde_json::Value = serde_json::from_str(data.expect("some data").get()).unwrap();
+    assert_eq!(json, serde_json::json!({}));
+}
+
+#[async_test]
+async fn test_get_media_preview_disabled_by_server() {
+    // Homeservers may disable URL previews entirely, in which case the endpoint
+    // is not routed at all and answers `M_UNRECOGNIZED`. That must surface as an
+    // error rather than being mistaken for "no preview available".
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().no_server_versions().build().await;
+
+    server.mock_versions().with_versions(vec!["v1.11"]).ok().named("versions").mount().await;
+
+    let _guard = server
+        .mock_authed_media_preview()
+        .error_unrecognized()
+        .named("get_media_preview_unrecognized")
+        .expect(1)
+        .mount_as_scoped()
+        .await;
+
+    assert!(client.media().get_media_preview("https://matrix.org", None).await.is_err());
+}
