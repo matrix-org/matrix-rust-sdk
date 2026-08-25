@@ -206,6 +206,37 @@ impl SlidingSync {
         }
     }
 
+    /// Give a deferred `pos` write a bounded chance to reach the database
+    /// before the sync loop stops.
+    ///
+    /// Once a request carrying the new `pos` has been sent, the server drops
+    /// the previous position: if the process is then suspended before the
+    /// deferred write lands (a background refresh stops syncing, completes its
+    /// task and is frozen within milliseconds), the next launch restores a
+    /// `pos` the server no longer knows, and pays a full cold sync
+    /// (`M_UNKNOWN_POS`; element-x-ios-rageshakes#7569, a 5s launch). The
+    /// event cache keeps processing independently of the sync loop, so the
+    /// wait is for its acknowledgement, never a write ahead of it: on timeout
+    /// the stale-but-safe `pos` stays on disk.
+    async fn flush_pending_pos(&self) {
+        let Some(pending) = self.inner.pos_persist.borrow().clone() else { return };
+        // ponytail: 50ms polling, 5s ceiling; a `persisted_pos` watch if this ever shows up.
+        for tick in 0..100 {
+            if *self.inner.persisted_pos.lock().unwrap() == pending.pos {
+                if tick > 0 {
+                    info!(waited_ms = tick * 50, "Deferred `pos` flushed before stopping");
+                }
+                return;
+            }
+            matrix_sdk_common::sleep::sleep(Duration::from_millis(50)).await;
+        }
+        warn!(
+            target_seq = pending.target_seq,
+            "Stopping with a deferred `pos` still unwritten: the event cache never caught up; \
+             the next launch will restore a stale position"
+        );
+    }
+
     /// Create a new [`SlidingSyncBuilder`].
     pub fn builder(id: String, client: Client) -> Result<SlidingSyncBuilder, Error> {
         SlidingSyncBuilder::new(id, client)
@@ -1009,6 +1040,7 @@ impl SlidingSync {
 
                         match internal_message {
                             Err(_) | Ok(SyncLoopStop) => {
+                                self.flush_pending_pos().await;
                                 break;
                             }
 
@@ -3632,5 +3664,31 @@ mod tests {
         }
 
         panic!("`pos` was never persisted after the event cache caught up");
+    }
+
+    #[cfg(feature = "e2e-encryption")]
+    #[async_test]
+    async fn test_flushing_waits_for_a_deferred_pos() -> Result<()> {
+        use matrix_sdk_base::sync::RoomUpdates;
+
+        let client = logged_in_client(Some("https://foo.bar".to_owned())).await;
+        let sliding_sync = client.sliding_sync("flushed-pos")?.build().await?;
+        client.event_cache().subscribe().unwrap();
+
+        let target_seq = client.last_room_updates_seq() + 1;
+        sliding_sync.persist_pos(Some("flushed".to_owned()), target_seq).await;
+
+        // The event cache catches up while the flush is waiting.
+        let tx = client.inner.event_cache_room_updates_tx.get().unwrap().clone();
+        spawn(async move {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            tx.send(RoomUpdates { seq: target_seq, ..Default::default() }).unwrap();
+        });
+
+        sliding_sync.flush_pending_pos().await;
+
+        let restored = restore_sliding_sync_state(&client, &sliding_sync.inner.storage_key).await?;
+        assert_eq!(restored.and_then(|fields| fields.pos).as_deref(), Some("flushed"));
+        Ok(())
     }
 }
