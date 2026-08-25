@@ -2975,6 +2975,13 @@ async fn test_unwedging_media_upload() {
     assert_eq!(error.status_code, 413);
     assert!(!q.is_enabled());
 
+    // The wedged upload is reflected on the media event's local echo: a client
+    // restarting here must see the media as failed, not as still being sent.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
+    assert!(send_error.is_some());
+
     // Mount the mock for the upload and sending the event.
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
@@ -3001,6 +3008,59 @@ async fn test_unwedging_media_upload() {
 
     // That's all, folks!
     assert!(watch.is_empty());
+}
+
+#[cfg(feature = "unstable-msc4274")]
+#[async_test]
+async fn test_wedged_gallery_upload_error_is_reflected_on_local_echo() {
+    let mock = MatrixMockServer::new().await;
+
+    // Mark the room as joined.
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    let mut global_watch = client.send_queue().subscribe();
+
+    // Prepare endpoints.
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+
+    // The upload fails with an error indicating the media's too large, wedging it.
+    mock.mock_upload().error_too_large().mock_once().mount().await;
+
+    // Send a single-item gallery, without a thumbnail.
+    let gallery = GalleryConfig::new().add_item(GalleryItemInfo {
+        attachment_info: AttachmentInfo::Image(BaseImageInfo::default()),
+        content_type: mime::IMAGE_JPEG,
+        filename: "surprise.jpeg.exe".into(),
+        data: b"hello world".to_vec(),
+        thumbnail: None,
+        caption: None,
+    });
+
+    assert!(watch.is_empty());
+    q.send_gallery(gallery).await.expect("queuing the gallery works");
+
+    let (event_txn, _send_handle, _content) =
+        assert_update!((global_watch, watch) => local echo event);
+
+    // Although the actual error happens on the file upload transaction id, it must
+    // be reported with the *event* transaction id.
+    let error = assert_update!((global_watch, watch) => error { recoverable=false, txn=event_txn });
+    assert_eq!(error.as_client_api_error().unwrap().status_code, 413);
+    assert!(!q.is_enabled());
+
+    // The wedged upload is reflected on the gallery event's local echo: a client
+    // restarting here must see the gallery as failed, not as still being sent.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
+    assert!(send_error.is_some());
 }
 
 /// Aborts an ongoing media upload and checks post-conditions:

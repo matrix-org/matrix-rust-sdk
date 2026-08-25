@@ -1997,48 +1997,61 @@ impl QueueStorage {
         let client = guard.client()?;
         let store = client.state_store();
 
-        let local_requests =
-            store.load_send_queue_requests(&self.room_id).await?.into_iter().filter_map(|queued| {
-                Some(LocalEcho {
-                    transaction_id: queued.transaction_id.clone(),
-                    content: match queued.kind {
-                        QueuedRequestKind::Event { content } => LocalEchoContent::Event {
-                            serialized_event: content,
-                            send_handle: SendHandle {
+        let queued_requests = store.load_send_queue_requests(&self.room_id).await?;
+
+        // Media upload requests aren't returned as echoes themselves (the media event,
+        // represented as a dependent request, is), so carry their send errors over to
+        // the dependent request's echo: a wedged upload wedges the media event.
+        let mut media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
+            .iter()
+            .filter_map(|queued| match queued.kind {
+                QueuedRequestKind::MediaUpload { .. } => {
+                    queued.error.clone().map(|error| (queued.transaction_id.clone(), error))
+                }
+                _ => None,
+            })
+            .collect();
+
+        let local_requests = queued_requests.into_iter().filter_map(|queued| {
+            Some(LocalEcho {
+                transaction_id: queued.transaction_id.clone(),
+                content: match queued.kind {
+                    QueuedRequestKind::Event { content } => LocalEchoContent::Event {
+                        serialized_event: content,
+                        send_handle: SendHandle {
+                            room: room.clone(),
+                            transaction_id: queued.transaction_id,
+                            media_handles: vec![],
+                            created_at: queued.created_at,
+                        },
+                        send_error: queued.error,
+                    },
+
+                    QueuedRequestKind::MediaUpload { .. } => {
+                        // Don't return uploaded medias as their own things; the accompanying
+                        // event represented as a dependent request should be sufficient.
+                        return None;
+                    }
+
+                    QueuedRequestKind::Redaction { redacts, reason } => {
+                        LocalEchoContent::Redaction {
+                            redacts,
+                            reason,
+                            send_handle: SendRedactionHandle {
                                 room: room.clone(),
                                 transaction_id: queued.transaction_id,
-                                media_handles: vec![],
-                                created_at: queued.created_at,
                             },
                             send_error: queued.error,
-                        },
-
-                        QueuedRequestKind::MediaUpload { .. } => {
-                            // Don't return uploaded medias as their own things; the accompanying
-                            // event represented as a dependent request should be sufficient.
-                            return None;
                         }
+                    }
+                },
+            })
+        });
 
-                        QueuedRequestKind::Redaction { redacts, reason } => {
-                            LocalEchoContent::Redaction {
-                                redacts,
-                                reason,
-                                send_handle: SendRedactionHandle {
-                                    room: room.clone(),
-                                    transaction_id: queued.transaction_id,
-                                },
-                                send_error: queued.error,
-                            }
-                        }
-                    },
-                })
-            });
+        let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
 
-        let reactions_and_medias = store
-            .load_dependent_queued_requests(&self.room_id)
-            .await?
-            .into_iter()
-            .filter_map(|dep| match dep.kind {
+        let reactions_and_medias =
+            dependent_requests.into_iter().filter_map(|dep| match dep.kind {
                 DependentQueuedRequestKind::EditEvent { .. }
                 | DependentQueuedRequestKind::RedactEvent => {
                     // TODO: reflect local edits/redacts too?
@@ -2068,6 +2081,15 @@ impl QueueStorage {
                     thumbnail_info,
                     extra_content,
                 } => {
+                    let upload_thumbnail_txn = thumbnail_info.map(|info| info.txn);
+
+                    // If one of the uploads wedged, the media event is wedged too.
+                    let send_error = media_upload_errors.remove(&file_upload).or_else(|| {
+                        upload_thumbnail_txn
+                            .as_ref()
+                            .and_then(|txn| media_upload_errors.remove(&**txn))
+                    });
+
                     // Materialize as an event local echo.
                     Some(LocalEcho {
                         transaction_id: dep.own_transaction_id.clone().into(),
@@ -2081,12 +2103,12 @@ impl QueueStorage {
                                 room: room.clone(),
                                 transaction_id: dep.own_transaction_id.into(),
                                 media_handles: vec![MediaHandles {
-                                    upload_thumbnail_txn: thumbnail_info.map(|info| info.txn),
+                                    upload_thumbnail_txn,
                                     upload_file_txn: file_upload,
                                 }],
                                 created_at: dep.created_at,
                             },
-                            send_error: None,
+                            send_error,
                         },
                     })
                 }
@@ -2100,6 +2122,7 @@ impl QueueStorage {
                         dep.created_at,
                         local_echo,
                         item_infos,
+                        &mut media_upload_errors,
                     )
                 }
             });
@@ -2116,7 +2139,15 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         local_echo: Box<RoomMessageEventContent>,
         item_infos: Vec<FinishGalleryItemInfo>,
+        media_upload_errors: &mut HashMap<OwnedTransactionId, QueueWedgeError>,
     ) -> Option<LocalEcho> {
+        // If any of the uploads wedged, the gallery event is wedged too.
+        let send_error = item_infos.iter().find_map(|i| {
+            media_upload_errors.remove(&i.file_upload).or_else(|| {
+                i.thumbnail_info.as_ref().and_then(|info| media_upload_errors.remove(&*info.txn))
+            })
+        });
+
         Some(LocalEcho {
             transaction_id: transaction_id.clone().into(),
             content: LocalEchoContent::Event {
@@ -2133,7 +2164,7 @@ impl QueueStorage {
                         .collect(),
                     created_at,
                 },
-                send_error: None,
+                send_error,
             },
         })
     }
