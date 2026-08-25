@@ -497,6 +497,7 @@ mod tests {
         user_id,
     };
     use serde_json::json;
+    use assert_matches::assert_matches;
     use stream_assert::{assert_next_matches, assert_pending};
     use wiremock::ResponseTemplate;
 
@@ -863,13 +864,13 @@ mod tests {
         // The latest event is still encrypted: it must be surfaced as a UTD,
         // not as an unsupported/other event.
         let latest = items[0].latest_event.as_ref().expect("should have latest_event");
-        assert!(matches!(
+        assert_matches!(
             latest.content,
             Some(TimelineItemContent::MsgLike(MsgLikeContent {
                 kind: MsgLikeKind::UnableToDecrypt(_),
                 ..
             }))
-        ));
+        );
     }
 
     #[async_test]
