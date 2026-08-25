@@ -27,6 +27,12 @@
 //! a notification that can be listened to with the global send queue (see
 //! paragraph below) or using [`RoomSendQueue::subscribe()`].
 //!
+//! Requests are sent in the order they were queued. A request that failed with
+//! an unrecoverable error is marked as "wedged", and blocks all the requests
+//! queued after it (in the same room) from being sent, so events are never sent
+//! out of order; the queue resumes when the wedged request is retried (with
+//! [`SendHandle::unwedge`]) or removed (with [`SendHandle::abort`]).
+//!
 //! It is possible to control whether a single room is enabled using
 //! [`RoomSendQueue::set_enabled()`].
 //!
@@ -693,7 +699,7 @@ impl RoomSendQueue {
                 Ok(Some(request)) => request,
 
                 Ok(None) => {
-                    trace!("queue is empty, sleeping");
+                    trace!("queue is empty or blocked on a wedged request, sleeping");
                     // Wait for an explicit wakeup.
                     notifier.notified().await;
                     continue;
@@ -1020,7 +1026,9 @@ impl RoomSendQueue {
                     } else {
                         warn!(txn_id = %txn_id, error = ?err, "Unrecoverable error when sending request: {err}");
 
-                        // Mark the request as wedged, so it's not picked at any future point.
+                        // Mark the request as wedged, so it's not picked at any future point;
+                        // it will also block subsequent requests in the same room from being
+                        // sent, until it's unwedged or removed, so as to preserve ordering.
                         if let Err(storage_error) =
                             queue.mark_as_wedged(&txn_id, QueueWedgeError::from(&err)).await
                         {
@@ -1459,7 +1467,12 @@ impl QueueStorage {
         let queued_requests =
             guard.client()?.state_store().load_send_queue_requests(&self.room_id).await?;
 
-        if let Some(request) = queued_requests.iter().find(|queued| !queued.is_wedged()) {
+        // Only ever consider the head of the queue: requests must be sent in the
+        // order they were queued, so a wedged request (which failed to be sent with an
+        // unrecoverable error) blocks all the requests queued after it. Otherwise,
+        // messages would be sent out of order, until the wedged request is either
+        // manually unwedged or removed (both of which will wake up the sending task).
+        if let Some(request) = queued_requests.first().filter(|queued| !queued.is_wedged()) {
             let (cancel_upload_tx, cancel_upload_rx) =
                 if matches!(request.kind, QueuedRequestKind::MediaUpload { .. }) {
                     let (tx, rx) = oneshot::channel();
@@ -2782,6 +2795,9 @@ impl SendHandle {
 
         for handles in &self.media_handles {
             if queue.abort_upload(&self.transaction_id, handles).await? {
+                // Wake up the queue, in case it was blocked on this request being wedged.
+                self.room.inner.notifier.notify_one();
+
                 // Propagate a cancelled update.
                 self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
                     transaction_id: self.transaction_id.clone(),
@@ -2797,6 +2813,9 @@ impl SendHandle {
 
         if queue.cancel_event(&self.transaction_id).await? {
             trace!("successful abort");
+
+            // Wake up the queue, in case it was blocked on this request being wedged.
+            self.room.inner.notifier.notify_one();
 
             // Propagate a cancelled update too.
             self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
@@ -3058,6 +3077,9 @@ impl SendRedactionHandle {
 
         if queue.cancel_event(&self.transaction_id).await? {
             trace!("successful redaction abort");
+
+            // Wake up the queue, in case it was blocked on this request being wedged.
+            self.room.inner.notifier.notify_one();
 
             // Propagate a cancelled update too.
             self.room.send_update(RoomSendQueueUpdate::CancelledLocalEvent {
