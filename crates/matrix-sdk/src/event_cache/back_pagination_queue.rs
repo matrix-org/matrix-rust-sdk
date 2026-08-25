@@ -39,6 +39,7 @@
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
+    num::NonZeroUsize,
     ops::ControlFlow,
     sync::{Arc, Weak},
 };
@@ -215,7 +216,7 @@ impl BackPaginationQueue {
     /// Create the queue and spawn its executor task.
     pub(super) fn new(
         event_cache: Weak<EventCacheInner>,
-        max_concurrent: usize,
+        max_concurrent: NonZeroUsize,
         task_monitor: &TaskMonitor,
     ) -> Self {
         let (sender, receiver) = mpsc::unbounded_channel();
@@ -226,7 +227,7 @@ impl BackPaginationQueue {
         let task = task_monitor
             .spawn_infinite_task(
                 "event_cache::back_pagination_queue",
-                scheduler(event_cache, receiver, sender.clone(), max_concurrent),
+                scheduler(event_cache, receiver, sender.clone(), max_concurrent.get()),
             )
             .abort_on_drop();
 
@@ -374,8 +375,7 @@ async fn scheduler(
 
     // At most `max_concurrent` runs are in flight, so there's never a reason to
     // drain more than that in one go.
-    let batch_limit = max_concurrent.max(1);
-    let mut events = Vec::with_capacity(batch_limit);
+    let mut events = Vec::with_capacity(max_concurrent);
 
     loop {
         // Schedule as many pending requests as the concurrency budget allows, never
@@ -390,7 +390,7 @@ async fn scheduler(
 
         // Unreachable while this task holds `sender`, but guards against a hot loop
         // if that ever stops being true.
-        if receiver.recv_many(&mut events, batch_limit).await == 0 {
+        if receiver.recv_many(&mut events, max_concurrent).await == 0 {
             info!("Back-pagination queue channel closed, exiting");
             break;
         }
