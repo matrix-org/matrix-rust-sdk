@@ -22,6 +22,7 @@ use std::{fmt, sync::Arc};
 
 use matrix_sdk_base::{
     event_cache::Event,
+    read_receipts::ReadReceipts,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
 };
 use ruma::{
@@ -157,6 +158,36 @@ impl ThreadEventCache {
     /// Get the thread ID for this thread.
     pub fn thread_id(&self) -> &EventId {
         &self.inner.thread_id
+    }
+
+    /// Get the number of unread messages.
+    ///
+    /// To get multiple information about the read receipts, use
+    /// [`Self::read_receipts`] as it involves a single lock.
+    pub async fn num_unread_messages(&self) -> Result<u64> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_unread)
+    }
+
+    /// Get the number of unread notifications.
+    ///
+    /// To get multiple information about the read receipts, use
+    /// [`Self::read_receipts`] as it involves a single lock.
+    pub async fn num_unread_notifications(&self) -> Result<u64> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_notifications)
+    }
+
+    /// Get the number of unread mentions, that is, messages causing a highlight
+    /// in a room.
+    ///
+    /// To get multiple information about the read receipts, use
+    /// [`Self::read_receipts`] as it involves a single lock.
+    pub async fn num_unread_mentions(&self) -> Result<u64> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.num_mentions)
+    }
+
+    /// Get the detailed information about read receipts for this thread.
+    pub async fn read_receipts(&self) -> Result<ReadReceipts> {
+        Ok(self.inner.state.read().await?.thread_info.read_receipts.clone())
     }
 
     /// Subscribe to this thread updates, after getting the initial list of

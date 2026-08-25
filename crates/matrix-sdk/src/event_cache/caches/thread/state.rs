@@ -82,7 +82,7 @@ pub struct ThreadEventCacheState {
     thread_linked_chunk: EventLinkedChunk,
 
     /// The information related to this thread, [`ThreadInfo`].
-    thread_info: ThreadInfo,
+    pub thread_info: ThreadInfo,
 
     /// A clone of [`super::ThreadEventCacheInner::update_sender`].
     ///
