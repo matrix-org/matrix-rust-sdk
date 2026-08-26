@@ -1789,7 +1789,72 @@ impl Client {
         #[cfg(not(feature = "e2e-encryption"))]
         let _ = pre_join_room_info.map(|i| i.inviter);
 
+        self.inherit_notification_mode_from_predecessor(&room).await;
+
         Ok(room)
+    }
+
+    /// Carry the notification mode the user set on a room over to the room that
+    /// replaces it.
+    ///
+    /// An upgraded room is a different room to the server, so the push rule set
+    /// on the old one does not apply to it. Only a mode the user chose
+    /// themselves is copied: a room that was following the default keeps
+    /// following it, rather than being pinned to whatever the default happened
+    /// to be at the time of the upgrade.
+    async fn inherit_notification_mode_from_predecessor(&self, room: &Room) {
+        let notification_settings = self.notification_settings().await;
+
+        let Some(predecessor_room_id) =
+            self.predecessor_room_id(room, &notification_settings).await
+        else {
+            return;
+        };
+
+        let Some(mode) = notification_settings
+            .get_user_defined_room_notification_mode(&predecessor_room_id)
+            .await
+        else {
+            return;
+        };
+
+        if let Err(error) =
+            notification_settings.set_room_notification_mode(room.room_id(), mode).await
+        {
+            warn!(
+                room_id = %room.room_id(),
+                %predecessor_room_id,
+                "Failed to carry the notification mode over from the predecessor room: {error}"
+            );
+        }
+    }
+
+    /// The ID of the room the given room replaces, if it replaces one.
+    ///
+    /// The successor's own `m.room.create` event is the direct answer, but it
+    /// has usually not been synced yet right after joining. The room being
+    /// replaced is one the user was in, so its `m.room.tombstone` is the
+    /// answer that is actually available at that point; only the rooms the
+    /// user gave a notification mode of their own are worth looking at.
+    async fn predecessor_room_id(
+        &self,
+        room: &Room,
+        notification_settings: &NotificationSettings,
+    ) -> Option<OwnedRoomId> {
+        if let Some(predecessor) = room.predecessor_room() {
+            return Some(predecessor.room_id);
+        }
+
+        notification_settings
+            .get_rooms_with_user_defined_rules(None)
+            .await
+            .into_iter()
+            .filter_map(|room_id| RoomId::parse(room_id).ok())
+            .find(|candidate_id| {
+                self.get_room(candidate_id)
+                    .and_then(|candidate| candidate.successor_room())
+                    .is_some_and(|successor| successor.room_id == room.room_id())
+            })
     }
 
     /// Join a room by `RoomId`.
