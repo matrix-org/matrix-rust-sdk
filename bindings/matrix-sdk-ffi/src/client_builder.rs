@@ -44,7 +44,10 @@ use matrix_sdk_base::{
     DmRoomDefinition,
     crypto::{CollectStrategy, DecryptionSettings, TrustRequirement},
 };
-use ruma::api::error::{DeserializationError, FromHttpResponseError};
+use ruma::api::{
+    client::discovery::discover_support,
+    error::{DeserializationError, FromHttpResponseError},
+};
 use tracing::debug;
 
 use super::client::Client;
@@ -912,5 +915,66 @@ impl ClientBuilder {
 
         builder.search_index_store = Some(kind);
         Arc::new(builder)
+    }
+}
+
+/// The ways the administrator of a server can be reached, as advertised at
+/// [`/.well-known/matrix/support`].
+///
+/// [`/.well-known/matrix/support`]: https://spec.matrix.org/v1.19/client-server-api/#getwell-knownmatrixsupport
+#[derive(uniffi::Record)]
+pub struct ServerSupport {
+    /// The ways to contact the server administrator.
+    pub contacts: Vec<ServerSupportContact>,
+    /// The URL of a page giving users help specific to this server.
+    pub support_page: Option<String>,
+}
+
+/// A way to contact the administrator of a server.
+#[derive(uniffi::Record)]
+pub struct ServerSupportContact {
+    /// What this contact is used for, for instance `m.role.admin`.
+    pub role: String,
+    /// An email address to reach this contact at.
+    pub email_address: Option<String>,
+    /// A Matrix user ID to reach this contact at. It can be an account on
+    /// another server, so that the contact is reachable while this one is down.
+    pub matrix_id: Option<String>,
+}
+
+impl From<discover_support::Response> for ServerSupport {
+    fn from(response: discover_support::Response) -> Self {
+        Self {
+            contacts: response
+                .contacts
+                .into_iter()
+                .map(|contact| ServerSupportContact {
+                    role: contact.role.as_str().to_owned(),
+                    email_address: contact.email_address,
+                    matrix_id: contact.matrix_id.map(Into::into),
+                })
+                .collect(),
+            support_page: response.support_page,
+        }
+    }
+}
+
+/// Read the ways the administrator of a server can be reached.
+///
+/// The file this comes from is served by the server name's own domain rather
+/// than by the homeserver API, so it usually answers even when the homeserver
+/// does not — which is when naming someone to contact is most useful, and why
+/// this does not need a built [`Client`].
+///
+/// Returns `None` when the server advertises nothing or cannot be reached at
+/// all; either way there is nobody to name.
+#[matrix_sdk_ffi_macros::export]
+pub async fn discover_server_support(server_name_or_url: String) -> Option<ServerSupport> {
+    match matrix_sdk::discover_server_support(&server_name_or_url).await {
+        Ok(response) => Some(response.into()),
+        Err(error) => {
+            debug!("No support contact advertised by the server: {error}");
+            None
+        }
     }
 }

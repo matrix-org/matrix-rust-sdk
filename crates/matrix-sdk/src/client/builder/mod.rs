@@ -46,6 +46,7 @@ use matrix_sdk_sqlite::SqliteStoreConfig;
 use reqwest::Certificate;
 use ruma::{
     OwnedServerName, ServerName,
+    api::client::discovery::discover_support,
     api::{MatrixVersion, SupportedVersions, error::FromHttpResponseError},
     presence::PresenceState,
 };
@@ -54,6 +55,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 use tracing::{Span, debug, field::debug, instrument};
+use url::Url;
 
 use super::{Client, ClientInner};
 #[cfg(feature = "e2e-encryption")]
@@ -773,6 +775,48 @@ pub fn sanitize_server_name(s: &str) -> crate::Result<OwnedServerName, IdParseEr
     )
 }
 
+/// Reads the ways a server's administrator can be reached, as advertised at
+/// [`/.well-known/matrix/support`].
+///
+/// That file is served by the server name's own domain rather than by the
+/// homeserver API, so it usually answers even when the homeserver does not,
+/// which is when naming someone to contact is most useful.
+///
+/// `server_name_or_url` takes the same forms as
+/// [`ClientBuilder::server_name_or_homeserver_url`]: a server name, optionally
+/// prefixed with a scheme, or a homeserver URL. A server that advertises
+/// nothing answers with a 404, which is reported as
+/// [`ClientBuildError::Http`].
+///
+/// [`/.well-known/matrix/support`]: https://spec.matrix.org/v1.19/client-server-api/#getwell-knownmatrixsupport
+pub async fn discover_server_support(
+    server_name_or_url: &str,
+) -> Result<discover_support::Response, ClientBuildError> {
+    let server_name = sanitize_server_name(server_name_or_url)
+        .map_err(|_| ClientBuildError::InvalidServerName)?;
+
+    let scheme = if server_name_or_url.trim().starts_with("http://") { "http" } else { "https" };
+    let server = Url::parse(&format!("{scheme}://{server_name}"))?;
+
+    #[cfg(not(target_family = "wasm"))]
+    let inner_http_client = HttpSettings::default().make_client()?;
+    #[cfg(target_family = "wasm")]
+    let inner_http_client = reqwest::Client::new();
+
+    let http_client = HttpClient::new(inner_http_client, RequestConfig::short_retry());
+
+    Ok(http_client
+        .send(
+            discover_support::Request::new(),
+            Some(RequestConfig::short_retry()),
+            server.to_string(),
+            None,
+            (),
+            Default::default(),
+        )
+        .await?)
+}
+
 #[allow(clippy::unused_async, unused)] // False positive when building with !sqlite & !indexeddb
 async fn build_store_config(
     builder_config: BuilderStoreConfig,
@@ -990,6 +1034,8 @@ pub(crate) mod tests {
         matchers::{header, method, path},
     };
 
+    use ruma::api::client::discovery::discover_support::ContactRole;
+
     use super::*;
     use crate::sliding_sync::Version as SlidingSyncVersion;
 
@@ -1044,6 +1090,59 @@ pub(crate) mod tests {
         // Then the operation should fail with an HTTP error.
         println!("{error}");
         assert_matches!(error, ClientBuildError::Http(_));
+    }
+
+    #[async_test]
+    async fn test_discover_server_support() {
+        // Given a server that advertises how its administrator can be reached.
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/matrix/support"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "contacts": [
+                    {
+                        "role": "m.role.security",
+                        "email_address": "security@example.org",
+                    },
+                    {
+                        "role": "m.role.admin",
+                        "matrix_id": "@admin:example.org",
+                        "email_address": "admin@example.org",
+                    },
+                ],
+                "support_page": "https://example.org/support",
+            })))
+            .mount(&server)
+            .await;
+
+        // When asking for it.
+        let support = discover_server_support(&server.uri()).await.unwrap();
+
+        // Then every advertised way to reach them is returned.
+        assert_eq!(support.contacts.len(), 2);
+        assert_eq!(support.contacts[1].role, ContactRole::Admin);
+        assert_eq!(support.contacts[1].email_address.as_deref(), Some("admin@example.org"));
+        assert_eq!(support.support_page.as_deref(), Some("https://example.org/support"));
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_advertising_nothing() {
+        // Given a server that advertises nothing.
+        let server = MockServer::start().await;
+
+        // When asking for it, then the lookup fails rather than inventing a contact.
+        assert_matches!(
+            discover_server_support(&server.uri()).await.unwrap_err(),
+            ClientBuildError::AutoDiscovery(_) | ClientBuildError::Http(_)
+        );
+    }
+
+    #[async_test]
+    async fn test_discover_server_support_invalid_server() {
+        assert_matches!(
+            discover_server_support("⚠️ This won't work 🚫").await.unwrap_err(),
+            ClientBuildError::InvalidServerName
+        );
     }
 
     #[async_test]
