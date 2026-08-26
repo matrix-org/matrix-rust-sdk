@@ -478,7 +478,7 @@ impl RoomListService {
         self.client.get_room(room_id).ok_or_else(|| Error::RoomNotFound(room_id.to_owned()))
     }
 
-    /// Subscribe to rooms.
+    /// Set the room subscriptions to exactly `room_ids`.
     ///
     /// It means that all events from these rooms will be received every time,
     /// no matter how the `RoomList` is configured.
@@ -492,13 +492,13 @@ impl RoomListService {
     ///
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
-    pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
+    pub async fn set_room_subscriptions(&self, room_ids: &[&RoomId]) {
         // Read the state before the await: the state machine can drift meanwhile.
         let cancel_in_flight_request = self.must_cancel_in_flight_request();
 
         self.listen_to_latest_events(room_ids).await;
 
-        self.sliding_sync.resubscribe_to_rooms(
+        self.sliding_sync.set_room_subscriptions(
             room_ids,
             Some(room_subscription_settings()),
             cancel_in_flight_request,

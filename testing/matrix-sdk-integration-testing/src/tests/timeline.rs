@@ -1174,7 +1174,7 @@ async fn test_pinned_events_are_decrypted_after_recovering_with_event_count(
     //
     // Additionally if we subscribe to the room after we already synced, we won't
     // receive the event, likely due to a Synapse bug.
-    sync_service.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service.start().await;
     another_alice.encryption().wait_for_e2ee_initialization_tasks().await;
 
@@ -1315,7 +1315,7 @@ async fn test_permalink_timelines_redecrypt() -> TestResult {
     //
     // Additionally if we subscribe to the room after we already synced, we won't
     // receive the event, likely due to a Synapse bug.
-    sync_service.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service.start().await;
     another_alice.encryption().wait_for_e2ee_initialization_tasks().await;
 
@@ -1446,7 +1446,7 @@ async fn test_latest_thread_event_is_redecrypted_and_updated() -> TestResult {
 
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 
-    sync_service2.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service2.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service2.start().await;
     alice2.encryption().wait_for_e2ee_initialization_tasks().await;
 

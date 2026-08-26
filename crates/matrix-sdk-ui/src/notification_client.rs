@@ -531,7 +531,7 @@ impl NotificationClient {
             .build()
             .await?;
 
-        sync.subscribe_to_rooms(
+        sync.add_room_subscriptions(
             &room_ids.iter().map(|id| id.deref()).collect::<Vec<&RoomId>>(),
             Some(assign!(http::request::RoomSubscription::default(), {
                 required_state,
