@@ -28,7 +28,6 @@ use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
-use zeroize::Zeroize;
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret,
@@ -564,92 +563,72 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
     /// Get the [`StoreCipher`] of the database or create it.
     async fn get_or_create_store_cipher(
         &self,
-        mut secret: Secret,
+        secret: Secret,
     ) -> Result<StoreCipher, OpenStoreError> {
-        let fast_key = fast_open_key(&secret);
+        const STORAGE_KEY: &str = "cipher";
 
-        if let Some(key) = &fast_key
-            && let Some(encrypted) =
-                self.get_kv("cipher_fast").await.map_err(OpenStoreError::LoadCipher)?
-            && let Ok(cipher) = StoreCipher::import_with_key(key.as_slice(), &encrypted)
-        {
-            // A stale or corrupt copy falls through to the slow path, which rewrites it.
-            secret.zeroize();
-            return Ok(cipher);
-        }
-
-        let encrypted_cipher = self.get_kv("cipher").await.map_err(OpenStoreError::LoadCipher)?;
+        let encrypted_cipher =
+            self.get_kv(STORAGE_KEY).await.map_err(OpenStoreError::LoadCipher)?;
 
         let cipher = if let Some(encrypted) = encrypted_cipher {
-            import_cipher(&secret, &encrypted)?
+            match &secret {
+                Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
+                Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
+                Secret::HighEntropyPassPhrase(passphrase) => {
+                    // Element X apps used the passphrase-based secret variant even though the
+                    // underlying secret was a randomly generated key.
+                    //
+                    // The `HighEntropyPassPhrase` variant was introduced to migrate these cipher
+                    // exports from a passphrase-based setup to a key-based setup.
+                    //
+                    // We first attempt to decrypt the cipher using the provided high-entropy
+                    // passphrase as a key. If this results in a KDF mismatch, it indicates that
+                    // the export was originally encrypted with the high-entropy passphrase being
+                    // used as a passphrase instead.
+                    //
+                    // In that case, we re-encrypt the cipher using the key-based setup. On the next
+                    // import attempt, `import_with_key()` can then decrypt it successfully.
+                    match StoreCipher::import_with_key(passphrase.as_bytes(), &encrypted) {
+                        Ok(cipher) => cipher,
+                        Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
+                            let cipher = StoreCipher::import(passphrase, &encrypted)?;
+                            let export = cipher.export_with_key(passphrase.as_bytes())?;
+                            self.set_kv(STORAGE_KEY, export)
+                                .await
+                                .map_err(OpenStoreError::SaveCipher)?;
+
+                            cipher
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+            }
         } else {
             let cipher = StoreCipher::new()?;
-            self.set_kv("cipher", export_cipher(&cipher, &secret)?)
-                .await
-                .map_err(OpenStoreError::SaveCipher)?;
+
+            let export = match &secret {
+                Secret::PassPhrase(passphrase) => {
+                    #[cfg(not(test))]
+                    {
+                        cipher.export(passphrase)
+                    }
+                    #[cfg(test)]
+                    {
+                        cipher._insecure_export_fast_for_testing(passphrase)
+                    }
+                }
+                Secret::Key(key) => cipher.export_with_key(key.as_slice()),
+                Secret::HighEntropyPassPhrase(passphrase) => {
+                    cipher.export_with_key(passphrase.as_bytes())
+                }
+            }?;
+
+            self.set_kv(STORAGE_KEY, export).await.map_err(OpenStoreError::SaveCipher)?;
+
             cipher
         };
 
-        if let Some(key) = &fast_key {
-            let export = cipher.export_with_key(key.as_slice())?;
-            self.set_kv("cipher_fast", export).await.map_err(OpenStoreError::SaveCipher)?;
-        }
-
-        secret.zeroize();
         Ok(cipher)
-    }
-}
-
-/// Derive the key wrapping the `cipher_fast` copy of the store cipher.
-///
-/// Only [`Secret::HighEntropyPassPhrase`] gets as a human-chosen passphrase
-/// would lose its brute-force protection and a [`Secret::Key`] already opens
-/// without key derivation.
-fn fast_open_key(secret: &Secret) -> Option<Box<[u8; 32]>> {
-    let Secret::HighEntropyPassPhrase(passphrase) = secret else {
-        return None;
-    };
-
-    let hkdf = hkdf::Hkdf::<sha2::Sha256>::new(None, passphrase.as_bytes());
-    let mut key = Box::new([0u8; 32]);
-    hkdf.expand(b"matrix-sdk-sqlite.store-cipher.fast-open.v1", key.as_mut_slice())
-        .expect("32 bytes is a valid HKDF-SHA256 output length");
-
-    Some(key)
-}
-
-/// Unwrap the `cipher` entry. Both passphrase variants use the same wrapping,
-/// which is what makes them interchangeable on an existing store.
-fn import_cipher(
-    secret: &Secret,
-    encrypted: &[u8],
-) -> Result<StoreCipher, matrix_sdk_store_encryption::Error> {
-    match secret {
-        Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), encrypted),
-        Secret::PassPhrase(passphrase) | Secret::HighEntropyPassPhrase(passphrase) => {
-            StoreCipher::import(passphrase, encrypted)
-        }
-    }
-}
-
-/// Wrap the `cipher` entry. Both passphrase variants use the same wrapping,
-/// which is what makes them interchangeable on an existing store.
-fn export_cipher(
-    cipher: &StoreCipher,
-    secret: &Secret,
-) -> Result<Vec<u8>, matrix_sdk_store_encryption::Error> {
-    match secret {
-        Secret::Key(key) => cipher.export_with_key(key.as_slice()),
-        Secret::PassPhrase(passphrase) | Secret::HighEntropyPassPhrase(passphrase) => {
-            #[cfg(not(test))]
-            {
-                cipher.export(passphrase)
-            }
-            #[cfg(test)]
-            {
-                cipher._insecure_export_fast_for_testing(passphrase)
-            }
-        }
     }
 }
 
