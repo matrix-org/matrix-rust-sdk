@@ -1232,6 +1232,23 @@ impl Room {
             .collect())
     }
 
+    /// Get the user IDs of the members with the given memberships, without the
+    /// service members. The current user is part of the result. Fetches the
+    /// member list if it is not synced yet.
+    pub async fn human_member_ids(&self, memberships: RoomMemberships) -> Result<Vec<OwnedUserId>> {
+        self.sync_members().await?;
+        self.human_member_ids_no_sync(memberships).await
+    }
+
+    /// Same as [`Self::human_member_ids`], without a request to the homeserver,
+    /// so members can be missing.
+    pub async fn human_member_ids_no_sync(
+        &self,
+        memberships: RoomMemberships,
+    ) -> Result<Vec<OwnedUserId>> {
+        Ok(self.inner.human_member_ids(memberships).await?)
+    }
+
     /// Sets the display name of the current user within this room.
     ///
     /// *Note*: This is different to [`crate::Account::set_display_name`] which
