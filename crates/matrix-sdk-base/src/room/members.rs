@@ -131,6 +131,21 @@ impl Room {
         Ok(members)
     }
 
+    /// Get the user IDs of the members with the given memberships, without the
+    /// service members, see [`Self::service_members`].
+    pub async fn human_member_ids(
+        &self,
+        memberships: RoomMemberships,
+    ) -> StoreResult<Vec<OwnedUserId>> {
+        let user_ids = self.store.get_user_ids(self.room_id(), memberships).await?;
+
+        let Some(service_members) = self.service_members() else {
+            return Ok(user_ids);
+        };
+
+        Ok(user_ids.into_iter().filter(|user_id| !service_members.contains(user_id)).collect())
+    }
+
     /// Returns the number of members who have joined or been invited to the
     /// room.
     pub fn active_members_count(&self) -> u64 {

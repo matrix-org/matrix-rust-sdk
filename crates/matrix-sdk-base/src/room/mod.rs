@@ -780,6 +780,75 @@ mod tests {
         assert_eq!(heroes[0].user_id, alice_id);
     }
 
+    #[async_test]
+    async fn test_human_member_ids_filters_out_service_members() {
+        let client = logged_in_base_client(None).await;
+        let user_id = &client.session_meta().unwrap().user_id;
+        let service_member_id = user_id!("@service:example.org");
+        let alice_id = user_id!("@alice:example.org");
+        let bob_id = user_id!("@bob:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let factory = EventFactory::new().room(room_id);
+
+        let service_member_hint =
+            factory.member_hints(BTreeSet::from([service_member_id.to_owned()])).sender(user_id);
+        let alice_joins = factory.member(alice_id);
+        let service_member_joins = factory.member(service_member_id);
+        let bob_leaves = factory.member(bob_id).membership(MembershipState::Leave);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(
+                JoinedRoomBuilder::new(room_id)
+                    .add_state_event(service_member_hint)
+                    .add_state_event(alice_joins)
+                    .add_state_event(service_member_joins)
+                    .add_state_event(bob_leaves),
+            )
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_eq!(
+            room.human_member_ids(RoomMemberships::ACTIVE).await.unwrap(),
+            vec![alice_id.to_owned()]
+        );
+        assert_eq!(
+            room.human_member_ids(RoomMemberships::empty())
+                .await
+                .unwrap()
+                .into_iter()
+                .collect::<BTreeSet<_>>(),
+            BTreeSet::from([alice_id.to_owned(), bob_id.to_owned()])
+        );
+    }
+
+    #[async_test]
+    async fn test_human_member_ids_without_member_hints() {
+        let client = logged_in_base_client(None).await;
+        let alice_id = user_id!("@alice:example.org");
+        let room_id = room_id!("!room:example.org");
+
+        let room = client.get_or_create_room(room_id, RoomState::Joined);
+        let factory = EventFactory::new().room(room_id);
+
+        let alice_joins = factory.member(alice_id);
+
+        let mut sync_builder = SyncResponseBuilder::new();
+        let response = sync_builder
+            .add_joined_room(JoinedRoomBuilder::new(room_id).add_state_event(alice_joins))
+            .build_sync_response();
+
+        client.receive_sync_response(response).await.unwrap();
+
+        assert_eq!(
+            room.human_member_ids(RoomMemberships::ACTIVE).await.unwrap(),
+            vec![alice_id.to_owned()]
+        );
+    }
+
     #[cfg(feature = "unstable-msc4426")]
     #[async_test]
     async fn test_room_heroes_carry_global_profile() {
