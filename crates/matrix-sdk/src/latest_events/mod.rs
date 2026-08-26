@@ -275,13 +275,15 @@ impl LatestEvents {
             // 2026-08-13 as a 70s+ sync wedge). A busy room is being computed
             // or (re)registered right now; enqueueing unconditionally is
             // harmless - recomputing an existing value is idempotent, the
-            // `value_is_none` check only avoids queue spam.
-            let value_is_none = match room_latest_events.try_read() {
-                Some(room_latest_events) => room_latest_events.for_room().value_is_none().await,
+            // `needs_computation` check only avoids queue spam.
+            let needs_computation = match room_latest_events.try_read() {
+                Some(room_latest_events) => {
+                    room_latest_events.for_room().value_needs_computation().await
+                }
                 None => true,
             };
 
-            if value_is_none {
+            if needs_computation {
                 let _ = self.state.registered_rooms.latest_event_queue_sender.send(
                     LatestEventQueueUpdate::EventCache { room_id, origin: EventsOrigin::Sync },
                 );
@@ -505,17 +507,19 @@ impl RegisteredRooms {
             let weak_room = WeakRoom::new(weak_client.clone(), room_id.to_owned());
             let room_exists = weak_room.get().is_some();
 
-            let (room_latest_events, is_latest_event_value_none) =
+            let (room_latest_events, latest_event_value_needs_computation) =
                 With::unzip(RoomLatestEvents::new(weak_room, event_cache));
 
             // Insert the new `RoomLatestEvents`.
             rooms.insert(room_id.to_owned(), room_latest_events);
 
             // If the `LatestEventValue` restored by `RoomLatestEvents` is of kind `None`,
-            // let's try to re-compute it without waiting on the Event Cache (so the sync
-            // usually) or the Send Queue. Maybe the system has migrated to a new version
-            // and the `LatestEventValue` has been erased, while it is still possible to
-            // compute a correct value.
+            // or is an unable-to-decrypt placeholder, let's try to re-compute it without
+            // waiting on the Event Cache (so the sync usually) or the Send Queue. Maybe
+            // the system has migrated to a new version and the `LatestEventValue` has
+            // been erased, or the event has been decrypted in the event cache while
+            // this room wasn't registered (see `value_needs_computation`), while it is
+            // still possible to compute a correct value.
             //
             // This is pointless if the client doesn't know the room (yet): the
             // computation would fail and be dropped. This happens when a room is
@@ -524,7 +528,7 @@ impl RegisteredRooms {
             // cleared state store): `compute_missing_room_latest_events` (see
             // [`crate::sync`]) re-triggers the computation once the sync response has
             // been fully processed and the room exists.
-            if is_latest_event_value_none && room_exists {
+            if latest_event_value_needs_computation && room_exists {
                 let _ = latest_event_queue_sender.send(LatestEventQueueUpdate::EventCache {
                     room_id: room_id.to_owned(),
                     origin: EventsOrigin::Cache,

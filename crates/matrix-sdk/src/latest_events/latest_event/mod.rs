@@ -49,12 +49,12 @@ impl LatestEvent {
     pub fn new(
         weak_room: &WeakRoom,
         thread_id: Option<&EventId>,
-    ) -> With<Self, IsLatestEventValueNone> {
+    ) -> With<Self, LatestEventValueNeedsComputation> {
         let latest_event_value = match thread_id {
             Some(_thread_id) => LatestEventValue::default(),
             None => weak_room.get().map(|room| room.latest_event()).unwrap_or_default(),
         };
-        let is_none = latest_event_value.is_none();
+        let needs_computation = value_needs_computation(&latest_event_value);
 
         With {
             result: Self {
@@ -62,7 +62,7 @@ impl LatestEvent {
                 buffer_of_values_for_local_events: BufferOfValuesForLocalEvents::new(),
                 current_value: SharedObservable::new_async(latest_event_value),
             },
-            with: is_none,
+            with: needs_computation,
         }
     }
 
@@ -74,6 +74,12 @@ impl LatestEvent {
     /// Whether the current value is [`LatestEventValue::None`].
     pub async fn value_is_none(&self) -> bool {
         self.current_value.get().await.is_none()
+    }
+
+    /// Whether the current value should be (re)computed from the event cache,
+    /// see [`value_needs_computation`].
+    pub async fn value_needs_computation(&self) -> bool {
+        value_needs_computation(&self.current_value.get().await)
     }
 
     #[cfg(test)]
@@ -228,10 +234,6 @@ impl LatestEvent {
             let mut guard = self.current_value.write().await;
             let previous_value = guard.deref();
 
-            fn is_utd(value: &LatestEventValue) -> bool {
-                matches!(value, LatestEventValue::Remote(event) if event.kind.is_utd())
-            }
-
             let do_update = match (previous_value, &new_value) {
                 // If both are `None`, no.
                 (LatestEventValue::None, LatestEventValue::None) => false,
@@ -312,7 +314,22 @@ impl<T, W> DerefMut for With<T, W> {
     }
 }
 
-pub(super) type IsLatestEventValueNone = bool;
+pub(super) type LatestEventValueNeedsComputation = bool;
+
+fn is_utd(value: &LatestEventValue) -> bool {
+    matches!(value, LatestEventValue::Remote(event) if event.kind.is_utd())
+}
+
+/// Whether a `LatestEventValue` restored from the `RoomInfo` must be
+/// (re)computed from the event cache: when there is none, or when it is an
+/// unable-to-decrypt placeholder. The persisted placeholder can be stale: a
+/// redecryption (room-key stream, persisted-UTD sweep, another process) heals
+/// the event cache, but its update only reaches rooms already registered here,
+/// so a room registered afterwards would keep showing the placeholder until
+/// the next event-cache update for that room.
+pub(super) fn value_needs_computation(value: &LatestEventValue) -> bool {
+    value.is_none() || is_utd(value)
+}
 
 #[cfg(all(not(target_family = "wasm"), test))]
 mod tests_latest_event {
@@ -402,6 +419,52 @@ mod tests_latest_event {
                 LatestEventValue::LocalIsSending(_)
             );
             assert!(is_none.not());
+        }
+
+        // A persisted unable-to-decrypt placeholder must be recomputed: the
+        // event cache may hold its decrypted copy already.
+        {
+            use matrix_sdk_common::deserialized_responses::{
+                UnableToDecryptInfo, UnableToDecryptReason,
+            };
+
+            let utd = RemoteLatestEventValue::from_utd(
+                EventFactory::new()
+                    .room(room_id)
+                    .sender(user_id!("@mnt_io:matrix.org"))
+                    .event(ruma::events::room::encrypted::RoomEncryptedEventContent::new(
+                        ruma::events::room::encrypted::EncryptedEventScheme::MegolmV1AesSha2(
+                            ruma::events::room::encrypted::MegolmV1AesSha2ContentInit {
+                                ciphertext: "cipher".to_owned(),
+                                sender_key: "sender_key".to_owned(),
+                                device_id: "device_id".into(),
+                                session_id: "session_id".to_owned(),
+                            }
+                            .into(),
+                        ),
+                        None,
+                    ))
+                    .event_id(ruma::event_id!("$utd"))
+                    .into_raw_sync(),
+                UnableToDecryptInfo {
+                    session_id: Some("session_id".to_owned()),
+                    reason: UnableToDecryptReason::MissingMegolmSession { withheld_code: None },
+                },
+            );
+
+            room.update_room_info(|mut info| {
+                info.set_latest_event(LatestEventValue::Remote(utd));
+                (info, Default::default())
+            })
+            .await;
+
+            let (latest_event, needs_computation) = With::unzip(LatestEvent::new(&weak_room, None));
+
+            assert_matches!(
+                latest_event.current_value.get().await,
+                LatestEventValue::Remote(event) => assert!(event.kind.is_utd())
+            );
+            assert!(needs_computation);
         }
     }
 

@@ -27,7 +27,7 @@ use tracing::error;
 
 use super::{
     LatestEvent,
-    latest_event::{IsLatestEventValueNone, LatestEventValue, With},
+    latest_event::{LatestEventValue, LatestEventValueNeedsComputation, With},
 };
 use crate::{
     Room,
@@ -126,7 +126,7 @@ impl RoomLatestEvents {
     pub fn new(
         weak_room: WeakRoom,
         event_cache: &EventCache,
-    ) -> With<Self, IsLatestEventValueNone> {
+    ) -> With<Self, LatestEventValueNeedsComputation> {
         let latest_event_with = Self::create_latest_event(&weak_room, None);
 
         With::map(latest_event_with, |for_the_room| Self {
@@ -149,7 +149,7 @@ impl RoomLatestEvents {
     fn create_latest_event(
         weak_room: &WeakRoom,
         thread_id: Option<&EventId>,
-    ) -> With<LatestEvent, IsLatestEventValueNone> {
+    ) -> With<LatestEvent, LatestEventValueNeedsComputation> {
         LatestEvent::new(weak_room, thread_id)
     }
 
