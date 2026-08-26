@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, ops::Not, sync::Arc};
 
 use eyeball::SharedObservable;
 use eyeball_im::VectorDiff;
@@ -317,6 +317,7 @@ impl Caches {
 
                 aggregator::aggregate_timeline_for_threads(
                     &updates.timeline,
+                    &updates.ephemeral,
                     all_states.threads(),
                     all_states.room(),
                     &internals.room_version_rules.redaction,
@@ -328,13 +329,18 @@ impl Caches {
                 let mut updates = updates.clone();
                 updates.timeline = timeline;
 
+                // Update the thread summary if and only if there are new events.
+                let update_thread_summary = updates.timeline.events.is_empty().not();
+
                 let thread = self.thread(thread_id).await?;
                 thread.handle_joined_room_update(updates).await?;
 
-                let new_thread_summary =
-                    thread.state().read().await?.compute_thread_summary().await?;
+                if update_thread_summary {
+                    let new_thread_summary =
+                        thread.state().read().await?.compute_thread_summary().await?;
 
-                room.update_thread_summary(thread.thread_id(), new_thread_summary).await?;
+                    room.update_thread_summary(thread.thread_id(), new_thread_summary).await?;
+                }
             }
         }
 
@@ -390,6 +396,7 @@ impl Caches {
 
                 aggregator::aggregate_timeline_for_threads(
                     &updates.timeline,
+                    &[],
                     all_caches_states.threads(),
                     all_caches_states.room(),
                     &internals.room_version_rules.redaction,
@@ -403,11 +410,6 @@ impl Caches {
 
                 let thread = self.thread(thread_id).await?;
                 thread.handle_left_room_update(updates).await?;
-
-                let new_thread_summary =
-                    thread.state().read().await?.compute_thread_summary().await?;
-
-                room.update_thread_summary(thread.thread_id(), new_thread_summary).await?;
             }
         }
 
