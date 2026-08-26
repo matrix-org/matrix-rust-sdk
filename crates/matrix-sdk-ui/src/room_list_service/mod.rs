@@ -505,6 +505,30 @@ impl RoomListService {
         )
     }
 
+    /// Remove the room subscriptions of `room_ids`.
+    ///
+    /// The latest events of these rooms are still listened to.
+    pub fn remove_room_subscriptions(&self, room_ids: &[&RoomId]) {
+        self.sliding_sync.remove_room_subscriptions(room_ids, self.must_cancel_in_flight_request())
+    }
+
+    /// Remove all the room subscriptions, then subscribe to `room_ids`.
+    ///
+    /// Contrary to [`Self::set_room_subscriptions`], the members of every room
+    /// of `room_ids` are marked as missing, so that they are re-fetched.
+    pub async fn reset_and_add_room_subscriptions(&self, room_ids: &[&RoomId]) {
+        // Read the state before the await: the state machine can drift meanwhile.
+        let cancel_in_flight_request = self.must_cancel_in_flight_request();
+
+        self.listen_to_latest_events(room_ids).await;
+
+        self.sliding_sync.reset_and_add_room_subscriptions(
+            room_ids,
+            Some(room_subscription_settings()),
+            cancel_in_flight_request,
+        )
+    }
+
     async fn listen_to_latest_events(&self, room_ids: &[&RoomId]) {
         if !self.client.event_cache().has_subscribed() {
             return;
