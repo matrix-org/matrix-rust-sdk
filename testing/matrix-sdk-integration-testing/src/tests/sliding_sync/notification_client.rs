@@ -183,6 +183,11 @@ async fn test_notification() -> Result<()> {
         assert_eq!(notification.is_room_encrypted, Some(false));
         assert!(notification.is_direct_message_room);
 
+        // The push actions must have been computed; `None` would mean we couldn't tell
+        // whether this notification is noisy or contains a mention.
+        assert!(notification.actions.is_some());
+        assert_eq!(notification.has_mention, Some(false));
+
         assert_matches!(
             notification.event,
             NotificationEvent::Timeline(

@@ -24,7 +24,7 @@ use itertools::Itertools;
 use matrix_sdk::{
     Client, ClientBuildError, SlidingSyncList, SlidingSyncMode, room::Room, sleep::sleep,
 };
-use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEvent};
+use matrix_sdk_base::{RoomState, StoreError, deserialized_responses::TimelineEventKind};
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
@@ -210,19 +210,23 @@ impl NotificationClient {
 
     /// Run an encryption sync loop, in case an event is still encrypted.
     ///
-    /// Will return `Ok(Some)` if and only if:
+    /// Will return `Ok(Some)` with the decrypted event if and only if:
     /// - the event was encrypted,
     /// - we successfully ran an encryption sync or waited long enough for an
     ///   existing encryption sync to decrypt the event.
     ///
     /// Otherwise, if the event was not encrypted, or couldn't be decrypted
     /// (without causing a fatal error), will return `Ok(None)`.
+    ///
+    /// Note the returned event carries no push actions: it is the
+    /// responsibility of the caller to compute them on the *final* event, with
+    /// [`push_actions_for_event`].
     #[instrument(skip_all)]
     async fn retry_decryption(
         &self,
         room: &Room,
         raw_event: &Raw<AnySyncTimelineEvent>,
-    ) -> Result<Option<TimelineEvent>, Error> {
+    ) -> Result<Option<Raw<AnySyncTimelineEvent>>, Error> {
         let event: AnySyncTimelineEvent =
             raw_event.deserialize().map_err(|_| Error::InvalidRumaEvent)?;
 
@@ -243,7 +247,6 @@ impl NotificationClient {
         //
         // Keep timeouts small for both, since we might be short on time.
 
-        let push_ctx = room.push_context().await?;
         let sync_permit_guard = match &self.process_setup {
             NotificationProcessSetup::MultipleProcesses => {
                 // We're running on our own process, dedicated for notifications. In that case,
@@ -276,28 +279,33 @@ impl NotificationClient {
                         // Note: We specify the cast type in case the
                         // `experimental-encrypted-state-events` feature is enabled, which provides
                         // multiple cast implementations.
+                        //
+                        // The push actions are not computed here: the caller computes them on the
+                        // event we return, so that they are always evaluated on the cleartext.
                         let new_event = room
                             .decrypt_event(
                                 raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(),
-                                push_ctx.as_ref(),
+                                None,
                             )
                             .await?;
 
                         match new_event.kind {
-                            matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
-                                utd_info, ..} => {
+                            TimelineEventKind::UnableToDecrypt { utd_info, .. } => {
                                 if utd_info.reason.is_missing_room_key() {
                                     // Decryption error that could be caused by a missing room
                                     // key; retry in a few.
                                     wait *= 2;
                                 } else {
-                                    debug!("Event could not be decrypted, but waiting longer is unlikely to help: {:?}", utd_info.reason);
+                                    debug!(
+                                        "Event could not be decrypted, but waiting longer is unlikely to help: {:?}",
+                                        utd_info.reason
+                                    );
                                     return Ok(None);
                                 }
                             }
                             _ => {
                                 trace!("Waiting succeeded and event could be decrypted!");
-                                return Ok(Some(new_event));
+                                return Ok(Some(new_event.into_raw()));
                             }
                         }
                     }
@@ -324,11 +332,15 @@ impl NotificationClient {
                 // Note: We specify the cast type in case the
                 // `experimental-encrypted-state-events` feature is enabled, which provides
                 // multiple cast implementations.
-                Ok(()) => match room.decrypt_event(raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), push_ctx.as_ref()).await {
+                Ok(()) => match room
+                    .decrypt_event(
+                        raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(),
+                        None,
+                    )
+                    .await
+                {
                     Ok(new_event) => match new_event.kind {
-                        matrix_sdk::deserialized_responses::TimelineEventKind::UnableToDecrypt {
-                            utd_info, ..
-                        } => {
+                        TimelineEventKind::UnableToDecrypt { utd_info, .. } => {
                             trace!(
                                 "Encryption sync failed to decrypt the event: {:?}",
                                 utd_info.reason
@@ -337,7 +349,7 @@ impl NotificationClient {
                         }
                         _ => {
                             trace!("Encryption sync managed to decrypt the event.");
-                            Ok(Some(new_event))
+                            Ok(Some(new_event.into_raw()))
                         }
                     },
                     Err(err) => {
@@ -684,6 +696,12 @@ impl NotificationClient {
             // At this point it should have been added by the sync, if it's not, give up.
             let Some(room) = self.client.get_room(&room_id) else { return Err(Error::UnknownRoom) };
 
+            // The same room, as known by the parent client. Our own client uses an in-memory
+            // state store, only filled by the notification sliding sync above, while the parent
+            // client has a persisted, more complete one: it is used as a fallback to decrypt the
+            // event and to compute the push actions.
+            let fallback_room = self.parent_client.get_room(&room_id);
+
             let Some(raw_event) = raw_event else {
                 // The event was not found, so we can't build a notification.
                 batch_result.insert(event_id, Ok(NotificationStatus::EventNotFound));
@@ -707,30 +725,43 @@ impl NotificationClient {
                         continue;
                     }
 
-                    // Timeline events may be encrypted, so make sure they get decrypted first.
-                    match self.retry_decryption(&room, timeline_event).await {
-                        Ok(Some(timeline_event)) => {
-                            let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
-                            (
-                                RawNotificationEvent::Timeline(timeline_event.into_raw()),
-                                push_actions,
-                            )
-                        }
+                    // Timeline events may be encrypted, so make sure they get decrypted
+                    // first: the push actions must be evaluated on the cleartext, otherwise
+                    // mentions and keywords are invisible to the push rules, and only the
+                    // `.m.rule.encrypted*` underrides can ever match.
+                    let final_event = match self.retry_decryption(&room, timeline_event).await {
+                        // The event has been decrypted, use the cleartext.
+                        Ok(Some(decrypted_event)) => decrypted_event,
 
+                        // The event was either not encrypted in the first place, or we couldn't
+                        // decrypt it after retrying.
                         Ok(None) => {
-                            // The event was either not encrypted in the first place, or we
-                            // couldn't decrypt it after retrying. Use the raw event as is.
-                            match room.event_push_actions(timeline_event).await {
-                                Ok(push_actions) => (raw_event.clone(), push_actions),
-                                Err(err) => {
-                                    // Could not get push actions.
-                                    batch_result.insert(event_id, Err(err.into()));
-                                    continue;
-                                }
+                            if is_event_encrypted(event_for_redaction_check.event_type()) {
+                                // We couldn't decrypt it. Give the parent client a last chance:
+                                // it shares the crypto store with us, so the room key may have
+                                // landed there in the meantime, notably while our own encryption
+                                // sync was running.
+                                decrypt_with_fallback_room(fallback_room.as_ref(), timeline_event)
+                                    .await
+                            } else {
+                                timeline_event.clone()
                             }
                         }
 
                         Err(err) => {
+                            batch_result.insert(event_id, Err(err));
+                            continue;
+                        }
+                    };
+
+                    // Now, and only now, compute the push actions: on the final event.
+                    match push_actions_for_event(&room, fallback_room.as_ref(), &final_event).await
+                    {
+                        Ok(push_actions) => {
+                            (RawNotificationEvent::Timeline(final_event), push_actions)
+                        }
+                        Err(err) => {
+                            // Could not get push actions.
                             batch_result.insert(event_id, Err(err));
                             continue;
                         }
@@ -739,12 +770,13 @@ impl NotificationClient {
 
                 RawNotificationEvent::Invite(invite_event) => {
                     // Invite events can't be encrypted, so they should be in clear text.
-                    match room.event_push_actions(invite_event).await {
+                    match push_actions_for_event(&room, fallback_room.as_ref(), invite_event).await
+                    {
                         Ok(push_actions) => {
                             (RawNotificationEvent::Invite(invite_event.clone()), push_actions)
                         }
                         Err(err) => {
-                            batch_result.insert(event_id, Err(err.into()));
+                            batch_result.insert(event_id, Err(err));
                             continue;
                         }
                     }
@@ -786,7 +818,7 @@ impl NotificationClient {
 
         let response = room.event_with_context(event_id, true, uint!(0), None).await?;
 
-        let mut timeline_event = response.event.ok_or(Error::ContextMissingEvent)?;
+        let timeline_event = response.event.ok_or(Error::ContextMissingEvent)?;
         let state_events = response.state;
 
         // Check if the event is redacted
@@ -797,20 +829,135 @@ impl NotificationClient {
             return Ok(NotificationStatus::EventRedacted);
         }
 
-        if let Some(decrypted_event) = self.retry_decryption(&room, timeline_event.raw()).await? {
-            timeline_event = decrypted_event;
-        }
+        // The event may still be encrypted; the push actions must be evaluated on the
+        // cleartext, so try to decrypt it first.
+        let decrypted_event = self.retry_decryption(&room, timeline_event.raw()).await?;
 
-        let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
+        // `room` is already the room as known by the parent client here, so there is no
+        // fallback room to use.
+        let fallback_room = None;
+
+        let (raw_event, push_actions) = match decrypted_event {
+            // *We* decrypted the event: whatever `Room::event_with_context` computed was
+            // computed on the encrypted event, so compute the push actions again, on the
+            // cleartext.
+            Some(raw_event) => {
+                let push_actions = push_actions_for_event(&room, fallback_room, &raw_event).await?;
+                (raw_event, push_actions)
+            }
+
+            // The event wasn't encrypted, or we couldn't decrypt it: it is unchanged, so the
+            // push actions computed by `Room::event_with_context` were computed on this very
+            // same event, and can be reused. If they couldn't be computed at all (which is
+            // notably the case for an event we couldn't decrypt, see
+            // `TimelineEvent::from_utd`), compute them now, instead of reporting unknown push
+            // actions.
+            None => {
+                let push_actions = timeline_event.push_actions().map(ToOwned::to_owned);
+                let raw_event = timeline_event.into_raw();
+
+                let push_actions = match push_actions {
+                    Some(push_actions) => Some(push_actions),
+                    None => push_actions_for_event(&room, fallback_room, &raw_event).await?,
+                };
+
+                (raw_event, push_actions)
+            }
+        };
 
         self.compute_status(
             &room,
             push_actions.as_deref(),
-            RawNotificationEvent::Timeline(timeline_event.into_raw()),
+            RawNotificationEvent::Timeline(raw_event),
             state_events,
         )
         .await
     }
+}
+
+/// Try to decrypt the given event with the given room, if any.
+///
+/// Returns the decrypted event on success, or the event as it was given otherwise.
+///
+/// This is a single, cheap attempt: no sleep, no sync, no network request.
+async fn decrypt_with_fallback_room(
+    room: Option<&Room>,
+    raw_event: &Raw<AnySyncTimelineEvent>,
+) -> Raw<AnySyncTimelineEvent> {
+    let Some(room) = room else { return raw_event.clone() };
+
+    // Note: We specify the cast type in case the `experimental-encrypted-state-events`
+    // feature is enabled, which provides multiple cast implementations.
+    //
+    // The push actions are not computed here: the caller computes them on the event we
+    // return, so that they are always evaluated on the cleartext.
+    match room
+        .decrypt_event(raw_event.cast_ref_unchecked::<OriginalSyncRoomEncryptedEvent>(), None)
+        .await
+    {
+        Ok(event) => {
+            if let TimelineEventKind::UnableToDecrypt { utd_info, .. } = &event.kind {
+                debug!("The event could not be decrypted either: {:?}", utd_info.reason);
+                raw_event.clone()
+            } else {
+                trace!("The event could be decrypted with the parent client.");
+                event.into_raw()
+            }
+        }
+
+        Err(error) => {
+            debug!("Failed to decrypt the event with the parent client: {error}");
+            raw_event.clone()
+        }
+    }
+}
+
+/// Compute the push actions of the given event.
+///
+/// This MUST be called with the *final* event, i.e. the decrypted one whenever we managed to
+/// decrypt it, and only *after* the decryption attempt: the push rules must be evaluated on the
+/// cleartext, otherwise mentions, keywords and content rules are invisible to them, and only the
+/// `.m.rule.encrypted*` underrides can ever match.
+///
+/// The push context of `room` is used first: it is the room known by the client which just ran
+/// the notification sliding sync, so it has the freshest state for it. If that client can't
+/// provide a push context (it uses an in-memory state store, only filled by that sliding sync),
+/// `fallback_room`, i.e. the same room as known by the parent client, is used instead.
+///
+/// Returns `Ok(None)` if and only if no push context could be obtained at all; in that case the
+/// caller can't tell whether the event is noisy or contains a mention.
+async fn push_actions_for_event<T>(
+    room: &Room,
+    fallback_room: Option<&Room>,
+    raw_event: &Raw<T>,
+) -> Result<Option<Vec<Action>>, Error> {
+    let event_type = raw_event.get_field::<String>("type").ok().flatten();
+    let mut first_error = None;
+
+    for room in [Some(room), fallback_room].into_iter().flatten() {
+        match room.push_context().await {
+            Ok(Some(push_context)) => {
+                return Ok(Some(push_context.for_event(raw_event).await));
+            }
+
+            Ok(None) => {
+                debug!(room_id = %room.room_id(), "No push context available for this room");
+            }
+
+            Err(error) => {
+                warn!(room_id = %room.room_id(), "Couldn't build the push context: {error}");
+                first_error.get_or_insert(error);
+            }
+        }
+    }
+
+    if let Some(error) = first_error {
+        return Err(error.into());
+    }
+
+    warn!(?event_type, "Couldn't compute the push actions of a notification");
+
+    Ok(None)
 }
 
 fn is_event_encrypted(event_type: TimelineEventType) -> bool {

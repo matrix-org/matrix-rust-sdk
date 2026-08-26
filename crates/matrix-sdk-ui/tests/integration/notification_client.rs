@@ -520,6 +520,10 @@ async fn test_notification_client_sliding_sync() {
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.has_mention, Some(false));
+    // The push actions must have been computed; `None` would mean we couldn't tell
+    // whether this notification is noisy or contains a mention.
+    assert!(item.actions.is_some());
 }
 
 #[async_test]
@@ -666,6 +670,10 @@ async fn test_notification_client_sliding_sync_invites() {
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.has_mention, Some(false));
+    // The push actions must have been computed; `None` would mean we couldn't tell
+    // whether this notification is noisy or contains a mention.
+    assert!(item.actions.is_some());
 }
 
 #[async_test]
@@ -811,6 +819,10 @@ async fn test_notification_client_sliding_sync_invites_with_event_id() {
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.has_mention, Some(false));
+    // The push actions must have been computed; `None` would mean we couldn't tell
+    // whether this notification is noisy or contains a mention.
+    assert!(item.actions.is_some());
 }
 
 #[async_test]
@@ -998,6 +1010,10 @@ async fn test_notification_client_mixed() {
     assert_eq!(item.sender_avatar_url, Some(sender_avatar_url.to_string()));
     assert_eq!(item.room_computed_display_name, sender_display_name);
     assert_eq!(item.is_noisy, Some(false));
+    assert_eq!(item.has_mention, Some(false));
+    // The push actions must have been computed; `None` would mean we couldn't tell
+    // whether this notification is noisy or contains a mention.
+    assert!(item.actions.is_some());
 }
 
 #[async_test]
@@ -1260,4 +1276,217 @@ async fn test_notification_room_display_name_excludes_service_members() {
             .unwrap()
     );
     assert_eq!(notification.room_computed_display_name, expected_display_name);
+}
+
+#[async_test]
+async fn test_notification_client_sliding_sync_computes_mention_push_actions() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let event_id = event_id!("$mention_event_id");
+
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // The notification sliding sync brings back our own member event, so the
+    // notification client can build a push context by itself.
+    let response_room = assign!(response::Room::new(), {
+        required_state: vec![
+            f.member(sender)
+                .membership(MembershipState::Join)
+                .display_name("John Mastodon")
+                .into_raw_sync_state(),
+            f.member(&own_user_id)
+                .membership(MembershipState::Join)
+                .display_name("Jean-Michel Rouille")
+                .into_raw_sync_state(),
+        ],
+        initial: Some(true),
+        // More than 2 members, so that the noisiness can only come from the mention.
+        joined_count: Some(uint!(3)),
+        timeline: vec![
+            f.text_msg("Hello you!")
+                .event_id(event_id)
+                .mentions(Mentions::with_user_ids([own_user_id.clone()]))
+                .into_raw_sync(),
+        ],
+    });
+
+    server
+        .mock_sliding_sync()
+        .ok(assign!(Response::new("1".to_owned()), {
+            rooms: BTreeMap::from([(room_id.to_owned(), response_room)])
+        }))
+        .mount()
+        .await;
+
+    let notification_client =
+        NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+            .await
+            .unwrap();
+
+    assert_let!(
+        NotificationStatus::Event(item) = notification_client
+            .get_notification_with_sliding_sync(room_id, event_id)
+            .await
+            .unwrap()
+    );
+
+    // The push rules saw the mention.
+    let actions = item.actions.expect("the push actions must have been computed");
+    assert!(actions.iter().any(|action| action.is_highlight()));
+    assert_eq!(item.has_mention, Some(true));
+    assert_eq!(item.is_noisy, Some(true));
+}
+
+#[async_test]
+async fn test_notification_client_sliding_sync_falls_back_to_parent_push_context() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let event_id = event_id!("$mention_event_id");
+
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // The parent client knows our own member event, so *it* can build a push
+    // context.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_event(
+                f.member(&own_user_id)
+                    .membership(MembershipState::Join)
+                    .display_name("Jean-Michel Rouille"),
+            ),
+        )
+        .await;
+
+    // Sanity check.
+    room.push_context().await.unwrap().unwrap();
+
+    // But the notification sliding sync doesn't bring back our own member event, so
+    // the notification client can't build a push context by itself.
+    let response_room = assign!(response::Room::new(), {
+        required_state: vec![
+            f.member(sender)
+                .membership(MembershipState::Join)
+                .display_name("John Mastodon")
+                .into_raw_sync_state(),
+        ],
+        initial: Some(true),
+        // More than 2 members, so that the noisiness can only come from the mention.
+        joined_count: Some(uint!(3)),
+        timeline: vec![
+            f.text_msg("Hello you!")
+                .event_id(event_id)
+                .mentions(Mentions::with_user_ids([own_user_id.clone()]))
+                .into_raw_sync(),
+        ],
+    });
+
+    server
+        .mock_sliding_sync()
+        .ok(assign!(Response::new("1".to_owned()), {
+            rooms: BTreeMap::from([(room_id.to_owned(), response_room)])
+        }))
+        .mount()
+        .await;
+
+    let notification_client =
+        NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+            .await
+            .unwrap();
+
+    assert_let!(
+        NotificationStatus::Event(item) = notification_client
+            .get_notification_with_sliding_sync(room_id, event_id)
+            .await
+            .unwrap()
+    );
+
+    // Sanity check: we did exercise the fallback, i.e. the notification client's own
+    // room really can't build a push context.
+    let notification_room = notification_client.get_room(room_id).unwrap();
+    assert!(notification_room.push_context().await.unwrap().is_none());
+
+    // The push actions have been computed with the parent client's push context.
+    let actions = item.actions.expect("the push actions must have been computed");
+    assert!(actions.iter().any(|action| action.is_highlight()));
+    assert_eq!(item.has_mention, Some(true));
+    assert_eq!(item.is_noisy, Some(true));
+}
+
+#[async_test]
+async fn test_notification_client_with_context_utd_computes_push_actions() {
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+    let sender = user_id!("@user:example.org");
+    let room_id = room_id!("!a98sd12bjh:example.org");
+    let event_id = event_id!("$utd_event_id");
+
+    let f = EventFactory::new().room(room_id).sender(sender);
+
+    server.mock_room_state_encryption().plain().mount().await;
+
+    // The room and our own member event are known, so a push context can be built.
+    let room = server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_state_event(
+                f.member(&own_user_id)
+                    .membership(MembershipState::Join)
+                    .display_name("Jean-Michel Rouille"),
+            ),
+        )
+        .await;
+
+    // Sanity check.
+    room.push_context().await.unwrap().unwrap();
+
+    // The notification client retrieves an event it won't be able to decrypt via
+    // `/rooms/*/context/`.
+    let event = f
+        .encrypted("ciphertext", "sender_key", "DEVICEID", "session_id")
+        .event_id(event_id)
+        .into_event();
+
+    server
+        .mock_room_event_context()
+        .match_event_id()
+        .ok(RoomContextResponseTemplate::new(event))
+        .mock_once()
+        .mount()
+        .await;
+
+    // Decryption is retried with an encryption sync; make sure it terminates.
+    server.mock_sliding_sync().ok(Response::new("1".to_owned())).mount().await;
+
+    let notification_client =
+        NotificationClient::new(client.clone(), NotificationProcessSetup::MultipleProcesses)
+            .await
+            .unwrap();
+
+    assert_let!(
+        NotificationStatus::Event(item) =
+            notification_client.get_notification_with_context(room_id, event_id).await.unwrap()
+    );
+
+    // We couldn't decrypt the event, so no mention can be detected in it; but the
+    // push actions must still have been computed, instead of being reported as
+    // unknown.
+    let actions = item.actions.expect("the push actions must have been computed");
+    assert!(actions.iter().any(|action| action.should_notify()));
+    assert_eq!(item.has_mention, Some(false));
+    assert_eq!(item.is_noisy, Some(false));
 }

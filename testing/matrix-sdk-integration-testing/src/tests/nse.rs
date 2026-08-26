@@ -11,10 +11,11 @@ use matrix_sdk::{
     Client, Room,
     encryption::EncryptionSettings,
     ruma::{
-        EventEncryptionAlgorithm, OwnedEventId, OwnedRoomId, RoomId,
+        EventEncryptionAlgorithm, EventId, OwnedEventId, OwnedRoomId, RoomId, UserId,
         api::client::room::create_room::v3::Request as CreateRoomRequest,
         events::{
-            AnyMessageLikeEventContent, AnySyncTimelineEvent, OriginalSyncMessageLikeEvent,
+            AnyMessageLikeEventContent, AnySyncTimelineEvent, Mentions,
+            OriginalSyncMessageLikeEvent,
             room::{
                 encrypted::{OriginalSyncRoomEncryptedEvent, RoomEncryptedEventContent},
                 encryption::RoomEncryptionEventContent,
@@ -28,7 +29,8 @@ use matrix_sdk::{
 use matrix_sdk_common::cross_process_lock::CrossProcessLockConfig;
 use matrix_sdk_ui::{
     notification_client::{
-        NotificationClient, NotificationEvent, NotificationProcessSetup, NotificationStatus,
+        NotificationClient, NotificationEvent, NotificationItem, NotificationProcessSetup,
+        NotificationStatus,
     },
     sync_service::SyncService,
 };
@@ -257,6 +259,25 @@ impl ClientWrapper {
         )
     }
 
+    /// Send a text message mentioning the supplied user in the supplied room,
+    /// and return the event ID and contents.
+    async fn send_mentioning(
+        &self,
+        room_id: &RoomId,
+        message: &str,
+        mentioned: &UserId,
+    ) -> (OwnedEventId, String) {
+        let room = self.wait_until_room_exists(room_id).await;
+
+        let content = RoomMessageEventContent::text_plain(message.to_owned())
+            .add_mentions(Mentions::with_user_ids([mentioned.to_owned()]));
+
+        (
+            room.send(content).await.expect("Sending message failed").response.event_id,
+            message.to_owned(),
+        )
+    }
+
     /// Return true if the room with the supplied ID is encrypted.
     async fn room_is_encrypted(&self, room_id: &RoomId) -> bool {
         self.wait_until_room_exists(room_id)
@@ -413,6 +434,38 @@ impl NotificationClientWrapper {
             self.events.lock().unwrap()
         );
     }
+
+    /// Wait (using [`NotificationClient::get_notification`]) until a
+    /// notification can be built for the event with this ID *and* its event
+    /// could be decrypted, then return that notification.
+    #[instrument(skip(self))]
+    async fn nse_wait_until_decrypted_notification(
+        &self,
+        room_id: &RoomId,
+        event_id: &EventId,
+    ) -> NotificationItem {
+        let end_time = Instant::now() + timeout();
+        while Instant::now() < end_time {
+            let status = self
+                .notif_client
+                .get_notification(room_id, event_id)
+                .await
+                .expect("Failed to get_notification");
+
+            if let NotificationStatus::Event(item) = status
+                && let NotificationEvent::Timeline(event) = &item.event
+                && let AnySyncTimelineEvent::MessageLike(message) = event.as_ref()
+                && matches!(
+                    message.original_content(),
+                    Some(AnyMessageLikeEventContent::RoomMessage(_))
+                )
+            {
+                return *item;
+            }
+        }
+
+        panic!("Timed out waiting for a decrypted notification for event {event_id}");
+    }
 }
 
 /// Attempt to decrypt an event and return its ID and text body if we succeed.
@@ -473,4 +526,46 @@ async fn create_encrypted_room(alice_main: &ClientWrapper, bob: &ClientWrapper) 
 
     info!("alice_main and bob are both aware of each other in the e2ee room");
     room_id
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_nse_notification_for_encrypted_mention_has_mention() -> Result<()> {
+    // Regression test: the push rules must be evaluated on the *decrypted* event.
+    // Evaluating them on the `m.room.encrypted` event can only ever match the
+    // `.m.rule.encrypted*` underrides, so `content.m.mentions` is invisible and
+    // `has_mention` wrongly comes back as false.
+
+    // Given two alice clients with the same DB and user ID: alice_main is a normal
+    // client, and alice_nse is a NotificationClient.
+    let alice_sqlite_dir = tempdir()?;
+    let alice_main =
+        ClientWrapper::new("alice", Some(alice_sqlite_dir.path()), Some("alice_main".to_owned()))
+            .await;
+    let alice_nse =
+        NotificationClientWrapper::notification_duplicate_of(&alice_main, alice_sqlite_dir.path())
+            .await;
+
+    // And given a normal client for bob
+    let bob = ClientWrapper::new("bob", None, None).await;
+
+    // And given they are both in an encrypted room together
+    let room_id = create_encrypted_room(&alice_main, &bob).await;
+
+    // When bob sends a message mentioning alice
+    let alice_user_id = alice_main.client.user_id().unwrap().to_owned();
+    let (event_id, _) = bob.send_mentioning(&room_id, "Hello alice!", &alice_user_id).await;
+
+    // Then, as soon as the NSE process can decrypt that event, the notification it
+    // builds for it knows about the mention.
+    let item = alice_nse.nse_wait_until_decrypted_notification(&room_id, &event_id).await;
+
+    let actions = item.actions.expect("The push actions must have been computed");
+    assert!(
+        actions.iter().any(|action| action.is_highlight()),
+        "Expected a highlight tweak in {actions:?}"
+    );
+    assert_eq!(item.has_mention, Some(true));
+    assert_eq!(item.is_noisy, Some(true));
+
+    Ok(())
 }
