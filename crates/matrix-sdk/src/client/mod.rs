@@ -133,9 +133,7 @@ pub(crate) mod futures;
 pub(crate) mod homeserver_capabilities;
 pub(crate) mod thread_subscriptions;
 
-pub use self::builder::{
-    ClientBuildError, ClientBuilder, discover_server_support, sanitize_server_name,
-};
+pub use self::builder::{ClientBuildError, ClientBuilder, sanitize_server_name};
 #[cfg(feature = "experimental-search")]
 use crate::search_index::SearchIndex;
 
