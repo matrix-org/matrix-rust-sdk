@@ -18,7 +18,17 @@ use matrix_sdk_base::{
     serde_helpers::{extract_redaction_target, extract_relation, extract_thread_root},
     sync::Timeline,
 };
-use ruma::{OwnedEventId, events::relation::RelationType, room_version_rules::RedactionRules};
+use ruma::{
+    OwnedEventId,
+    events::{
+        AnySyncEphemeralRoomEvent,
+        receipt::{ReceiptThread, SyncReceiptEvent},
+        relation::RelationType,
+    },
+    room_version_rules::RedactionRules,
+    serde::Raw,
+};
+use tracing::error;
 
 use super::{
     super::{Result, states::StateLockReadGuard},
@@ -32,6 +42,7 @@ pub fn aggregate_timeline_for_room(timeline: Timeline) -> Timeline {
 
 pub async fn aggregate_timeline_for_threads<'sync, 'state>(
     timeline: &'sync Timeline,
+    ephemerals: &'sync [Raw<AnySyncEphemeralRoomEvent>],
     existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
     maybe_room: Option<StateLockReadGuard<'state, RoomEventCacheState>>,
     redaction_rules: &'sync RedactionRules,
@@ -144,6 +155,34 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                             .push(event.clone());
                     }
                 }
+            }
+        }
+    }
+
+    // We must also look in the `ephemeral` events. Maybe the `timeline` is empty,
+    // but some ephemeral events target specific threads.
+    for ephemeral in ephemerals {
+        match ephemeral.deserialize() {
+            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
+                for thread_root in content.values().flat_map(|receipts_by_event| {
+                    receipts_by_event.values().flat_map(|receipts| {
+                        receipts.values().filter_map(|receipt| match &receipt.thread {
+                            ReceiptThread::Thread(thread_id) => Some(thread_id),
+                            _ => None,
+                        })
+                    })
+                }) {
+                    new_events_by_thread
+                        .entry(thread_root.to_owned())
+                        .or_insert_with(default_timeline);
+                }
+            }
+
+            // Not a read receipt; not interested for now.
+            Ok(_) => {}
+
+            Err(err) => {
+                error!(%err, "error when deserializing an ephemeral event");
             }
         }
     }
