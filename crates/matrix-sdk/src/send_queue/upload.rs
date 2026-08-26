@@ -37,12 +37,15 @@ use mime::Mime;
 #[cfg(feature = "unstable-msc4274")]
 use ruma::events::room::message::{GalleryItemType, GalleryMessageEventContent};
 use ruma::{
-    MilliSecondsSinceUnixEpoch, OwnedTransactionId, TransactionId,
+    EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, TransactionId,
     events::{
         AnyMessageLikeEventContent, Mentions,
         room::{
             MediaSource, ThumbnailInfo,
-            message::{FormattedBody, MessageType, RoomMessageEventContent},
+            message::{
+                FormattedBody, MessageType, Relation, ReplacementMetadata, RoomMessageEventContent,
+                RoomMessageEventContentWithoutRelation,
+            },
         },
     },
 };
@@ -52,7 +55,7 @@ use super::{QueueStorage, QueueThumbnailInfo, RoomSendQueue, RoomSendQueueError}
 use crate::{
     Client, Media, Room,
     attachment::{AttachmentConfig, Thumbnail},
-    room::edit::update_media_caption,
+    room::edit::{update_media_caption, validate_media_edit},
     send_queue::{
         LocalEcho, LocalEchoContent, MediaHandles, RoomSendQueueStorageError, RoomSendQueueUpdate,
         SendHandle,
@@ -67,28 +70,42 @@ use crate::{
 /// Replace the source by the final ones in all the media types handled by
 /// [`Room::make_attachment_type()`].
 fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: SentMediaInfo) {
+    update_media_msgtype_after_upload(&mut echo.msgtype, &sent);
+
+    // A media edit (see `RoomSendQueue::edit_with_attachment`) stores the canonical
+    // copy of the new content inside the replacement relation; patch it the
+    // same way, or the fallback content and the canonical content would point
+    // at different files.
+    if let Some(Relation::Replacement(replacement)) = &mut echo.relates_to {
+        update_media_msgtype_after_upload(&mut replacement.new_content.msgtype, &sent);
+    }
+}
+
+/// Replace the source by the final ones in a single [`MessageType`], for all
+/// the media types handled by [`Room::make_attachment_type()`].
+fn update_media_msgtype_after_upload(msgtype: &mut MessageType, sent: &SentMediaInfo) {
     // Some variants look really similar below, but the `event` and `info` are all
     // different types…
-    match &mut echo.msgtype {
+    match msgtype {
         MessageType::Audio(event) => {
-            event.source = sent.file;
+            event.source = sent.file.clone();
         }
         MessageType::File(event) => {
-            event.source = sent.file;
+            event.source = sent.file.clone();
             if let Some(info) = event.info.as_mut() {
-                info.thumbnail_source = sent.thumbnail;
+                info.thumbnail_source = sent.thumbnail.clone();
             }
         }
         MessageType::Image(event) => {
-            event.source = sent.file;
+            event.source = sent.file.clone();
             if let Some(info) = event.info.as_mut() {
-                info.thumbnail_source = sent.thumbnail;
+                info.thumbnail_source = sent.thumbnail.clone();
             }
         }
         MessageType::Video(event) => {
-            event.source = sent.file;
+            event.source = sent.file.clone();
             if let Some(info) = event.info.as_mut() {
-                info.thumbnail_source = sent.thumbnail;
+                info.thumbnail_source = sent.thumbnail.clone();
             }
         }
 
@@ -96,7 +113,7 @@ fn update_media_event_after_upload(echo: &mut RoomMessageEventContent, sent: Sen
             // All `MessageType` created by `Room::make_attachment_type` should be
             // handled here. The only way to end up here is that a message type has
             // been tampered with in the database.
-            error!("Invalid message type in database: {}", echo.msgtype());
+            error!("Invalid message type in database: {}", msgtype.msgtype());
             // Only crash debug builds.
             debug_assert!(false, "invalid message type in database");
         }
@@ -201,6 +218,42 @@ impl RoomSendQueue {
         filename: impl Into<String>,
         content_type: Mime,
         data: Vec<u8>,
+        config: AttachmentConfig,
+    ) -> Result<SendHandle, RoomSendQueueError> {
+        self.send_attachment_impl(filename.into(), content_type, data, config, None).await
+    }
+
+    /// Queues an edit replacing the media attachment of an already-sent media
+    /// event, using the send queue.
+    ///
+    /// The new attachment (and its optional thumbnail) is uploaded the same
+    /// way [`Self::send_attachment`] uploads one, including while offline: the
+    /// uploads are queued, persisted, and survive an application restart. Once
+    /// they complete, an `m.replace` edit of `edited_event_id` carrying the
+    /// new media is sent.
+    ///
+    /// The replacement must keep the media kind of the original event (an
+    /// image stays an image, a video stays a video, and so on): clients are
+    /// not expected to render edits that change an event's kind. The target
+    /// must be a media `m.room.message` sent by the current user.
+    ///
+    /// Any `reply` set on the [`AttachmentConfig`] is ignored: a replacement
+    /// carries no other relation.
+    ///
+    /// The original attachment is not deleted (Matrix media can't be deleted
+    /// client-side), and the original event remains visible in the room's
+    /// edit history, like the previous body of an edited text message does:
+    /// replacing an attachment is a correction, not a removal.
+    ///
+    /// Aborting the returned handle cancels the uploads and drops the edit;
+    /// the original event is left untouched.
+    #[instrument(skip_all, fields(event_txn, %edited_event_id))]
+    pub async fn edit_with_attachment(
+        &self,
+        edited_event_id: &EventId,
+        filename: impl Into<String>,
+        content_type: Mime,
+        data: Vec<u8>,
         mut config: AttachmentConfig,
     ) -> Result<SendHandle, RoomSendQueueError> {
         let Some(room) = self.inner.room.get() else {
@@ -211,7 +264,41 @@ impl RoomSendQueue {
             return Err(RoomSendQueueError::RoomNotJoined);
         }
 
-        let filename = filename.into();
+        let original_mentions =
+            validate_media_edit(&room, room.own_user_id(), edited_event_id, &content_type).await?;
+
+        // A replacement carries no other relation.
+        config.reply = None;
+
+        self.send_attachment_impl(
+            filename.into(),
+            content_type,
+            data,
+            config,
+            Some((edited_event_id.to_owned(), original_mentions)),
+        )
+        .await
+    }
+
+    /// Shared implementation of [`Self::send_attachment`] and
+    /// [`Self::edit_with_attachment`]: queue the uploads and the event they
+    /// resolve into, either a new media event or an `m.replace` of `replaces`.
+    async fn send_attachment_impl(
+        &self,
+        filename: String,
+        content_type: Mime,
+        data: Vec<u8>,
+        mut config: AttachmentConfig,
+        replaces: Option<(OwnedEventId, Option<Mentions>)>,
+    ) -> Result<SendHandle, RoomSendQueueError> {
+        let Some(room) = self.inner.room.get() else {
+            return Err(RoomSendQueueError::RoomDisappeared);
+        };
+
+        if room.state() != RoomState::Joined {
+            return Err(RoomSendQueueError::RoomNotJoined);
+        }
+
         let extra_content = config.extra_content.take();
         let upload_file_txn = TransactionId::new();
         let send_event_txn = config.txn_id.map_or_else(ChildTransactionId::new, Into::into);
@@ -241,6 +328,18 @@ impl RoomSendQueue {
             )
             .await
             .map_err(|_| RoomSendQueueError::FailedToCreateAttachment)?;
+
+        // For an edit, wrap the media content into a replacement of the edited event.
+        // The upload chain is oblivious to the relation: the local echo travels
+        // through it unchanged, and `update_media_event_after_upload` patches
+        // the uploaded sources into both the fallback content and the
+        // replacement's canonical copy.
+        let event_content = if let Some((edited_event_id, original_mentions)) = replaces {
+            RoomMessageEventContentWithoutRelation::from(event_content)
+                .make_replacement(ReplacementMetadata::new(edited_event_id, original_mentions))
+        } else {
+            event_content
+        };
 
         let created_at = MilliSecondsSinceUnixEpoch::now();
 

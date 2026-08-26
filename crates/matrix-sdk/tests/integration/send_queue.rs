@@ -4270,3 +4270,161 @@ async fn test_sending_event_still_saves_sync_gap() {
 
     assert!(stream.is_empty());
 }
+
+#[async_test]
+async fn test_edit_with_attachment() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let q = room.send_queue();
+    let mut global_watch = client.send_queue().subscribe();
+    let (local_echoes, mut watch) = q.subscribe().await.unwrap();
+    assert!(local_echoes.is_empty());
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    // The already-sent media event whose attachment is being replaced.
+    let edited_event_id = event_id!("$edited");
+    let f = EventFactory::new();
+    mock.mock_room_event()
+        .match_event_id()
+        .ok(f
+            .image("original.jpeg".to_owned(), owned_mxc_uri!("mxc://sdk.rs/original"))
+            .sender(&own_user_id)
+            .event_id(edited_event_id)
+            .into())
+        .mock_once()
+        .mount()
+        .await;
+
+    mock.mock_authenticated_media_config().ok_default().mount().await;
+    mock.mock_room_state_encryption().plain().mount().await;
+    mock.mock_room_send().ok(event_id!("$edit")).mock_once().mount().await;
+
+    let allow_upload_lock = Arc::new(Mutex::new(()));
+    let block_upload = allow_upload_lock.lock().await;
+    mock_jpeg_upload(&mock, mxc_uri!("mxc://sdk.rs/media"), allow_upload_lock.clone())
+        .mock_once()
+        .mount()
+        .await;
+
+    // Queue the edit.
+    let transaction_id = TransactionId::new();
+    let config = AttachmentConfig::new()
+        .txn_id(transaction_id.clone())
+        .caption(Some(TextMessageEventContent::plain("new caption")));
+
+    assert!(watch.is_empty());
+    q.edit_with_attachment(
+        edited_event_id,
+        "surprise.jpeg",
+        mime::IMAGE_JPEG,
+        b"hello world".to_vec(),
+        config,
+    )
+    .await
+    .expect("queuing the attachment edit works");
+
+    // The local echo is a replacement of the edited event, carrying the new media
+    // (served from the local cache) in both the fallback content and the
+    // canonical copy inside the relation.
+    let (txn, _send_handle, content) = assert_update!((global_watch, watch) => local echo event);
+    assert_eq!(txn, transaction_id);
+
+    assert_let!(Some(Relation::Replacement(replacement)) = &content.relates_to);
+    assert_eq!(replacement.event_id, edited_event_id);
+    assert_let!(MessageType::Image(new_image) = &replacement.new_content.msgtype);
+    assert_let!(MediaSource::Plain(mxc) = &new_image.source);
+    assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
+
+    assert_let!(MessageType::Image(fallback_image) = &content.msgtype);
+    assert_let!(MediaSource::Plain(mxc) = &fallback_image.source);
+    assert!(mxc.to_string().starts_with("mxc://send-queue.localhost/"), "{mxc}");
+
+    // Let the upload finish.
+    drop(block_upload);
+
+    assert_update!((global_watch, watch) => uploaded {
+        related_to = transaction_id,
+        mxc = mxc_uri!("mxc://sdk.rs/media")
+    });
+
+    // Once the upload completes, the queued event is finalized: both copies now
+    // point at the uploaded media.
+    let msg = assert_update!((global_watch, watch) => edit local echo { txn = transaction_id });
+
+    assert_let!(Some(Relation::Replacement(replacement)) = &msg.relates_to);
+    assert_eq!(replacement.event_id, edited_event_id);
+    assert_let!(MessageType::Image(new_image) = &replacement.new_content.msgtype);
+    assert_eq!(new_image.caption(), Some("new caption"));
+    assert_let!(MediaSource::Plain(mxc) = &new_image.source);
+    assert_eq!(*mxc, mxc_uri!("mxc://sdk.rs/media").to_owned());
+
+    assert_let!(MessageType::Image(fallback_image) = &msg.msgtype);
+    assert_let!(MediaSource::Plain(mxc) = &fallback_image.source);
+    assert_eq!(*mxc, mxc_uri!("mxc://sdk.rs/media").to_owned());
+
+    // And the edit is sent.
+    assert_update!((global_watch, watch) => sent { txn = transaction_id, event_id = event_id!("$edit") });
+    assert!(watch.is_empty());
+}
+
+#[async_test]
+async fn test_edit_with_attachment_rejects_non_media_target() {
+    let mock = MatrixMockServer::new().await;
+
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_joined_room(&client, room_id).await;
+
+    let own_user_id = client.user_id().unwrap().to_owned();
+
+    let edited_event_id = event_id!("$edited");
+    let f = EventFactory::new();
+    mock.mock_room_event()
+        .match_event_id()
+        .ok(f.text_msg("not a media").sender(&own_user_id).event_id(edited_event_id).into())
+        .mock_once()
+        .mount()
+        .await;
+
+    assert_matches!(
+        room.send_queue()
+            .edit_with_attachment(
+                edited_event_id,
+                "surprise.jpeg",
+                mime::IMAGE_JPEG,
+                b"hello world".to_vec(),
+                AttachmentConfig::new(),
+            )
+            .await,
+        Err(RoomSendQueueError::Edit(_))
+    );
+}
+
+#[async_test]
+async fn test_cant_edit_attachment_in_non_joined_room() {
+    let mock = MatrixMockServer::new().await;
+
+    // When I've left a room,
+    let room_id = room_id!("!a:b.c");
+    let client = mock.client_builder().build().await;
+    let room = mock.sync_room(&client, LeftRoomBuilder::new(room_id)).await;
+
+    // I can't edit an attachment in it with the send queue.
+    assert_matches!(
+        room.send_queue()
+            .edit_with_attachment(
+                event_id!("$edited"),
+                "surprise.jpeg",
+                mime::IMAGE_JPEG,
+                b"hello world".to_vec(),
+                AttachmentConfig::new(),
+            )
+            .await,
+        Err(RoomSendQueueError::RoomNotJoined)
+    );
+}

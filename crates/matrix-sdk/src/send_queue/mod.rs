@@ -2695,6 +2695,11 @@ pub enum RoomSendQueueError {
     #[error("the attachment event could not be created")]
     FailedToCreateAttachment,
 
+    /// The target of an [`RoomSendQueue::edit_with_attachment`] can't be
+    /// edited with a new attachment.
+    #[error(transparent)]
+    Edit(#[from] crate::room::edit::EditError),
+
     /// The gallery contains no items.
     #[cfg(feature = "unstable-msc4274")]
     #[error("the gallery contains no items")]
