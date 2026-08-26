@@ -3989,6 +3989,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "getrandom 0.4.3",
+ "hkdf",
  "hmac",
  "pbkdf2",
  "rand 0.10.2",
