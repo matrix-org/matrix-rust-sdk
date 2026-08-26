@@ -493,50 +493,61 @@ impl RoomListService {
     /// [listen_to_room]: matrix_sdk::latest_events::LatestEvents::listen_to_room
     /// [`LatestEventValue`]: matrix_sdk::latest_events::LatestEventValue
     pub async fn subscribe_to_rooms(&self, room_ids: &[&RoomId]) {
-        // Calculate the settings for the room subscriptions.
-        let settings = assign!(http::request::RoomSubscription::default(), {
-            required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
-                (state_event.clone(), (*value).to_owned())
-            })
-            .chain(
-                DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE.iter().map(|(state_event, value)| {
-                    (state_event.clone(), (*value).to_owned())
-                })
-            )
-            .collect(),
-            timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
-        });
+        // Read the state before the await: the state machine can drift meanwhile.
+        let cancel_in_flight_request = self.must_cancel_in_flight_request();
 
-        // Decide whether the in-flight request (if any) should be cancelled if needed.
-        let cancel_in_flight_request = match self.state_machine.get() {
+        self.listen_to_latest_events(room_ids).await;
+
+        self.sliding_sync.resubscribe_to_rooms(
+            room_ids,
+            Some(room_subscription_settings()),
+            cancel_in_flight_request,
+        )
+    }
+
+    async fn listen_to_latest_events(&self, room_ids: &[&RoomId]) {
+        if !self.client.event_cache().has_subscribed() {
+            return;
+        }
+
+        let latest_events = self.client.latest_events().await;
+
+        for room_id in room_ids {
+            if let Err(error) = latest_events.listen_to_room(room_id).await {
+                // A failure here must not fail the room subscription.
+                error!(?error, ?room_id, "Failed to listen to the latest event for this room");
+            }
+        }
+    }
+
+    fn must_cancel_in_flight_request(&self) -> bool {
+        match self.state_machine.get() {
             State::Init | State::Recovering | State::Error { .. } | State::Terminated { .. } => {
                 false
             }
             State::SettingUp | State::Running => true,
-        };
-
-        // Before subscribing, let's listen these rooms to calculate their latest
-        // events.
-        if self.client.event_cache().has_subscribed() {
-            let latest_events = self.client.latest_events().await;
-
-            for room_id in room_ids {
-                if let Err(error) = latest_events.listen_to_room(room_id).await {
-                    // Let's not fail the room subscription. Instead, emit a log because it's very
-                    // unlikely to happen.
-                    error!(?error, ?room_id, "Failed to listen to the latest event for this room");
-                }
-            }
         }
-
-        // Subscribe to the rooms.
-        self.sliding_sync.resubscribe_to_rooms(room_ids, Some(settings), cancel_in_flight_request)
     }
 
     #[cfg(test)]
     pub fn sliding_sync(&self) -> &SlidingSync {
         &self.sliding_sync
     }
+}
+
+fn room_subscription_settings() -> http::request::RoomSubscription {
+    assign!(http::request::RoomSubscription::default(), {
+        required_state: DEFAULT_REQUIRED_STATE.iter().map(|(state_event, value)| {
+            (state_event.clone(), (*value).to_owned())
+        })
+        .chain(
+            DEFAULT_ROOM_SUBSCRIPTION_EXTRA_REQUIRED_STATE.iter().map(|(state_event, value)| {
+                (state_event.clone(), (*value).to_owned())
+            })
+        )
+        .collect(),
+        timeline_limit: UInt::from(DEFAULT_ROOM_SUBSCRIPTION_TIMELINE_LIMIT),
+    })
 }
 
 /// [`RoomList`]'s errors.
