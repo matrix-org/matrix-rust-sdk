@@ -2295,7 +2295,7 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe.
-    room_list.subscribe_to_rooms(&[room_id_1]).await;
+    room_list.set_room_subscriptions(&[room_id_1]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2340,7 +2340,7 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe to another room.
-    room_list.subscribe_to_rooms(&[room_id_2]).await;
+    room_list.set_room_subscriptions(&[room_id_2]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2413,7 +2413,7 @@ async fn test_room_subscription() -> Result<(), Error> {
     };
 
     // Subscribe to an already subscribed room, plus a previously removed one.
-    room_list.subscribe_to_rooms(&[room_id_1, room_id_2]).await;
+    room_list.set_room_subscriptions(&[room_id_1, room_id_2]).await;
 
     sync_then_assert_request_and_fake_response! {
         [server, room_list, sync]
@@ -2712,7 +2712,7 @@ async fn test_room_latest_event() -> Result<(), Error> {
     let room = room_list.room(room_id)?;
     let timeline = room.timeline_builder().build().await.unwrap();
 
-    // We could subscribe to the room —with `RoomList::subscribe_to_rooms`— to
+    // We could subscribe to the room —with `RoomList::set_room_subscriptions`— to
     // automatically listen to the latest event updates, but we will do it
     // manually here (so that we can ignore the subscription thingies).
     let latest_events = client.latest_events().await;

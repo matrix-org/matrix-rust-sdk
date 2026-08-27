@@ -129,7 +129,7 @@ impl RoomList {
         if let Some(room) =
             self.get_room_id_of_entry(index).and_then(|room_id| self.client.get_room(&room_id))
         {
-            self.sync_service.room_list_service().subscribe_to_rooms(&[room.room_id()]).await;
+            self.sync_service.room_list_service().set_room_subscriptions(&[room.room_id()]).await;
             self.current_room_subscription = Some(room);
         }
     }
