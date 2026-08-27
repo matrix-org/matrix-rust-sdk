@@ -674,6 +674,17 @@ async fn run_migrations(conn: &SqliteAsyncConn, version: u8) -> Result<()> {
         .await?;
     }
 
+    if version < 19 {
+        debug!("Upgrading database to version 19");
+        conn.with_transaction(|txn| {
+            txn.execute_batch(include_str!(
+                "../migrations/event_cache_store/019_events_timestamp.sql"
+            ))?;
+            txn.set_db_version(19)
+        })
+        .await?;
+    }
+
     Ok(())
 }
 
@@ -839,7 +850,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                         // outside the context of a linked chunk (e.g. pinned
                         // event).
                         let mut content_statement = txn.prepare(
-                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)"
+                            "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
                         )?;
 
                         let invalid_event = |event: TimelineEvent| {
@@ -878,6 +889,7 @@ impl EventCacheStore for SqliteEventCacheStore {
                             {
                                 let hashed_session_id = event.kind.session_id().map(|s| encryption.encode_key(keys::EVENTS, s));
                                 let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
+                                let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                                 let encoded_event = encryption.encode_event(&event)?;
 
                                 content_statement.execute((
@@ -887,7 +899,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    timestamp,
                                 ))?;
                             }
                         }
@@ -924,8 +937,9 @@ impl EventCacheStore for SqliteEventCacheStore {
                             let hashed_event_type = encryption.encode_key(keys::EVENTS, event_type);
                             let encoded_event = encryption.encode_event(&event)?;
 
+                            let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                             txn.execute(
-                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                 (
                                     &hashed_room_id,
                                     &hashed_event_id,
@@ -933,7 +947,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                                     hashed_session_id,
                                     encoded_event.content,
                                     encoded_event.relates_to,
-                                    encoded_event.rel_type
+                                    encoded_event.rel_type,
+                                    timestamp,
                                 ),
                             )?;
                         }
@@ -1826,8 +1841,9 @@ impl EventCacheStore for SqliteEventCacheStore {
         self.write()
             .await?
             .with_transaction(move |txn| -> Result<_> {
+                let timestamp = event.timestamp.map(|ts| u64::from(ts.get()));
                 txn.execute(
-                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR REPLACE INTO events(room_id, event_id, event_type, session_id, content, relates_to, rel_type, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         &hashed_room_id,
                         hashed_event_id,
@@ -1835,7 +1851,8 @@ impl EventCacheStore for SqliteEventCacheStore {
                         hashed_session_id,
                         encoded_event.content,
                         encoded_event.relates_to,
-                        encoded_event.rel_type
+                        encoded_event.rel_type,
+                        timestamp,
                     )
                 )?;
 
