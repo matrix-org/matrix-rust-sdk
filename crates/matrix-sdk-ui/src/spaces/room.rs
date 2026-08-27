@@ -99,7 +99,7 @@ impl SpaceRoom {
             summary.name.clone(),
             summary.canonical_alias.as_deref(),
             heroes.iter().flatten().map(RoomHero::from).collect(),
-            num_joined_members - num_joined_service_members,
+            num_joined_members.saturating_sub(num_joined_service_members),
         )
         .to_string();
 
@@ -138,7 +138,7 @@ impl SpaceRoom {
             name.clone(),
             room_info.canonical_alias(),
             heroes.iter().map(RoomHero::from).collect(),
-            known_room.joined_members_count() - joined_service_members_count,
+            known_room.joined_members_count().saturating_sub(joined_service_members_count),
         )
         .to_string();
 
