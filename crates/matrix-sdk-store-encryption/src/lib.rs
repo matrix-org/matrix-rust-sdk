@@ -660,7 +660,8 @@ impl StoreCipher {
 
     fn expand_key_from_key(key: &[u8], output: &mut [u8; 32]) {
         let hkdf = Hkdf::<Sha256>::new(None, key);
-        hkdf.expand(b"foo", output).expect("32 bytes is a valid HKDF-SHA256 output length");
+        hkdf.expand(b"matrix-sdk-store-encryption", output)
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
     }
 }
 
