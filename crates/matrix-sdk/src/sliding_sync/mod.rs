@@ -236,16 +236,19 @@ impl SlidingSync {
     ) {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
 
+        let a_subscription_has_been_removed = !room_subscriptions.is_empty();
         room_subscriptions.clear();
 
-        let subscriptions_have_changed = upsert_room_subscriptions(
+        let a_subscription_has_been_added = upsert_room_subscriptions(
             &mut room_subscriptions,
             &self.inner.client,
             room_ids,
             settings,
         );
 
-        if cancel_in_flight_request && subscriptions_have_changed {
+        if cancel_in_flight_request
+            && (a_subscription_has_been_added || a_subscription_has_been_removed)
+        {
             self.inner.cancel_in_flight_request();
         }
     }
@@ -1486,6 +1489,48 @@ mod tests {
 
         // Finally, no cancellation is asked: no cancellation happens.
         sliding_sync.set_room_subscriptions(&[room_id_0], None, false);
+
+        assert!(internal_channel.try_recv().is_err());
+
+        Ok(())
+    }
+
+    #[async_test]
+    async fn test_reset_and_add_room_subscriptions_cancels_the_in_flight_request() -> Result<()> {
+        let (_server, sliding_sync) = new_sliding_sync(vec![
+            SlidingSyncList::builder("foo")
+                .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
+        ])
+        .await?;
+
+        let room_id_0 = room_id!("!r0:bar.org");
+
+        let mut internal_channel = sliding_sync.inner.internal_channel.subscribe();
+
+        // Nothing is removed, nothing is added: no cancellation.
+        sliding_sync.reset_and_add_room_subscriptions(&[], None, true);
+
+        assert!(internal_channel.try_recv().is_err());
+
+        // A subscription is added: the in-flight request must be cancelled.
+        sliding_sync.reset_and_add_room_subscriptions(&[room_id_0], None, true);
+
+        assert_matches!(
+            internal_channel.try_recv(),
+            Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+        );
+
+        // All the subscriptions are removed: the in-flight request must be cancelled.
+        sliding_sync.reset_and_add_room_subscriptions(&[], None, true);
+
+        assert!(sliding_sync.inner.room_subscriptions.read().unwrap().is_empty());
+        assert_matches!(
+            internal_channel.try_recv(),
+            Ok(SlidingSyncInternalMessage::SyncLoopSkipOverCurrentIteration)
+        );
+
+        // Finally, no cancellation is asked: no cancellation happens.
+        sliding_sync.reset_and_add_room_subscriptions(&[room_id_0], None, false);
 
         assert!(internal_channel.try_recv().is_err());
 
