@@ -482,49 +482,17 @@ pub enum RoomListEntriesDynamicFilterKind {
     // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
     // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
     Joined,
-    ReadReceipts { expect: RoomListFilterReadReceipts },
+    ReadReceipts { expect: ReadReceiptsCategory },
     Favourite,
     LowPriority,
     NonLowPriority,
     NonFavorite,
     Invite,
-    Category { expect: RoomListFilterCategory },
+    Category { expect: RoomCategory },
     None,
     NormalizedMatchRoomName { pattern: String },
     FuzzyMatchRoomName { pattern: String },
     DeduplicateVersions,
-}
-
-#[derive(uniffi::Enum)]
-pub enum RoomListFilterCategory {
-    Group,
-    People,
-}
-
-impl From<RoomListFilterCategory> for RoomCategory {
-    fn from(value: RoomListFilterCategory) -> Self {
-        match value {
-            RoomListFilterCategory::Group => Self::Group,
-            RoomListFilterCategory::People => Self::People,
-        }
-    }
-}
-
-#[derive(uniffi::Enum)]
-pub enum RoomListFilterReadReceipts {
-    Mentions,
-    Notifications,
-    Messages,
-}
-
-impl From<RoomListFilterReadReceipts> for ReadReceiptsCategory {
-    fn from(value: RoomListFilterReadReceipts) -> Self {
-        match value {
-            RoomListFilterReadReceipts::Mentions => Self::Mentions,
-            RoomListFilterReadReceipts::Notifications => Self::Notifications,
-            RoomListFilterReadReceipts::Messages => Self::Messages,
-        }
-    }
 }
 
 impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
@@ -545,13 +513,13 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::Space => Box::new(new_filter_space()),
             Kind::NonLeft => Box::new(new_filter_non_left()),
             Kind::Joined => Box::new(new_filter_joined()),
-            Kind::ReadReceipts { expect } => Box::new(new_filter_read_receipts(expect.into())),
+            Kind::ReadReceipts { expect } => Box::new(new_filter_read_receipts(expect)),
             Kind::Favourite => Box::new(new_filter_favourite()),
             Kind::LowPriority => Box::new(new_filter_low_priority()),
             Kind::NonLowPriority => Box::new(new_filter_not(Box::new(new_filter_low_priority()))),
             Kind::NonFavorite => Box::new(new_filter_not(Box::new(new_filter_favourite()))),
             Kind::Invite => Box::new(new_filter_invite()),
-            Kind::Category { expect } => Box::new(new_filter_category(expect.into())),
+            Kind::Category { expect } => Box::new(new_filter_category(expect)),
             Kind::None => Box::new(new_filter_none()),
             Kind::NormalizedMatchRoomName { pattern } => {
                 Box::new(new_filter_normalized_match_room_name(&pattern))
