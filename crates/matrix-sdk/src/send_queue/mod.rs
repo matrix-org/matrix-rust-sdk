@@ -2129,6 +2129,7 @@ impl QueueStorage {
                         dep.created_at,
                         local_echo,
                         item_infos,
+                        &mut media_upload_errors,
                     )
                 }
             });
@@ -2145,7 +2146,15 @@ impl QueueStorage {
         created_at: MilliSecondsSinceUnixEpoch,
         local_echo: Box<RoomMessageEventContent>,
         item_infos: Vec<FinishGalleryItemInfo>,
+        media_upload_errors: &mut HashMap<OwnedTransactionId, QueueWedgeError>,
     ) -> Option<LocalEcho> {
+        // If any of the uploads wedged, the gallery event is wedged too.
+        let send_error = item_infos.iter().find_map(|i| {
+            media_upload_errors.remove(&i.file_upload).or_else(|| {
+                i.thumbnail_info.as_ref().and_then(|info| media_upload_errors.remove(&*info.txn))
+            })
+        });
+
         Some(LocalEcho {
             transaction_id: transaction_id.clone().into(),
             content: LocalEchoContent::Event {
@@ -2162,7 +2171,7 @@ impl QueueStorage {
                         .collect(),
                     created_at,
                 },
-                send_error: None,
+                send_error,
             },
         })
     }
