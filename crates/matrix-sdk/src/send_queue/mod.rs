@@ -2005,7 +2005,7 @@ impl QueueStorage {
         // Media upload requests aren't returned as echoes themselves (the media event,
         // represented as a dependent request, is), so carry their send errors over to
         // the dependent request's echo: a wedged upload wedges the media event.
-        let media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
+        let mut media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
             .iter()
             .filter_map(|queued| match queued.kind {
                 QueuedRequestKind::MediaUpload { .. } => {
@@ -2051,11 +2051,10 @@ impl QueueStorage {
             })
         });
 
-        let reactions_and_medias = store
-            .load_dependent_queued_requests(&self.room_id)
-            .await?
-            .into_iter()
-            .filter_map(|dep| match dep.kind {
+        let dependent_requests = store.load_dependent_queued_requests(&self.room_id).await?;
+
+        let reactions_and_medias =
+            dependent_requests.into_iter().filter_map(|dep| match dep.kind {
                 DependentQueuedRequestKind::EditEvent { .. }
                 | DependentQueuedRequestKind::RedactEvent => {
                     // TODO: reflect local edits/redacts too?
@@ -2088,10 +2087,10 @@ impl QueueStorage {
                     let upload_thumbnail_txn = thumbnail_info.map(|info| info.txn);
 
                     // If one of the uploads wedged, the media event is wedged too.
-                    let send_error = media_upload_errors.get(&file_upload).cloned().or_else(|| {
+                    let send_error = media_upload_errors.remove(&file_upload).or_else(|| {
                         upload_thumbnail_txn
                             .as_ref()
-                            .and_then(|txn| media_upload_errors.get(&**txn).cloned())
+                            .and_then(|txn| media_upload_errors.remove(&**txn))
                     });
 
                     // Materialize as an event local echo.
