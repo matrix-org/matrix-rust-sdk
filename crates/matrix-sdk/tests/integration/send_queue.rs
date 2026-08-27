@@ -3026,6 +3026,13 @@ async fn test_unwedging_media_upload() {
     assert_eq!(error.status_code, 413);
     assert!(!q.is_enabled());
 
+    // The wedged upload is reflected on the media event's local echo: a client
+    // restarting here must see the media as failed, not as still being sent.
+    let (local_echoes, _) = q.subscribe().await.unwrap();
+    assert_eq!(local_echoes.len(), 1);
+    assert_let!(LocalEchoContent::Event { send_error, .. } = &local_echoes[0].content);
+    assert!(send_error.is_some());
+
     // Mount the mock for the upload and sending the event.
     mock.mock_upload().ok(mxc_uri!("mxc://sdk.rs/media")).mock_once().mount().await;
     mock.mock_room_send().ok(event_id!("$1")).mock_once().mount().await;
