@@ -29,7 +29,7 @@
 
 use matrix_sdk_base::linked_chunk::{ChunkIdentifier, LinkedChunkId};
 use matrix_sdk_crypto::CryptoStoreError;
-use ruma::{EventId, RoomId, events::relation::RelationType};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, RoomId, events::relation::RelationType};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -88,6 +88,11 @@ pub type IndexedEventPositionIndex = usize;
 /// (see [`RelationType`](ruma::events::relation::RelationType)) which is
 /// suitable for use in an IndexedDB key
 pub type IndexedRelationType = String;
+
+/// A representation of the `origin_server_ts` of an [`Event`], in
+/// milliseconds since the Unix epoch, which is suitable for use in an
+/// IndexedDB key
+pub type IndexedEventTimestamp = u64;
 
 /// A (possibly) encrypted representation of an [`Event`]
 pub type IndexedEventContent = MaybeEncrypted;
@@ -331,6 +336,9 @@ pub struct IndexedEvent {
     /// An indexed key on the object store, which represents the relationship
     /// between this event and another event, if one exists.
     pub relation: Option<IndexedEventRelationKey>,
+    /// An indexed key on the object store, which represents the
+    /// `origin_server_ts` of the event, if known.
+    pub timestamp: Option<IndexedEventTimestampKey>,
     /// The (possibly) encrypted content of the event.
     pub content: IndexedEventContent,
 }
@@ -365,12 +373,16 @@ impl Indexed for Event {
                 serializer,
             )
         });
+        let timestamp = self.timestamp().map(|timestamp| {
+            IndexedEventTimestampKey::encode((self.room_id(), timestamp), serializer)
+        });
         Ok(IndexedEvent {
             id,
             event_id: IndexedEventEventIdKey::encode(event_id, serializer),
             room,
             position,
             relation,
+            timestamp,
             content: serializer.maybe_encrypt_value(self)?,
         })
     }
@@ -612,6 +624,35 @@ impl IndexedPrefixKeyBounds<Event, (&RoomId, &EventId)> for IndexedEventRelation
             serializer.encode_key_as_string(keys::EVENTS_RELATION_RELATED_EVENTS, related_event_id);
         let relation_type = String::from(INDEXED_KEY_UPPER_CHARACTER);
         Self(room_id, related_event_id, relation_type)
+    }
+}
+
+/// The value associated with the [`timestamp`](IndexedEvent::timestamp) index
+/// of the [`EVENTS`][1] object store, which is constructed from:
+///
+/// - The (possibly) hashed Room ID
+/// - The `origin_server_ts` of the event, in milliseconds since the Unix epoch
+///
+/// Events with no known timestamp are not entered into this index at all (see
+/// [`IndexedEvent::timestamp`]), so a range query over this index naturally
+/// excludes them -- mirroring how a `NULL` column is excluded from a SQL `<`
+/// comparison.
+///
+/// [1]: crate::event_cache_store::migrations::v9::create_events_object_store
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IndexedEventTimestampKey(IndexedRoomId, IndexedEventTimestamp);
+
+impl IndexedKey<Event> for IndexedEventTimestampKey {
+    const INDEX: Option<&'static str> = Some(keys::EVENTS_TIMESTAMP);
+
+    type KeyComponents<'a> = (&'a RoomId, MilliSecondsSinceUnixEpoch);
+
+    fn encode(
+        (room_id, timestamp): Self::KeyComponents<'_>,
+        serializer: &SafeEncodeSerializer,
+    ) -> Self {
+        let room_id = serializer.encode_key_as_string(keys::ROOMS, room_id);
+        Self(room_id, u64::from(timestamp.get()))
     }
 }
 
