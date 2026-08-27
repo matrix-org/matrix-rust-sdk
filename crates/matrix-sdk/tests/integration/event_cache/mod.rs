@@ -4010,3 +4010,93 @@ async fn test_storage_only_pagination_resolves_remaining_gaps_before_start() {
     let outcome = room_event_cache.pagination().run_backwards_once_from_storage(20).await.unwrap();
     assert!(outcome.reached_start);
 }
+
+#[async_test]
+async fn test_bundled_utd_latest_thread_event_does_not_downgrade_stored_reply() {
+    // A thread reply is synced and stored decrypted (plaintext is
+    // indistinguishable here). A later gappy sync re-delivers the thread root,
+    // which the server bundles with the *encrypted* copy of that reply; when
+    // the root itself cannot be decrypted, the bundled copy is a UTD. Saving
+    // it must not overwrite the already-known decrypted copy.
+    use matrix_sdk_base::deserialized_responses::TimelineEventKind;
+    use ruma::events::room::encrypted::{
+        EncryptedEventScheme, MegolmV1AesSha2ContentInit, RoomEncryptedEventContent,
+    };
+
+    let server = MatrixMockServer::new().await;
+    let client = server.client_builder().build().await;
+    client.event_cache().subscribe().unwrap();
+
+    let room_id = room_id!("!thready:example.org");
+    let room = server.sync_joined_room(&client, room_id).await;
+    let (room_event_cache, _drop_handles) = room.event_cache().await.unwrap();
+
+    let f = EventFactory::new().room(room_id).sender(*ALICE);
+    let root_id = event_id!("$root");
+    let reply_id = event_id!("$reply");
+
+    // The reply arrives decrypted.
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id).add_timeline_event(
+                f.text_msg("in thread").in_thread(root_id, root_id).event_id(reply_id),
+            ),
+        )
+        .await;
+
+    let stored = room_event_cache.find_event(reply_id).await.unwrap().unwrap();
+    assert!(!stored.kind.is_utd());
+
+    // The root comes back in a gappy sync, undecryptable, bundling the
+    // encrypted copy of the reply.
+    let encrypted_reply = f
+        .event(RoomEncryptedEventContent::new(
+            EncryptedEventScheme::MegolmV1AesSha2(
+                MegolmV1AesSha2ContentInit {
+                    ciphertext: "AwgAEtABPRMavu".to_owned(),
+                    sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA".to_owned(),
+                    device_id: "NLAZCWIOCO".into(),
+                    session_id: "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU".into(),
+                }
+                .into(),
+            ),
+            None,
+        ))
+        .event_id(reply_id)
+        .into_raw_sync()
+        .cast_unchecked();
+
+    server
+        .sync_room(
+            &client,
+            JoinedRoomBuilder::new(room_id)
+                .set_timeline_limited()
+                .set_timeline_prev_batch("prev".to_owned())
+                .add_timeline_event(
+                    f.event(RoomEncryptedEventContent::new(
+                        EncryptedEventScheme::MegolmV1AesSha2(
+                            MegolmV1AesSha2ContentInit {
+                                ciphertext: "AwgAEtABPRMavu".to_owned(),
+                                sender_key: "DeHIg4gwhClxzFYcmNntPNF9YtsdZbmMy8+3kzCMXHA"
+                                    .to_owned(),
+                                device_id: "NLAZCWIOCO".into(),
+                                session_id: "gM8i47Xhu0q52xLfgUXzanCMpLinoyVyH7R58cBuVBU".into(),
+                            }
+                            .into(),
+                        ),
+                        None,
+                    ))
+                    .event_id(root_id)
+                    .with_bundled_thread_summary(encrypted_reply, 1, false),
+                ),
+        )
+        .await;
+
+    // The stored reply is still the decrypted copy.
+    let stored = room_event_cache.find_event(reply_id).await.unwrap().unwrap();
+    assert!(
+        !matches!(stored.kind, TimelineEventKind::UnableToDecrypt { .. }),
+        "bundled UTD copy overwrote the decrypted reply"
+    );
+}

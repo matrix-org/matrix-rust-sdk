@@ -1171,7 +1171,17 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             self.maybe_apply_new_redaction(event).await?;
 
             // Save a bundled thread event, if there was one.
-            if let Some(bundled_thread) = &event.bundled_latest_thread_event {
+            //
+            // The server bundles the *encrypted* copy of the thread's latest
+            // event: when the thread root could not be decrypted, the bundled
+            // copy is a UTD. Saving it would overwrite an already-known copy
+            // (typically decrypted when the reply itself was synced), which
+            // then resurfaces as a UTD in the room list preview once the
+            // in-memory chunk is reloaded from the store. Only a decrypted
+            // bundled copy may replace a stored event.
+            if let Some(bundled_thread) = &event.bundled_latest_thread_event
+                && !self.bundled_thread_event_is_known_utd(bundled_thread).await?
+            {
                 self.save_events([*bundled_thread.clone()]).await?;
             }
         }
@@ -1179,6 +1189,19 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         self.update_read_receipts(receipt_event.as_ref()).await?;
 
         Ok(())
+    }
+
+    /// Whether a bundled latest thread event is a UTD copy of an event this
+    /// room already knows, see [`Self::post_process_upserted_events`].
+    async fn bundled_thread_event_is_known_utd(
+        &self,
+        bundled_thread: &Event,
+    ) -> Result<bool, EventCacheError> {
+        Ok(bundled_thread.kind.is_utd()
+            && match bundled_thread.event_id() {
+                Some(event_id) => self.find_event(event_id).await?.is_some(),
+                None => false,
+            })
     }
 
     /// Update read receipts for all events in the room, based on the current
