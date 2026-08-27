@@ -226,11 +226,14 @@ impl LatestEvent {
                     LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_),
                 ) => true,
 
-                // If the event IDs are identical, no.
-                (previous, new) if previous.event_id() == new.event_id() => false,
-
-                // Otherwise, yes.
-                (_, _) => true,
+                // If both event IDs are known, do an update if they're different.
+                // If either is unknown, the two values cannot be compared, so do an update.
+                (previous, new) => match (previous.event_id(), new.event_id()) {
+                    (Some(previous_event_id), Some(new_event_id)) => {
+                        previous_event_id != new_event_id
+                    }
+                    _ => true,
+                },
             };
 
             if do_update {
@@ -328,7 +331,7 @@ mod tests_latest_event {
     use ruma::{
         MilliSecondsSinceUnixEpoch, OwnedTransactionId, event_id,
         events::{AnyMessageLikeEventContent, room::message::RoomMessageEventContent},
-        owned_event_id, owned_room_id, room_id, user_id,
+        owned_event_id, owned_room_id, owned_user_id, room_id, user_id,
     };
     use stream_assert::{assert_next_matches, assert_pending};
     use tokio::task::yield_now;
@@ -514,6 +517,40 @@ mod tests_latest_event {
         // Not when it's retrying either
         latest_event.update(LatestEventValue::LocalIsSending(local_room_message("bar"))).await;
         assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        assert_pending!(stream);
+    }
+
+    #[async_test]
+    async fn test_update_does_not_ignore_a_new_value_that_has_no_event_id() {
+        let room_id = room_id!("!r0");
+
+        let server = MatrixMockServer::new().await;
+        let client = server.client_builder().build().await;
+        let weak_client = WeakClient::from_client(&client);
+
+        client.base_client().get_or_create_room(room_id, RoomState::Joined);
+        let weak_room = WeakRoom::new(weak_client, room_id.to_owned());
+
+        let mut latest_event = LatestEvent::new(&weak_room, None);
+
+        let mut stream = latest_event.subscribe().await;
+        assert_pending!(stream);
+
+        // A local event is being sent: it has no event ID.
+        latest_event.update(LatestEventValue::LocalIsSending(local_room_message("foo"))).await;
+        assert_next_matches!(stream, LatestEventValue::LocalIsSending(_));
+
+        // An invite computed from stripped state events has no event ID either, but
+        // both values are obviously different: this must not be ignored.
+        latest_event
+            .update(LatestEventValue::RemoteInvite {
+                event_id: None,
+                timestamp: MilliSecondsSinceUnixEpoch::now(),
+                inviter: Some(owned_user_id!("@mnt_io:matrix.org")),
+            })
+            .await;
+        assert_next_matches!(stream, LatestEventValue::RemoteInvite { .. });
 
         assert_pending!(stream);
     }
