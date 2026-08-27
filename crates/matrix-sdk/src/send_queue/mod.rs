@@ -2007,9 +2007,11 @@ impl QueueStorage {
         // the dependent request's echo: a wedged upload wedges the media event.
         let media_upload_errors: HashMap<OwnedTransactionId, QueueWedgeError> = queued_requests
             .iter()
-            .filter(|queued| matches!(queued.kind, QueuedRequestKind::MediaUpload { .. }))
-            .filter_map(|queued| {
-                queued.error.clone().map(|error| (queued.transaction_id.clone(), error))
+            .filter_map(|queued| match queued.kind {
+                QueuedRequestKind::MediaUpload { .. } => {
+                    queued.error.clone().map(|error| (queued.transaction_id.clone(), error))
+                }
+                _ => None,
             })
             .collect();
 
