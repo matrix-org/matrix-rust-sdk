@@ -478,6 +478,7 @@ struct ThreadList {
 mod tests {
     use std::time::Duration;
 
+    use assert_matches::assert_matches;
     use futures_util::pin_mut;
     use matrix_sdk::test_utils::mocks::MatrixMockServer;
     use matrix_sdk_test::{async_test, event_factory::EventFactory};
@@ -497,7 +498,6 @@ mod tests {
         user_id,
     };
     use serde_json::json;
-    use assert_matches::assert_matches;
     use stream_assert::{assert_next_matches, assert_pending};
     use wiremock::ResponseTemplate;
 
