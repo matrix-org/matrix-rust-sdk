@@ -338,6 +338,31 @@ impl Room {
         )))
     }
 
+    /// Get the user IDs of the joined and invited members, without the service
+    /// members. The current user is part of the result. Fetches the member list
+    /// if it is not synced yet.
+    pub async fn active_human_member_ids(&self) -> Result<Vec<String>, ClientError> {
+        Ok(self
+            .inner
+            .human_member_ids(RoomMemberships::ACTIVE)
+            .await?
+            .into_iter()
+            .map(String::from)
+            .collect())
+    }
+
+    /// Same as [`Self::active_human_member_ids`], without a request to the
+    /// homeserver, so members can be missing.
+    pub async fn active_human_member_ids_no_sync(&self) -> Result<Vec<String>, ClientError> {
+        Ok(self
+            .inner
+            .human_member_ids_no_sync(RoomMemberships::ACTIVE)
+            .await?
+            .into_iter()
+            .map(String::from)
+            .collect())
+    }
+
     pub async fn member(&self, user_id: String) -> Result<RoomMember, ClientError> {
         let user_id = UserId::parse(&*user_id)?;
         let member = self.inner.get_member(&user_id).await?.context("User not found")?;
