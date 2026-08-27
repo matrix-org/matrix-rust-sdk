@@ -196,6 +196,10 @@ mod upload;
 
 pub use progress::AbstractProgress;
 
+/// How long to wait before retrying, when loading the next request to send
+/// failed against the state store.
+const STORE_ERROR_BACKOFF: Duration = Duration::from_millis(250);
+
 /// A client-wide send queue, for all the rooms known by a client.
 pub struct SendQueue {
     client: Client,
@@ -709,7 +713,7 @@ impl RoomSendQueue {
                 Err(err) => {
                     warn!("error when loading next request to send: {err}");
                     // Don't hammer a failing store; back off a bit before retrying.
-                    matrix_sdk_common::sleep::sleep(Duration::from_millis(250)).await;
+                    matrix_sdk_common::sleep::sleep(STORE_ERROR_BACKOFF).await;
                     continue;
                 }
             };
