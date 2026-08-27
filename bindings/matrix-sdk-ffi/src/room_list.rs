@@ -137,7 +137,7 @@ impl RoomListService {
         })))
     }
 
-    async fn subscribe_to_rooms(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
+    async fn set_room_subscriptions(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
         let room_ids = room_ids
             .into_iter()
             .map(|room_id| {
@@ -146,7 +146,7 @@ impl RoomListService {
             .collect::<Result<Vec<_>, _>>()?;
 
         self.inner
-            .subscribe_to_rooms(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
+            .set_room_subscriptions(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
             .await;
 
         Ok(())

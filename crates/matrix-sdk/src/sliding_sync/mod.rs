@@ -132,7 +132,8 @@ impl SlidingSync {
         SlidingSyncBuilder::new(id, client)
     }
 
-    /// Add subscriptions to many rooms.
+    /// Add a subscription for each room of `room_ids`, and keep the existing
+    /// subscriptions to other rooms.
     ///
     /// If the associated `Room`s exist, they will be marked as members are
     /// missing, so that it ensures to re-fetch all members.
@@ -140,13 +141,13 @@ impl SlidingSync {
     /// A subscription to an already subscribed room only updates its
     /// `settings`, and only if they differ. In particular, its members are
     /// not marked as missing again.
-    pub fn subscribe_to_rooms(
+    pub fn add_room_subscriptions(
         &self,
         room_ids: &[&RoomId],
         settings: Option<http::request::RoomSubscription>,
         cancel_in_flight_request: bool,
     ) {
-        let subscriptions_have_changed = add_room_subscriptions(
+        let subscriptions_have_changed = upsert_room_subscriptions(
             &mut self.inner.room_subscriptions.write().unwrap(),
             &self.inner.client,
             room_ids,
@@ -158,8 +159,8 @@ impl SlidingSync {
         }
     }
 
-    /// Remove subscriptions to many rooms.
-    pub fn unsubscribe_to_rooms(&self, room_ids: &[&RoomId], cancel_in_flight_request: bool) {
+    /// Remove the subscription of each room of `room_ids`.
+    pub fn remove_room_subscriptions(&self, room_ids: &[&RoomId], cancel_in_flight_request: bool) {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
         let mut subscriptions_have_changed = false;
 
@@ -174,12 +175,11 @@ impl SlidingSync {
         }
     }
 
-    /// Add subscriptions to the specified rooms if they don't already exist and
-    /// remove any existing subscriptions to other rooms.
+    /// Set the room subscriptions to exactly `room_ids`.
     ///
-    /// This is similar to [`Self::clear_and_subscribe_to_rooms`] but doesn't
-    /// clear and then recreate all subscriptions. Instead, it will perform
-    /// a delta-like update which involves:
+    /// This is similar to [`Self::reset_and_add_room_subscriptions`] but
+    /// doesn't clear and then recreate all subscriptions. Instead, it will
+    /// perform a delta-like update which involves:
     ///
     /// - refreshing the `settings` of existing subscriptions if the room is
     ///   contained in `room_ids`, and only if they differ
@@ -188,10 +188,10 @@ impl SlidingSync {
     /// - removing existing subscriptions for rooms that are not contained in
     ///   `room_ids`
     ///
-    /// Note that unlike [`Self::clear_and_subscribe_to_rooms`], this method
+    /// Note that unlike [`Self::reset_and_add_room_subscriptions`], this method
     /// will not mark members as unsynced (which would cause them to be
     /// refetched) for subscriptions that already exist.
-    pub fn resubscribe_to_rooms(
+    pub fn set_room_subscriptions(
         &self,
         room_ids: &[&RoomId],
         settings: Option<http::request::RoomSubscription>,
@@ -207,8 +207,12 @@ impl SlidingSync {
 
         // Add the subscriptions to the rooms that aren't subscribed yet, and refresh
         // the settings of the ones that already are.
-        let a_subscription_has_been_added_or_updated =
-            add_room_subscriptions(&mut room_subscriptions, &self.inner.client, room_ids, settings);
+        let a_subscription_has_been_added_or_updated = upsert_room_subscriptions(
+            &mut room_subscriptions,
+            &self.inner.client,
+            room_ids,
+            settings,
+        );
 
         // The in-flight request must be cancelled as soon as the set of subscriptions
         // has changed.
@@ -219,21 +223,27 @@ impl SlidingSync {
         }
     }
 
-    /// Replace all subscriptions to rooms by other ones.
+    /// Remove all the room subscriptions, then add a subscription for each room
+    /// of `room_ids`.
     ///
     /// If the associated `Room`s exist, they will be marked as members are
     /// missing, so that it ensures to re-fetch all members.
-    pub fn clear_and_subscribe_to_rooms(
+    pub fn reset_and_add_room_subscriptions(
         &self,
         room_ids: &[&RoomId],
         settings: Option<http::request::RoomSubscription>,
         cancel_in_flight_request: bool,
     ) {
         let mut room_subscriptions = self.inner.room_subscriptions.write().unwrap();
+
         room_subscriptions.clear();
 
-        let subscriptions_have_changed =
-            add_room_subscriptions(&mut room_subscriptions, &self.inner.client, room_ids, settings);
+        let subscriptions_have_changed = upsert_room_subscriptions(
+            &mut room_subscriptions,
+            &self.inner.client,
+            room_ids,
+            settings,
+        );
 
         if cancel_in_flight_request && subscriptions_have_changed {
             self.inner.cancel_in_flight_request();
@@ -866,7 +876,7 @@ impl SlidingSync {
 /// up to the caller to decide whether this warrants cancelling the in-flight
 /// request: a caller can have other reasons to cancel it, e.g. having removed a
 /// subscription.
-fn add_room_subscriptions(
+fn upsert_room_subscriptions(
     room_subscriptions: &mut BTreeMap<OwnedRoomId, http::request::RoomSubscription>,
     client: &Client,
     room_ids: &[&RoomId],
@@ -1193,7 +1203,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_subscribe_to_rooms() -> Result<()> {
+    async fn test_add_room_subscriptions() -> Result<()> {
         let (server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
@@ -1264,7 +1274,7 @@ mod tests {
         // Members are now synced! We can start subscribing and see how it goes.
         assert!(room0.are_members_synced());
 
-        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None, true);
+        sliding_sync.add_room_subscriptions(&[room_id_0, room_id_1], None, true);
 
         // OK, we have subscribed to some rooms. Let's check on `room0` if members are
         // now marked as not synced.
@@ -1304,7 +1314,7 @@ mod tests {
         // Members are synced, good, good.
         assert!(room0.are_members_synced());
 
-        sliding_sync.subscribe_to_rooms(&[room_id_0], None, false);
+        sliding_sync.add_room_subscriptions(&[room_id_0], None, false);
 
         // Members are still synced: because we have already subscribed to the
         // room, the members aren't marked as unsynced.
@@ -1314,7 +1324,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_subscribe_unsubscribe_and_clear_and_subscribe_to_rooms() -> Result<()> {
+    async fn test_add_remove_and_reset_room_subscriptions() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
@@ -1334,7 +1344,7 @@ mod tests {
         }
 
         // Add 2 rooms.
-        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], Default::default(), false);
+        sliding_sync.add_room_subscriptions(&[room_id_0, room_id_1], Default::default(), false);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -1345,7 +1355,7 @@ mod tests {
         }
 
         // Remove 1 room.
-        sliding_sync.unsubscribe_to_rooms(&[room_id_0], false);
+        sliding_sync.remove_room_subscriptions(&[room_id_0], false);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -1355,7 +1365,7 @@ mod tests {
         }
 
         // Add 2 rooms, but one already exists.
-        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], Default::default(), false);
+        sliding_sync.add_room_subscriptions(&[room_id_0, room_id_1], Default::default(), false);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -1366,7 +1376,7 @@ mod tests {
         }
 
         // Replace all rooms with 2 other rooms.
-        sliding_sync.clear_and_subscribe_to_rooms(
+        sliding_sync.reset_and_add_room_subscriptions(
             &[room_id_2, room_id_3],
             Default::default(),
             false,
@@ -1384,7 +1394,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_resubscribe_to_rooms_refreshes_the_settings() -> Result<()> {
+    async fn test_set_room_subscriptions_refreshes_the_settings() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
@@ -1411,7 +1421,7 @@ mod tests {
         let mut internal_channel = sliding_sync.inner.internal_channel.subscribe();
 
         // Subscribe for the first time.
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], settings(10), true);
+        sliding_sync.set_room_subscriptions(&[room_id_0], settings(10), true);
 
         assert_eq!(timeline_limit_of_room_0(), Some(10u32.into()));
         assert_matches!(
@@ -1420,14 +1430,14 @@ mod tests {
         );
 
         // Resubscribe with the same settings: nothing changes, no cancellation.
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], settings(10), true);
+        sliding_sync.set_room_subscriptions(&[room_id_0], settings(10), true);
 
         assert_eq!(timeline_limit_of_room_0(), Some(10u32.into()));
         assert!(internal_channel.try_recv().is_err());
 
         // Resubscribe with new settings: they must be applied, and the in-flight
         // request must be cancelled so that they are sent right away.
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], settings(42), true);
+        sliding_sync.set_room_subscriptions(&[room_id_0], settings(42), true);
 
         assert_eq!(timeline_limit_of_room_0(), Some(42u32.into()));
         assert_matches!(
@@ -1439,7 +1449,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_resubscribe_to_rooms_cancels_the_in_flight_request() -> Result<()> {
+    async fn test_set_room_subscriptions_cancels_the_in_flight_request() -> Result<()> {
         let (_server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
@@ -1453,7 +1463,7 @@ mod tests {
 
         // A first-ever subscription: nothing is removed, but a subscription is added,
         // so the in-flight request must be cancelled.
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, true);
+        sliding_sync.set_room_subscriptions(&[room_id_0], None, true);
 
         assert_matches!(
             internal_channel.try_recv(),
@@ -1462,12 +1472,12 @@ mod tests {
 
         // Resubscribing to the same room: nothing is added nor removed, no
         // cancellation.
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, true);
+        sliding_sync.set_room_subscriptions(&[room_id_0], None, true);
 
         assert!(internal_channel.try_recv().is_err());
 
         // A subscription is removed: the in-flight request must be cancelled.
-        sliding_sync.resubscribe_to_rooms(&[room_id_1], None, true);
+        sliding_sync.set_room_subscriptions(&[room_id_1], None, true);
 
         assert_matches!(
             internal_channel.try_recv(),
@@ -1475,7 +1485,7 @@ mod tests {
         );
 
         // Finally, no cancellation is asked: no cancellation happens.
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, false);
+        sliding_sync.set_room_subscriptions(&[room_id_0], None, false);
 
         assert!(internal_channel.try_recv().is_err());
 
@@ -1483,7 +1493,7 @@ mod tests {
     }
 
     #[async_test]
-    async fn test_resubscribe_to_rooms() -> Result<()> {
+    async fn test_set_room_subscriptions() -> Result<()> {
         let (server, sliding_sync) = new_sliding_sync(vec![
             SlidingSyncList::builder("foo")
                 .sync_mode(SlidingSyncMode::new_selective().add_range(0..=10)),
@@ -1554,7 +1564,7 @@ mod tests {
         // Members are now synced! We can start subscribing and see how it goes.
         assert!(room0.are_members_synced());
 
-        sliding_sync.resubscribe_to_rooms(&[room_id_0, room_id_1], None, true);
+        sliding_sync.set_room_subscriptions(&[room_id_0, room_id_1], None, true);
 
         // OK, we have subscribed to some rooms. Let's check on `room0` if members are
         // now marked as not synced.
@@ -1595,7 +1605,7 @@ mod tests {
         // Members are synced, good, good.
         assert!(room0.are_members_synced());
 
-        sliding_sync.resubscribe_to_rooms(&[room_id_0], None, false);
+        sliding_sync.set_room_subscriptions(&[room_id_0], None, false);
 
         // Members are still synced: because we have already subscribed to the
         // room, the members aren't marked as unsynced.
@@ -1625,7 +1635,7 @@ mod tests {
         let room_id_2 = room_id!("!r2:bar.org");
 
         // Subscribe to two rooms.
-        sliding_sync.subscribe_to_rooms(&[room_id_0, room_id_1], None, false);
+        sliding_sync.add_room_subscriptions(&[room_id_0, room_id_1], None, false);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -1636,7 +1646,7 @@ mod tests {
         }
 
         // Subscribe to one more room.
-        sliding_sync.subscribe_to_rooms(&[room_id_2], None, false);
+        sliding_sync.add_room_subscriptions(&[room_id_2], None, false);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();
@@ -1656,7 +1666,7 @@ mod tests {
         }
 
         // Subscribe to one room again.
-        sliding_sync.subscribe_to_rooms(&[room_id_2], None, false);
+        sliding_sync.add_room_subscriptions(&[room_id_2], None, false);
 
         {
             let room_subscriptions = sliding_sync.inner.room_subscriptions.read().unwrap();

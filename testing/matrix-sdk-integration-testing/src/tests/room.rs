@@ -516,7 +516,7 @@ async fn test_unread_counts_get_updated_after_decryption() -> TestResult {
 
     let sync_service2 = SyncService::builder(alice2.clone()).build().await?;
 
-    sync_service2.room_list_service().subscribe_to_rooms(&[&room_id]).await;
+    sync_service2.room_list_service().set_room_subscriptions(&[&room_id]).await;
     sync_service2.start().await;
 
     alice2.encryption().wait_for_e2ee_initialization_tasks().await;
@@ -737,7 +737,7 @@ async fn test_latest_event_few_rooms() -> Result<()> {
     //warn!("Subscribing to rooms on second client…");
     //bob2_sync_service
     //.room_list_service()
-    //.subscribe_to_rooms(&[room1.room_id(), room2.room_id()])
+    //.set_room_subscriptions(&[room1.room_id(), room2.room_id()])
     //.await;
 
     //// Wait for a bit, for a sync response to be returned.
