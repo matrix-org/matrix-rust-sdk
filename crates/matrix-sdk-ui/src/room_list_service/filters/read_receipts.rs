@@ -19,6 +19,8 @@ use super::{super::RoomListItem, Filter};
 /// This type decides which fields to reach in [`ReadReceipts`].
 ///
 /// [`ReadReceipts`]: matrix_sdk_base::read_receipts::ReadReceipts
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+#[cfg_attr(feature = "uniffi", uniffi(name = "RoomListFilterReadReceipts"))]
 pub enum Category {
     /// Filter by mentions, i.e. [`ReadReceipts::num_mentions`].
     ///
