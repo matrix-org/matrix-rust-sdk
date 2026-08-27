@@ -29,7 +29,7 @@ use ruma::{
     events::{AnyRoomAccountDataEvent, AnySyncEphemeralRoomEvent, relation::RelationType},
     serde::Raw,
 };
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, RwLock, mpsc};
 use tracing::{instrument, trace, warn};
 
 use self::pagination::RoomPagination;
@@ -68,6 +68,7 @@ impl fmt::Debug for RoomEventCache {
 
 impl RoomEventCache {
     /// Create a new [`RoomEventCache`] using the given room and store.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         room_id: OwnedRoomId,
         weak_room: WeakRoom,
@@ -76,6 +77,7 @@ impl RoomEventCache {
         shared_pagination_status: SharedObservable<SharedPaginationStatus>,
         auto_shrink_sender: mpsc::Sender<AutoShrinkMessage>,
         update_sender: RoomEventCacheUpdateSender,
+        ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
     ) -> Self {
         Self {
             inner: Arc::new(RoomEventCacheInner {
@@ -87,6 +89,7 @@ impl RoomEventCache {
                 pagination_batch_token_notifier: Notify::new(),
                 auto_shrink_sender,
                 shared_pagination_status,
+                ignored_users,
             }),
         }
     }
@@ -104,6 +107,11 @@ impl RoomEventCache {
     /// Get the weak room of this [`RoomEventCache`].
     pub(super) fn weak_room(&self) -> &WeakRoom {
         &self.inner.weak_room
+    }
+
+    /// Get the list of ignored users.
+    pub(crate) fn ignored_users(&self) -> Arc<RwLock<Vec<OwnedUserId>>> {
+        self.inner.ignored_users.clone()
     }
 
     /// Read all current events.
@@ -333,6 +341,9 @@ pub(super) struct RoomEventCacheInner {
 
     /// Update sender for this room.
     update_sender: RoomEventCacheUpdateSender,
+
+    /// The list of ignored users, shared across all rooms.
+    ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
 }
 
 impl RoomEventCacheInner {

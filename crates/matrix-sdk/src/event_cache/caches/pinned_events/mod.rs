@@ -14,14 +14,19 @@
 
 mod updates;
 
-use std::{cmp::Ordering, collections::BTreeSet, fmt, sync::Arc};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeSet, HashSet},
+    fmt,
+    sync::Arc,
+};
 
 use eyeball_im::VectorDiff;
 use futures_util::{StreamExt as _, stream};
 use matrix_sdk_base::{
     apply_redaction,
-    event_cache::{Event, Gap},
-    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update},
+    event_cache::{Event, Gap, store::DEFAULT_CHUNK_CAPACITY},
+    linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader},
     serde_helpers::extract_redaction_target,
     sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
     task_monitor::BackgroundTaskHandle,
@@ -32,7 +37,10 @@ use ruma::{
     events::{relation::RelationType, room::redaction::SyncRoomRedactionEvent},
     room_version_rules::RoomVersionRules,
 };
-use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{
+    RwLock,
+    broadcast::{Receiver, Sender},
+};
 use tracing::{debug, instrument, trace, warn};
 
 pub(super) use self::updates::PinnedEventsCacheUpdateSender;
@@ -386,6 +394,63 @@ impl<'a> StateLockWriteGuard<'a, PinnedEventsCacheState> {
         Ok(())
     }
 
+    /// Remove all the events sent by the given users, in memory and in the
+    /// store.
+    ///
+    /// Returns the `VectorDiff`s to broadcast to the subscribers. The caller is
+    /// responsible for notifying the subscribers.
+    pub async fn remove_events_of_users(
+        &mut self,
+        users: &[OwnedUserId],
+    ) -> Result<Vec<VectorDiff<Event>>> {
+        if users.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Gather the events that are currently in memory.
+        let mut in_memory_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        for (position, event) in self.state.chunk.events() {
+            if let Some(event_id) = event.event_id()
+                && let Some(sender) = event.sender()
+                && users.iter().any(|user| user.as_str() == sender.as_str())
+            {
+                in_memory_events.push((event_id.to_owned(), position));
+            }
+        }
+
+        // Gather the events that live only in the store.
+        let mut in_store_events: Vec<(OwnedEventId, Position)> = Vec::new();
+        {
+            let in_memory_event_ids: HashSet<OwnedEventId> =
+                in_memory_events.iter().map(|(event_id, _)| event_id.clone()).collect();
+
+            let linked_chunk_id = LinkedChunkId::PinnedEvents(&self.state.room_id);
+            let all_chunks = self.store.load_all_chunks(linked_chunk_id).await?;
+
+            if let Some(linked_chunk) =
+                lazy_loader::from_all_chunks::<DEFAULT_CHUNK_CAPACITY, _, _>(all_chunks)?
+            {
+                for (position, event) in linked_chunk.items() {
+                    let Some(event_id) = event.event_id() else { continue };
+                    if in_memory_event_ids.contains(event_id) {
+                        // The event has already been dealt with by the in-memory removal.
+                        continue;
+                    }
+
+                    if let Some(sender) = event.sender()
+                        && users.iter().any(|user| user.as_str() == sender.as_str())
+                    {
+                        in_store_events.push((event_id.to_owned(), position));
+                    }
+                }
+            }
+        }
+
+        self.remove_events(in_memory_events, in_store_events).await?;
+
+        Ok(self.state.chunk.updates_as_vector_diffs())
+    }
+
     /// Propagate the changes in this linked chunk to observers, and save the
     /// changes on disk.
     pub async fn propagate_changes(&mut self) -> Result<()> {
@@ -447,6 +512,9 @@ struct PinnedEventsCacheInner {
     ///
     /// It is behind an `Arc` because it is shared with the task.
     state: CacheStateLock<PinnedEventsStateSelector>,
+
+    /// The list of ignored users, shared across all rooms.
+    ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
 }
 
 impl PinnedEventsCache {
@@ -457,6 +525,7 @@ impl PinnedEventsCache {
         room_version_rules: RoomVersionRules,
         linked_chunk_update_sender: Sender<RoomEventCacheLinkedChunkUpdate>,
         state: &StateLock,
+        ignored_users: Arc<RwLock<Vec<OwnedUserId>>>,
     ) -> Result<Self> {
         let room = weak_room.get().ok_or(EventCacheError::ClientDropped)?;
         let room_id = room.room_id().to_owned();
@@ -477,7 +546,7 @@ impl PinnedEventsCache {
             )
             .await?;
 
-        let inner = Arc::new(PinnedEventsCacheInner { room_id, state: cache_state });
+        let inner = Arc::new(PinnedEventsCacheInner { room_id, state: cache_state, ignored_users });
 
         let task = room
             .client()
@@ -492,7 +561,7 @@ impl PinnedEventsCache {
     }
 
     /// Return a reference to the state.
-    pub(super) fn state(&self) -> &CacheStateLock<PinnedEventsStateSelector> {
+    pub(in super::super) fn state(&self) -> &CacheStateLock<PinnedEventsStateSelector> {
         &self.inner.state
     }
 
@@ -564,7 +633,12 @@ impl PinnedEventsCache {
 
         let reload_from_network = async |room: Room| {
             let events = match Self::reload_pinned_events(room).await {
-                Ok(Some(events)) => events,
+                Ok(Some(mut events)) => {
+                    // Drop events coming from ignored users.
+                    let ignored_users = inner.ignored_users.read().await;
+                    super::super::retain_non_ignored_events(&mut events, &ignored_users);
+                    events
+                }
                 Ok(None) => Vec::new(),
                 Err(err) => {
                     warn!("error when loading pinned events: {err}");

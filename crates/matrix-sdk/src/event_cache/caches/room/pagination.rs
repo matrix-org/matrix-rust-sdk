@@ -329,11 +329,14 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
 
     async fn conclude_backwards_pagination_from_network(
         &self,
-        events: Vec<Event>,
+        mut events: Vec<Event>,
         prev_token: Option<String>,
         mut new_token: Option<String>,
     ) -> Result<Option<BackPaginationOutcome>> {
         let mut state = self.state.write().await?;
+
+        // Skip events coming from ignored users, before going any further.
+        self.filter_out_ignored_events(&mut events).await;
 
         // Check that the previous token still exists; otherwise it's a sign that the
         // room's timeline has been cleared.
@@ -435,6 +438,14 @@ impl PaginatedCache for Arc<RoomEventCacheInner> {
         }
 
         Ok(Some(BackPaginationOutcome { events, reached_start }))
+    }
+}
+
+impl RoomEventCacheInner {
+    /// Filter out the events that are coming from ignored users, in-place.
+    async fn filter_out_ignored_events(&self, events: &mut Vec<Event>) {
+        let ignored_users = self.ignored_users.clone();
+        super::super::super::retain_non_ignored_events(events, &ignored_users.read().await);
     }
 }
 

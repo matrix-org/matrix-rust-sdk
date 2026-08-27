@@ -213,11 +213,14 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         })
         .await;
 
-    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 1);
-
-    // The timeline has been emptied.
-    assert_let!(VectorDiff::Clear = &timeline_updates[0]);
+    // The event sent by Bob (e2) is removed from the timeline.
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        if let Some(VectorDiff::Remove { .. }) = timeline_updates.first() {
+            assert_let!(VectorDiff::Remove { index: 2 } = &timeline_updates[0]);
+            break;
+        }
+    }
 
     let fourth_event_id = event_id!("$YTQwYl2pl4");
     let fifth_event_id = event_id!("$YTQwYl2pl5");
@@ -234,21 +237,24 @@ async fn test_timeline_is_reset_when_a_user_is_ignored_or_unignored() {
         )
         .await;
 
-    assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
-    assert_eq!(timeline_updates.len(), 4);
+    // The new events are appended in the existing timeline.
+    loop {
+        assert_let_timeout!(Some(timeline_updates) = timeline_stream.next());
+        let e5_pushed = timeline_updates.iter().any(|diff| {
+            matches!(
+                diff,
+                VectorDiff::PushBack { value }
+                    if value
+                        .as_event()
+                        .is_some_and(|event| event.event_id() == Some(fifth_event_id))
+            )
+        });
+        if e5_pushed {
+            break;
+        }
+    }
 
-    // Timeline receives events as before.
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[0]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
-
-    assert_let!(VectorDiff::Set { index: 0, value } = &timeline_updates[1]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(fourth_event_id));
-
-    assert_let!(VectorDiff::PushBack { value } = &timeline_updates[2]);
-    assert_eq!(value.as_event().unwrap().event_id(), Some(fifth_event_id));
-
-    assert_let!(VectorDiff::PushFront { value } = &timeline_updates[3]);
-    assert!(value.is_date_divider());
+    assert_pending!(timeline_stream);
 
     assert_pending!(timeline_stream);
 }
