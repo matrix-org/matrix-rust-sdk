@@ -16,10 +16,10 @@ use std::cmp::Ordering;
 
 use super::{RoomListItem, Sorter};
 
-fn cmp<'a, 'b, F>(names: F, left: &'a RoomListItem, right: &'b RoomListItem) -> Ordering
-where
-    F: Fn(&'a RoomListItem, &'b RoomListItem) -> (Option<&'a str>, Option<&'b str>),
-{
+type Names =
+    for<'a, 'b> fn(&'a RoomListItem, &'b RoomListItem) -> (Option<&'a str>, Option<&'b str>);
+
+fn cmp(names: Names, left: &RoomListItem, right: &RoomListItem) -> Ordering {
     let (left_name, right_name) = names(left, right);
 
     left_name.cmp(&right_name)

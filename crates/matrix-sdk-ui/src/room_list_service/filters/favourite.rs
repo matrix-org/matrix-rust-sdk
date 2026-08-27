@@ -14,10 +14,7 @@
 
 use super::{super::RoomListItem, Filter};
 
-fn matches<F>(is_favourite: F, room: &RoomListItem) -> bool
-where
-    F: Fn(&RoomListItem) -> bool,
-{
+fn matches(is_favourite: fn(&RoomListItem) -> bool, room: &RoomListItem) -> bool {
     is_favourite(room)
 }
 
