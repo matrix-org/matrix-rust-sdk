@@ -20,7 +20,7 @@ use matrix_sdk_base::{
     event_cache::{store::extract_event_relation, thread::ThreadInfo},
     linked_chunk::{ChunkIdentifier, LinkedChunkId, OwnedLinkedChunkId},
 };
-use ruma::{EventId, OwnedEventId, OwnedRoomId, RoomId};
+use ruma::{EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedRoomId, RoomId};
 use serde::{Deserialize, Serialize};
 
 /// Representation of a time-based lock on the entire
@@ -117,6 +117,14 @@ impl Event {
         }
     }
 
+    /// The timestamp of the underlying event, if known.
+    pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        match self {
+            Event::InBand(e) => e.timestamp(),
+            Event::OutOfBand(e) => e.timestamp(),
+        }
+    }
+
     /// The [`OwnedEventId`] and
     /// [`RelationType`](ruma::events::relation::RelationType) of the underlying
     /// event as a [`String`].
@@ -188,6 +196,11 @@ impl<P> GenericEvent<P> {
     /// [`RelationType`](ruma::events::relation::RelationType) as a [`String`].
     pub fn relation(&self) -> Option<(OwnedEventId, String)> {
         extract_event_relation(self.content.raw())
+    }
+
+    /// The timestamp of the underlying event, if known.
+    pub fn timestamp(&self) -> Option<MilliSecondsSinceUnixEpoch> {
+        self.content.timestamp
     }
 }
 
