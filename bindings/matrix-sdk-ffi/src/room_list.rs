@@ -21,7 +21,7 @@ use futures_util::{StreamExt, pin_mut};
 use matrix_sdk::{
     Room as SdkRoom,
     ruma::{
-        RoomId,
+        OwnedRoomId, RoomId,
         api::client::sync::sync_events::UnreadNotificationsCount as RumaUnreadNotificationsCount,
     },
 };
@@ -138,19 +138,44 @@ impl RoomListService {
     }
 
     async fn set_room_subscriptions(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
-        let room_ids = room_ids
-            .into_iter()
-            .map(|room_id| {
-                RoomId::parse(&room_id).map_err(|_| RoomListError::InvalidRoomId { error: room_id })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let room_ids = parse_room_ids(room_ids)?;
 
-        self.inner
-            .set_room_subscriptions(&room_ids.iter().map(AsRef::as_ref).collect::<Vec<_>>())
-            .await;
+        self.inner.set_room_subscriptions(&borrow_room_ids(&room_ids)).await;
 
         Ok(())
     }
+
+    fn remove_room_subscriptions(&self, room_ids: Vec<String>) -> Result<(), RoomListError> {
+        let room_ids = parse_room_ids(room_ids)?;
+
+        self.inner.remove_room_subscriptions(&borrow_room_ids(&room_ids));
+
+        Ok(())
+    }
+
+    async fn reset_and_add_room_subscriptions(
+        &self,
+        room_ids: Vec<String>,
+    ) -> Result<(), RoomListError> {
+        let room_ids = parse_room_ids(room_ids)?;
+
+        self.inner.reset_and_add_room_subscriptions(&borrow_room_ids(&room_ids)).await;
+
+        Ok(())
+    }
+}
+
+fn parse_room_ids(room_ids: Vec<String>) -> Result<Vec<OwnedRoomId>, RoomListError> {
+    room_ids
+        .into_iter()
+        .map(|room_id| {
+            RoomId::parse(&room_id).map_err(|_| RoomListError::InvalidRoomId { error: room_id })
+        })
+        .collect()
+}
+
+fn borrow_room_ids(room_ids: &[OwnedRoomId]) -> Vec<&RoomId> {
+    room_ids.iter().map(AsRef::as_ref).collect()
 }
 
 #[derive(uniffi::Object)]
