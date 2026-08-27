@@ -16,10 +16,9 @@ use std::cmp::Ordering;
 
 use super::{RoomListItem, Sorter};
 
-fn cmp<F>(scores: F, left: &RoomListItem, right: &RoomListItem) -> Ordering
-where
-    F: Fn(&RoomListItem, &RoomListItem) -> (Option<Score>, Option<Score>),
-{
+type GetScores = fn(&RoomListItem, &RoomListItem) -> (Option<Score>, Option<Score>);
+
+fn cmp(scores: GetScores, left: &RoomListItem, right: &RoomListItem) -> Ordering {
     let (a, b) = scores(left, right);
     cmp_impl(a, b)
 }

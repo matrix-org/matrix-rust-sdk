@@ -18,10 +18,10 @@ use super::{super::RoomListItem, Filter};
 
 type SuccessorRoomState = RoomState;
 
-fn matches<F>(state: F, room: &RoomListItem) -> bool
-where
-    F: Fn(&RoomListItem) -> (RoomState, Option<SuccessorRoomState>),
-{
+fn matches(
+    state: fn(&RoomListItem) -> (RoomState, Option<SuccessorRoomState>),
+    room: &RoomListItem,
+) -> bool {
     let (room_state, successor_room_state) = state(room);
 
     // Check if a room is one of the active versions.
