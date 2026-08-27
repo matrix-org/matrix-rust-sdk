@@ -28,11 +28,12 @@ use matrix_sdk::{
 use matrix_sdk_common::{SendOutsideWasm, SyncOutsideWasm};
 use matrix_sdk_ui::{
     room_list_service::filters::{
-        BoxedFilterFn, RoomCategory, new_filter_all, new_filter_any, new_filter_category,
-        new_filter_deduplicate_versions, new_filter_favourite, new_filter_fuzzy_match_room_name,
-        new_filter_identifiers, new_filter_invite, new_filter_joined, new_filter_low_priority,
-        new_filter_non_left, new_filter_none, new_filter_normalized_match_room_name,
-        new_filter_not, new_filter_space, new_filter_unread,
+        BoxedFilterFn, ReadReceiptsCategory, RoomCategory, new_filter_all, new_filter_any,
+        new_filter_category, new_filter_deduplicate_versions, new_filter_favourite,
+        new_filter_fuzzy_match_room_name, new_filter_identifiers, new_filter_invite,
+        new_filter_joined, new_filter_low_priority, new_filter_non_left, new_filter_none,
+        new_filter_normalized_match_room_name, new_filter_not, new_filter_read_receipts,
+        new_filter_space,
     },
     unable_to_decrypt_hook::UtdHookManager,
 };
@@ -481,7 +482,7 @@ pub enum RoomListEntriesDynamicFilterKind {
     // Not { filter: RoomListEntriesDynamicFilterKind } - requires recursive enum
     // support in uniffi https://github.com/mozilla/uniffi-rs/issues/396
     Joined,
-    Unread,
+    ReadReceipts { expect: RoomListFilterReadReceipts },
     Favourite,
     LowPriority,
     NonLowPriority,
@@ -509,6 +510,23 @@ impl From<RoomListFilterCategory> for RoomCategory {
     }
 }
 
+#[derive(uniffi::Enum)]
+pub enum RoomListFilterReadReceipts {
+    Mentions,
+    Notifications,
+    Messages,
+}
+
+impl From<RoomListFilterReadReceipts> for ReadReceiptsCategory {
+    fn from(value: RoomListFilterReadReceipts) -> Self {
+        match value {
+            RoomListFilterReadReceipts::Mentions => Self::Mentions,
+            RoomListFilterReadReceipts::Notifications => Self::Notifications,
+            RoomListFilterReadReceipts::Messages => Self::Messages,
+        }
+    }
+}
+
 impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
     fn from(value: RoomListEntriesDynamicFilterKind) -> Self {
         use RoomListEntriesDynamicFilterKind as Kind;
@@ -527,7 +545,7 @@ impl From<RoomListEntriesDynamicFilterKind> for BoxedFilterFn {
             Kind::Space => Box::new(new_filter_space()),
             Kind::NonLeft => Box::new(new_filter_non_left()),
             Kind::Joined => Box::new(new_filter_joined()),
-            Kind::Unread => Box::new(new_filter_unread()),
+            Kind::ReadReceipts { expect } => Box::new(new_filter_read_receipts(expect.into())),
             Kind::Favourite => Box::new(new_filter_favourite()),
             Kind::LowPriority => Box::new(new_filter_low_priority()),
             Kind::NonLowPriority => Box::new(new_filter_not(Box::new(new_filter_low_priority()))),
