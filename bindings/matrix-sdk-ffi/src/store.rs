@@ -64,7 +64,7 @@ mod sqlite {
     pub struct SqliteStoreBuilder {
         paths: StorePaths,
         passphrase: Zeroizing<Option<String>>,
-        passphrase_is_high_entropy: bool,
+        high_entropy_passphrase: Zeroizing<Option<Vec<u8>>>,
         key: Zeroizing<Option<Vec<u8>>>,
         pool_max_size: Option<usize>,
         cache_size: Option<u32>,
@@ -77,7 +77,7 @@ mod sqlite {
             Self {
                 paths: StorePaths { data_path, cache_path },
                 passphrase: Zeroizing::new(None),
-                passphrase_is_high_entropy: false,
+                high_entropy_passphrase: Zeroizing::new(None),
                 key: Zeroizing::new(None),
                 pool_max_size: None,
                 cache_size: None,
@@ -105,7 +105,7 @@ mod sqlite {
         pub fn passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
             let mut builder = unwrap_or_clone_arc(self);
             builder.passphrase = Zeroizing::new(passphrase);
-            builder.passphrase_is_high_entropy = false;
+            builder.high_entropy_passphrase = Zeroizing::new(None);
             builder.key = Zeroizing::new(None);
             Arc::new(builder)
         }
@@ -117,10 +117,10 @@ mod sqlite {
         ///
         /// Interchangeable with [`Self::passphrase`] so a client with a
         /// randomly generated passphrase migrates by calling this instead.
-        pub fn high_entropy_passphrase(self: Arc<Self>, passphrase: Option<String>) -> Arc<Self> {
+        pub fn high_entropy_passphrase(self: Arc<Self>, passphrase: Option<Vec<u8>>) -> Arc<Self> {
             let mut builder = unwrap_or_clone_arc(self);
-            builder.passphrase = Zeroizing::new(passphrase);
-            builder.passphrase_is_high_entropy = true;
+            builder.high_entropy_passphrase = Zeroizing::new(passphrase);
+            builder.passphrase = Zeroizing::new(None);
             builder.key = Zeroizing::new(None);
             Arc::new(builder)
         }
@@ -219,11 +219,15 @@ mod sqlite {
                     Err(_) => return Err(ClientBuildError::InvalidRawKey),
                 }
             } else if let Some(passphrase) = self.passphrase.as_deref() {
-                sqlite_store_config = if self.passphrase_is_high_entropy {
-                    sqlite_store_config.high_entropy_passphrase(Some(passphrase))
-                } else {
-                    sqlite_store_config.passphrase(Some(passphrase))
-                };
+                sqlite_store_config = sqlite_store_config.passphrase(Some(passphrase));
+            } else if let Some(passphrase) = self.high_entropy_passphrase.as_deref() {
+                match passphrase.try_into() {
+                    Ok(data) => {
+                        sqlite_store_config =
+                            sqlite_store_config.high_entropy_passphrase(Some(&data))
+                    }
+                    Err(_) => return Err(ClientBuildError::InvalidRawKey),
+                }
             }
 
             if let Some(size) = self.pool_max_size {
