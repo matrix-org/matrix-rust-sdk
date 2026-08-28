@@ -52,6 +52,9 @@ pub use self::media_store::SqliteMediaStore;
 #[cfg(feature = "state-store")]
 pub use self::state_store::{DATABASE_NAME as STATE_STORE_DATABASE_NAME, SqliteStateStore};
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 #[cfg(test)]
 matrix_sdk_test_utils::init_tracing_for_tests!();
 
@@ -64,7 +67,25 @@ pub enum Secret {
     PassPhrase(Zeroizing<String>),
     // Randomly generated passphrase, for which the store caches a
     // cheaply-derivable copy of its cipher and skips derivation on later opens
-    HighEntropyPassPhrase(Zeroizing<[u8; 32]>),
+    HighEntropyPassPhrase {
+        key: Zeroizing<Vec<u8>>,
+        #[zeroize(skip)]
+        base64_variant: Base64Variant,
+    },
+}
+
+/// Enum controlling how the high-entropy passphrase used to be created on the
+/// client side.
+///
+/// This allows us to replicate how a random key was converted into a passphrase
+/// to migrate from said passphrase to the plain key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
+pub enum Base64Variant {
+    /// Unpadded base64 was used to create the high-entropy passphrase.
+    Unpadded,
+    /// Standard padded base64 was used to create the high-entropy passphrase.
+    Padded,
 }
 
 /// A configuration structure used for opening a store.
@@ -162,12 +183,14 @@ impl SqliteStoreConfig {
     ///
     /// interchangeable with [`SqliteStoreConfig::passphrase`] so a client with
     /// a randomly generated passphrase migrates by calling this instead
-    pub fn high_entropy_passphrase(mut self, passphrase: Option<&[u8; 32]>) -> Self {
+    pub fn high_entropy_passphrase(
+        mut self,
+        passphrase: Option<&[u8]>,
+        base64_variant: Base64Variant,
+    ) -> Self {
         if let Some(passphrase) = passphrase {
-            let mut key = Zeroizing::new([0u8; 32]);
-            key.as_mut_slice().copy_from_slice(passphrase);
-
-            self.secret = Some(Secret::HighEntropyPassPhrase(key));
+            let key = Zeroizing::new(passphrase.to_vec());
+            self.secret = Some(Secret::HighEntropyPassPhrase { key, base64_variant });
         }
 
         self

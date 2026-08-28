@@ -29,6 +29,7 @@ use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
+use vodozemac::base64_encode;
 use zeroize::Zeroize;
 
 use crate::{
@@ -576,7 +577,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
             match &secret {
                 Secret::PassPhrase(passphrase) => StoreCipher::import(passphrase, &encrypted)?,
                 Secret::Key(key) => StoreCipher::import_with_key(key.as_slice(), &encrypted)?,
-                Secret::HighEntropyPassPhrase(passphrase) => {
+                Secret::HighEntropyPassPhrase { key, base64_variant } => {
                     // Element X apps used the passphrase-based secret variant even though the
                     // underlying secret was a randomly generated key.
                     //
@@ -590,20 +591,26 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                     //
                     // In that case, we re-encrypt the cipher using the key-based setup. On the next
                     // import attempt, `import_with_key()` can then decrypt it successfully.
-                    match StoreCipher::import_with_key(passphrase.as_slice(), &encrypted) {
+                    match StoreCipher::import_with_key(key.as_slice(), &encrypted) {
                         Ok(cipher) => cipher,
                         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
                             // EX generated a byte array for a key but converted it into a string by
                             // base64 encoding it to use it as a passphrase. So let's do that as
                             // well.
-                            let mut base64_passphrase =
-                                base64::prelude::BASE64_STANDARD.encode(passphrase);
+                            //
+                            // Funnily enough, iOS used padded base64, while Android used unpadded.
+                            let mut base64_passphrase = match base64_variant {
+                                crate::Base64Variant::Unpadded => base64_encode(key),
+                                crate::Base64Variant::Padded => {
+                                    base64::prelude::BASE64_STANDARD.encode(key)
+                                }
+                            };
 
                             let cipher = StoreCipher::import(&base64_passphrase, &encrypted);
                             base64_passphrase.zeroize();
 
                             let cipher = cipher?;
-                            let export = cipher.export_with_key(passphrase.as_slice())?;
+                            let export = cipher.export_with_key(key.as_slice())?;
 
                             self.set_kv(STORAGE_KEY, export)
                                 .await
@@ -630,9 +637,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                     }
                 }
                 Secret::Key(key) => cipher.export_with_key(key.as_slice()),
-                Secret::HighEntropyPassPhrase(passphrase) => {
-                    cipher.export_with_key(passphrase.as_slice())
-                }
+                Secret::HighEntropyPassPhrase { key, .. } => cipher.export_with_key(key.as_slice()),
             }?;
 
             self.set_kv(STORAGE_KEY, export).await.map_err(OpenStoreError::SaveCipher)?;

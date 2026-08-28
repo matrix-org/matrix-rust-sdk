@@ -2581,7 +2581,7 @@ mod encrypted_tests {
     use tempfile::{TempDir, tempdir};
 
     use super::SqliteStateStore;
-    use crate::{SqliteStoreConfig, utils::SqliteAsyncConnExt};
+    use crate::{Base64Variant, SqliteStoreConfig, utils::SqliteAsyncConnExt};
 
     static TMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempdir().unwrap());
     static NUM: AtomicU32 = AtomicU32::new(0);
@@ -2613,7 +2613,8 @@ mod encrypted_tests {
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
         // Migrates and caches the copy...
-        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(KEY));
+        let config = SqliteStoreConfig::new(&tmpdir_path)
+            .high_entropy_passphrase(Some(KEY), Base64Variant::Padded);
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
         // ...which the next open uses.
@@ -2628,7 +2629,8 @@ mod encrypted_tests {
         );
 
         // The `cipher` entry was replaced, so now only high entropy or key work.
-        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(KEY));
+        let config = SqliteStoreConfig::new(&tmpdir_path)
+            .high_entropy_passphrase(Some(KEY), Base64Variant::Padded);
         drop(
             SqliteStateStore::open_with_config(&config)
                 .await
@@ -2640,8 +2642,10 @@ mod encrypted_tests {
             SqliteStateStore::open_with_config(&config).await.expect("The key should work as well"),
         );
 
-        let config = SqliteStoreConfig::new(&tmpdir_path)
-            .high_entropy_passphrase(Some(b"wrong passphrase can't work 1234"));
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(
+            Some(b"wrong passphrase can't work 1234"),
+            Base64Variant::Padded,
+        );
         assert!(SqliteStateStore::open_with_config(&config).await.is_err());
         let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("wrong"));
         assert!(SqliteStateStore::open_with_config(&config).await.is_err());
