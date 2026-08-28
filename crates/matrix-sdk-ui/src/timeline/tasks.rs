@@ -258,11 +258,11 @@ pub(in crate::timeline) async fn room_event_cache_updates_task(
                 }
             }
 
-            RoomEventCacheUpdate::AddEphemeralEvents { events } => {
-                trace!("Received new ephemeral events from sync.");
+            RoomEventCacheUpdate::AddReadReceiptEvent { event } => {
+                trace!("Received a new read receipt event from sync.");
 
                 // TODO: ephemeral (read receipts) should be handled by the event cache (#4113).
-                timeline_controller.handle_ephemeral_events(events).await;
+                timeline_controller.handle_read_receipt_event(event).await;
             }
 
             RoomEventCacheUpdate::UpdateMembers { ambiguity_changes, avatar_changes } => {

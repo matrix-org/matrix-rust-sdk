@@ -23,7 +23,7 @@ use matrix_sdk_base::{
     event_cache::{Event, Gap},
     linked_chunk::{LinkedChunkId, OwnedLinkedChunkId, Position, Update},
     serde_helpers::extract_redaction_target,
-    sync::{JoinedRoomUpdate, LeftRoomUpdate, Timeline},
+    sync::Timeline,
     task_monitor::BackgroundTaskHandle,
 };
 use matrix_sdk_common::executor::spawn;
@@ -528,20 +528,16 @@ impl PinnedEventsCache {
         Ok(())
     }
 
-    /// Handle a [`JoinedRoomUpdate`].
+    /// Handle an update from a joined room.
     #[instrument(skip_all, fields(room_id = %self.inner.room_id))]
-    pub(super) async fn handle_joined_room_update(&self, updates: JoinedRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline).await?;
-
-        Ok(())
+    pub(super) async fn handle_joined_room_update(&self, timeline: Timeline) -> Result<()> {
+        self.handle_timeline(timeline).await
     }
 
-    /// Handle a [`LeftRoomUpdate`].
+    /// Handle an update from a left room.
     #[instrument(skip_all, fields(room_id = %self.inner.room_id))]
-    pub(super) async fn handle_left_room_update(&self, updates: LeftRoomUpdate) -> Result<()> {
-        self.handle_timeline(updates.timeline).await?;
-
-        Ok(())
+    pub(super) async fn handle_left_room_update(&self, timeline: Timeline) -> Result<()> {
+        self.handle_timeline(timeline).await
     }
 
     /// Handle a [`Timeline`], i.e. new events received by a sync for this
@@ -553,9 +549,7 @@ impl PinnedEventsCache {
 
         trace!("adding new {} events", timeline.events.len());
 
-        self.inner.state.write().await?.handle_sync(timeline).await?;
-
-        Ok(())
+        self.inner.state.write().await?.handle_sync(timeline).await
     }
 
     #[instrument(fields(%room_id = room.room_id()), skip(room, inner))]

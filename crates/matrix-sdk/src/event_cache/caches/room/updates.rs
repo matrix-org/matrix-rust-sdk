@@ -20,8 +20,7 @@ use matrix_sdk_base::{
     linked_chunk::{self, OwnedLinkedChunkId},
 };
 use ruma::{
-    OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, events::AnySyncEphemeralRoomEvent,
-    serde::Raw,
+    OwnedEventId, OwnedMxcUri, OwnedRoomId, OwnedUserId, events::receipt::ReceiptEventContent,
 };
 use tokio::sync::broadcast::{Receiver, Sender};
 
@@ -51,11 +50,11 @@ pub enum RoomEventCacheUpdate {
     /// The room has received updates for the timeline as _diffs_.
     UpdateTimelineEvents(TimelineVectorDiffs),
 
-    /// The room has received new ephemeral events.
-    AddEphemeralEvents {
+    /// The room has received a new read receipt event.
+    AddReadReceiptEvent {
         /// XXX: this is temporary, until read receipts are handled in the event
         /// cache
-        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
+        event: ReceiptEventContent,
     },
 }
 

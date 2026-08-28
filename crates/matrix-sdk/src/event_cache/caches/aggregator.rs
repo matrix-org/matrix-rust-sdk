@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use matrix_sdk_base::{
     serde_helpers::{extract_redaction_target, extract_relation, extract_thread_root},
@@ -22,37 +22,54 @@ use ruma::{
     OwnedEventId,
     events::{
         AnySyncEphemeralRoomEvent,
-        receipt::{ReceiptThread, SyncReceiptEvent},
+        receipt::{ReceiptEventContent, ReceiptThread, Receipts},
         relation::RelationType,
     },
     room_version_rules::RedactionRules,
-    serde::Raw,
 };
-use tracing::error;
 
 use super::{
     super::{Result, states::StateLockReadGuard},
+    read_receipts::MaybeReceiptEventContent,
     room::RoomEventCacheState,
     thread::ThreadEventCacheState,
 };
 
-pub fn aggregate_timeline_for_room(timeline: &Timeline) -> Timeline {
-    timeline.clone()
+pub fn aggregate_timeline_and_read_receipts_for_room(
+    timeline: &Timeline,
+    ephemeral: &[AnySyncEphemeralRoomEvent],
+) -> (Timeline, MaybeReceiptEventContent) {
+    (
+        timeline.clone(),
+        filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
+            ReceiptThread::Main | ReceiptThread::Unthreaded => Some(()),
+            _ => None,
+        })
+        .map(|(_receipt_thread, (event_id, event_receipts))| {
+            (event_id.clone(), event_receipts.clone())
+        })
+        .collect(),
+    )
 }
 
-pub async fn aggregate_timeline_for_threads<'sync, 'state>(
+pub async fn aggregate_timeline_and_read_receipts_for_threads<'sync, 'state>(
     timeline: &'sync Timeline,
-    ephemerals: &'sync [Raw<AnySyncEphemeralRoomEvent>],
+    ephemeral: &'sync [AnySyncEphemeralRoomEvent],
     existing_threads: StateLockReadGuard<'state, HashMap<OwnedEventId, ThreadEventCacheState>>,
     maybe_room: Option<StateLockReadGuard<'state, RoomEventCacheState>>,
     redaction_rules: &'sync RedactionRules,
-) -> Result<HashMap<OwnedEventId, Timeline>> {
+) -> Result<HashMap<OwnedEventId, (Timeline, MaybeReceiptEventContent)>> {
     let mut new_events_by_thread = HashMap::new();
 
-    let default_timeline = || Timeline {
-        limited: timeline.limited,
-        prev_batch: timeline.prev_batch.clone(),
-        events: Vec::new(),
+    let default_entry = || {
+        (
+            Timeline {
+                limited: timeline.limited,
+                prev_batch: timeline.prev_batch.clone(),
+                events: Vec::new(),
+            },
+            MaybeReceiptEventContent::none(),
+        )
     };
 
     // Look for in-thread events, i.e. events that are part of threads.
@@ -64,7 +81,8 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                 RelationType::Thread => {
                     new_events_by_thread
                         .entry(related_event_id)
-                        .or_insert_with(default_timeline)
+                        .or_insert_with(default_entry)
+                        .0
                         .events
                         .push(event.clone());
                 }
@@ -99,7 +117,8 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                     } {
                         new_events_by_thread
                             .entry(thread_root)
-                            .or_insert_with(default_timeline)
+                            .or_insert_with(default_entry)
+                            .0
                             .events
                             .push(event.clone());
                     }
@@ -115,7 +134,8 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                 {
                     new_events_by_thread
                         .entry(event_id.to_owned())
-                        .or_insert_with(default_timeline)
+                        .or_insert_with(default_entry)
+                        .0
                         .events
                         .push(event.clone());
                 }
@@ -150,7 +170,8 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
                     if let Some(thread_root) = associated_thread_root {
                         new_events_by_thread
                             .entry(thread_root)
-                            .or_insert_with(default_timeline)
+                            .or_insert_with(default_entry)
+                            .0
                             .events
                             .push(event.clone());
                     }
@@ -159,32 +180,21 @@ pub async fn aggregate_timeline_for_threads<'sync, 'state>(
         }
     }
 
-    // We must also look in the `ephemeral` events. Maybe the `timeline` is empty,
-    // but some ephemeral events target specific threads.
-    for ephemeral in ephemerals {
-        match ephemeral.deserialize() {
-            Ok(AnySyncEphemeralRoomEvent::Receipt(SyncReceiptEvent { content, .. })) => {
-                for thread_root in content.values().flat_map(|receipts_by_event| {
-                    receipts_by_event.values().flat_map(|receipts| {
-                        receipts.values().filter_map(|receipt| match &receipt.thread {
-                            ReceiptThread::Thread(thread_id) => Some(thread_id),
-                            _ => None,
-                        })
-                    })
-                }) {
-                    new_events_by_thread
-                        .entry(thread_root.to_owned())
-                        .or_insert_with(default_timeline);
-                }
-            }
-
-            // Not a read receipt; not interested for now.
-            Ok(_) => {}
-
-            Err(err) => {
-                error!(%err, "error when deserializing an ephemeral event");
-            }
-        }
+    for (thread_root, (read_receipt_event_id, read_receipt_event)) in
+        filter_read_receipts_and_group_by(ephemeral, |receipt_thread| match receipt_thread {
+            ReceiptThread::Thread(thread_id) => Some(thread_id),
+            _ => None,
+        })
+    {
+        // 1. Create an empty `Timeline` if it doesn't exist so that it triggers the
+        //    update for this thread in `Caches`. This is done by `default_entry`.
+        // 2. Accumulate the read receipt event.
+        new_events_by_thread
+            .entry(thread_root.to_owned())
+            .or_insert_with(default_entry)
+            .1
+            .get_or_insert_with(|| ReceiptEventContent(BTreeMap::new()))
+            .insert(read_receipt_event_id.clone(), read_receipt_event.clone());
     }
 
     Ok(new_events_by_thread)
