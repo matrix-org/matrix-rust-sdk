@@ -21,6 +21,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use base64::Engine as _;
 use deadpool_sync::InteractError;
 use itertools::Itertools;
 use matrix_sdk_store_encryption::{EncryptableValue, StoreCipher};
@@ -28,6 +29,7 @@ use ruma::{OwnedEventId, OwnedRoomId, serde::Raw, time::SystemTime};
 use rusqlite::{OptionalExtension, Params, Row, Statement, Transaction, limits::Limit};
 use serde::{Serialize, de::DeserializeOwned};
 use tracing::{error, trace, warn};
+use zeroize::Zeroize;
 
 use crate::{
     OpenStoreError, RuntimeConfig, Secret,
@@ -588,11 +590,21 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                     //
                     // In that case, we re-encrypt the cipher using the key-based setup. On the next
                     // import attempt, `import_with_key()` can then decrypt it successfully.
-                    match StoreCipher::import_with_key(passphrase.as_bytes(), &encrypted) {
+                    match StoreCipher::import_with_key(passphrase.as_slice(), &encrypted) {
                         Ok(cipher) => cipher,
                         Err(matrix_sdk_store_encryption::Error::KdfMismatch) => {
-                            let cipher = StoreCipher::import(passphrase, &encrypted)?;
-                            let export = cipher.export_with_key(passphrase.as_bytes())?;
+                            // EX generated a byte array for a key but converted it into a string by
+                            // base64 encoding it to use it as a passphrase. So let's do that as
+                            // well.
+                            let mut base64_passphrase =
+                                base64::prelude::BASE64_STANDARD.encode(passphrase);
+
+                            let cipher = StoreCipher::import(&base64_passphrase, &encrypted);
+                            base64_passphrase.zeroize();
+
+                            let cipher = cipher?;
+                            let export = cipher.export_with_key(passphrase.as_slice())?;
+
                             self.set_kv(STORAGE_KEY, export)
                                 .await
                                 .map_err(OpenStoreError::SaveCipher)?;
@@ -619,7 +631,7 @@ pub(crate) trait SqliteKeyValueStoreAsyncConnExt: SqliteAsyncConnExt {
                 }
                 Secret::Key(key) => cipher.export_with_key(key.as_slice()),
                 Secret::HighEntropyPassPhrase(passphrase) => {
-                    cipher.export_with_key(passphrase.as_bytes())
+                    cipher.export_with_key(passphrase.as_slice())
                 }
             }?;
 

@@ -64,7 +64,7 @@ pub enum Secret {
     PassPhrase(Zeroizing<String>),
     // Randomly generated passphrase, for which the store caches a
     // cheaply-derivable copy of its cipher and skips derivation on later opens
-    HighEntropyPassPhrase(Zeroizing<String>),
+    HighEntropyPassPhrase(Zeroizing<[u8; 32]>),
 }
 
 /// A configuration structure used for opening a store.
@@ -162,9 +162,14 @@ impl SqliteStoreConfig {
     ///
     /// interchangeable with [`SqliteStoreConfig::passphrase`] so a client with
     /// a randomly generated passphrase migrates by calling this instead
-    pub fn high_entropy_passphrase(mut self, passphrase: Option<&str>) -> Self {
-        self.secret = passphrase
-            .map(|passphrase| Secret::HighEntropyPassPhrase(Zeroizing::new(passphrase.to_owned())));
+    pub fn high_entropy_passphrase(mut self, passphrase: Option<&[u8; 32]>) -> Self {
+        if let Some(passphrase) = passphrase {
+            let mut key = Zeroizing::new([0u8; 32]);
+            key.as_mut_slice().copy_from_slice(passphrase);
+
+            self.secret = Some(Secret::HighEntropyPassPhrase(key));
+        }
+
         self
     }
 

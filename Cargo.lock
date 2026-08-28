@@ -3954,6 +3954,7 @@ dependencies = [
  "as_variant",
  "assert_matches",
  "async-trait",
+ "base64 0.23.0",
  "deadpool 0.13.0",
  "deadpool-sync",
  "glob",

@@ -2575,6 +2575,7 @@ mod encrypted_tests {
         },
     };
 
+    use base64::Engine as _;
     use matrix_sdk_base::{StateStore, StoreError, statestore_integration_tests};
     use matrix_sdk_test::async_test;
     use tempfile::{TempDir, tempdir};
@@ -2603,21 +2604,23 @@ mod encrypted_tests {
     /// The two passphrase methods are interchangeable in both directions.
     #[async_test]
     async fn test_high_entropy_passphrase_migrates_a_passphrase_store() {
-        const PASSPHRASE: &str = "a randomly generated passphrase ";
+        const KEY: &[u8; 32] = b"a randomly generated passphrase ";
         let tmpdir_path = new_state_store_workspace();
 
-        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(PASSPHRASE));
+        let passphrase = base64::prelude::BASE64_STANDARD.encode(KEY);
+
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(&passphrase));
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
         // Migrates and caches the copy...
-        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(PASSPHRASE));
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(KEY));
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
         // ...which the next open uses.
         drop(SqliteStateStore::open_with_config(&config).await.unwrap());
 
         // The `cipher` entry was replaced, so the old passphrase can't work anymore.
-        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(PASSPHRASE));
+        let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some(&passphrase));
         drop(
             SqliteStateStore::open_with_config(&config)
                 .await
@@ -2625,20 +2628,20 @@ mod encrypted_tests {
         );
 
         // The `cipher` entry was replaced, so now only high entropy or key work.
-        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(PASSPHRASE));
+        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some(KEY));
         drop(
             SqliteStateStore::open_with_config(&config)
                 .await
                 .expect("The high-entropy method should continue to work"),
         );
 
-        let config = SqliteStoreConfig::new(&tmpdir_path)
-            .key(Some(PASSPHRASE.as_bytes().as_array().unwrap()));
+        let config = SqliteStoreConfig::new(&tmpdir_path).key(Some(KEY));
         drop(
             SqliteStateStore::open_with_config(&config).await.expect("The key should work as well"),
         );
 
-        let config = SqliteStoreConfig::new(&tmpdir_path).high_entropy_passphrase(Some("wrong"));
+        let config = SqliteStoreConfig::new(&tmpdir_path)
+            .high_entropy_passphrase(Some(b"wrong passphrase can't work 1234"));
         assert!(SqliteStateStore::open_with_config(&config).await.is_err());
         let config = SqliteStoreConfig::new(&tmpdir_path).passphrase(Some("wrong"));
         assert!(SqliteStateStore::open_with_config(&config).await.is_err());
