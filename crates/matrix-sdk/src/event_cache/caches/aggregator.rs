@@ -243,3 +243,38 @@ pub fn aggregate_timeline_for_pinned_events(
 
     new_timeline
 }
+
+/// Filter (deserialised) ephemeral events to only keep the read receipts
+/// matching a particular predicate.
+///
+/// Read receipts have a deep structure (an entanglement of `BTreeMap`). The
+/// returned iterator returns the tuple `(OwnedEventId, Receipts)`, which is the
+/// second level. However, the `predicate` is applied on the fourth level,
+/// directly on the leaf of the read receipts.
+///
+/// The predicate is used with [`Iterator::filter_map`], and thus can return a
+/// group key (it can be anything). This group key is associated to the tuple
+/// mentioned earlier, and should be used to “group” read receipts. This is
+/// useful when one wants to group read receipts by their `ReceiptThread` for
+/// example.
+fn filter_read_receipts_and_group_by<'e, F, G>(
+    events: &'e [AnySyncEphemeralRoomEvent],
+    predicate: F,
+) -> impl Iterator<Item = (G, (&'e OwnedEventId, &'e Receipts))>
+where
+    F: Fn(&'e ReceiptThread) -> Option<G>,
+{
+    events
+        .iter()
+        .filter_map(|ephemeral| match ephemeral {
+            AnySyncEphemeralRoomEvent::Receipt(receipt_event) => Some(receipt_event),
+            _ => None,
+        })
+        .flat_map(|receipt_event| receipt_event.content.iter())
+        .filter_map(move |(event_id, event_receipts)| {
+            Some((
+                predicate(&event_receipts.first_key_value()?.1.first_key_value()?.1.thread)?,
+                (event_id, event_receipts),
+            ))
+        })
+}
