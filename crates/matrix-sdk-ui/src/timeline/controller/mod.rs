@@ -35,23 +35,20 @@ use matrix_sdk::{
     },
     task_monitor::BackgroundTaskHandle,
 };
-#[cfg(test)]
-use ruma::events::receipt::ReceiptEventContent;
 use ruma::{
     EventId, MilliSecondsSinceUnixEpoch, OwnedEventId, OwnedTransactionId, OwnedUserId,
     TransactionId, UserId,
     api::client::receipt::create_receipt::v3::ReceiptType as SendReceiptType,
     events::{
-        AnyMessageLikeEventContent, AnySyncEphemeralRoomEvent, AnySyncMessageLikeEvent,
-        AnySyncTimelineEvent, MessageLikeEventType,
+        AnyMessageLikeEventContent, AnySyncMessageLikeEvent, AnySyncTimelineEvent,
+        MessageLikeEventType,
         poll::unstable_start::UnstablePollStartEventContent,
         reaction::ReactionEventContent,
-        receipt::{Receipt, ReceiptThread, ReceiptType},
+        receipt::{Receipt, ReceiptEventContent, ReceiptThread, ReceiptType},
         relation::{Annotation, RelationType},
         room::message::{MessageType, Relation},
     },
     room_version_rules::RoomVersionRules,
-    serde::Raw,
 };
 use tokio::sync::{RwLock, RwLockWriteGuard};
 use tracing::{
@@ -848,16 +845,14 @@ impl<P: RoomDataProvider> TimelineController<P> {
         txn.commit();
     }
 
-    pub(super) async fn handle_ephemeral_events(
-        &self,
-        events: Vec<Raw<AnySyncEphemeralRoomEvent>>,
-    ) {
+    pub(super) async fn handle_read_receipt_event(&self, event: ReceiptEventContent) {
         // Don't even take the lock if there are no events to process.
-        if events.is_empty() {
+        if event.is_empty() {
             return;
         }
+
         let mut state = self.state.write().await;
-        state.handle_ephemeral_events(events, &self.room_data_provider).await;
+        state.handle_read_receipt(event, &self.room_data_provider).await;
     }
 
     /// Creates the local echo for an event we're sending.

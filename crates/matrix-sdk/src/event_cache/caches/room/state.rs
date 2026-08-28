@@ -23,18 +23,17 @@ use matrix_sdk_base::{
     linked_chunk::{
         ChunkIdentifierGenerator, LinkedChunkId, OwnedLinkedChunkId, Position, Update, lazy_loader,
     },
-    serde_helpers::{extract_read_receipt, extract_redaction_target},
+    serde_helpers::extract_redaction_target,
     sync::Timeline,
 };
 use matrix_sdk_common::executor::spawn;
 use ruma::{
     EventId, OwnedEventId, OwnedRoomId, OwnedUserId,
     events::{
-        AnySyncEphemeralRoomEvent, receipt::ReceiptEventContent, relation::RelationType,
+        receipt::ReceiptEventContent, relation::RelationType,
         room::redaction::SyncRoomRedactionEvent,
     },
     room_version_rules::RoomVersionRules,
-    serde::Raw,
 };
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, instrument, trace};
@@ -56,7 +55,9 @@ use super::{
         EventLocation,
         event_linked_chunk::EventLinkedChunk,
         pagination::SharedPaginationStatus,
-        read_receipts::{RoomReadReceiptEventFilter, compute_unread_counts},
+        read_receipts::{
+            MaybeReceiptEventContent, RoomReadReceiptEventFilter, compute_unread_counts,
+        },
         subscriber::SubscribersHandle,
     },
     RoomEventCacheLinkedChunkUpdate, RoomEventCacheUpdateSender, sort_positions_descending,
@@ -517,7 +518,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     pub async fn handle_sync(
         &mut self,
         mut timeline: Timeline,
-        ephemeral_events: &[Raw<AnySyncEphemeralRoomEvent>],
+        read_receipt_event: &MaybeReceiptEventContent,
     ) -> Result<(bool, Vec<VectorDiff<Event>>), EventCacheError> {
         let mut prev_batch_token = timeline.prev_batch.take();
 
@@ -561,8 +562,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             // unread counts tracking.
             //
             // Post-process the ephemeral events.
-            self.post_process_upserted_events(empty(), extract_read_receipt(ephemeral_events))
-                .await?;
+            self.post_process_upserted_events(empty(), read_receipt_event.as_ref()).await?;
 
             return Ok((false, Vec::new()));
         }
@@ -590,8 +590,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
         self.propagate_changes().await?;
 
         // Post-process newly inserted events.
-        self.post_process_upserted_events(events.iter(), extract_read_receipt(ephemeral_events))
-            .await?;
+        self.post_process_upserted_events(events.iter(), read_receipt_event.as_ref()).await?;
 
         if timeline.limited && has_new_gap {
             // If there was a previous batch token for a limited timeline, unload the chunks
@@ -615,7 +614,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
     pub(super) async fn post_process_upserted_events<'i, I>(
         &mut self,
         events: I,
-        receipt_event: Option<ReceiptEventContent>,
+        receipt_event: Option<&ReceiptEventContent>,
     ) -> Result<(), EventCacheError>
     where
         I: Iterator<Item = &'i Event>,
@@ -629,7 +628,7 @@ impl<'a> StateLockWriteGuard<'a, RoomEventCacheState> {
             }
         }
 
-        self.update_read_receipts(receipt_event.as_ref()).await?;
+        self.update_read_receipts(receipt_event).await?;
 
         Ok(())
     }

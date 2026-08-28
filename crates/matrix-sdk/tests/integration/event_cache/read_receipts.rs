@@ -253,7 +253,7 @@ async fn test_unread_count_pending_receipt() {
         Ok(RoomEventCacheUpdate::UpdateTimelineEvents(..)) = room_cache_updates.recv()
     );
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::AddEphemeralEvents { .. }) = room_cache_updates.recv()
+        Ok(RoomEventCacheUpdate::AddReadReceiptEvent { .. }) = room_cache_updates.recv()
     );
 
     // All three events are unread because the receipt target is unknown.
@@ -712,7 +712,7 @@ async fn test_unread_counts_updated_after_duplicate_only_sync_response() {
 
     // We get an update only for the read receipt.
     assert_let_timeout!(
-        Ok(RoomEventCacheUpdate::AddEphemeralEvents { .. }) = room_cache_updates.recv()
+        Ok(RoomEventCacheUpdate::AddReadReceiptEvent { .. }) = room_cache_updates.recv()
     );
 
     // The message counts are properly updated (zero new message unread after $2).
