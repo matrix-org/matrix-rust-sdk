@@ -26,8 +26,8 @@ use ruma::{
     RoomAliasId, RoomId, RoomVersionId,
     api::client::sync::sync_events::v3::RoomSummary as RumaSummary,
     events::{
-        AnyPossiblyRedactedStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent,
-        AnySyncTimelineEvent, StateEventType,
+        AnyStateEventContent, AnyStrippedStateEvent, AnySyncStateEvent, AnySyncTimelineEvent,
+        StateEventType,
         call::member::{
             CallMemberStateKey, MembershipData, PossiblyRedactedCallMemberEventContent,
         },
@@ -257,7 +257,7 @@ impl BaseRoomInfo {
                 // fail to deserialize or that are redacted (i.e. they don't contain the
                 // algorithm used for encryption).
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomEncryption)
+                    as_variant!(any_event, AnyStateEventContent::RoomEncryption)
                 }) && event.content.algorithm.is_some()
                 {
                     self.encryption = Some(event.content);
@@ -268,7 +268,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomAvatar, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomAvatar)
+                    as_variant!(any_event, AnyStateEventContent::RoomAvatar)
                 }) {
                     self.avatar = Some(event);
                     true
@@ -279,7 +279,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomName, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomName)
+                    as_variant!(any_event, AnyStateEventContent::RoomName)
                 }) {
                     self.name = Some(event);
                     true
@@ -291,10 +291,8 @@ impl BaseRoomInfo {
             // `m.room.create` CANNOT be overwritten.
             (StateEventType::RoomCreate, "") if self.create.is_none() => {
                 if let Some(any_event) = raw_event.deserialize()
-                    && let Some(content) = as_variant!(
-                        any_event.get_content(),
-                        AnyPossiblyRedactedStateEventContent::RoomCreate
-                    )
+                    && let Some(content) =
+                        as_variant!(any_event.get_content(), AnyStateEventContent::RoomCreate)
                 {
                     self.create = Some(MinimalStateEvent {
                         content: RoomCreateWithCreatorEventContent::from_event_content(
@@ -310,10 +308,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomHistoryVisibility, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(
-                        any_event,
-                        AnyPossiblyRedactedStateEventContent::RoomHistoryVisibility
-                    )
+                    as_variant!(any_event, AnyStateEventContent::RoomHistoryVisibility)
                 }) {
                     self.history_visibility = Some(event);
                     true
@@ -324,7 +319,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomRetention, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomRetention)
+                    as_variant!(any_event, AnyStateEventContent::RoomRetention)
                 }) {
                     self.retention = Some(event);
                     true
@@ -335,7 +330,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomGuestAccess, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomGuestAccess)
+                    as_variant!(any_event, AnyStateEventContent::RoomGuestAccess)
                 }) {
                     self.guest_access = Some(event);
                     true
@@ -346,7 +341,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::MemberHints, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::MemberHints)
+                    as_variant!(any_event, AnyStateEventContent::MemberHints)
                 }) {
                     self.member_hints = Some(event);
                     true
@@ -357,7 +352,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomJoinRules, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomJoinRules)
+                    as_variant!(any_event, AnyStateEventContent::RoomJoinRules)
                 }) {
                     match &event.content.join_rule {
                         JoinRule::Invite
@@ -382,7 +377,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomCanonicalAlias, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomCanonicalAlias)
+                    as_variant!(any_event, AnyStateEventContent::RoomCanonicalAlias)
                 }) {
                     self.canonical_alias = Some(event);
                     true
@@ -393,7 +388,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomTopic, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomTopic)
+                    as_variant!(any_event, AnyStateEventContent::RoomTopic)
                 }) {
                     self.topic = Some(event);
                     true
@@ -404,7 +399,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomTombstone, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomTombstone)
+                    as_variant!(any_event, AnyStateEventContent::RoomTombstone)
                 }) {
                     self.tombstone = Some(event);
                     true
@@ -415,7 +410,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomPowerLevels, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomPowerLevels)
+                    as_variant!(any_event, AnyStateEventContent::RoomPowerLevels)
                 }) {
                     let new_max = i64::from(
                         event
@@ -444,10 +439,8 @@ impl BaseRoomInfo {
             (StateEventType::CallMember, _) => {
                 if let Ok(call_member_key) = raw_event.state_key.parse::<CallMemberStateKey>() {
                     if let Some(any_event) = raw_event.deserialize()
-                        && let Some(content) = as_variant!(
-                            any_event.get_content(),
-                            AnyPossiblyRedactedStateEventContent::CallMember
-                        )
+                        && let Some(content) =
+                            as_variant!(any_event.get_content(), AnyStateEventContent::CallMember)
                     {
                         let mut event = MinimalStateEvent {
                             content,
@@ -477,7 +470,7 @@ impl BaseRoomInfo {
             }
             (StateEventType::RoomPinnedEvents, "") => {
                 if let Some(event) = raw_event.deserialize_as_minimal_event(|any_event| {
-                    as_variant!(any_event, AnyPossiblyRedactedStateEventContent::RoomPinnedEvents)
+                    as_variant!(any_event, AnyStateEventContent::RoomPinnedEvents)
                 }) {
                     self.pinned_events = Some(event.content);
                     true
