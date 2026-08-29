@@ -348,12 +348,16 @@ where
 
                     for index_to_remove in indices_to_remove.into_iter().rev() {
                         self.items_chunks.remove(index_to_remove);
-                        self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
-                            for (_, pos) in items.values_mut() {
-                                pos.take();
-                            }
-                        });
                     }
+
+                    self.items.entry(linked_chunk_id.to_owned()).and_modify(|items| {
+                        for (_, pos) in items.values_mut() {
+                            pos.take_if(|pos| {
+                                pos.chunk_identifier() == at.chunk_identifier()
+                                    && pos.index() >= at.index()
+                            });
+                        }
+                    });
                 }
 
                 Update::StartReattachItems | Update::EndReattachItems => { /* nothing */ }
